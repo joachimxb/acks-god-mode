@@ -325,6 +325,8 @@ function processAgingForTurn(campaign, opts){
             out.logEntries.push('Death from old age — ' + summary);
             try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'death-from-old-age', summary, { thresholdKey: ds.thresholdKey }); } catch(_e){}
             _emitAgingEvent(campaign, c, 'death-from-old-age', { characterId:c.id, threshold: ds.thresholdKey, save: roll, target: saveTarget, died:true, narrative:summary }, summary);
+            // CL-4a — the unified cause-tagged death record (an old-age death is never a "heroic" death).
+            recordCharacterDeath(campaign, c, { cause:'old-age', heroic:false });
           } else {
             // Survived: a one-time threshold is now resolved; the annual 'max' re-arms next year.
             const resolved = Array.isArray(ds.resolved) ? ds.resolved.slice() : [];
@@ -643,6 +645,7 @@ function commitDiseaseRecord(campaign, record){
     if(record.outcome === 'died'){
       d.phase = 'died';
       c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
+      recordCharacterDeath(campaign, c, { cause:'disease', heroic:false });   // CL-4a — unified death record
     } else {
       d.phase = 'recovered';
       if(c.lifecycleState === 'incapacitated' && !_diseaseStillIncapacitated(c)) c.lifecycleState = 'active';
@@ -1072,6 +1075,7 @@ function commitConditionRecord(campaign, record){
       cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
       c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
       try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', c.name + ' dies of exposure.', { condition:'hypothermic', outcome:'died' }); } catch(_e){}
+      recordCharacterDeath(campaign, c, { cause:'exposure', heroic:false });   // CL-4a — unified death record
     } else {
       try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-applied', c.name + ' loses ' + record.conLossThisDay + ' CON to hypothermia (effective CON ' + record.effConAfter + ').', { condition:'hypothermic', conLost: cond.conLost }); } catch(_e){}
     }
@@ -1087,6 +1091,7 @@ function commitConditionRecord(campaign, record){
       cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
       c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
       try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', c.name + ' succumbs to enervation.', { condition:'enervated', outcome:'died' }); } catch(_e){}
+      recordCharacterDeath(campaign, c, { cause:'enervation', heroic:false });   // CL-4a — unified death record
     } else if(record.outcome === 'recovered'){
       cond.resolved = true; cond.clearedReason = 'recovered';
       cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
@@ -1187,6 +1192,373 @@ Object.assign(ACKS, {
   proposeConditionDay, commitConditionRecord, advanceConditions
 });
 // === end Character Lifecycle CL-3 (burst7, team) =============================
+
+// =============================================================================
+// === Character Lifecycle CL-4a (burst8, team) — death & inheritance (RR pp.311–313) ==========
+// The TERMINAL lifecycle transition — persistent-character-state class #13 (Plan CL-4a / survey §10).
+// The RAW-CORE death economy: the unified cause-tagged death record + Reserve XP + the Heroic Funeral
+// + a will / heir + the succession flow. Completes the lifecycle (CL-1 aging · CL-2 disease · CL-3
+// conditions · CL-4a death) — each is "run the person forward," and this is "what happens when the
+// run ends."
+//
+// EVENT-DRIVEN, not a clock pass (Plan §7 / the task): death is whatever sets lifecycleState:'deceased'
+//   (wounds Delves D1 / disease CL-2 / old-age CL-1 / exposure-enervation CL-3 / GM fiat). recordCharacterDeath
+//   is the SINGLE canonical death-applier + `character-died` emitter; the three in-module death sites
+//   (the aging death branch + the disease/condition commit-died branches) route through it so their
+//   deaths are cause-tagged at the source. reconcileCharacterDeaths sweeps deaths set OUTSIDE this
+//   module (D1 / battle / fiat — files this lane can't touch) and back-fills the unified record (a
+//   best-effort cause; GM-overridable). There is NO commitTurn / day-tick hook — the economy + the
+//   succession flow hang off the death, surfaced as a GM action on the char-sheet Health cluster.
+//
+// SHAPE (the §2 persistent-state model): stored — character fields, ALL defensive-read / init-on-write
+//   (reserveXp is the one CL-1 already seeds on blankCharacter; heirCharacterId / will / causeOfDeath /
+//   diedHeroically / deathRecordedTurn / successionResolved / successorCharacterId / successorOf are
+//   NOT seeded → the 6 templates + demo stay migrate-no-ops, the team-session discipline; no entities.js
+//   touch, no migration); resolver — the RR pp.311–313 economy (Reserve XP = 90% of no-benefit spend,
+//   capped at the prior character's XP; Heroic Funeral = 90% of funeral gp, only for a heroic death;
+//   inheritance via a will/heir with a ~10% bank fee, else banked treasure is lost); propose→ratify —
+//   the GM drives the succession flow (principle #1); history — the two events (character-died /
+//   inheritance-resolved) + character.history.
+//
+// Polarity (CLAUDE §6): the death economy is CORE RAW — default-on, no master house-rule gate. Dormant
+//   until a character dies. The optional AXIOMS-19 dynasty layer (CL-4b — a dynasty entity + kinship
+//   relations + succession laws) is a SEPARATE default-OFF wave built with/after Politics; NOT here.
+// =============================================================================
+const CL4A_CITE = 'RR pp.311–313';
+const RESERVE_XP_RATE = 0.9;          // Reserve XP = 90% of gp spent to no lasting benefit (RR p.311)
+const FUNERAL_XP_RATE = 0.9;          // Heroic Funeral = 90% of the gp spent on the funeral (RR p.312)
+const INHERITANCE_BANK_FEE_PCT = 10;  // a bank passes inherited treasure for ~10% (RR p.313)
+
+// The cause vocabulary the unified death record is tagged with (the death sites pass their own cause;
+// any string is accepted — these are the canonical ones the UI + reconcile know how to label).
+const DEATH_CAUSES = Object.freeze(['wounds', 'disease', 'old-age', 'exposure', 'enervation', 'battle', 'fiat', 'unknown']);
+const DEATH_CAUSE_LABEL = Object.freeze({
+  wounds:'wounds', disease:'disease', 'old-age':'old age', exposure:'exposure', enervation:'enervation',
+  battle:'battle', fiat:'GM ruling', unknown:'unknown causes'
+});
+
+// gp-equivalent of a multi-denomination coin purse (RAW: pp 5 / gp 1 / ep ½ / sp 1⁄10 / cp 1⁄100).
+const COIN_GP = Object.freeze({ pp:5, gp:1, ep:0.5, sp:0.1, cp:0.01 });
+function _purseGpValue(coins){
+  if(!coins || typeof coins !== 'object') return 0;
+  let v = 0; for(const k in COIN_GP){ v += (Number(coins[k]) || 0) * COIN_GP[k]; }
+  return Math.round(v * 100) / 100;
+}
+function _zeroPurse(c){ if(c){ c.coins = { pp:0, gp:0, ep:0, sp:0, cp:0 }; c.personalGp = 0; } }
+function _addGpToPurse(c, gp){
+  if(!c) return;
+  if(!c.coins || typeof c.coins !== 'object') c.coins = { pp:0, gp:0, ep:0, sp:0, cp:0 };
+  c.coins.gp = (Number(c.coins.gp) || 0) + (Number(gp) || 0);
+  c.personalGp = c.coins.gp;   // keep the synced mirror (canonical-setter rule #10)
+}
+function _charXp(c){ return Math.max(0, Math.floor(Number(c && c.xp) || 0)); }
+
+// characterReserveXp — the read accessor (defensive: absent ⇒ 0; reserveXp IS seeded on blankCharacter
+// by CL-1, but legacy/external characters may lack it).
+function characterReserveXp(c){ return Math.max(0, Math.floor(Number(c && c.reserveXp) || 0)); }
+
+// =============================================================================
+// recordCharacterDeath — the SINGLE canonical death-applier + `character-died` emitter. Idempotent
+// per character (guarded on the new deathRecordedTurn field) so it's safe to call from a death site
+// that already set deceased, from the reconcile sweep, or directly as a GM "kill this character."
+//   opts: { cause, heroic, sourceEventId, narrative, atTurn }.
+// Sets the deceased state if not already (lifecycleState/alive/deceasedTurn), tags the cause + heroism,
+// stamps deathRecordedTurn, records history, and emits the cause-tagged record-only `character-died`.
+// =============================================================================
+function recordCharacterDeath(campaign, charOrId, opts){
+  opts = opts || {};
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId : _findCharacterLC(campaign, charOrId);
+  if(!c) return null;
+  if(c.deathRecordedTurn != null) return null;          // idempotent — one character-died per character
+  const turn = (opts.atTurn != null) ? opts.atTurn : ((campaign && campaign.currentTurn) || 1);
+  const cause = opts.cause || 'unknown';
+  const heroic = opts.heroic === true;
+  // Apply the deceased state (a death site may have set it already; this also serves a direct GM kill).
+  if(c.lifecycleState !== 'deceased') c.lifecycleState = 'deceased';
+  c.alive = false;
+  if(c.deceasedTurn == null) c.deceasedTurn = turn;
+  c.causeOfDeath = cause;
+  c.diedHeroically = heroic;
+  c.deathRecordedTurn = turn;
+  const reserveXp = characterReserveXp(c);
+  const causeLabel = DEATH_CAUSE_LABEL[cause] || cause;
+  const summary = opts.narrative || (c.name + ' dies (' + causeLabel + ').');
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'character-died', summary, { cause, heroic }); } catch(_e){}
+  const ev = _emitDeathEvent(campaign, c, 'character-died', {
+    characterId: c.id, cause, heroic, reserveXp, deceasedTurn: c.deceasedTurn,
+    sourceEventId: opts.sourceEventId || null, narrative: summary
+  }, summary);
+  return { characterId: c.id, cause, heroic, reserveXp, deceasedTurn: c.deceasedTurn, eventId: ev && ev.id };
+}
+
+// _inferDeathCause — a best-effort cause for a death set outside this module (the reconcile sweep).
+function _inferDeathCause(c){
+  if(c && Array.isArray(c.mortalWounds) && c.mortalWounds.length) return 'wounds';
+  if(c && Array.isArray(c.diseases) && c.diseases.some(d => d && d.phase === 'died')) return 'disease';
+  if(c && Array.isArray(c.conditions) && c.conditions.some(x => x && x.clearedReason === 'died')) return 'exposure';
+  return 'unknown';
+}
+
+// reconcileCharacterDeaths — sweep characters set deceased OUTSIDE this module (Delves D1 wounds, the
+// battle aftermath, GM fiat — files this lane can't touch) and back-fill the unified `character-died`
+// record. Idempotent (skips any with deathRecordedTurn set). The UI calls this before the succession
+// surface so every death — however caused — has a record. opts.causeByCharId overrides the inference.
+function reconcileCharacterDeaths(campaign, opts){
+  opts = opts || {};
+  const byId = opts.causeByCharId || {};
+  const out = [];
+  ((campaign && campaign.characters) || []).forEach(c => {
+    if(!c) return;
+    const dead = (c.lifecycleState === 'deceased') || (c.alive === false);
+    if(!dead || c.deathRecordedTurn != null) return;
+    const cause = byId[c.id] || _inferDeathCause(c) || 'unknown';
+    const rec = recordCharacterDeath(campaign, c, { cause, heroic: opts.heroic === true });
+    if(rec) out.push(rec);
+  });
+  return out;
+}
+
+// =============================================================================
+// addReserveXp — accrue the Reserve XP fund (RR p.311: 90% of the gp value of money spent to no
+// tangible game benefit — carousing, anonymous tithes, memorials). A verb a GM (or a future
+// wealth-transfer hook) calls; carried ON the character (Q3) + inherited by the successor. Quiet
+// (history-only — no event kind; reserve accrual isn't one of CL-4a's two events). Returns the new total.
+//   opts: { gpSpent (→ ×0.9), amount (a direct XP add — wins over gpSpent), reason }.
+// =============================================================================
+function addReserveXp(campaign, charOrId, opts){
+  opts = opts || {};
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId : _findCharacterLC(campaign, charOrId);
+  if(!c) return 0;
+  const amt = (opts.amount != null) ? Math.max(0, Math.floor(Number(opts.amount) || 0))
+            : Math.max(0, Math.floor(RESERVE_XP_RATE * (Number(opts.gpSpent) || 0)));
+  if(amt <= 0) return characterReserveXp(c);
+  c.reserveXp = characterReserveXp(c) + amt;
+  const reason = opts.reason || 'spent to no lasting benefit';
+  const summary = c.name + ' banks ' + amt + ' Reserve XP (' + reason + ').';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'reserve-xp', summary, { amount: amt, reason }); } catch(_e){}
+  return c.reserveXp;
+}
+
+// Will / heir setters — quiet planning fields (defensive-read, init-on-write; no event). The will is
+// { bequests:[{ kind:'stash'|'item'|'gp', ref, ... }], funeralGp? } | null (Plan §4).
+function setCharacterHeir(campaign, charOrId, heirId){
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId : _findCharacterLC(campaign, charOrId);
+  if(!c) return null;
+  c.heirCharacterId = heirId || null;
+  return c;
+}
+function setCharacterWill(campaign, charOrId, will){
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId : _findCharacterLC(campaign, charOrId);
+  if(!c) return null;
+  c.will = will || null;
+  return c;
+}
+
+// =============================================================================
+// successionCandidates — who can succeed the deceased (RR p.311: a henchman to promote / the declared
+// heir / a party member). The declared heir leads; henchmen (lieged to the deceased) + followers; then
+// party members. Excludes the deceased + the dead. For the succession flow's "promote a henchman" picker.
+// =============================================================================
+function successionCandidates(campaign, deceasedId){
+  const out = []; const seen = new Set();
+  const dec = _findCharacterLC(campaign, deceasedId);
+  if(!dec) return out;
+  const add = (c, rel) => {
+    if(!c || seen.has(c.id) || c.id === dec.id) return;
+    if(c.lifecycleState === 'deceased' || c.alive === false) return;
+    seen.add(c.id);
+    out.push({ id:c.id, name:c.name, relationship:rel, level:(Number(c.level)||0), xp:_charXp(c), reserveXp:characterReserveXp(c) });
+  };
+  if(dec.heirCharacterId) add(_findCharacterLC(campaign, dec.heirCharacterId), 'heir');
+  ((campaign && campaign.characters) || []).forEach(c => {
+    if(c && c.liegeCharacterId === dec.id && (c.socialTier === 'henchman' || c.socialTier === 'follower')) add(c, c.socialTier);
+  });
+  if(dec.partyId){ ((campaign && campaign.characters) || []).forEach(c => { if(c && c.partyId === dec.partyId) add(c, 'party'); }); }
+  return out;
+}
+
+// pendingSuccessions — deceased characters whose succession hasn't been resolved (the GM work queue).
+function pendingSuccessions(campaign){
+  return ((campaign && campaign.characters) || []).filter(c => c && (c.lifecycleState === 'deceased' || c.alive === false) && !c.successionResolved);
+}
+
+// =============================================================================
+// resolveSuccession — the heart of CL-4a (RR pp.311–313). One GM action resolves a death's economy:
+//   • the SUCCESSOR (mode: 'promote-henchman' | 'heir' | 'existing' [an existing character] OR
+//     'back-up' | 'new-character' [mint a fresh PC]). A promoted/heir successor keeps its own XP +
+//     the heroic-funeral bonus, floored at the reserve; a fresh successor starts at reserve + funeral.
+//   • RESERVE XP (RR p.311): reserveXpApplied = min(the deceased's reserveXp, the deceased's XP) —
+//     "a new character can never enter with more XP than the prior character had." The reserve itself
+//     carries onward to the successor (undepleted by use).
+//   • the HEROIC FUNERAL (RR p.312): heroic ? floor(0.9 × funeralGpSpent) : 0 — only a heroic death
+//     earns it (a cowardly/frightened/retreating death does not; heroic defaults from the death record,
+//     GM-overridable per opts.heroic).
+//   • INHERITANCE (RR p.313): with a will + heir, the deceased's purse passes (valued in gp, minus the
+//     ~10% bank fee) + the will's bequeathed stashes change controller to the heir. With NO heir, the
+//     banked treasure is LOST (seized — only personal property on the body passes, to the looters).
+// Idempotent (successionResolved). Ensures the death is recorded first. Emits `inheritance-resolved`.
+//   opts: { mode, successorCharacterId, newCharacterName, funeralGpSpent, heroic, heirId, bankFeePct,
+//           transferTreasure (default true), cause, rng }.
+// =============================================================================
+function resolveSuccession(campaign, deceasedId, opts){
+  opts = opts || {};
+  const dec = (deceasedId && typeof deceasedId === 'object') ? deceasedId : _findCharacterLC(campaign, deceasedId);
+  if(!dec) return null;
+  if(dec.successionResolved) return { alreadyResolved:true, deceasedId: dec.id, successorCharacterId: dec.successorCharacterId || null };
+
+  // Ensure the death is recorded (a GM resolving an externally-killed character gets character-died first).
+  if(dec.deathRecordedTurn == null && (dec.lifecycleState === 'deceased' || dec.alive === false)){
+    recordCharacterDeath(campaign, dec, { cause: opts.cause || _inferDeathCause(dec) || 'unknown', heroic: opts.heroic === true });
+  }
+
+  const mode = opts.mode || 'new-character';
+  const deceasedXp = _charXp(dec);
+  const reserve = characterReserveXp(dec);
+  const reserveXpApplied = Math.min(reserve, deceasedXp);     // RAW: never more than the prior character had
+  const heroic = (opts.heroic != null) ? !!opts.heroic : (dec.diedHeroically === true);
+  const funeralGpSpent = Math.max(0, Number(opts.funeralGpSpent) || 0);
+  const funeralXp = (heroic && funeralGpSpent > 0) ? Math.floor(FUNERAL_XP_RATE * funeralGpSpent) : 0;
+  const startXp = reserveXpApplied + funeralXp;
+
+  let successor = null, createdNew = false;
+  if(mode === 'promote-henchman' || mode === 'heir' || mode === 'existing'){
+    successor = _findCharacterLC(campaign, opts.successorCharacterId);
+    if(successor){
+      successor.xp = Math.max(_charXp(successor), reserveXpApplied) + funeralXp;   // keep its XP, floored at the reserve, + funeral
+      if(successor.lifecycleState !== 'deceased' && successor.alive !== false) successor.lifecycleState = 'active';
+      successor.successorOf = dec.id;
+      if(reserve > characterReserveXp(successor)) successor.reserveXp = reserve;     // the reserve floor carries on
+    }
+  } else if(typeof ACKS.blankCharacter === 'function'){
+    // back-up / new-character — mint a fresh PC at the reserve+funeral starting floor.
+    successor = ACKS.blankCharacter({ name: opts.newCharacterName || (dec.name + "'s successor"),
+      xp: startXp, controlledBy: dec.controlledBy || 'player', race: dec.race || 'human' });
+    successor.successorOf = dec.id;
+    successor.reserveXp = reserve;             // the reserve carries to the successor (undepleted)
+    if(!Array.isArray(campaign.characters)) campaign.characters = [];
+    campaign.characters.push(successor);
+    createdNew = true;
+  }
+  const successorId = successor ? successor.id : null;
+
+  // Inheritance (RR pp.312–313) — will + heir; ~10% bank fee; no heir ⇒ banked treasure lost.
+  const heirId = opts.heirId || dec.heirCharacterId || ((mode === 'heir' || mode === 'promote-henchman') ? successorId : null);
+  const heir = heirId ? _findCharacterLC(campaign, heirId) : null;
+  const bankFeePct = (opts.bankFeePct != null) ? Number(opts.bankFeePct) : INHERITANCE_BANK_FEE_PCT;
+  const purseGp = _purseGpValue(dec.coins);
+  let transferredGp = 0, bankFeeGp = 0, treasureLost = 0, stashesTransferred = 0;
+  const transfer = opts.transferTreasure !== false;
+  if(transfer && heir){
+    if(purseGp > 0){
+      bankFeeGp = Math.floor(purseGp * (Math.max(0, bankFeePct) / 100));
+      transferredGp = Math.round((purseGp - bankFeeGp) * 100) / 100;
+      _zeroPurse(dec);
+      _addGpToPurse(heir, transferredGp);
+    }
+    const bequests = (dec.will && Array.isArray(dec.will.bequests)) ? dec.will.bequests : [];
+    bequests.forEach(b => {
+      if(b && b.kind === 'stash' && b.ref && typeof ACKS.changeStashController === 'function'){
+        try { if(ACKS.changeStashController(campaign, b.ref, { characterId: heir.id }, { reason:'inheritance' })) stashesTransferred++; } catch(_e){}
+      }
+    });
+  } else if(purseGp > 0){
+    treasureLost = purseGp;       // no will/heir → banked treasure seized (RAW p.313)
+  }
+
+  dec.successionResolved = true;
+  dec.successorCharacterId = successorId;
+
+  const summary = _successionNarrative(dec, successor, mode, { reserveXpApplied, funeralXp, transferredGp, bankFeeGp, treasureLost });
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, dec, 'inheritance-resolved', summary, { successorId, heirId: heir ? heir.id : null }); } catch(_e){}
+  const ev = _emitDeathEvent(campaign, dec, 'inheritance-resolved', {
+    deceasedId: dec.id, successorId, successorMode: mode, heirId: heir ? heir.id : null,
+    reserveXpApplied, funeralXp, funeralGpSpent, heroic,
+    transferredGp, bankFeeGp, bankFeePct, treasureLost, stashesTransferred,
+    successorStartXp: createdNew ? startXp : (successor ? _charXp(successor) : 0), narrative: summary
+  }, summary);
+
+  return { deceasedId: dec.id, successorId, successorMode: mode, createdNew, heirId: heir ? heir.id : null,
+    reserveXpApplied, funeralXp, transferredGp, bankFeeGp, treasureLost, stashesTransferred,
+    eventId: ev && ev.id, successor };
+}
+
+function _successionNarrative(dec, successor, mode, x){
+  const bits = [];
+  if(successor) bits.push((mode === 'promote-henchman' ? 'promotes ' : mode === 'heir' ? 'is succeeded by the heir ' : 'is succeeded by ') + successor.name);
+  else bits.push('leaves no successor');
+  if(x.reserveXpApplied) bits.push(x.reserveXpApplied + ' reserve XP');
+  if(x.funeralXp) bits.push(x.funeralXp + ' heroic-funeral XP');
+  if(x.transferredGp) bits.push(x.transferredGp + ' gp inherited' + (x.bankFeeGp ? (' (after a ' + x.bankFeeGp + ' gp bank fee)') : ''));
+  if(x.treasureLost) bits.push(x.treasureLost + ' gp of banked treasure lost (no heir)');
+  return dec.name + ' — ' + bits.join('; ') + '.';
+}
+
+// characterDeathInfo — the char-sheet read accessor (the Lifecycle/Health-cluster card): the death
+// state + cause + heroism + the Reserve XP / heir / will planning fields + the succession status.
+function characterDeathInfo(c){
+  if(!c) return { deceased:false };
+  const deceased = (c.lifecycleState === 'deceased') || (c.alive === false);
+  return {
+    deceased,
+    cause: c.causeOfDeath || null,
+    causeLabel: c.causeOfDeath ? (DEATH_CAUSE_LABEL[c.causeOfDeath] || c.causeOfDeath) : null,
+    heroic: c.diedHeroically === true,
+    deceasedTurn: (c.deceasedTurn != null) ? c.deceasedTurn : null,
+    deathRecorded: c.deathRecordedTurn != null,
+    reserveXp: characterReserveXp(c),
+    heirCharacterId: c.heirCharacterId || null,
+    will: c.will || null,
+    bequestCount: (c.will && Array.isArray(c.will.bequests)) ? c.will.bequests.length : 0,
+    successionResolved: c.successionResolved === true,
+    successorCharacterId: c.successorCharacterId || null
+  };
+}
+
+// =============================================================================
+// Event emit — the record-only audit pattern (the aging/disease/condition idiom). Both CL-4a kinds
+// (`character-died` / `inheritance-resolved`) ride it. The deceased is the context subject; a
+// successor/heir rides as beneficiary/recipient so the death surfaces in their histories too.
+// =============================================================================
+function _emitDeathEvent(campaign, c, kind, payload, narrative){
+  const A = global.ACKS;
+  if(!A || typeof A.newEvent !== 'function') return null;
+  const cal = (campaign && campaign.calendar) || {};
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy:'engine', cadence:'monthly-turn', targetTurn:(campaign && campaign.currentTurn) || 1,
+      gameTimeAt:{ year:cal.year || 1, month:cal.month || 1, day:(campaign && campaign.currentDayInMonth) || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(_e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    const related = [{ kind:'character', id:c && c.id, role:'subject' }];
+    if(payload && payload.successorId) related.push({ kind:'character', id:payload.successorId, role:'beneficiary' });
+    if(payload && payload.heirId && payload.heirId !== payload.successorId) related.push({ kind:'character', id:payload.heirId, role:'recipient' });
+    A.setEventContext(ev, { primaryHexId:(c && c.currentHexId) || null, domainId:(c && c.currentDomainId) || null, relatedEntities: related });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+  ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result:{ narrativeSummary:narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+Object.assign(ACKS, {
+  // data
+  DEATH_CAUSES, CL4A_CITE, RESERVE_XP_RATE, FUNERAL_XP_RATE, INHERITANCE_BANK_FEE_PCT,
+  // the canonical death record + the reconcile sweep
+  recordCharacterDeath, reconcileCharacterDeaths,
+  // the death economy
+  addReserveXp, characterReserveXp, setCharacterHeir, setCharacterWill,
+  // succession
+  successionCandidates, resolveSuccession, pendingSuccessions,
+  // reads
+  characterDeathInfo
+});
+// === end Character Lifecycle CL-4a (burst8, team) ============================
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

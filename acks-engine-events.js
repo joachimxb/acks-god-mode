@@ -295,6 +295,13 @@ const EVENT_KINDS = Object.freeze([
   // (like disease-recovered carrying died:bool); the eventLog narrative reads correctly for each.
   'condition-applied',
   'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — death & inheritance (RR pp.311–313). Record-only
+  // audit emitted by acks-engine-lifecycle.js. 'character-died' is the unified cause-tagged death record
+  // (fired by recordCharacterDeath — routed from the aging/disease/condition death sites + the reconcile
+  // sweep for D1/battle/fiat deaths set outside this module); 'inheritance-resolved' carries the
+  // succession economy (successor + Reserve XP + Heroic Funeral + the will/heir transfer). Wizard opt-out below.
+  'character-died',
+  'inheritance-resolved',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -1000,6 +1007,20 @@ const EVENT_SCHEMAS = Object.freeze({
   'condition-cleared': {
     R: { characterId: 'string', condition: 'string' },
     O: { conditionLabel: 'string', outcome: 'string', died: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-4a (burst8, team) === (RR pp.311–313; engine-emitted, record-only).
+  // The unified cause-tagged death record. cause ∈ wounds|disease|old-age|exposure|enervation|battle|fiat|unknown.
+  'character-died': {
+    R: { characterId: 'string', cause: 'string' },
+    O: { heroic: 'boolean', reserveXp: 'number', deceasedTurn: 'number', sourceEventId: 'string', narrative: 'string' }
+  },
+  // The succession economy resolved (RR pp.311–313): the successor + Reserve XP + Heroic Funeral + the will/heir transfer.
+  'inheritance-resolved': {
+    R: { deceasedId: 'string' },
+    O: { successorId: 'string', successorMode: 'string', heirId: 'string', reserveXpApplied: 'number',
+         funeralXp: 'number', funeralGpSpent: 'number', heroic: 'boolean', transferredGp: 'number',
+         bankFeeGp: 'number', bankFeePct: 'number', treasureLost: 'number', stashesTransferred: 'number',
+         successorStartXp: 'number', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -2840,6 +2861,16 @@ function applyEvent_conditionAudit(campaign, event){
 }
 registerEventHandler('condition-applied', applyEvent_conditionAudit);
 registerEventHandler('condition-cleared', applyEvent_conditionAudit);
+// === Character Lifecycle CL-4a (burst8, team) === — death + succession events share the record-only
+// audit posture: acks-engine-lifecycle.js (recordCharacterDeath / resolveSuccession) already applied the
+// state (lifecycleState 'deceased' + the cause tags; the successor's XP + the reserve/funeral/inheritance
+// transfer); the handler keeps the event well-formed on replay (records the narrative only). Mirrors aging.
+function applyEvent_lifecycleDeathAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'character death' } };
+}
+registerEventHandler('character-died', applyEvent_lifecycleDeathAudit);
+registerEventHandler('inheritance-resolved', applyEvent_lifecycleDeathAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -5989,6 +6020,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // the slot-59 conditions consumer); a raw emit would narrate a condition the character's conditions[]
   // + lifecycleState don't show. The GM applies/clears a condition via the character sheet, not the Wizard.
   'condition-applied', 'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — owned by acks-engine-lifecycle.js
+  // (recordCharacterDeath / resolveSuccession); a raw emit would record a death/succession the
+  // character's lifecycleState + the successor/inheritance state don't show. The GM marks a death +
+  // resolves succession on the character sheet, not the Event Wizard.
+  'character-died', 'inheritance-resolved',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
