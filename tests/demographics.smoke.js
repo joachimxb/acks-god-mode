@@ -524,6 +524,110 @@ ok('ruralResidents: lists the domain\'s rural residents, level-sorted', (() => {
 ok('domainRuralDemographics: a domain with no rural hexes → 0 hexCount, no crash',
   (() => { const c = ACKS.blankCampaign({ name:'empty' }); c.domains.push({ id:'dom-e', name:'Empty', demographics:{ peasantFamilies:50 } }); const a = ACKS.domainRuralDemographics(c, c.domains[0]); return a.hexCount === 0 && a.totals.all === 0; })());
 
+// ── 13. SD-2b — auto-generation (the generator-fed roster fill) ─────────────────────────────────────
+section('SD-2b — auto-generation (open-slot fill via the NPC generator)');
+function mkRng(seed){ let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+['demographicAutoGenStatus','demographicOpenNotableSlots','fillDemographicSlot','autoFillSettlementRoster',
+ 'fillRealmOffice','autoFillRealmEntourage','autoFillDomainCountryside'].forEach(fn =>
+  ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function'));
+ok('demographics-auto-generate registered (domain, default OFF)', (() => {
+  const r = ACKS.lookupHouseRule && ACKS.lookupHouseRule('demographics-auto-generate');
+  return !!r && r.category === 'domain' && r.default !== true;
+})());
+ok('generateNPC is available (the generator module loaded)', typeof ACKS.generateNPC === 'function');
+
+// the gate — generator present + BOTH rules on (plan §9: auto-gen layers on living-census)
+const gg = ACKS.blankCampaign({ name:'gate' });
+ok('gate: no rules → living-census-off (checked before auto-generate)', ACKS.demographicAutoGenStatus(gg).ok === false && ACKS.demographicAutoGenStatus(gg).reason === 'living-census-off');
+gg.houseRules['living-census'] = { enabled:true };
+ok('gate: living-census on, auto-generate off → auto-generate-off', ACKS.demographicAutoGenStatus(gg).reason === 'auto-generate-off');
+gg.houseRules['demographics-auto-generate'] = { enabled:true };
+ok('gate: both rules on + generator → ok', ACKS.demographicAutoGenStatus(gg).ok === true);
+
+// URBAN — open-slot reads + targeted + bulk fill
+const ac = ACKS.blankCampaign({ name:'autofill' });
+ac.houseRules['living-census'] = { enabled:true }; ac.houseRules['demographics-auto-generate'] = { enabled:true };
+ac.hexes.push({ id:'hex-cap', coord:{q:0,r:0}, domainId:'dom-a' });
+ac.settlements.push({ id:'set-cap', name:'Highcastle', hexId:'hex-cap', families:2500 });   // Class III
+ac.domains.push({ id:'dom-a', name:'Aldland', rulerCharacterId:null });
+const setCap = ac.settlements[0];
+
+const slots5 = ACKS.demographicOpenNotableSlots(ac, setCap, { minLevel:5 });
+ok('open notable slots (L≥5): level-floored', slots5.length > 0 && slots5.every(s => s.level >= 5));
+ok('open notable slots: highest-level-first', slots5.every((s,i,a) => i === 0 || a[i-1].level >= s.level));
+ok('open notable slots default floor 1 includes the low tail', ACKS.demographicOpenNotableSlots(ac, setCap, {}).some(s => s.level === 1));
+
+const fr = ACKS.fillDemographicSlot(ac, setCap, 'mage', 5, { rng: mkRng(1) });
+ok('targeted fill: ok + a character', fr.ok && !!fr.character);
+ok('targeted fill: homed to the settlement', fr.character.homeSettlementId === 'set-cap');
+ok('targeted fill: it is L5', fr.character.level === 5);
+ok('targeted fill: it is a gm-controlled real roster entry', fr.character.controlledBy === 'gm' && ac.characters.indexOf(fr.character) >= 0);
+ok('targeted fill: round-trips — the minted NPC buckets back as mage', ACKS.coreBucketForCharacter(ac, fr.character) === 'mage');
+ok('targeted fill: a generation event was logged', ac.eventLog.some(e => (e.event && e.event.kind) === 'generation'));
+ok('targeted fill: realizedDemographics now counts it (L5 mage)', ACKS.realizedDemographics(ac, 'set-cap').byLevel[4].mage >= 1);
+// the crusader bucket ≠ class name ("cleric"/"crusader") — the round-trip that proves the bucket→class→bucket loop
+const cr = ACKS.fillDemographicSlot(ac, setCap, 'crusader', 6, { rng: mkRng(2) });
+ok('targeted fill: crusader bucket round-trips (Crusader class → crusader)', cr.ok && ACKS.coreBucketForCharacter(ac, cr.character) === 'crusader');
+ok('targeted fill: bad bucket refused', ACKS.fillDemographicSlot(ac, setCap, 'wizard', 5, { rng: mkRng(2) }).ok === false);
+
+// BULK — cap + floor + highest-first
+const ab = ACKS.blankCampaign({ name:'bulk' });
+ab.houseRules['living-census'] = { enabled:true }; ab.houseRules['demographics-auto-generate'] = { enabled:true };
+ab.hexes.push({ id:'hx', coord:{q:0,r:0}, domainId:'dom-b' });
+ab.settlements.push({ id:'set-b', name:'Bigtown', hexId:'hx', families:5000 });   // Class II — many notables
+ab.domains.push({ id:'dom-b', name:'B', rulerCharacterId:null });
+const bulk = ACKS.autoFillSettlementRoster(ab, ab.settlements[0], { minLevel:5, maxToFill:6, rng: mkRng(3) });
+ok('bulk fill: ok + capped at maxToFill (6)', bulk.ok && bulk.created.length === 6, 'got ' + (bulk.created || []).length);
+ok('bulk fill: every minted NPC is L≥5 + homed here', bulk.created.every(c => c.level >= 5 && c.homeSettlementId === 'set-b'));
+ok('bulk fill: highest-level-first', bulk.created[0].level >= bulk.created[bulk.created.length - 1].level);
+
+// gate OFF refuses defensively (past the UI) + mints nothing
+const offc = ACKS.blankCampaign({ name:'off' });
+offc.hexes.push({ id:'hh', coord:{q:0,r:0}, domainId:'dom-o' });
+offc.settlements.push({ id:'set-o', name:'O', hexId:'hh', families:2500 });
+offc.domains.push({ id:'dom-o', name:'O', rulerCharacterId:null });
+const offR = ACKS.autoFillSettlementRoster(offc, offc.settlements[0], { rng: mkRng(4) });
+ok('gate OFF: autoFill refuses (living-census-off) + mints nothing', offR.ok === false && offR.reason === 'living-census-off' && offc.characters.length === 0);
+
+// REALM ENTOURAGE — homed via homeDomainId, picked up by realmCommandStructure
+const rf = ACKS.blankCampaign({ name:'realm-fill' });
+rf.houseRules['living-census'] = { enabled:true }; rf.houseRules['demographics-auto-generate'] = { enabled:true };
+rf.domains.push({ id:'dom-r', name:'County of R', rulerCharacterId:'chr-lord', magistrates:{} });
+rf.characters.push(ACKS.blankCharacter({ id:'chr-lord', name:'Lord R', class:'Fighter', level:8 }));
+const rEnt = ACKS.autoFillRealmEntourage(rf, rf.domains[0], { rng: mkRng(5) });
+ok('realm entourage fill: minted the 3 open entourage offices', rEnt.ok && rEnt.created.length === 3, 'got ' + (rEnt.created || []).length);
+ok('realm entourage fill: each homed to the realm (homeDomainId)', rEnt.created.every(c => c.homeDomainId === 'dom-r'));
+const rcsF = ACKS.realmCommandStructure(rf, 'dom-r');
+ok('realm entourage fill: reconciles — magister/guildmaster/annalist now filled', ['magister','guildmaster','annalist'].every(k => rcsF.offices.find(o => o.key === k).filled));
+ok('realm entourage fill: the ruler + magistracy offices were left alone (still open)', rcsF.offices.find(o => o.key === 'captainOfGuard').filled === false);
+// targeted realm office + the non-entourage refusal
+const ro = ACKS.blankCampaign({ name:'ro' });
+ro.houseRules['living-census'] = { enabled:true }; ro.houseRules['demographics-auto-generate'] = { enabled:true };
+ro.domains.push({ id:'dom-ro', name:'Ro', rulerCharacterId:null, magistrates:{} });
+const roR = ACKS.fillRealmOffice(ro, ro.domains[0], 'annalist', { rng: mkRng(6) });
+ok('fillRealmOffice: mints one annalist (thief) homed to the realm', roR.ok && roR.character.homeDomainId === 'dom-ro' && ACKS.coreBucketForCharacter(ro, roR.character) === 'thief');
+ok('fillRealmOffice: a magistracy office is NOT auto-fillable (appointed elsewhere)', ACKS.fillRealmOffice(ro, ro.domains[0], 'captainOfGuard', { rng: mkRng(7) }).ok === false);
+
+// COUNTRYSIDE — homed via homeHexId, round-robin across rural hexes (the SD-4-deferred mint)
+const rr = ACKS.blankCampaign({ name:'rural-fill' });
+rr.houseRules['living-census'] = { enabled:true }; rr.houseRules['demographics-auto-generate'] = { enabled:true };
+rr.domains.push({ id:'dom-c', name:'Countryside', demographics:{ peasantFamilies:228 } });
+rr.hexes.push({ id:'rh1', coord:{q:0,r:0}, domainId:'dom-c', families:0 });
+rr.hexes.push({ id:'rh2', coord:{q:1,r:0}, domainId:'dom-c', families:0 });
+const ruR = ACKS.autoFillDomainCountryside(rr, rr.domains[0], { minLevel:2, maxToFill:5, rng: mkRng(8) });
+ok('rural fill: ok + minted up to maxToFill', ruR.ok && ruR.created.length > 0 && ruR.created.length <= 5);
+ok('rural fill: each homed to a rural hex (homeHexId), NOT homeDomainId', ruR.created.every(c => (c.homeHexId === 'rh1' || c.homeHexId === 'rh2') && !c.homeDomainId));
+ok('rural fill: round-robins across both rural hexes', ruR.created.some(c => c.homeHexId === 'rh1') && ruR.created.some(c => c.homeHexId === 'rh2'));
+ok('rural fill: each L≥2 (the floor)', ruR.created.every(c => c.level >= 2));
+ok('rural fill: realizedRuralDemographics now counts them', ACKS.realizedRuralDemographics(rr, 'rh1').residents > 0);
+ok('rural fill: a domain with no rural hexes refuses', (() => {
+  const c = ACKS.blankCampaign({ name:'norural' });
+  c.houseRules['living-census'] = { enabled:true }; c.houseRules['demographics-auto-generate'] = { enabled:true };
+  c.domains.push({ id:'dom-nr', name:'NR', demographics:{ peasantFamilies:50 } });
+  return ACKS.autoFillDomainCountryside(c, c.domains[0], { rng: mkRng(9) }).reason === 'no-rural-hexes';
+})());
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
