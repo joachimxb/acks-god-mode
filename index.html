@@ -94,6 +94,10 @@
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
+<!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
+<!-- b7-magicitems (#143): the magic-item economy over the shipped Notable Items + `magical` facet. Late-binds blankNotableItem / promoteLineToNotableItem / rollProficiencyThrow / newEvent at call time. -->
+<script src="acks-engine-magic-items.js?v=2026-06-19-b7"></script>
+<!-- ===== end TEAM BURST7 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
@@ -15185,6 +15189,144 @@ document.addEventListener('alpine:init', () => {
 
 </div>
 <!-- b7-magicitems: panel + modals -->
+<!-- b7-magicitems (#143 W1) — the 🪄 Magic Items economy tab (over campaign.notableItems[]). -->
+<div x-show="currentView === 'magic-items'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🪄 Magic Items <span class="text-sm opacity-70 font-normal" x-text="'· ' + magicItemList().length + ' notable'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <select x-model="magicItemAddKey" class="text-sm">
+          <option value="">+ Add from catalog…</option>
+          <template x-for="e in magicItemCatalogList()" :key="e.key">
+            <option :value="e.key" x-text="e.name + ' (' + e.rarity + ', ' + e.baseCost.toLocaleString() + 'gp)'"></option>
+          </template>
+        </select>
+        <select x-model="magicItemAddMakerId" class="text-sm" title="Optional maker — a created item sells at ×2 (TT p.28)">
+          <option value="">(found — no maker)</option>
+          <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+        </select>
+        <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+      </div>
+    </div>
+    <template x-if="magicItemList().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No magic items yet. Add one from the catalog above (GM authoring), or promote a carried item from a character's inventory. A magic item is a <code>notableItem</code> carrying the catalog's mechanical fields + a book page-ref.</p>
+    </template>
+    <template x-if="magicItemList().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Kind</th><th>Rarity</th><th class="text-right">Base cost</th><th class="text-right">Charges</th><th>Identified</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="ni in magicItemList()" :key="ni.id">
+            <tr>
+              <td><button @click="openMagicItemDetail(ni.id)" class="underline font-semibold" x-text="ni.name || '(unnamed)'"></button></td>
+              <td x-text="ni.kind"></td>
+              <td x-text="magicItemRarityOf(ni)"></td>
+              <td class="text-right font-mono" x-text="magicItemBaseCostOf(ni)!=null ? magicItemBaseCostOf(ni).toLocaleString()+' gp' : '—'"></td>
+              <td class="text-right font-mono" x-text="magicItemChargesOf(ni)!=null ? magicItemChargesOf(ni) : '—'"></td>
+              <td class="text-sm" x-text="magicItemIdStatus(ni)"></td>
+              <td class="text-right"><button @click="openMagicItemDetail(ni.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <div class="mt-3">
+      <button @click="magicItemCatalogOpen=!magicItemCatalogOpen" class="text-sm underline" x-text="(magicItemCatalogOpen?'▾':'▸')+' Catalog ('+magicItemCatalogList().length+' archetypes)'"></button>
+      <div x-show="magicItemCatalogOpen" class="mt-2" x-cloak>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Name</th><th>Kind</th><th>Rarity</th><th class="text-right">Base cost</th><th class="text-right">Charges</th><th>Page</th></tr></thead>
+          <tbody>
+            <template x-for="e in magicItemCatalogList()" :key="e.key">
+              <tr><td x-text="e.name"></td><td x-text="e.kind"></td><td x-text="e.rarity"></td><td class="text-right font-mono" x-text="e.baseCost.toLocaleString()+' gp'"></td><td class="text-right" x-text="e.charges!=null?e.charges:'—'"></td><td x-text="e.pageRef"></td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-sm opacity-60 mt-3 italic">The magic-item economy (#143) over <code>campaign.notableItems[]</code>: identify (5 RAW methods, rarity-gated), appraise (the TT p.28 price spread), and use charges. Buying/selling routes through the existing market verbs; item creation is Magic Research's. The catalog ships mechanical fields + a page-ref only — the effect text stays in your book.</p>
+  </div>
+
+  <!-- detail modal: appraise + identify + use-charge -->
+  <div x-show="magicItemDetailId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeMagicItemDetail()" @keydown.escape.window="closeMagicItemDetail()">
+    <div class="vellum border border-ink rounded p-4 max-w-2xl w-full max-h-[85vh] overflow-y-auto">
+      <template x-if="magicItemDetail()">
+        <div>
+          <div class="flex justify-between items-baseline mb-2">
+            <h3 class="font-bold text-lg" x-text="(magicItemDetail().name||magicItemDetail().kind)"></h3>
+            <button @click="closeMagicItemDetail()" class="text-sm underline">close ✕</button>
+          </div>
+          <p class="text-sm opacity-80 mb-3">
+            <span x-text="magicItemDetail().kind"></span> ·
+            <span x-text="magicItemRarityOf(magicItemDetail())"></span> ·
+            base <span class="font-mono" x-text="(magicItemBaseCostOf(magicItemDetail())!=null?magicItemBaseCostOf(magicItemDetail()).toLocaleString():'—')+' gp'"></span>
+            <template x-if="magicItemChargesOf(magicItemDetail())!=null"><span> · charges <span class="font-mono" x-text="magicItemChargesOf(magicItemDetail())"></span><span x-show="magicItemIsDepletedUi(magicItemDetail())" class="text-red-700"> (depleted — non-magical)</span></span></template>
+            <template x-if="magicItemDetail().intrinsic && magicItemDetail().intrinsic.pageRef"><span class="opacity-70"> · <span x-text="magicItemDetail().intrinsic.pageRef"></span></span></template>
+          </p>
+
+          <div class="flex flex-wrap gap-2 items-center text-sm mb-3">
+            <label>Character:
+              <select x-model="magicItemIdCharId" class="text-sm">
+                <option value="">(none / the party)</option>
+                <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name + ' (L'+(c.level||1)+')'"></option></template>
+              </select>
+            </label>
+          </div>
+
+          <div class="border border-ink/30 rounded p-2 mb-2">
+            <div class="flex justify-between items-center">
+              <strong class="text-sm">💰 Appraise</strong>
+              <button @click="runMagicItemAppraise()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm">Appraise</button>
+            </div>
+            <template x-if="magicItemSpread() && magicItemSpread().available">
+              <div class="text-sm mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <span>Commission (×3): <span class="font-mono" x-text="magicItemSpread().commission.toLocaleString()+' gp'"></span></span>
+                <span>Buy (×2.25): <span class="font-mono" x-text="magicItemSpread().buy.toLocaleString()+' gp'"></span></span>
+                <span>Sell — found (×1): <span class="font-mono" x-text="magicItemSpread().sellFound.toLocaleString()+' gp'"></span></span>
+                <span>Sell — created (×2): <span class="font-mono" x-text="magicItemSpread().sellCreated.toLocaleString()+' gp'"></span></span>
+                <span>Apparent (XP): <span class="font-mono" x-text="magicItemSpread().apparentValue.toLocaleString()+' gp'"></span></span>
+                <span x-text="magicItemSpread().created ? '(provenanced → sells ×2)' : '(found → sells ×1)'"></span>
+              </div>
+            </template>
+          </div>
+
+          <div class="border border-ink/30 rounded p-2 mb-2">
+            <div class="flex flex-wrap justify-between items-center gap-2">
+              <strong class="text-sm">🔎 Identify</strong>
+              <div class="flex gap-2 items-center text-sm">
+                <select x-model="magicItemIdMethod" class="text-sm">
+                  <template x-for="m in magicItemDetailMethods()" :key="m.method">
+                    <option :value="m.method" x-text="m.label + (m.available ? (m.throw && m.successChance!=null ? ' ('+Math.round(m.successChance*100)+'%)' : '') : ' — '+m.reason)"></option>
+                  </template>
+                </select>
+                <button @click="runMagicItemIdentify()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Identify</button>
+              </div>
+            </div>
+            <template x-if="magicItemKnownList(magicItemDetail()).length">
+              <div class="text-sm mt-1">
+                <template x-for="k in magicItemKnownList(magicItemDetail())" :key="k.who">
+                  <div><span class="opacity-70" x-text="k.who+':'"></span> <span x-text="k.keys"></span></div>
+                </template>
+              </div>
+            </template>
+            <template x-if="!magicItemKnownList(magicItemDetail()).length"><p class="text-sm italic opacity-60 mt-1">Unidentified — pick a character + method (only applicable methods are offered).</p></template>
+          </div>
+
+          <template x-if="magicItemChargesOf(magicItemDetail())!=null">
+            <div class="border border-ink/30 rounded p-2 mb-2 flex justify-between items-center">
+              <strong class="text-sm">🔋 Use a charge</strong>
+              <button @click="runMagicItemUseCharge()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="magicItemIsDepletedUi(magicItemDetail())">Spend 1</button>
+            </div>
+          </template>
+
+          <template x-if="magicItemResult">
+            <p class="text-sm mt-1 font-semibold" :class="magicItemResult.ok ? 'text-green-800' : 'text-red-700'" x-text="magicItemResult.msg"></p>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
 <!-- b7-knowledge: panel + modals -->
 <!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
 <div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
@@ -15901,7 +16043,27 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
   },
-  // --- b7-magicitems ---
+  // --- b7-magicitems ---  (#143 W1 — Magic Items economy tab: catalog + appraise + identify + charges)
+  magicItemAddKey: '', magicItemAddMakerId: '', magicItemDetailId: null,
+  magicItemIdCharId: '', magicItemIdMethod: 'equip', magicItemResult: null, magicItemCatalogOpen: false,
+  magicItemList(){ return (this.currentCampaign && this.currentCampaign.notableItems) || []; },
+  magicItemCatalogList(){ return (window.ACKS.magicItemCatalog && window.ACKS.magicItemCatalog()) || []; },
+  magicItemCharacters(){ return (this.currentCampaign && this.currentCampaign.characters) || []; },
+  magicItemRarityOf(ni){ const A=window.ACKS; const bc=A.magicItemBaseCost(this.currentCampaign, ni); return (ni && ni.intrinsic && ni.intrinsic.rarity) || (bc!=null ? A.magicItemRarity(bc) : '—'); },
+  magicItemBaseCostOf(ni){ const bc=window.ACKS.magicItemBaseCost(this.currentCampaign, ni); return bc!=null ? bc : null; },
+  magicItemChargesOf(ni){ return window.ACKS.magicItemCharges(this.currentCampaign, ni); },
+  magicItemIsDepletedUi(ni){ return window.ACKS.magicItemIsDepleted(ni); },
+  magicItemIdStatus(ni){ const A=window.ACKS; const m=(ni && ni.identification && ni.identification.knownProperties)||{}; const ids=Object.keys(m); if(!ids.length) return 'unidentified'; return ids.some(cid=>A.isItemFullyIdentifiedBy(ni, cid)) ? 'fully identified' : 'partly identified'; },
+  addMagicItemFromCatalog(){ const A=window.ACKS, key=this.magicItemAddKey; if(!key){ this.showToast('Pick a catalog item first.', 2500); return; } const ni=A.createNotableFromCatalog(this.currentCampaign, key, this.magicItemAddMakerId ? { makerCharacterId:this.magicItemAddMakerId } : {}); if(!ni){ this.showToast('Could not create that item.', 3000); return; } this.magicItemAddKey=''; this.magicItemAddMakerId=''; this.markDirty(); this.schedulePersist(); this.showToast('Added '+(ni.name||ni.kind)+'.', 3000); this.openMagicItemDetail(ni.id); },
+  openMagicItemDetail(id){ this.magicItemDetailId=id; this.magicItemResult=null; this.magicItemIdCharId=''; this.magicItemIdMethod='equip'; },
+  closeMagicItemDetail(){ this.magicItemDetailId=null; this.magicItemResult=null; },
+  magicItemDetail(){ const id=this.magicItemDetailId; if(!id) return null; return this.magicItemList().find(n=>n && n.id===id) || null; },
+  magicItemSpread(){ const ni=this.magicItemDetail(); return ni ? window.ACKS.magicItemPriceSpread(this.currentCampaign, ni) : null; },
+  magicItemDetailMethods(){ const ni=this.magicItemDetail(); if(!ni) return []; const ch=this.magicItemIdCharId ? this.magicItemCharacters().find(c=>c.id===this.magicItemIdCharId) : null; return window.ACKS.magicItemIdMethodsFor(this.currentCampaign, ni, ch); },
+  magicItemKnownList(ni){ if(!ni || !ni.identification || !ni.identification.knownProperties) return []; const m=ni.identification.knownProperties, out=[]; Object.keys(m).forEach(cid=>{ const c=this.magicItemCharacters().find(x=>x.id===cid); out.push({ who:(c&&c.name)||cid, keys:(m[cid]||[]).join(', ') }); }); return out; },
+  runMagicItemAppraise(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.appraiseMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null }); this.markDirty(); this.schedulePersist(); this.magicItemResult = r.ok ? { ok:true, msg:'Appraised: '+r.spread.rarityLabel+', base '+r.spread.baseCost+'gp · buy ~'+r.spread.buy+' · sell ~'+r.spread.sell+' · commission ~'+r.spread.commission } : { ok:false, msg:'Appraise failed: '+r.error }; this.showToast('Appraised '+(ni.name||ni.kind)+'.', 2500); },
+  runMagicItemIdentify(){ const ni=this.magicItemDetail(); if(!ni) return; if(!this.magicItemIdCharId){ this.showToast('Pick a character to identify.', 2500); return; } const r=window.ACKS.identifyMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId, method:this.magicItemIdMethod }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot identify: '+(r.error||'unavailable') }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:r.success, msg: r.success ? ('Identified — learned: '+((r.learned&&r.learned.join(', '))||'(already known)')) : 'Identification FAILED — no retry until this character gains a level.' }; this.showToast(r.success?'Identified.':'Identification failed.', 2500); },
+  runMagicItemUseCharge(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.useMagicItemCharge(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null, count:1 }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot use a charge: '+r.error }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:true, msg:'Spent 1 charge ('+r.chargesAfter+' left)'+(r.depleted?' — depleted; now non-magical.':'.') }; this.showToast('Charge spent.', 2000); },
   // --- b7-knowledge ---
   // ─── 📚 Knowledge Layer Wave A (team burst7) — the Lore tab (who-knows-what over the eventLog) ───
   knowledgeSelectedLoreId: null,
@@ -16129,6 +16291,7 @@ return {
       // --- b7-banking ---  (add { id:'banking', label:'🏦 Banking', count:… } after this line)
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       // --- b7-magicitems ---  (add { id:'magic-items', label:'🪄 Magic Items', count:… })
+      { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       // --- b7-knowledge ---  (add { id:'knowledge', label:'📚 Knowledge', count:… })
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.

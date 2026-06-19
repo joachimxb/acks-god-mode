@@ -344,7 +344,14 @@ const EVENT_KINDS = Object.freeze([
   // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
   'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
-  'lore-shared'                    // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  'lore-shared',                   // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  // === Magic Items (team) === — #143 W1; owned by acks-engine-magic-items.js (the identify / use /
+  // appraise verbs apply the state — the identification write, the charge depletion, the appraisal
+  // record). Distinct from magic-item-created (Magic Research mints) / magic-item-sale (M&M) /
+  // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
+  'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
+  'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
+  'item-appraised'       // a character appraises a magic item (the TT p.28 price spread + rarity)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1101,6 +1108,21 @@ const EVENT_SCHEMAS = Object.freeze({
   'lore-shared': {
     R: { loreId: 'string', toKnowerId: 'string' },
     O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
+  },
+  // === Magic Items (team) === — #143 W1 (acks-engine-magic-items.js). knownProperties/learned/throw
+  // are objects/arrays (typed 'object', the kindResult/throwResult convention). characterId is REQUIRED
+  // for identify (you identify AS someone) but optional for charge-spend/appraise (the party may act).
+  'item-identified': {
+    R: { itemId: 'string', characterId: 'string', method: 'string' },
+    O: { rarity: 'string', full: 'boolean', success: 'boolean', knownProperties: 'object', learned: 'object', throw: 'object', narrative: 'string' }
+  },
+  'item-charge-spent': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', count: 'number', chargesBefore: 'number', chargesAfter: 'number', depleted: 'boolean', narrative: 'string' }
+  },
+  'item-appraised': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2830,6 +2852,18 @@ function applyEvent_loreAudit(campaign, event){
 }
 registerEventHandler('lore-learned', applyEvent_loreAudit);
 registerEventHandler('lore-shared', applyEvent_loreAudit);
+
+// === Magic Items (team) === — #143 W1 record-only audits. acks-engine-magic-items.js owns the state
+// (the identifyMagicItem / useMagicItemCharge / appraiseMagicItem verbs already wrote the notableItem's
+// identification + intrinsic.charges + emitted the record); this handler keeps the events well-formed
+// on replay, mirroring applyEvent_researchAudit.
+function applyEvent_magicItemAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'magic item event' } };
+}
+registerEventHandler('item-identified', applyEvent_magicItemAudit);
+registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
+registerEventHandler('item-appraised', applyEvent_magicItemAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5917,7 +5951,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
-  'lore-learned', 'lore-shared'
+  'lore-learned', 'lore-shared',
+  // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
+  // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
+  // identification + intrinsic.charges don't show.
+  'item-identified', 'item-charge-spent', 'item-appraised'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
