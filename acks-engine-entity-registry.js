@@ -456,7 +456,16 @@
       addressable: true, chronicleable: true,
       list: (c) => (c && c.bankAccounts) || [],
       find: (c, id) => ((c && c.bankAccounts) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => obj ? ((obj.owner && obj.owner.id ? obj.owner.id : 'account') + ' · ' + (obj.balanceGp || 0) + 'gp') : '' }
+      displayName: (c, obj) => obj ? ((obj.owner && obj.owner.id ? obj.owner.id : 'account') + ' · ' + (obj.balanceGp || 0) + 'gp') : '' },
+
+    // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore: a first-class fact (campaign.lore[]).
+    // rumors subsume in Wave B. The per-knower Knowledge relation (knw-) is accessor-only — NOT a
+    // registry kind (a join record surfaced via loreKnownBy / the Knowledge tab, not browsed). ===
+    { kind: 'lore', label: 'Lore', pluralLabel: 'Lore', icon: '📚',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.lore) || [],
+      find: (c, id) => ((c && c.lore) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.text) || (obj && obj.topic) || (obj && obj.id) || '(lore)' }
   ];
 
   // Build lookup table

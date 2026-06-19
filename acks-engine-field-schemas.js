@@ -1227,6 +1227,26 @@
         { name: 'status',                      type: 'enum', enumValues: ['open','closed','forfeited'], group: 'Lifecycle' },
         { name: 'history',                     type: 'history', readonly: true, group: 'Lifecycle' }
       ]
+    },
+    // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact. The per-knower Knowledge
+    // relation (knw-) is accessor-only (surfaced via the Knowledge tab + loreKnownBy), NOT Inspector-
+    // edited, so no schema for it. subjectIds + qualityDimensions are mixed-kind / freeform arrays —
+    // Raw-JSON-edited, omitted here per the schema⊆factory rule (the custom-race precedent above). ===
+    'lore': {
+      factory: 'blankLore',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Fact', 'Provenance', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string',   readonly: true, group: 'Identity' },
+        { name: 'topic',                type: 'string',   group: 'Identity', description: 'A short subject tag for grouping/search' },
+        { name: 'text',                 type: 'longText', required: true, group: 'Fact', description: 'The fact as stated (the TRUE statement of it)' },
+        { name: 'loreKind',             type: 'enum', enumValues: ['fact','rumor','secret','identity'], group: 'Fact', default: 'fact' },
+        { name: 'truthValue',           type: 'enum', enumValues: ['true','false','partial','unknown'], group: 'Fact', default: 'unknown', description: 'Is the statement actually true in the world?' },
+        { name: 'createdByCharacterId', type: 'id', idKind: 'character', group: 'Provenance', description: 'Who first recorded it (optional)' },
+        { name: 'createdAtTurn',        type: 'number',   readonly: true, group: 'Provenance' },
+        { name: 'notes',                type: 'string',   group: 'Fact' },
+        { name: 'history',              type: 'history',  readonly: true, group: 'History' }
+      ]
     }
   };
 

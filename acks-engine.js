@@ -196,7 +196,13 @@ const ID_PREFIXES = Object.freeze({
   // (campaign.loans[]; RR p.42 Access to Capital) + the BankAccount relation/wealth-handle
   // (campaign.bankAccounts[]; RR p.313 custody). Resolved by acks-engine-banking.js.
   loan:                 'lon',
-  bankAccount:          'bnk'
+  bankAccount:          'bnk',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore data layer (Knowledge_Layer_Plan.md /
+  // Sages_Knowledge_RAW_Survey.md §6/§16). `lore` = a first-class fact (campaign.lore[]; rumors subsume in
+  // Wave B); `knowledge` = the per-knower relation (campaign.knowledge[]; character ↔ lore, the
+  // believed-vs-true / confidence + provenance link). Resolved by acks-engine-knowledge.js. ===
+  lore:                 'lor',
+  knowledge:            'knw'
 });
 
 function newId(prefix){

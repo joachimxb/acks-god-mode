@@ -339,7 +339,12 @@ const EVENT_KINDS = Object.freeze([
   'loan-repaid',       // a loan repayment debtor → creditor (settled when balance hits 0)
   'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
   'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
-  'bank-withdrawal'    // gp withdrawn from a bank account
+  'bank-withdrawal',   // gp withdrawn from a bank account
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
+  // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
+  // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
+  'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
+  'lore-shared'                    // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1086,6 +1091,16 @@ const EVENT_SCHEMAS = Object.freeze({
   'bank-withdrawal': {
     R: { accountId: 'string' },
     O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
+  // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
+  'lore-learned': {
+    R: { loreId: 'string', knowerId: 'string' },
+    O: { knowerKind: 'string', certainty: 'string', sourceKind: 'string', sourceById: 'string', believedText: 'string', learnedAtHexId: 'string', narrative: 'string' }
+  },
+  'lore-shared': {
+    R: { loreId: 'string', toKnowerId: 'string' },
+    O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
   }
 });
 
@@ -2806,6 +2821,15 @@ registerEventHandler('loan-repaid', applyEvent_bankingAudit);
 registerEventHandler('loan-interest', applyEvent_bankingAudit);
 registerEventHandler('bank-deposit', applyEvent_bankingAudit);
 registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
+// === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
+// shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
+// keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
+function applyEvent_loreAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'lore event' } };
+}
+registerEventHandler('lore-learned', applyEvent_loreAudit);
+registerEventHandler('lore-shared', applyEvent_loreAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5889,7 +5913,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
   // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
   // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
-  'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal'
+  'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
+  // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
+  // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
+  'lore-learned', 'lore-shared'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

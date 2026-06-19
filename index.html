@@ -101,6 +101,8 @@
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
+<!-- b7-knowledge (team burst7 2026-06-19): the Knowledge Layer Wave A (Lore over the eventLog). Loads after the core + proficiencies (the throw die) + acks-engine.js (characterHistory/setEventContext/newEvent); before player-view. -->
+<script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -15184,6 +15186,140 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- b7-magicitems: panel + modals -->
 <!-- b7-knowledge: panel + modals -->
+<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
+<div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h2 class="font-bold text-xl">📚 Knowledge <span class="text-sm opacity-70 font-normal">· the Lore your campaign tracks — who knows what, how reliably</span></h2>
+      <span class="text-sm opacity-70" x-text="knowledgeLoreList().length + ' fact' + (knowledgeLoreList().length===1?'':'s')"></span>
+    </div>
+
+    <!-- Record a fact -->
+    <div class="vellum border border-ink rounded p-4 space-y-2">
+      <h3 class="font-semibold">＋ Record a fact</h3>
+      <p class="text-xs opacity-70">A fact in the world (the true statement). Who holds it, and how reliably, is tracked separately below.</p>
+      <textarea x-model="knowledgeNewFact.text" rows="2" class="w-full text-sm border border-ink rounded px-2 py-1" placeholder="e.g. The Drowned Causeway holds a lizardfolk lair"></textarea>
+      <div class="flex flex-wrap gap-3 items-baseline text-sm">
+        <label class="flex items-baseline gap-1">Topic <input x-model="knowledgeNewFact.topic" class="border border-ink rounded px-2 py-1" style="min-width:9rem" placeholder="short tag"></label>
+        <label class="flex items-baseline gap-1">Kind
+          <select x-model="knowledgeNewFact.loreKind" class="border border-ink rounded px-2 py-1">
+            <template x-for="k in window.ACKS.LORE_KINDS" :key="k"><option :value="k" x-text="k"></option></template>
+          </select>
+        </label>
+        <label class="flex items-baseline gap-1">Truth
+          <select x-model="knowledgeNewFact.truthValue" class="border border-ink rounded px-2 py-1">
+            <template x-for="t in window.ACKS.LORE_TRUTH_VALUES" :key="t"><option :value="t" x-text="t"></option></template>
+          </select>
+        </label>
+        <label class="flex items-baseline gap-1">Subjects <input x-model="knowledgeNewFact.subjectIds" class="border border-ink rounded px-2 py-1" style="min-width:11rem" placeholder="entity ids, comma-separated" title="Entity ids the fact is about (a character/hex/settlement) — powers 'what is known about X'"></label>
+        <button @click="knowledgeRecordFact()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Record fact</button>
+      </div>
+    </div>
+
+    <!-- Lore facts + the selected-fact detail -->
+    <div class="vellum border border-ink rounded p-4 space-y-3">
+      <h3 class="font-semibold">Lore</h3>
+      <template x-if="knowledgeLoreList().length === 0"><p class="text-sm italic opacity-60">No facts recorded yet. Record one above.</p></template>
+      <ul class="text-sm divide-y divide-ink/20" x-show="knowledgeLoreList().length">
+        <template x-for="l in knowledgeLoreList()" :key="l.id">
+          <li class="py-1.5">
+            <div class="flex justify-between items-start gap-2 cursor-pointer hover:bg-yellow-50 px-1 rounded" @click="knowledgeSelectedLoreId = (knowledgeSelectedLoreId===l.id ? null : l.id)">
+              <span>
+                <span class="font-semibold" x-text="l.text || l.topic || l.id"></span>
+                <span class="text-xs opacity-60" x-text="' · ' + l.loreKind + ' · ' + l.truthValue"></span>
+              </span>
+              <span class="text-xs shrink-0 opacity-70" x-text="knowledgeKnowersOf(l.id).length + ' know' + (knowledgeKnowersOf(l.id).length===1?'s':'')"></span>
+            </div>
+
+            <!-- selected-fact detail -->
+            <div x-show="knowledgeSelectedLoreId===l.id" class="mt-2 ml-1 pl-3 border-l-2 border-ink/30 space-y-3" x-cloak>
+              <template x-if="l.subjectIds && l.subjectIds.length"><p class="text-xs opacity-70">About: <span x-text="l.subjectIds.join(', ')"></span></p></template>
+
+              <!-- who knows this -->
+              <div>
+                <p class="text-xs font-semibold opacity-80 mb-1">Who knows this</p>
+                <template x-if="knowledgeKnowersOf(l.id).length === 0"><p class="text-xs italic opacity-60">Nobody holds this yet.</p></template>
+                <ul class="space-y-0.5">
+                  <template x-for="k in knowledgeKnowersOf(l.id)" :key="k.knowledgeId">
+                    <li class="flex items-center gap-2 text-xs">
+                      <span class="font-semibold" x-text="k.knowerKind==='character' ? knowledgeCharName(k.knowerId) : (k.knowerKind+' '+k.knowerId)"></span>
+                      <span class="px-1.5 rounded border" :class="knowledgeCertaintyClass(k.certainty)" x-text="k.certainty"></span>
+                      <span class="opacity-60" x-text="'· ' + (k.source && k.source.kind || '?') + (k.source && k.source.byId ? (' ' + knowledgeCharName(k.source.byId)) : '')"></span>
+                      <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover:text-red-700" title="Forget (drop this record)">✕</button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+
+              <!-- record / attempt -->
+              <div class="flex flex-wrap items-baseline gap-2 text-xs">
+                <span class="opacity-70">A knower:</span>
+                <select x-model="knowledgeLearnKnowerId" class="border border-ink rounded px-1.5 py-0.5">
+                  <option value="">— character —</option>
+                  <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
+                </select>
+                <span class="opacity-70">learns at</span>
+                <select x-model="knowledgeLearnCertainty" class="border border-ink rounded px-1.5 py-0.5">
+                  <template x-for="c in window.ACKS.CERTAINTY_BANDS" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+                <span class="opacity-70">via</span>
+                <select x-model="knowledgeLearnSourceKind" class="border border-ink rounded px-1.5 py-0.5">
+                  <template x-for="s in window.ACKS.LORE_SOURCE_KINDS" :key="s"><option :value="s" x-text="s"></option></template>
+                </select>
+                <button @click="knowledgeLearn()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Record</button>
+                <span class="opacity-40">|</span>
+                <span class="opacity-70">or roll</span>
+                <select x-model="knowledgeLearnTask" class="border border-ink rounded px-1.5 py-0.5" title="The shipped Knowledge/Loremastery proficiency throw sets the certainty">
+                  <option value="knowledge:recall">Knowledge</option>
+                  <option value="loremastery:decipher">Loremastery</option>
+                </select>
+                <button @click="knowledgeAttempt()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Resolve a Knowledge/Loremastery throw — the margin sets the certainty (RR pp.9–10)">🎲 Attempt</button>
+              </div>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- What a character knows -->
+    <div class="vellum border border-ink rounded p-4 space-y-3">
+      <div class="flex flex-wrap items-baseline gap-2">
+        <h3 class="font-semibold">What a character knows</h3>
+        <select x-model="knowledgeViewCharId" class="text-sm border border-ink rounded px-2 py-1">
+          <option value="">— pick a character —</option>
+          <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
+        </select>
+        <template x-if="knowledgeViewCharId">
+          <span class="text-sm flex items-baseline gap-1 ml-auto">tell
+            <select x-model="knowledgeShareToId" class="border border-ink rounded px-1.5 py-0.5">
+              <option value="">— someone —</option>
+              <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option x-show="c.id !== knowledgeViewCharId" :value="c.id" x-text="c.name || c.id"></option></template>
+            </select>
+          </span>
+        </template>
+      </div>
+      <template x-if="!knowledgeViewCharId"><p class="text-sm italic opacity-60">Pick a character to see their first-hand (witnessed) and second-hand (heard / learned) knowledge.</p></template>
+      <template x-if="knowledgeViewCharId">
+        <div>
+          <template x-if="knowledgeKnownByView().length === 0"><p class="text-sm italic opacity-60">They know nothing tracked yet.</p></template>
+          <ul class="text-sm divide-y divide-ink/20">
+            <template x-for="row in knowledgeKnownByView()" :key="row.firstHand ? ('fh-'+row.eventId) : ('kn-'+(row.knowledge && row.knowledge.id))">
+              <li class="py-1 flex items-center gap-2 flex-wrap">
+                <span x-text="knowledgeRowLoreText(row)" class="font-medium"></span>
+                <span class="text-xs px-1.5 rounded border" :class="knowledgeCertaintyClass(row.certainty)" x-text="row.certainty"></span>
+                <span class="text-xs px-1.5 rounded border" :class="row.firstHand ? 'border-ink/50 bg-stone-100' : 'border-ink/30 opacity-70'" x-text="row.firstHand ? '👁 first-hand' : '🗣 ' + (row.source && row.source.kind || 'recorded')"></span>
+                <template x-if="row.believedText"><span class="text-xs italic opacity-70" x-text="'— believes: “' + row.believedText + '”'"></span></template>
+                <template x-if="!row.firstHand && row.loreId">
+                  <button @click="knowledgeShareFrom(row.loreId)" class="ml-auto text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!knowledgeShareToId" :class="!knowledgeShareToId ? 'opacity-40' : ''" title="Tell the chosen character — gossip degrades the certainty one band">🗣 Share</button>
+                </template>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
 <!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
 <!-- b7-delves: modal(s) (delve sub-view extends an existing region) -->
 <!-- b7-demographics: modal(s) (demographics panel extends an existing region) -->
@@ -15767,6 +15903,54 @@ return {
   },
   // --- b7-magicitems ---
   // --- b7-knowledge ---
+  // ─── 📚 Knowledge Layer Wave A (team burst7) — the Lore tab (who-knows-what over the eventLog) ───
+  knowledgeSelectedLoreId: null,
+  knowledgeNewFact: { text:'', topic:'', loreKind:'fact', truthValue:'unknown', subjectIds:'' },
+  knowledgeLearnKnowerId: '',
+  knowledgeLearnCertainty: 'suspected',
+  knowledgeLearnSourceKind: 'told-by',
+  knowledgeLearnTask: 'knowledge:recall',
+  knowledgeViewCharId: '',
+  knowledgeShareToId: '',
+  knowledgeLoreList(){ return (this.currentCampaign && this.currentCampaign.lore) || []; },
+  knowledgeSelectedLore(){ return this.knowledgeSelectedLoreId ? window.ACKS.findLore(this.currentCampaign, this.knowledgeSelectedLoreId) : null; },
+  knowledgeCharName(id){ if(!id) return '—'; const cs=(this.currentCampaign && this.currentCampaign.characters)||[]; const c=cs.find(x=>x&&x.id===id); return (c&&c.name)||id; },
+  knowledgeActiveCharacters(){ return ((this.currentCampaign && this.currentCampaign.characters)||[]).filter(c=>c && c.alive !== false); },
+  knowledgeKnowersOf(loreId){ return loreId ? window.ACKS.loreKnowers(this.currentCampaign, loreId) : []; },
+  knowledgeCertaintyClass(c){ return ({ certain:'text-green-800 border-green-700 bg-green-50', probable:'text-sky-800 border-sky-700 bg-sky-50', suspected:'text-amber-800 border-amber-700 bg-amber-50', rumored:'opacity-70 border-ink/40' })[c] || 'opacity-70 border-ink/40'; },
+  knowledgeKnownByView(){ return this.knowledgeViewCharId ? window.ACKS.loreKnownBy(this.currentCampaign, 'character', this.knowledgeViewCharId) : []; },
+  knowledgeRowLoreText(row){ const l = row && (row.lore || (row.loreId ? window.ACKS.findLore(this.currentCampaign, row.loreId) : null)); if(l) return l.topic || l.text || l.id; return (row && row.text) || (row && row.kind) || '(event)'; },
+  knowledgeRecordFact(){
+    const f = this.knowledgeNewFact;
+    if(!f.text || !f.text.trim()){ this.showToast('Fact text is required.', 3000); return; }
+    const subjects = (f.subjectIds||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const lore = window.ACKS.recordLore(this.currentCampaign, { text:f.text.trim(), topic:(f.topic||'').trim(), loreKind:f.loreKind, truthValue:f.truthValue, subjectIds:subjects });
+    this.knowledgeNewFact = { text:'', topic:'', loreKind:'fact', truthValue:'unknown', subjectIds:'' };
+    if(lore) this.knowledgeSelectedLoreId = lore.id;
+    this.markDirty(); this.schedulePersist(); this.showToast('Fact recorded.', 2500);
+  },
+  knowledgeLearn(){
+    if(!this.knowledgeSelectedLoreId || !this.knowledgeLearnKnowerId){ this.showToast('Pick a fact and a knower.', 3000); return; }
+    const r = window.ACKS.learnLore(this.currentCampaign, { knowerId:this.knowledgeLearnKnowerId, loreId:this.knowledgeSelectedLoreId, certainty:this.knowledgeLearnCertainty, source:{ kind:this.knowledgeLearnSourceKind, byId:null } });
+    if(!r.ok){ this.showToast('Could not record: '+(r.reason||'?'), 3500); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast(this.knowledgeCharName(this.knowledgeLearnKnowerId)+' now knows it ('+r.knowledge.certainty+').', 3000);
+  },
+  knowledgeAttempt(){
+    if(!this.knowledgeSelectedLoreId || !this.knowledgeLearnKnowerId){ this.showToast('Pick a fact and a knower.', 3000); return; }
+    const r = window.ACKS.attemptLearnLore(this.currentCampaign, { knowerId:this.knowledgeLearnKnowerId, loreId:this.knowledgeSelectedLoreId, proficiencyTask:this.knowledgeLearnTask });
+    if(!r.ok){ this.showToast('Could not attempt: '+(r.reason||'?'), 3500); return; }
+    const t=r.throw; const rollTxt = (t && typeof t.natural==='number') ? (' (🎲 '+t.natural+(t.resolvedTarget!=null?(' vs '+t.resolvedTarget+'+'):'')+')') : (t && t.unavailable ? ' (no relevant proficiency)' : '');
+    this.markDirty(); this.schedulePersist(); this.showToast(this.knowledgeCharName(this.knowledgeLearnKnowerId)+' → '+r.certainty+rollTxt, 4500);
+  },
+  knowledgeForget(knowerKind, knowerId, loreId){
+    if(window.ACKS.forgetLore(this.currentCampaign, { knowerKind, knowerId, loreId })){ this.markDirty(); this.schedulePersist(); this.showToast('Forgotten.', 2000); }
+  },
+  knowledgeShareFrom(loreId){
+    if(!this.knowledgeViewCharId || !this.knowledgeShareToId){ this.showToast('Pick someone to tell.', 3000); return; }
+    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId });
+    if(!r.ok){ this.showToast('Could not share: '+(r.reason==='teller-does-not-know'?'they don’t hold this as a tracked fact':(r.reason||'?')), 3500); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast('Told '+this.knowledgeCharName(this.knowledgeShareToId)+' ('+r.sharedCertainty+').', 3000);
+  },
   // --- b7-cl3 ---
   // --- b7-delves ---
   // --- b7-demographics ---
@@ -15946,6 +16130,7 @@ return {
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       // --- b7-magicitems ---  (add { id:'magic-items', label:'🪄 Magic Items', count:… })
       // --- b7-knowledge ---  (add { id:'knowledge', label:'📚 Knowledge', count:… })
+      { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -26398,6 +26583,8 @@ return {
       'apprenticeships',
       // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
       'loans', 'bankAccounts',
+      // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
+      'lore', 'knowledge',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
