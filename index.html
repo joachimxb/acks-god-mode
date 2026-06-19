@@ -101,6 +101,8 @@
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
+<!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
+<script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
@@ -15802,6 +15804,103 @@ document.addEventListener('alpine:init', () => {
      <template>/fixed-overlay modal AFTER your OWN marker (disjoint anchors → clean merge).
      A lane that only extends an existing tab edits that tab's region in-place instead. ─── -->
 <!-- === @b8-generators (team) — NPC Generator modal === -->
+<div x-show="currentCampaign && currentView === 'generators'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">🧙 NPC Generator</h2>
+      <span class="text-sm italic opacity-70">Roll a complete RAW NPC (JJ Ch.9) — occupation → attributes → class/level → HD·AC·saves → proficiencies → age → wealth → appearance. The generated NPC lands in your 👥 Characters roster.</span>
+    </div>
+
+    <!-- the context form -->
+    <div class="vellum border border-ink p-3 rounded grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+      <label class="flex flex-col">Level
+        <input type="number" min="0" max="14" x-model="genForm.targetLevel" placeholder="(roll · 0th)" class="border border-ink rounded px-1 py-0.5">
+      </label>
+      <label class="flex flex-col">Class
+        <select x-model="genForm.classKey" class="border border-ink rounded px-1 py-0.5">
+          <option value="">(roll by demographics)</option>
+          <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Race
+        <select x-model="genForm.race" class="border border-ink rounded px-1 py-0.5">
+          <template x-for="r in ['human','dwarf','elf','halfling','nobiran','zaharan']" :key="r"><option :value="r" x-text="r"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Home settlement
+        <select x-model="genForm.settlementId" class="border border-ink rounded px-1 py-0.5">
+          <option value="">(none)</option>
+          <template x-for="st in genSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Detail
+        <select x-model="genForm.detailLevel" class="border border-ink rounded px-1 py-0.5">
+          <option value="full">Full (rolled)</option>
+          <option value="lightweight">Lightweight stub</option>
+        </select>
+      </label>
+      <label class="flex flex-col">Attributes
+        <select x-model="genForm.attributeMethod" class="border border-ink rounded px-1 py-0.5">
+          <option value="3d6">3d6 in order (+swap)</option>
+          <option value="one-high-one-low">One 13 / one 8</option>
+          <option value="flat">Flat 9–11</option>
+        </select>
+      </label>
+      <label class="flex flex-col">Seed
+        <input x-model="genForm.seed" placeholder="(random)" class="border border-ink rounded px-1 py-0.5">
+      </label>
+      <div class="flex items-end">
+        <button @click="genRoll()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 w-full">🎲 Generate</button>
+      </div>
+    </div>
+
+    <!-- the preview card -->
+    <template x-if="genPreview && genPreviewChar()">
+      <div class="vellum border-2 border-ink p-3 rounded space-y-2" x-data="{ c: genPreviewChar() }">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-lg font-bold" x-text="c.name"></span>
+          <span class="text-sm opacity-80" x-text="c.race + ' ' + c.class + (c.isZerothLevel ? ' (0th level)' : ' · L' + c.level)"></span>
+          <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="'⚒ ' + c.occupation"></span>
+          <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="c.alignment"></span>
+          <span x-show="c.detailLevel==='lightweight'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80">🪶 lightweight</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Attributes</div>
+            <div class="font-mono text-xs">
+              STR <span x-text="c.abilities.STR"></span> · INT <span x-text="c.abilities.INT"></span> · WIL <span x-text="c.abilities.WIL"></span><br>
+              DEX <span x-text="c.abilities.DEX"></span> · CON <span x-text="c.abilities.CON"></span> · CHA <span x-text="c.abilities.CHA"></span>
+            </div>
+          </div>
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Combat</div>
+            <div class="text-xs">Attack <span x-text="c.attackThrow + '+'"></span> · AC <span x-text="c.ac"></span> · HP <span x-text="c.hp.max"></span> <span class="opacity-60" x-text="'(' + (c.hp.hitDice||'') + ')'"></span></div>
+            <div class="text-xs">Saves P<span x-text="c.savingThrows.paralysis"></span> D<span x-text="c.savingThrows.death"></span> B<span x-text="c.savingThrows.blast"></span> I<span x-text="c.savingThrows.implements"></span> S<span x-text="c.savingThrows.spells"></span></div>
+          </div>
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Life</div>
+            <div class="text-xs">Age <span x-text="c.age"></span> <span class="opacity-60" x-text="c.ageCategory ? '(' + c.ageCategory + ')' : ''"></span></div>
+            <div class="text-xs">Wealth <span x-text="(c.coins.gp||0).toLocaleString()"></span> gp · magic <span x-text="(c.magicItemValue||0).toLocaleString()"></span> gp</div>
+            <div class="text-xs" x-show="c.isZerothLevel">XP to 1st: <span x-text="c.xpToNextLevel"></span></div>
+          </div>
+        </div>
+        <div class="text-sm">
+          <span class="font-semibold text-xs uppercase opacity-60">Proficiencies </span>
+          <span class="text-xs" x-text="(c.proficiencies||[]).map(p => p.key + (p.ranks>1 ? ' ('+p.ranks+')' : '')).join(', ') || '—'"></span>
+        </div>
+        <div class="text-sm italic opacity-80" x-text="c.appearance ? c.appearance.summary : ''"></div>
+        <div class="flex gap-2 pt-1">
+          <button @click="genReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Re-roll</button>
+          <button @click="genCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400">✓ Add to roster</button>
+          <span class="text-xs opacity-50 self-center" x-show="genLastSeed" x-text="'seed: ' + genLastSeed"></span>
+        </div>
+      </div>
+    </template>
+    <template x-if="!genPreview">
+      <p class="text-sm italic opacity-60">No NPC generated yet — set a context above (or leave it to roll) and press 🎲 Generate. A 0th-level commoner rolls when you leave Level blank and the occupation isn't classed.</p>
+    </template>
+  </div>
+</div>
 <!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
 <!-- === @b8-politics   (team) — senate influence modal === -->
 <!-- === @b8-magicitems (team) — commission modal === -->
@@ -16732,6 +16831,7 @@ return {
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
+      { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -16742,6 +16842,52 @@ return {
   //     line below — disjoint anchors → clean 6-way merge. Wrap your block in a
   //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
   // === @b8-generators (team) — NPC Generator G1: state + methods ===
+  // NPC Generator G1 (Phase 4.8 §2.1) — the Generation door. genRoll() builds a PREVIEW Character
+  // (not yet landed); genCommit() lands the SAME object + emits the `generation` event. The
+  // full-vs-lightweight choice is a plain detailLevel param (no house rule — manifest houseRules:[]).
+  genForm: { targetLevel:'', classKey:'', race:'human', settlementId:'', detailLevel:'full', attributeMethod:'3d6', seed:'' },
+  genPreview: null,
+  genLastSeed: null,
+  genPreviewChar(){ return this.genPreview ? this.genPreview.character : null; },
+  genClassOptions(){
+    const A = window.ACKS;
+    const keys = (typeof A.seedClassTemplates==='function') ? A.seedClassTemplates().map(t=>({ key:t.key, label:t.displayName||t.key })) : [];
+    const camp = this.currentCampaign;
+    if(camp && Array.isArray(camp.customClasses)) camp.customClasses.forEach(c=>{ if(c && c.key && !keys.find(k=>k.key===c.key)) keys.push({ key:c.key, label:c.displayName||c.key }); });
+    return keys;
+  },
+  genSettlementOptions(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.settlements)) return [];
+    return camp.settlements.map(s=>({ id:s.id, name:s.name||s.id }));
+  },
+  _genCtxOpts(seed){
+    const f = this.genForm, camp = this.currentCampaign;
+    const ctx = {};
+    if(f.targetLevel!=='' && f.targetLevel!=null) ctx.targetLevel = Math.max(0, Math.min(14, parseInt(f.targetLevel,10)||0));
+    if(f.classKey) ctx.class = f.classKey;
+    if(f.race) ctx.race = f.race;
+    if(f.settlementId){ ctx.settlementId = f.settlementId; const st=(camp.settlements||[]).find(s=>s.id===f.settlementId); if(st){ if(st.hexId) ctx.hexId=st.hexId; if(st.domainId) ctx.domainId=st.domainId; } }
+    const opts = { detailLevel: (f.detailLevel==='lightweight'?'lightweight':'full'), attributeMethod: f.attributeMethod, seed };
+    return { ctx, opts };
+  },
+  genRoll(){
+    if(!this.currentCampaign){ this.showToast('Load a campaign first.', 3000, 'warn'); return; }
+    const seed = (this.genForm.seed!=='' && this.genForm.seed!=null) ? this.genForm.seed : ('npc-' + Math.floor(Math.random()*1e9));
+    this.genLastSeed = seed;
+    const { ctx, opts } = this._genCtxOpts(seed);
+    try { this.genPreview = window.ACKS.generateNPC(this.currentCampaign, ctx, opts); }
+    catch(e){ this.showToast('Generation failed: ' + e.message, 4000, 'error'); this.genPreview = null; }
+  },
+  genReroll(){ this.genForm.seed = ''; this.genRoll(); },
+  genCommit(){
+    if(!this.genPreview) return;
+    const { opts } = this._genCtxOpts(this.genLastSeed);
+    const c = window.ACKS.landGeneratedNPC(this.currentCampaign, this.genPreview, opts);
+    this.genPreview = null;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🧙 ' + (c ? c.name : 'NPC') + ' added to the roster.', 4000, 'success');
+  },
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
   // === @b8-politics   (team) — Politics P-3: state + methods ===
   // === @b8-magicitems (team) — Magic Items W2: state + methods ===

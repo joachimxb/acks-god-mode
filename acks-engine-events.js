@@ -363,7 +363,13 @@ const EVENT_KINDS = Object.freeze([
   // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
   'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
   'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
-  'item-appraised'       // a character appraises a magic item (the TT p.28 price spread + rarity)
+  'item-appraised',      // a character appraises a magic item (the TT p.28 price spread + rarity)
+  // === Generators G1 (team burst8 2026-06-19) === — #435/Phase 4.8 §4. ONE event kind, NO new
+  // entity/prefix (a generation run is an EVENT, not an entity — §3.1; the reserved gen- stays unused).
+  // Record-only, owned by acks-engine-generators.js (generateAndLandNPC already pushed the produced
+  // Character); the event carries the run's params + seed + the produced ids (context.relatedEntities)
+  // so "what did the generator make here, and how" is one eventLog filter (the derived-history pattern).
+  'generation'           // a generator run produced one or more entities (NPC Generator; the Wizards family later)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1156,6 +1162,12 @@ const EVENT_SCHEMAS = Object.freeze({
   'item-appraised': {
     R: { itemId: 'string' },
     O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
+  },
+  // === Generators G1 (team burst8 2026-06-19) === — a generation run's audit record (record-only).
+  // producedCharacterIds carries the ids (also in context.relatedEntities); the rest is the run's params.
+  'generation': {
+    R: { generator: 'string', producedCharacterIds: 'array' },
+    O: { occupation: 'string', classKey: 'string', bucket: 'string', level: 'number', race: 'string', attributeMethod: 'string', detailLevel: 'string', wealthGp: 'number', magicItemValue: 'number', seed: 'string', narrative: 'string' }
   }
 });
 
@@ -2911,6 +2923,15 @@ function applyEvent_magicItemAudit(campaign, event){
 registerEventHandler('item-identified', applyEvent_magicItemAudit);
 registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
 registerEventHandler('item-appraised', applyEvent_magicItemAudit);
+
+// === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
+// (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
+// the event well-formed on replay (mirrors applyEvent_magicItemAudit / applyEvent_loreAudit).
+function applyEvent_generationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'generation run' } };
+}
+registerEventHandler('generation', applyEvent_generationAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6009,7 +6030,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
   // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
   // identification + intrinsic.charges don't show.
-  'item-identified', 'item-charge-spent', 'item-appraised'
+  'item-identified', 'item-charge-spent', 'item-appraised',
+  // === Generators G1 (team burst8 2026-06-19) === — owned by acks-engine-generators.js (generateAndLandNPC
+  // produces the Character + emits the run record). A raw Event-Wizard emit would record a generation
+  // that produced nothing — the Generators tab is the real surface.
+  'generation'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
