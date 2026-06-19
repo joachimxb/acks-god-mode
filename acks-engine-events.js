@@ -283,6 +283,12 @@ const EVENT_KINDS = Object.freeze([
   // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
   'disease-contracted',
   'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — persistent conditions (RR pp.507–516). Record-only
+  // audit emitted by acks-engine-lifecycle.js (applyCondition + the slot-59 conditions day-consumer's
+  // resolution). 'condition-cleared' is the resolution event — outcome ∈ cleared|warmed|cured|recovered|died
+  // (like disease-recovered carrying died:bool); the eventLog narrative reads correctly for each.
+  'condition-applied',
+  'condition-cleared',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -961,6 +967,18 @@ const EVENT_SCHEMAS = Object.freeze({
   'disease-recovered': {
     R: { characterId: 'string', diseaseType: 'string' },
     O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-3 (burst7, team) === (RR pp.507–516; engine-emitted by
+  // acks-engine-lifecycle.js, record-only). A persistent condition is applied; then it resolves.
+  'condition-applied': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', effect: 'string', narrative: 'string' }
+  },
+  // The condition's resolution. outcome ∈ cleared|warmed|cured|recovered|died; on death the consumer
+  // sets lifecycleState 'deceased'.
+  'condition-cleared': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', outcome: 'string', died: 'boolean', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -2781,6 +2799,16 @@ function applyEvent_diseaseAudit(campaign, event){
 }
 registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
 registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
+// === Character Lifecycle CL-3 (burst7, team) === — condition events share the record-only audit
+// posture: acks-engine-lifecycle.js already applied the condition state (applyCondition + the slot-59
+// consumer's drain/save/resolution); the handler keeps the event well-formed on replay (records the
+// narrative only). Mirrors aging / disease / mortal-wound.
+function applyEvent_conditionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'condition' } };
+}
+registerEventHandler('condition-applied', applyEvent_conditionAudit);
+registerEventHandler('condition-cleared', applyEvent_conditionAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -5914,6 +5942,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
   'disease-contracted', 'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — owned by acks-engine-lifecycle.js (applyCondition +
+  // the slot-59 conditions consumer); a raw emit would narrate a condition the character's conditions[]
+  // + lifecycleState don't show. The GM applies/clears a condition via the character sheet, not the Wizard.
+  'condition-applied', 'condition-cleared',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
