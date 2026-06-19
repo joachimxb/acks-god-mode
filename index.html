@@ -15798,6 +15798,16 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
+<!-- ─── burst8 (team session) — per-agent modal/overlay tail. Append your new
+     <template>/fixed-overlay modal AFTER your OWN marker (disjoint anchors → clean merge).
+     A lane that only extends an existing tab edits that tab's region in-place instead. ─── -->
+<!-- === @b8-generators (team) — NPC Generator modal === -->
+<!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
+<!-- === @b8-politics   (team) — senate influence modal === -->
+<!-- === @b8-magicitems (team) — commission modal === -->
+<!-- === @b8-sages      (team) — sage-commission modal === -->
+<!-- === @b8-banking    (team) — loan modal === -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -16721,10 +16731,22 @@ return {
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
+      // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
   },
+
+  // ─── burst8 (team session) — per-agent state + methods. Each builder appends its
+  //     object properties (`propName(){…},` / `stateVar: …,`) right AFTER its OWN marker
+  //     line below — disjoint anchors → clean 6-way merge. Wrap your block in a
+  //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
+  // === @b8-generators (team) — NPC Generator G1: state + methods ===
+  // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
+  // === @b8-politics   (team) — Politics P-3: state + methods ===
+  // === @b8-magicitems (team) — Magic Items W2: state + methods ===
+  // === @b8-sages      (team) — Sages SG-2: state + methods ===
+  // === @b8-banking    (team) — Banking B2: state + methods ===
 
   // Events log — sub-tab toggle. Campaign log is the default (Joachim 2026-05-28).
   eventsSubView: 'campaign-log',
