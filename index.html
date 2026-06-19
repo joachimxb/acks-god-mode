@@ -1125,6 +1125,7 @@ document.addEventListener('alpine:init', () => {
         <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
         <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
         <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon (RR p.386) — a Construction Project that mints a Dungeon entity + auto-attunes an arcane L9+ owner; monsters then auto-arrive + lair within it via Vagaries of Incursion">🏗 Build a dungeon</button>
+        <button @click="openWildForay()" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Abstract Wilderness foray (JJ ch.13) — resolve an expedition's combat against a lair or wandering monster on one roll; clearing a lair moves the hex toward secure (JJ p.68)">🗺 Wilderness foray</button>
       </div>
     </div>
     <template x-if="worldDungeons().length === 0">
@@ -15077,6 +15078,145 @@ document.addEventListener('alpine:init', () => {
 <!-- b7-knowledge: panel + modals -->
 <!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
 <!-- b7-delves: modal(s) (delve sub-view extends an existing region) -->
+<!-- Delves D4 — the Abstract Wilderness Foray (JJ ch.13). Opened from World ▸ 🕳️ Dungeons
+     (🗺 Wilderness foray). Propose-compute-commit: resolveWildernessForay (PURE) → review /
+     ⟳ reroll → commitWildernessForay (Mortal Wounds + adventure-result + clearLair). z-index:79. -->
+<div x-show="wildForay.open" @keydown.escape.window="if(wildForay.open && !$event.defaultPrevented){ closeWildForay(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeWildForay()">
+  <template x-if="wildForay.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🗺 Abstract Wilderness Foray <span class="text-sm font-normal opacity-70">· JJ ch.13</span></h2>
+      <button @click="closeWildForay()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- the committed summary supersedes the form -->
+      <template x-if="wildForay.lastCommit">
+        <div class="vellum border-2 border-ink rounded p-3 space-y-1">
+          <p class="font-semibold" x-text="(wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.result) ? ('Result: ' + wildForay.lastCommit.proposal.result.toUpperCase()) : 'Foray resolved'"></p>
+          <p class="text-sm" x-show="wildForay.lastCommit.lairCleared">✓ The lair was cleared — the hex is one step closer to secure (JJ p.68).</p>
+          <p class="text-sm" x-show="wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.treasureGp" x-text="'Treasure: ' + (wildForay.lastCommit.proposal ? wildForay.lastCommit.proposal.treasureGp : 0) + 'gp' + (wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.magicItemRolls ? (' · ' + wildForay.lastCommit.proposal.magicItemRolls + ' magic-item roll(s) [type ' + wildForay.lastCommit.proposal.magicItemType + ']') : '')"></p>
+          <p class="text-sm" x-show="wildForay.lastCommit.xpAwarded && wildForay.lastCommit.xpAwarded.length" x-text="(wildForay.lastCommit.proposal ? wildForay.lastCommit.proposal.combatXp : 0) + ' combat XP shared among the survivors'"></p>
+          <template x-if="wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.casualties && wildForay.lastCommit.proposal.casualties.length">
+            <p class="text-sm font-semibold text-red-800" x-text="'⚑ ' + wildForay.lastCommit.proposal.casualties.length + ' adventurer(s) suffered a mortal wound.'"></p>
+          </template>
+          <div class="wizard-submit-gate"><span></span><button @click="closeWildForay()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Done</button></div>
+        </div>
+      </template>
+
+      <template x-if="!wildForay.lastCommit">
+      <div class="space-y-3">
+        <!-- 1 · the expedition -->
+        <div>
+          <div class="wizard-step-header">1 · The expedition <span class="opacity-60 font-normal text-xs" x-text="'(expedition level ' + wildForayExpLevel() + ' · ' + wildForay.participantIds.length + ' adventurer(s))'"></span></div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 max-h-40 overflow-y-auto border border-ink/20 rounded p-2 text-sm">
+            <template x-for="c in wildForayCandidates()" :key="c.id">
+              <label class="flex items-center gap-1">
+                <input type="checkbox" :checked="wildForay.participantIds.includes(c.id)" @change="wildForayToggleParticipant(c.id)">
+                <span x-text="c.name + ' (L' + (c.level||1) + ')'"></span>
+              </label>
+            </template>
+            <template x-if="wildForayCandidates().length===0"><span class="opacity-60 italic col-span-2">No active characters.</span></template>
+          </div>
+        </div>
+
+        <!-- 2 · the foe -->
+        <div>
+          <div class="wizard-step-header">2 · The foe</div>
+          <div class="flex gap-3 text-sm pb-1">
+            <label class="flex items-center gap-1"><input type="radio" value="lair" x-model="wildForay.foeMode" @change="wildForay.proposal=null"> A monster lair</label>
+            <label class="flex items-center gap-1"><input type="radio" value="manual" x-model="wildForay.foeMode" @change="wildForay.proposal=null"> A wandering encounter</label>
+          </div>
+          <template x-if="wildForay.foeMode==='lair'">
+            <select x-model="wildForay.lairId" @change="wildForay.proposal=null" class="text-sm w-full">
+              <option value="">— pick an active lair —</option>
+              <template x-for="l in wildForayLairs()" :key="l.id"><option :value="l.id" :selected="wildForay.lairId === l.id" x-text="wildForayLairName(l)"></option></template>
+            </select>
+          </template>
+          <template x-if="wildForay.foeMode==='manual'">
+            <div class="flex gap-2 items-center text-sm">
+              <input type="text" x-model="wildForay.monsterKey" @input="wildForay.proposal=null" placeholder="monster catalog key (e.g. orc)" class="flex-1">
+              <span>×</span><input type="number" min="1" x-model.number="wildForay.monsterCount" @input="wildForay.proposal=null" class="w-20">
+            </div>
+          </template>
+          <template x-if="wildForayChallenge()">
+            <p class="text-xs opacity-70 pt-1" x-text="'Monster level ' + wildForayChallenge().monsterLevel + ' · XPV ' + wildForayChallenge().totalXPV + ' · quotient ' + wildForayChallenge().quotient.toFixed(2) + ' → challenge ' + (wildForayChallenge().challengeAdj>=0?'+':'') + wildForayChallenge().challengeAdj + ' step(s)'"></p>
+          </template>
+        </div>
+
+        <!-- 3 · army (optional) -->
+        <div>
+          <div class="wizard-step-header">3 · Army (optional) <span class="opacity-60 font-normal text-xs">(platoon units reduce the danger, JJ p.282)</span></div>
+          <div class="flex gap-2 items-center text-sm flex-wrap">
+            <label class="flex items-center gap-1">BR <input type="number" min="0" step="0.5" x-model.number="wildForay.armyBr" @input="wildForay.proposal=null" class="w-16"></label>
+            <span>×</span>
+            <label class="flex items-center gap-1">units <input type="number" min="0" x-model.number="wildForay.armyCount" @input="wildForay.proposal=null" class="w-16"></label>
+            <label class="flex items-center gap-1">army level <input type="number" min="1" x-model.number="wildForay.armyLevel" @input="wildForay.proposal=null" class="w-16"></label>
+          </div>
+          <template x-if="wildForayArmyPreview() && wildForayArmyPreview().participatingUnits>0">
+            <p class="text-xs opacity-70 pt-1" x-text="wildForayArmyPreview().participatingUnits + ' unit(s) participate (cap = leveled chars ≥3rd) · Army Adjustment +' + wildForayArmyPreview().rawAA + ' → modified +' + wildForayArmyPreview().modifiedAA + ' (halved ' + wildForayArmyPreview().halvings + '×)'"></p>
+          </template>
+        </div>
+
+        <!-- 4 · situational -->
+        <div>
+          <div class="wizard-step-header">4 · Situational difficulty steps <span class="opacity-60 font-normal text-xs">(GM ±, JJ p.285)</span></div>
+          <input type="number" min="-3" max="3" x-model.number="wildForay.situational" @input="wildForay.proposal=null" class="w-20 text-sm">
+        </div>
+
+        <!-- forecast -->
+        <template x-if="wildForayDifficultyPreview() && !wildForay.proposal">
+          <div class="wizard-forecast-row text-sm">
+            <span x-text="'Difficulty: ' + wildForayDifficultyPreview().difficultyLabel"></span>
+            <span class="font-mono" x-text="'roll 1d8+1d12 ' + (wildForayDifficultyPreview().modifier>=0?'+':'') + wildForayDifficultyPreview().modifier"></span>
+          </div>
+        </template>
+
+        <!-- resolve -->
+        <template x-if="!wildForay.proposal">
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">Abstract Wilderness resolves the COMBAT in one roll (JJ ch.13).</span>
+            <button @click="wildForayResolve()" :disabled="!wildForayCanResolve()" :class="wildForayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+          </div>
+        </template>
+
+        <!-- proposal review -->
+        <template x-if="wildForay.proposal">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <div class="text-sm font-mono" x-text="'🎲 1d8(' + wildForay.proposal.roll.d8 + ') + 1d12(' + wildForay.proposal.roll.d12 + ') ' + (wildForay.proposal.modifier>=0?'+':'') + wildForay.proposal.modifier + ' = ' + wildForay.proposal.roll.total + ' → ' + wildForay.proposal.result.toUpperCase()"></div>
+            <details class="text-xs opacity-70"><summary>difficulty breakdown</summary>
+              <template x-for="(r,i) in wildForay.proposal.modifierBreakdown" :key="i"><div x-text="r.label + (r.value!=null ? (': ' + (r.value>=0?'+':'') + r.value) : (r.steps!=null ? (': ' + (r.steps>=0?'+':'') + r.steps + ' step(s)') : ''))"></div></template>
+            </details>
+            <p class="text-sm" x-text="(wildForay.proposal.defeated ? 'Defeated the foe' : 'The expedition is overcome') + ' · ' + wildForay.proposal.treasureGp + 'gp · ' + wildForay.proposal.combatXp + ' combat XP · scaling ×' + wildForay.proposal.scalingModifier.toFixed(2)"></p>
+            <template x-if="wildForay.proposal.casualties.length">
+              <div class="text-sm">
+                <p class="font-semibold text-red-800" x-text="'⚑ ' + wildForay.proposal.casualties.length + ' adventurer(s) suffer a mortal wound:'"></p>
+                <template x-for="cas in wildForay.proposal.casualties" :key="cas.characterId"><div class="pl-3" x-text="'• ' + cas.name + ' — ' + (cas.conditionLabel || 'wounded')"></div></template>
+                <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="wildForay.healedToOneHp"> The party can heal / evacuate the wounded <span class="opacity-60">(else the 1–15 bands die)</span></label>
+              </div>
+            </template>
+            <template x-if="wildForay.proposal.unitCasualties && wildForay.proposal.unitCasualties.length">
+              <div class="text-sm"><template x-for="(uc,i) in wildForay.proposal.unitCasualties" :key="i"><div class="pl-3 opacity-80" x-text="'• ' + uc.label + ' — 50% casualties' + (uc.membersLost!=null ? (' (' + uc.membersLost + ' lost)') : '') + (uc.recover ? ', half recover in a week' : ', all slain')"></div></template></div>
+            </template>
+            <p class="text-xs opacity-60" x-show="wildForay.proposal.unitAttritionNote" x-text="wildForay.proposal.unitAttritionNote"></p>
+            <label class="block text-sm pt-1" x-show="wildForay.proposal.defeated && wildForay.proposal.treasureGp>0">Award treasure to
+              <select x-model="wildForay.treasureDest" class="text-sm">
+                <option value="">— first survivor's purse —</option>
+                <template x-for="id in wildForay.participantIds" :key="id"><option :value="id" x-text="wildForayCharName(id)"></option></template>
+              </select>
+            </label>
+            <div class="wizard-submit-gate">
+              <button @click="wildForayReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Reroll</button>
+              <button @click="wildForayCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Commit foray</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- b7-demographics: modal(s) (demographics panel extends an existing region) -->
 
 <script>
@@ -15592,6 +15732,61 @@ return {
   // --- b7-knowledge ---
   // --- b7-cl3 ---
   // --- b7-delves ---
+  // Delves D4 — the Abstract Wilderness foray (JJ ch.13). The most-abstract travel rung: an
+  // expedition meets a lair / wandering monster → resolve the combat on one 1d8+1d12 roll.
+  // Propose-compute-commit over ACKS.resolveWildernessForay / commitWildernessForay (Mortal
+  // Wounds + adventure-result + clearLair). Thin wrappers; the engine owns the math.
+  wildForay: { open:false, participantIds:[], foeMode:'lair', lairId:'', monsterKey:'', monsterCount:6,
+    armyBr:0, armyCount:0, armyLevel:1, situational:0, healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null },
+  openWildForay(lairId){
+    this.wildForay = { open:true, participantIds:[], foeMode:'lair', lairId: lairId || '',
+      monsterKey:'', monsterCount:6, armyBr:0, armyCount:0, armyLevel:1, situational:0,
+      healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null };
+    if(!this.wildForay.lairId){ const ls = this.wildForayLairs(); if(ls.length) this.wildForay.lairId = ls[0].id; else this.wildForay.foeMode = 'manual'; }
+  },
+  closeWildForay(){ this.wildForay = { open:false, participantIds:[], foeMode:'lair', lairId:'', monsterKey:'', monsterCount:6, armyBr:0, armyCount:0, armyLevel:1, situational:0, healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null }; },
+  wildForayCandidates(){ return (this.currentCampaign?.characters || []).filter(c => c && (window.ACKS.isActive ? window.ACKS.isActive(c) : (c.alive !== false))); },
+  wildForayLairs(){ return (this.currentCampaign?.lairs || []).filter(l => l && l.status === 'active'); },
+  wildForayToggleParticipant(id){ const i = this.wildForay.participantIds.indexOf(id); if(i >= 0) this.wildForay.participantIds.splice(i, 1); else this.wildForay.participantIds.push(id); this.wildForay.proposal = null; },
+  wildForayCharName(id){ const c = (this.currentCampaign?.characters || []).find(x => x.id === id); return c ? c.name : id; },
+  wildForayLairName(l){ const n = (window.ACKS.lairInhabitantCount) ? window.ACKS.lairInhabitantCount(this.currentCampaign, l) : (l.totalInhabitantCount || 0); return (l.name || (l.monsterCatalogKey || 'lair')) + ' · ' + n + ' inhabitant(s)'; },
+  wildForayFoeDescriptor(){
+    if(this.wildForay.foeMode === 'lair'){
+      const l = (this.currentCampaign?.lairs || []).find(x => x.id === this.wildForay.lairId); if(!l) return null;
+      let count = (window.ACKS.lairInhabitantCount) ? window.ACKS.lairInhabitantCount(this.currentCampaign, l) : 0;
+      if(!count) count = l.totalInhabitantCount || 1;
+      return { monsterCatalogKey: l.monsterCatalogKey, count, isLair: true };
+    }
+    if(!this.wildForay.monsterKey) return null;
+    return { monsterCatalogKey: this.wildForay.monsterKey, count: Math.max(1, Number(this.wildForay.monsterCount) || 1) };
+  },
+  wildForayArmyUnits(){ return (this.wildForay.armyCount > 0 && this.wildForay.armyBr > 0) ? [{ br: Number(this.wildForay.armyBr), count: Number(this.wildForay.armyCount), armyLevel: Number(this.wildForay.armyLevel) || 1 }] : []; },
+  wildForayExpLevel(){ return window.ACKS.expeditionLevel(this.currentCampaign, this.wildForay.participantIds.slice()); },
+  wildForayChallenge(){ const f = this.wildForayFoeDescriptor(); return f ? window.ACKS.challengeAdjustment(f) : null; },
+  wildForayArmyPreview(){
+    const ca = this.wildForayChallenge(); if(!ca) return null;
+    const leveled3 = this.wildForay.participantIds.map(id => (this.currentCampaign.characters || []).find(c => c.id === id)).filter(c => c && (c.level || 1) >= 3).length;
+    return window.ACKS.armyAdjustment({ platoonUnits: this.wildForayArmyUnits(), maxUnits: leveled3, monsterLevel: ca.monsterLevel, armyLevel: this.wildForay.armyLevel });
+  },
+  wildForayDifficultyPreview(){
+    const ca = this.wildForayChallenge(); if(!ca) return null; const aa = this.wildForayArmyPreview();
+    return window.ACKS.wildernessForayDifficulty({ expeditionLevel: this.wildForayExpLevel(), monsterLevel: ca.monsterLevel, challengeAdj: ca.challengeAdj, modifiedArmyAdj: aa ? aa.modifiedAA : 0, situationalSteps: Number(this.wildForay.situational) || 0 });
+  },
+  wildForayCanResolve(){ return this.wildForay.participantIds.length > 0 && !!this.wildForayFoeDescriptor(); },
+  wildForayResolveOpts(){
+    const o = { participantCharacterIds: this.wildForay.participantIds.slice(), platoonUnits: this.wildForayArmyUnits(), situationalSteps: Number(this.wildForay.situational) || 0 };
+    if(this.wildForay.foeMode === 'lair') o.lairId = this.wildForay.lairId; else o.foe = this.wildForayFoeDescriptor();
+    return o;
+  },
+  wildForayResolve(){ if(!this.wildForayCanResolve()) return; this.wildForay.proposal = window.ACKS.resolveWildernessForay(this.currentCampaign, this.wildForayResolveOpts()); this.wildForay.lastCommit = null; },
+  wildForayReroll(){ this.wildForay.proposal = null; this.wildForayResolve(); },
+  wildForayCommit(){
+    if(!this.wildForay.proposal) return;
+    const out = window.ACKS.commitWildernessForay(this.currentCampaign, this.wildForay.proposal, { participantCharacterIds: this.wildForay.participantIds.slice(), treasureDestinationCharacterId: this.wildForay.treasureDest || null, healedToOneHp: this.wildForay.healedToOneHp });
+    this.wildForay.lastCommit = out; this.wildForay.proposal = null;
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast(out ? ('Wilderness foray — ' + (out.proposal ? out.proposal.result : 'resolved') + (out.lairCleared ? ' · lair cleared' : '')) : 'Foray resolved');
+  },
   // --- b7-demographics ---
 
   init(){
