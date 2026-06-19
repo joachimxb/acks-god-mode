@@ -65,6 +65,12 @@
         "$ref": "#/$defs/attunement"
       }
     },
+    "bankAccounts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bankAccount"
+      }
+    },
     "banks": {
       "type": "array",
       "items": {
@@ -189,6 +195,14 @@
         "$ref": "#/$defs/journey"
       }
     },
+    "knowledge": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
     "lairs": {
       "type": "array",
       "items": {
@@ -198,10 +212,14 @@
     "loans": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": true
-      },
-      "description": "reserved / un-typed collection"
+        "$ref": "#/$defs/loan"
+      }
+    },
+    "lore": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lore"
+      }
     },
     "magistracies": {
       "type": "array",
@@ -5467,6 +5485,362 @@
         "id"
       ]
     },
+    "loan": {
+      "title": "Loan",
+      "description": "\"loan\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "commercial",
+            "personal",
+            "feudal",
+            null
+          ]
+        },
+        "creditor": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "debtor": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "principalGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "balanceGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "interestRateMonthly": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "collateral": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stashItemId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "marketSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "status": {
+          "enum": [
+            "offered",
+            "active",
+            "repaid",
+            "defaulted",
+            "written-off",
+            null
+          ]
+        },
+        "contractedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "settledAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "missedInterestTurns": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "disreputable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "debtOverXp": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "bankAccount": {
+      "title": "Bank Account",
+      "description": "\"bankAccount\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "custodian": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "marketSettlementId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "balanceGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "custodyFeePctAtConsignment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "depositInterestRateMonthly": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "marketSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "status": {
+          "enum": [
+            "open",
+            "closed",
+            "forfeited",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "lore": {
+      "title": "Lore",
+      "description": "\"lore\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loreKind": {
+          "enum": [
+            "fact",
+            "rumor",
+            "secret",
+            "identity",
+            null
+          ]
+        },
+        "truthValue": {
+          "enum": [
+            "true",
+            "false",
+            "partial",
+            "unknown",
+            null
+          ]
+        },
+        "createdByCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "eventLogEntry": {
       "title": "Event log entry (wrapper)",
       "description": "WRAPPER: the typed event is at .event (so the kind is entry.event.kind, NOT entry.kind). result holds the applied outcome. See INTEGRATION.md \"The typed event log\".",
@@ -5571,8 +5945,11 @@
                 "senate-vote",
                 "policy-enacted",
                 "delve-foray",
+                "wilderness-foray",
                 "disease-contracted",
                 "disease-recovered",
+                "condition-applied",
+                "condition-cleared",
                 "dungeon-attuned",
                 "attunement-ended",
                 "sovereignty-established",
@@ -5598,7 +5975,17 @@
                 "ritual-learned",
                 "ritual-cast",
                 "magic-experiment-breakthrough",
-                "magic-experiment-mishap"
+                "magic-experiment-mishap",
+                "loan-issued",
+                "loan-repaid",
+                "loan-interest",
+                "bank-deposit",
+                "bank-withdrawal",
+                "lore-learned",
+                "lore-shared",
+                "item-identified",
+                "item-charge-spent",
+                "item-appraised"
               ]
             },
             "id": {
@@ -5690,9 +6077,9 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 51,
-    "typedKinds": 34,
-    "eventKinds": 114,
+    "entityKinds": 54,
+    "typedKinds": 37,
+    "eventKinds": 127,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
