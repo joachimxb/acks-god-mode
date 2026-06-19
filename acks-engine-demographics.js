@@ -641,10 +641,271 @@ function realmCommandStructure(campaign, domainId){
   };
 }
 
+// ── SD-4: THE RURAL / COUNTRYSIDE CENSUS (T2) — "A Typical Hex" (plan §5 T2, §11; Econometrics §5) ──
+// SD-1 censuses the TOWN (per settlement, market-class); SD-3 the REALM COMMAND STRUCTURE (per domain).
+// SD-4 censuses the COUNTRYSIDE — the leveled NPCs scattered across a domain's rural hexes (hedge
+// wizards, robber bands, traveling friars, retired veterans). RAW's countryside generator is the
+// Econometrics "A Typical Hex" (survey §5): a dice-rolled per-hex roster the worked example then
+// organizes into Groups — exactly this layer's growing-roster + Group-individuation loop, RAW-demonstrated.
+//
+// DERIVE-DON'T-STORE (the SD-1/SD-3 spine): expected = a PURE function of the hex's rural population
+// (the "A Typical Hex" template scaled pro-rata by hex.families, the JJ p.214 rule SD-1 uses);
+// realized = the named campaign.characters[] tagged homeHexId === here (the new rural home pointer,
+// the homeSettlementId/homeDomainId sibling); delta = open + exceptional. NO new entity / prefix /
+// rule / event. The only stored surface is one additive field — character.homeHexId (on blankCharacter,
+// defensive, migration-free); hex.demographicOverrides is read defensively if a GM sets it (NOT on
+// blankHex — zero per-hex footprint). Gated by the EXISTING `living-census` house rule in the UI (the
+// deep "everything" tier, like SD-3); the accessors are pure derived reads (always callable).
+//
+// THE TEMPLATE (the Econometrics "A Typical Hex", survey §5 — RAW dice expectations):
+//   L1: 1d10 fighter, 1d8 cleric, 1d8 thief, 1d4 venturer, 87% mage  → E[5.5, 4.5, 4.5, 0.87, —, 2.5]
+//   L2: 1d4 each fighter/cleric/thief, 1 venturer, 50% mage          → E[2.5, 2.5, 2.5, 0.5,  —, 1.0]
+//   L3: 1d4 3rd-level (RAW gives only a level-total, no bucket)       → E[2.5 total → split]
+//   L4: 20% chance of one 4th-level                                  → E[0.2 total → split]
+// L1/L2 carry RAW's per-bucket dice; L3/L4 carry only a level-total (RAW specifies no bucket), which
+// expectedRuralDemographics distributes across the rural buckets via the JJ Step-3 split (LEVEL_CLASS_SPLIT,
+// explorer-excluded + renormalized) — the SAME demographic split the urban roster uses, so the rural
+// tail inherits the established mage-rises/fighter-falls shape rather than a fabricated rule. RAW omits
+// EXPLORERS from the countryside (the Econometrics 5-bucket model folds them into "Others"/venturer; an
+// explorer is a wilderness/encounter NPC, not a settled rural resident — and, like SD-5b, has no civic
+// role) → explorer = 0 in the rural template; a homed explorer reconciles as an exceptional outlier
+// (the flag-don't-forbid the urban roster already uses).
+//
+// SCOPE (SD-4 — the rural derived census + a domain read surface). IN: the per-hex template +
+// expected/realized/delta accessors + the domain aggregate + character.homeHexId. OUT (deferred): the
+// realized AUTO-FILL (minting rural NPCs to fill the roster — needs the Phase 4.8 NPC generator;
+// SD-2b/SD-3 precedent — ship the expectation + reconciliation + hand-assignment, defer auto-mint);
+// the Group-individuation of a rolled hex into a robber band / friars (a generator + Group concern);
+// rural specialists individuating vs staying counts (OQ-5 — default: counts; individuation on demand).
+
+const RURAL_HEX_REF_FAMILIES   = 114;   // the rural population at which "A Typical Hex" is internally
+// consistent with the §3 1st-level frequency: its 17.87 first-level NPCs = 2.666% of ~670 people ÷
+// 5.86 people/family ≈ 114 families. A hex's countryside census scales pro-rata by hex.families.
+const RURAL_TEMPLATE_MAX_LEVEL = 4;     // the template's depth (RAW's "A Typical Hex" tops out at 4th).
+
+// The "A Typical Hex" template (the Econometrics countryside generator, survey §5). L1/L2 = RAW's
+// per-bucket dice expectations; L3/L4 = a level-total RAW gives no bucket for (→ split at compute time).
+const RURAL_HEX_TEMPLATE = Object.freeze([
+  /* L1 */ Object.freeze({ byBucket: Object.freeze({ fighter:5.5, crusader:4.5, thief:4.5, mage:0.87, explorer:0, venturer:2.5 }) }),
+  /* L2 */ Object.freeze({ byBucket: Object.freeze({ fighter:2.5, crusader:2.5, thief:2.5, mage:0.5,  explorer:0, venturer:1.0 }) }),
+  /* L3 */ Object.freeze({ allTotal: 2.5 }),   // RAW "1d4 3rd-level" — E[1d4] = 2.5, bucket unspecified
+  /* L4 */ Object.freeze({ allTotal: 0.2 })    // RAW "20% chance of one 4th-level"
+]);
+
+// Distribute a rural level-total across the five rural buckets (explorer excluded) using the JJ Step-3
+// level-class split, renormalized — so the rural tail inherits the urban demographic shape, not a
+// fabricated split. DEMOGRAPHIC_BUCKETS order is [fighter, crusader, thief, mage, explorer, venturer].
+function _ruralBucketSplit(levelIndex){
+  const split = LEVEL_CLASS_SPLIT[Math.max(0, Math.min(LEVEL_CLASS_SPLIT.length - 1, levelIndex))];
+  const f = split[0], cr = split[1], th = split[2], m = split[3], v = split[5];   // drop explorer (index 4)
+  const sum = f + cr + th + m + v;
+  return { fighter:f/sum, crusader:cr/sum, thief:th/sum, mage:m/sum, explorer:0, venturer:v/sum };
+}
+
+// EXPECTED — the "A Typical Hex" roster scaled by the hex's rural population. Pure fn of the hex (scales
+// by hex.families, or opts.ruralFamilies when a caller resolves it — e.g. the domain aggregate distributing
+// a domain-level peasantFamilies across hexes). Returns MAX_NPC_LEVEL rows (the template's L1–4 populated,
+// L5–14 zero) so it aligns row-for-row with realizedRuralDemographics + the urban delta shape. overrides
+// (opts.overrides | hex.demographicOverrides, defensive — not on blankHex): { all?:mult, mage?:mult, … }.
+function expectedRuralDemographics(hex, opts){
+  opts = opts || {};
+  if(!hex) return null;
+  const families = (opts.ruralFamilies != null) ? Number(opts.ruralFamilies) : (Number(hex.families) || 0);
+  const scale = RURAL_HEX_REF_FAMILIES > 0 ? (families / RURAL_HEX_REF_FAMILIES) : 0;
+  const ov = opts.overrides || hex.demographicOverrides || null;
+  const allMult = (ov && typeof ov.all === 'number') ? ov.all : 1;
+  const byLevel = [];
+  const totals = Object.assign({ all: 0 }, _emptyBucketMap());
+  for(let i = 0; i < MAX_NPC_LEVEL; i++){
+    const row = { level: i + 1, all: 0 };
+    let perBucket = null;
+    if(i < RURAL_TEMPLATE_MAX_LEVEL){
+      const tpl = RURAL_HEX_TEMPLATE[i];
+      if(tpl.byBucket){ perBucket = tpl.byBucket; }
+      else { const sp = _ruralBucketSplit(i); perBucket = {}; DEMOGRAPHIC_BUCKETS.forEach(b => { perBucket[b] = tpl.allTotal * (sp[b] || 0); }); }
+    }
+    DEMOGRAPHIC_BUCKETS.forEach(b => {
+      const bMult = (ov && typeof ov[b] === 'number') ? ov[b] : 1;
+      const v = (perBucket ? (perBucket[b] || 0) : 0) * scale * allMult * bMult;
+      row[b] = v; row.all += v; totals[b] += v;
+    });
+    totals.all += row.all;
+    byLevel.push(row);
+  }
+  return { hexId: hex.id || null, ruralFamilies: families, referenceFamilies: RURAL_HEX_REF_FAMILIES,
+           scale, buckets: DEMOGRAPHIC_BUCKETS, maxLevel: MAX_NPC_LEVEL, templateMaxLevel: RURAL_TEMPLATE_MAX_LEVEL,
+           overrides: ov || null, byLevel, totals };
+}
+
+function _isRuralResident(character, hexId){
+  return !!character && character.homeHexId === hexId && character.lifecycleState !== 'deceased';
+}
+
+// REALIZED — the named NPCs homed to a rural hex (homeHexId === here), bucketed + counted per (bucket,
+// level). The rural sibling of realizedDemographics (which reads homeSettlementId). A homed NPC of ANY
+// level is counted (a retired Fighter-7 in the wilds), so the grid spans MAX_NPC_LEVEL — anything above
+// the template's L4 reconciles as exceptional. Unbucketed residents land in `other`.
+function realizedRuralDemographics(campaign, hexId){
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  const byLevel = [];
+  for(let i = 0; i < MAX_NPC_LEVEL; i++){
+    const row = { level: i + 1, all: 0 };
+    DEMOGRAPHIC_BUCKETS.forEach(b => { row[b] = 0; row[b + 'Names'] = []; });
+    byLevel.push(row);
+  }
+  const totals = Object.assign({ all: 0 }, _emptyBucketMap());
+  const other = [];
+  for(const c of chars){
+    if(!_isRuralResident(c, hexId)) continue;
+    const lvl = Math.max(1, Math.min(MAX_NPC_LEVEL, Number(c.level) || 1));
+    const i = lvl - 1;
+    const bucket = coreBucketForCharacter(campaign, c);
+    if(bucket){
+      byLevel[i][bucket] += 1;
+      byLevel[i][bucket + 'Names'].push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1 });
+      byLevel[i].all += 1;
+      totals[bucket] += 1;
+      totals.all += 1;
+    } else {
+      other.push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, class: c.class || '' });
+    }
+  }
+  return { hexId, byLevel, totals, other, otherCount: other.length, residents: totals.all + other.length };
+}
+
+// Build a per-(bucket, level) delta from an expected + realized pair (the shared shape demographicDelta
+// uses) — open slots + exceptional outliers. Returns { byLevel, openTotal, exceptionalTotal }.
+function _buildRuralDelta(expected, realized){
+  const byLevel = [];
+  let openTotal = 0, exceptionalTotal = 0;
+  for(let i = 0; i < MAX_NPC_LEVEL; i++){
+    const e = expected.byLevel[i], r = realized.byLevel[i];
+    const row = { level: i + 1 };
+    DEMOGRAPHIC_BUCKETS.forEach(b => {
+      const exp = e[b], real = r[b];
+      const open = Math.max(0, Math.round(exp) - real);
+      const exceptional = (real > Math.ceil(exp)) || (exp < 0.5 && real >= 1);
+      if(open > 0) openTotal += open;
+      if(exceptional && real > 0) exceptionalTotal += real;
+      row[b] = { expected: exp, realized: real, open, exceptional: exceptional && real > 0, names: r[b + 'Names'] || [] };
+    });
+    byLevel.push(row);
+  }
+  return { byLevel, openTotal, exceptionalTotal };
+}
+
+// DELTA — expected vs realized for one rural hex (the SD-1 demographicDelta, rural). opts.ruralFamilies
+// lets a caller (the domain aggregate) supply the resolved per-hex population.
+function ruralDemographicDelta(campaign, hex, opts){
+  if(!hex) return null;
+  const expected = expectedRuralDemographics(hex, opts);
+  const realized = realizedRuralDemographics(campaign, hex.id);
+  const d = _buildRuralDelta(expected, realized);
+  return { hexId: hex.id, expected, realized, byLevel: d.byLevel, openTotal: d.openTotal, exceptionalTotal: d.exceptionalTotal };
+}
+
+// A hex is RURAL (countryside) when it has no settlement on it — a settlement-hex is urban (the SD-1
+// roster covers it). Mirrors the engine's _ruralHexes definition (peasantFamilies = Σ non-settlement
+// hex.families). Checks both the embedded hex.settlement and a top-level settlement at the hex.
+function _hexIsRural(campaign, hex){
+  if(!hex) return false;
+  if(hex.settlement) return false;
+  if(typeof ACKS.settlementForHex === 'function' && ACKS.settlementForHex(campaign, hex.id)) return false;
+  return true;
+}
+function _domainRuralHexes(campaign, domain){
+  if(!campaign || !domain) return [];
+  const hexes = (typeof ACKS.hexesForDomain === 'function')
+    ? ACKS.hexesForDomain(campaign, domain.id)
+    : (Array.isArray(campaign.hexes) ? campaign.hexes.filter(h => h && h.domainId === domain.id) : []);
+  return hexes.filter(h => _hexIsRural(campaign, h));
+}
+
+// A flat, level-sorted list of a domain's rural residents (the workspace base — mirror settlementResidents,
+// across all the domain's rural hexes). Each row carries its home hex for the UI.
+function ruralResidents(campaign, domain){
+  const hexes = _domainRuralHexes(campaign, domain);
+  const ids = new Set(hexes.map(h => h.id));
+  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h) : (h.id || '');
+  const hexById = {}; hexes.forEach(h => { hexById[h.id] = h; });
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  const out = [];
+  for(const c of chars){
+    if(!c || c.lifecycleState === 'deceased' || !ids.has(c.homeHexId)) continue;
+    out.push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, class: c.class || '',
+               bucket: coreBucketForCharacter(campaign, c), hexId: c.homeHexId, hexName: nameOf(hexById[c.homeHexId]) });
+  }
+  out.sort((a, b) => b.level - a.level || (a.name || '').localeCompare(b.name || ''));
+  return out;
+}
+
+// THE DOMAIN AGGREGATE — the countryside census for a whole domain (the UI's main read). Sums the
+// "A Typical Hex" expectation + the realized residents across the domain's rural hexes, with the per-hex
+// rural population resolved: hex.families when ANY are authored (Σ>0), else the domain's peasantFamilies
+// distributed evenly across the rural hexes (the RAW-default domain-level population — so the census is
+// demoable whether or not the families-per-hex rule is on). → { domainId, ruralFamilies, hexCount,
+// inhabitedHexCount, byLevel, totals, openTotal, exceptionalTotal, hexes:[per-hex summary], residents }.
+function domainRuralDemographics(campaign, domain){
+  if(!campaign || !domain) return null;
+  const hexes = _domainRuralHexes(campaign, domain);
+  const authoredSum = hexes.reduce((s, h) => s + (Number(h.families) || 0), 0);
+  const peasantFamilies = (domain.demographics && Number(domain.demographics.peasantFamilies)) || 0;
+  const evenShare = hexes.length > 0 ? (peasantFamilies / hexes.length) : 0;
+  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h) : (h.id || '');
+
+  // Combined expected + realized grids (MAX_NPC_LEVEL rows), summed across the rural hexes.
+  const combExp = []; const combReal = [];
+  for(let i = 0; i < MAX_NPC_LEVEL; i++){
+    const e = { level: i + 1, all: 0 }; const r = { level: i + 1, all: 0 };
+    DEMOGRAPHIC_BUCKETS.forEach(b => { e[b] = 0; r[b] = 0; r[b + 'Names'] = []; });
+    combExp.push(e); combReal.push(r);
+  }
+  const totals = Object.assign({ all: 0 }, _emptyBucketMap());
+  const realizedTotals = Object.assign({ all: 0 }, _emptyBucketMap());
+  let totalRuralFamilies = 0, inhabited = 0;
+  const perHex = [];
+  for(const h of hexes){
+    const fam = (authoredSum > 0) ? (Number(h.families) || 0) : evenShare;
+    const exp = expectedRuralDemographics(h, { ruralFamilies: fam });
+    const real = realizedRuralDemographics(campaign, h.id);
+    const delta = _buildRuralDelta(exp, real);
+    if(fam > 0) inhabited++;
+    totalRuralFamilies += fam;
+    for(let i = 0; i < MAX_NPC_LEVEL; i++){
+      DEMOGRAPHIC_BUCKETS.forEach(b => {
+        combExp[i][b] += exp.byLevel[i][b]; combExp[i].all += exp.byLevel[i][b];
+        combReal[i][b] += real.byLevel[i][b];
+        (real.byLevel[i][b + 'Names'] || []).forEach(n => combReal[i][b + 'Names'].push(Object.assign({ hexId: h.id, hexName: nameOf(h) }, n)));
+        combReal[i].all += real.byLevel[i][b];
+      });
+    }
+    DEMOGRAPHIC_BUCKETS.forEach(b => { totals[b] += exp.totals[b]; realizedTotals[b] += real.totals[b]; });
+    totals.all += exp.totals.all; realizedTotals.all += real.totals.all;
+    perHex.push({ hexId: h.id, hexName: nameOf(h), ruralFamilies: fam,
+                  expectedAll: exp.totals.all, realizedResidents: real.residents,
+                  openTotal: delta.openTotal, exceptionalTotal: delta.exceptionalTotal });
+  }
+  perHex.sort((a, b) => b.ruralFamilies - a.ruralFamilies || (a.hexName || '').localeCompare(b.hexName || ''));
+
+  // The combined delta (one grid over the summed expected/realized).
+  const d = _buildRuralDelta({ byLevel: combExp }, { byLevel: combReal });
+  return {
+    domainId: domain.id, ruralFamilies: totalRuralFamilies, referenceFamilies: RURAL_HEX_REF_FAMILIES,
+    hexCount: hexes.length, inhabitedHexCount: inhabited,
+    populationSource: (authoredSum > 0) ? 'per-hex' : 'domain-distributed',
+    byLevel: d.byLevel, totals, realizedTotals, openTotal: d.openTotal, exceptionalTotal: d.exceptionalTotal,
+    hexes: perHex, residents: ruralResidents(campaign, domain)
+  };
+}
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
   LEVEL_CLASS_SPLIT, DEMOGRAPHIC_BUCKET_BY_CLASS,
+  // SD-4 — the rural / countryside census (T2, "A Typical Hex"; gated by `living-census`)
+  RURAL_HEX_TEMPLATE, RURAL_HEX_REF_FAMILIES,
+  expectedRuralDemographics, realizedRuralDemographics, ruralDemographicDelta,
+  ruralResidents, domainRuralDemographics,
   // the derived-accessor family (plan §4)
   demographicMarketClass, coreBucketForCharacter,
   expectedDemographics, realizedDemographics, demographicDelta, settlementDemographics,

@@ -5411,6 +5411,123 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
+
+          <!-- Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex").
+               Domain-scoped: the leveled NPCs across the domain's rural hexes, expected (the scaled
+               "A Typical Hex" countryside roster) vs realized (homeHexId residents). Gated on the
+               living-census house rule (the deep tier, like SD-3). Reconciled by ACKS.domainRuralDemographics. -->
+          <template x-if="ruralCensusOn() && ruralCensus() && ruralCensus().hexCount>0">
+            <div class="vellum border border-ink p-3 rounded md:col-span-2" style="background:#f4ecd2">
+              <h3 class="font-bold mb-1">🌾 Countryside census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                “A Typical Hex” (JJ countryside roster) across
+                <span class="font-semibold" x-text="ruralCensus().hexCount"></span> rural hex(es) ·
+                <span x-text="Math.round(ruralCensus().ruralFamilies||0).toLocaleString()"></span> rural families
+                (<span x-text="ruralCensus().populationSource==='per-hex' ? 'per-hex' : 'domain-distributed'"></span>).
+                Each cell shows <em>residents / expected</em>. Set an NPC’s <strong>Home hex</strong> on its sheet to fill the realized side.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Level</th>
+                    <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="r in ruralRosterRows()" :key="r.level">
+                      <tr>
+                        <td class="font-semibold" x-text="'L'+r.level"></td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                              :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+' @ '+(n.hexName||'?')+')').join(', ') : ''">
+                            <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                              <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                            </template>
+                            <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                    <tr class="total">
+                      <td>Totals</td>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                        <td><span x-text="ruralCensus().realizedTotals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(ruralCensus().totals[b])"></span></span></td>
+                      </template>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-sm mt-2">
+                <span class="font-semibold" x-text="ruralCensus().realizedTotals.all"></span> rural residents
+                (of ~<span x-text="Math.round(ruralCensus().totals.all).toLocaleString()"></span> expected) ·
+                <span x-text="ruralCensus().openTotal.toLocaleString()"></span> open slots
+                <span class="accent-red" x-show="ruralCensus().exceptionalTotal>0"> · <span x-text="ruralCensus().exceptionalTotal"></span> exceptional</span>
+              </p>
+
+              <!-- per-hex breakdown -->
+              <details class="mt-2">
+                <summary class="text-sm cursor-pointer opacity-80">Per rural hex (<span x-text="ruralCensus().hexes.length"></span>)</summary>
+                <div class="overflow-x-auto mt-1">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Hex</th><th>Rural families</th><th>~Expected</th><th>Residents</th><th>Open</th></tr></thead>
+                    <tbody>
+                      <template x-for="h in ruralCensus().hexes" :key="h.hexId">
+                        <tr>
+                          <td x-text="h.hexName"></td>
+                          <td x-text="Math.round(h.ruralFamilies)"></td>
+                          <td x-text="Math.round(h.expectedAll)"></td>
+                          <td :class="h.exceptionalTotal>0 ? 'accent-red font-semibold' : ''" x-text="h.realizedResidents + (h.exceptionalTotal>0 ? ' ⚠' : '')"></td>
+                          <td x-text="h.openTotal"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+
+              <!-- reconciliation workspace — the rural residents + settle-a-resident -->
+              <div class="mt-3 pt-2 border-t border-ink/30">
+                <h4 class="font-semibold text-sm mb-1">Rural residents <span class="opacity-60 font-normal" x-text="'(' + ruralResidentsList().length + ')'"></span></h4>
+                <template x-if="ruralResidentsList().length===0">
+                  <p class="text-sm opacity-60 italic">No NPC is rostered in the countryside yet — settle one below, or set a <strong>Home hex</strong> on a character sheet.</p>
+                </template>
+                <template x-if="ruralResidentsList().length>0">
+                  <div class="overflow-x-auto">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Hex</th><th></th></tr></thead>
+                      <tbody>
+                        <template x-for="c in ruralResidentsList()" :key="c.id">
+                          <tr>
+                            <td><button class="underline" @click="demoOpenResident(c.id)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
+                            <td x-text="c.class||'—'"></td>
+                            <td class="capitalize" x-text="c.bucket||'—'"></td>
+                            <td x-text="c.hexName"></td>
+                            <td><button class="text-sm underline accent-red" @click="ruralRemoveResident(c.id)" title="Remove this NPC's rural home (un-roster it)">× un-home</button></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <span class="text-sm font-semibold">Settle a resident:</span>
+                  <select class="ed-input text-sm" style="width:14rem" x-model="ruralAssignPick">
+                    <option value="">— pick an unplaced NPC —</option>
+                    <template x-for="c in ruralUnhomedCandidates()" :key="c.id">
+                      <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                    </template>
+                  </select>
+                  <span class="text-sm">in</span>
+                  <select class="ed-input text-sm" style="width:12rem" x-model="ruralAssignHex">
+                    <option value="">— rural hex —</option>
+                    <template x-for="h in ruralHexOptions()" :key="h.id">
+                      <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                    </template>
+                  </select>
+                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
+                </div>
+                <p class="text-sm opacity-60 italic mt-1">Opt-in auto-fill (mint a robber band / hedge wizard / friars to fill the roster) waits on the NPC generator — SD-4 ships the expectation + reconciliation; place NPCs by hand for now.</p>
+              </div>
+            </div>
+          </template>
           </div>
         </div>
 
@@ -12371,6 +12488,28 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Home hex (Settlement Demographics SD-4) — the rural/countryside home; gm-fiat. Gated on the
+             living-census house rule (the rural tier). Reconciled by ACKS.domainRuralDemographics. -->
+        <template x-if="isHouseRuleEnabled('living-census')">
+          <div class="text-sm flex items-center gap-2">
+            <span class="w-32">Home hex</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeHexId', label:'Home hex', kind:'select', formatter(v){ if(!v) return '— none —'; const h=(window.acksApp?.currentCampaign?.hexes||[]).find(hh => hh.id === v); return h ? window.ACKS.hexName(h) : v; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home hex (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat">
+                <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                  <option :value="null">— none —</option>
+                  <template x-for="h in (window.acksApp?.currentCampaign?.hexes||[])" :key="h.id">
+                    <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                  </template>
+                </select>
+                <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home hex'">✓</button>
+                <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home hex'">×</button>
+              </span></template>
+            </span>
+            <span class="text-sm opacity-60 italic">the countryside hex this NPC lives in (SD-4)</span>
+          </div>
+        </template>
+
         <!-- Civic placement (Settlement Demographics SD-2) — JJ Step-4 role; gm-fiat. Blank = the
              bucket-suggested default (ACKS.suggestedPlacementRole). -->
         <div class="text-sm flex items-center gap-2">
@@ -16418,6 +16557,19 @@ return {
     if(this.showToast) this.showToast(out ? ('Wilderness foray — ' + (out.proposal ? out.proposal.result : 'resolved') + (out.lairCleared ? ' · lair cleared' : '')) : 'Foray resolved');
   },
   // --- b7-demographics ---
+  // Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex"). Domain-scoped:
+  // the leveled NPCs across the domain's rural hexes, expected (the scaled "A Typical Hex" template) vs
+  // realized (homeHexId residents). Gated on the living-census house rule (the deep tier, like SD-3);
+  // the engine accessor (ACKS.domainRuralDemographics) is a pure derived read. Mirrors SD-1/SD-3.
+  ruralCensusOn(){ return this.isHouseRuleEnabled('living-census'); },
+  ruralCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.domainRuralDemographics(this.currentCampaign, d) : null; },
+  ruralRosterRows(){ const c=this.ruralCensus(); if(!c) return []; return c.byLevel.filter(r => window.ACKS.DEMOGRAPHIC_BUCKETS.some(b => r[b].expected>=0.5 || r[b].realized>0)); },
+  ruralResidentsList(){ const c=this.ruralCensus(); return c ? c.residents : []; },
+  ruralHexOptions(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId===d.id && !h.settlement && !window.ACKS.settlementForHex(this.currentCampaign, h.id)); },
+  ruralAssignPick: '', ruralAssignHex: '',
+  ruralUnhomedCandidates(){ return (this.currentCampaign?.characters||[]).filter(c => !c.homeHexId && c.lifecycleState!=='deceased').sort((a,b)=>(a.name||'').localeCompare(b.name||'')); },
+  ruralAssignResident(){ const id=this.ruralAssignPick, hx=this.ruralAssignHex; if(!id||!hx) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeHexId', label:'Home hex', oldValue:(c.homeHexId||null), newValue:hx}); this.ruralAssignPick=''; },
+  ruralRemoveResident(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeHexId', label:'Home hex', oldValue:(c.homeHexId||null), newValue:null}); },
 
   init(){
     // Expose the root Alpine proxy on `window.acksApp` so reusable sub-components
