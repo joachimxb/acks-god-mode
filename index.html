@@ -11544,6 +11544,38 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- b7-cl3 (conditions): Character Lifecycle CL-3 — persistent-conditions readout (RR pp.507–516).
+             Beside the Wounds + Diseases readouts — the "what's wrong with this person" cluster (Plan §9).
+             The two unhomed persistent conditions (hypothermic / enervated); each advances on the Day Clock
+             (the slot-59 conditions consumer). 🥶 applies a condition; per-condition 🔥 warm / ✚ end. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Conditions <span class="text-sm font-normal opacity-60">(persistent — RR pp.507–516)</span></h4>
+              <button @click="openApplyConditionModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-sky-200 hover:bg-sky-300 font-semibold" title="Apply a persistent condition (RR pp.507–516)">🥶 Apply condition</button>
+            </div>
+            <template x-if="characterConditionRows(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60">No persistent conditions.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="characterConditionRows(characterEditing).length">
+              <template x-for="cond in characterConditionRows(characterEditing)" :key="cond.id">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="cond.condition === 'hypothermic' ? '🥶' : '🪫'"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="cond.label"></span>
+                    <span class="block text-xs accent-red" x-text="cond.dangerLine"></span>
+                    <span class="block text-xs opacity-60" x-text="cond.effect"></span>
+                    <div class="flex gap-1 mt-0.5">
+                      <button @click="clearConditionRow(characterEditing, cond)" class="text-xs px-1 border border-ink/30 rounded hover:bg-green-50" :title="cond.condition === 'hypothermic' ? 'Warm them for an hour — ends hypothermia' : 'End the enervation (the drained max hp returns only by Restore Life &amp; Limb)'" x-text="cond.condition === 'hypothermic' ? '🔥 warm' : '✚ end'"></button>
+                    </div>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">Hypothermia drains CON each day until warmed; enervation drains a maximum hit point on each failed daily save (three saves end it). Both advance on the Day Clock (RR pp.507–516).</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -15076,6 +15108,41 @@ document.addEventListener('alpine:init', () => {
 <!-- b7-magicitems: panel + modals -->
 <!-- b7-knowledge: panel + modals -->
 <!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
+<!-- Apply-condition modal (RR pp.507–516) — the GM "apply a persistent condition" action, opened
+     from the character-sheet Conditions readout (stats tab). z-index:79 (above the character editor,
+     like the Expose-to-disease + Record-a-wound modals). The day advances it on the Day Clock — the
+     slot-59 conditions consumer (CL-3, b7-cl3 burst7). -->
+<div x-show="applyConditionModal.open" @keydown.escape.window="if(applyConditionModal.open && !$event.defaultPrevented){ closeApplyConditionModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeApplyConditionModal()">
+  <template x-if="applyConditionModal.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🥶 Apply a condition <span class="text-sm font-normal opacity-70">· RR pp.507–516</span></h2>
+      <button @click="closeApplyConditionModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="applyConditionModal.charName || '(no character)'"></span>
+      </div>
+      <label class="block text-sm">Condition
+        <select x-model="applyConditionModal.conditionId" class="w-full text-sm">
+          <template x-for="cd in conditionTypeOptions()" :key="cd.id"><option :value="cd.id" x-text="cd.label"></option></template>
+        </select>
+      </label>
+      <template x-if="applyConditionDef()">
+        <p class="text-sm opacity-70" x-text="applyConditionDef().effect"></p>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Advance the Day Clock to progress the condition.</span>
+        <div class="flex gap-2">
+          <button @click="closeApplyConditionModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          <button @click="applyConditionRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-sky-300 hover:bg-sky-400">🥶 Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- b7-delves: modal(s) (delve sub-view extends an existing region) -->
 <!-- b7-demographics: modal(s) (demographics panel extends an existing region) -->
 
@@ -15591,6 +15658,46 @@ return {
   // --- b7-magicitems ---
   // --- b7-knowledge ---
   // --- b7-cl3 ---
+  // Character Lifecycle CL-3 — persistent conditions (RR pp.507–516). The character-sheet Conditions
+  // readout + the Apply-condition modal. The engine (applyCondition / clearCondition + the slot-59
+  // conditions day-consumer) lives in acks-engine-lifecycle.js; these are thin wrappers + modal state.
+  // Mutations go through the engine verbs (which find the live character on currentCampaign), so the
+  // readout re-renders like the Wounds (D1) + Diseases (CL-2) readouts beside it.
+  characterConditionRows(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterConditionInfo !== 'function') return [];
+    return A.characterConditionInfo(ch).conditions || [];
+  },
+  conditionTypeOptions(){ return (window.ACKS && window.ACKS.PERSISTENT_CONDITIONS) || []; },
+  applyConditionModal: { open:false, characterId:null, charName:'', conditionId:'hypothermic' },
+  applyConditionDef(){
+    const A = window.ACKS;
+    return (A && typeof A.persistentConditionById === 'function') ? A.persistentConditionById(this.applyConditionModal.conditionId) : null;
+  },
+  openApplyConditionModal(ch){
+    if(!ch) return;
+    this.applyConditionModal = { open:true, characterId:ch.id, charName:ch.name, conditionId:'hypothermic' };
+  },
+  closeApplyConditionModal(){ this.applyConditionModal.open = false; },
+  applyConditionRun(){
+    const m = this.applyConditionModal; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    try {
+      const r = window.ACKS.applyCondition(camp, m.characterId, m.conditionId);
+      if(r){ this.showToast('🥶 ' + m.charName + ' is ' + (r.conditionLabel || m.conditionId).toLowerCase() + '.', 4000); this.markDirty(); this.schedulePersist(); }
+      else { this.showToast('Could not apply that condition.'); }
+      this.closeApplyConditionModal();
+    } catch(e){ this.showToast('Apply failed: ' + e.message); }
+  },
+  clearConditionRow(ch, cond){
+    const camp = this.currentCampaign; if(!camp || !ch || !cond) return;
+    // Hypothermia: warming ends it (effective CON returns). Enervation: ending it stops the daily saves;
+    // the drained max hp is permanent (RR — restored only by Restore Life & Limb, a future wire).
+    const opts = cond.condition === 'hypothermic' ? { method:'warmed' } : { method:'cured' };
+    try { const r = window.ACKS.clearCondition(camp, ch.id, cond.id, opts);
+      if(r){ this.showToast((cond.condition === 'hypothermic' ? '🔥 ' : '✚ ') + ch.name + ' is no longer ' + (cond.label || cond.condition).toLowerCase() + '.', 4000); this.markDirty(); this.schedulePersist(); } }
+    catch(e){ this.showToast('Clear failed: ' + e.message); }
+  },
   // --- b7-delves ---
   // --- b7-demographics ---
 
