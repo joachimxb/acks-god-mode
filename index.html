@@ -99,6 +99,8 @@
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
+<!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
+<script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -15073,6 +15075,113 @@ document.addEventListener('alpine:init', () => {
      Each lane appends its <div x-show="currentView==='<id>'"> panel AND its modal(s) right
      AFTER its own marker line below. Disjoint markers ⇒ clean 6-way merge. Lead strips at integration. -->
 <!-- b7-banking: panel + modals -->
+<!-- ═══ Banking & Loans (team b7 — B1, #148; RR p.42 + p.313) ═══ -->
+<div x-show="currentCampaign && currentView === 'banking'" class="p-4 space-y-4" x-cloak>
+
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">🏦 Banking &amp; Loans</h3>
+    <p class="text-sm opacity-70 mt-1">Commercial &amp; personal credit and deposit custody (RR p.42 <em>Access to Capital</em> + RR p.313). Interest accrues each monthly turn (Advance Month): 3% / month uncollateralized, 1% collateralized; unpaid interest capitalizes onto the balance and the borrower becomes disreputable (RR p.42). A market lends up to its class's monthly capital pool. Core RAW — no house rule gates it.</p>
+  </div>
+
+  <!-- Loans -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-2">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Borrower
+        <select x-model="bankLoanDebtorId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in bankingActiveChars()" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Lender
+        <select x-model="bankLoanCreditorId" class="w-44">
+          <option value="bank">🏦 Bank (market credit)</option>
+          <template x-for="ch in bankingActiveChars()" :key="'cr-'+ch.id"><option :value="ch.id" x-text="'👤 ' + (ch.name || ch.id)"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col" x-show="bankLoanCreditorId === 'bank'">Market
+        <select x-model="bankLoanMarketId" class="w-40">
+          <option value="">— none —</option>
+          <template x-for="s in bankingSettlements()" :key="s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Amount (gp)<input type="number" min="1" x-model="bankLoanAmount" class="w-28" placeholder="1000"></label>
+      <label class="flex items-center gap-1 self-center"><input type="checkbox" x-model="bankLoanCollateral"> Collateralized (1%)</label>
+      <button @click="bankingTakeLoan()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Take loan</button>
+      <span class="opacity-60 self-center" x-text="bankingCapText()"></span>
+    </div>
+    <template x-if="bankingLoans().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No loans. Extend credit above (or via 🔍 Inspector ▸ Create ▸ Loan).</p>
+    </template>
+    <template x-if="bankingLoans().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th>Status</th><th>Flags</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="loan in bankingLoans()" :key="loan.id">
+            <tr>
+              <td x-text="loan.kind"></td>
+              <td class="font-semibold" x-text="bankingPartyName(loan.debtor)"></td>
+              <td x-text="bankingPartyName(loan.creditor)"></td>
+              <td class="text-right" x-text="(loan.principalGp||0).toLocaleString()"></td>
+              <td class="text-right" x-text="(loan.balanceGp||0).toLocaleString()"></td>
+              <td x-text="bankingPct(loan.interestRateMonthly)"></td>
+              <td x-text="loan.status"></td>
+              <td class="text-xs">
+                <span x-show="loan.disreputable" class="text-red-700" title="Unpaid interest built up (RR p.42)">⚠ disreputable</span>
+                <span x-show="loan.debtOverXp" class="text-red-700" title="Balance exceeds the borrower's XP — bounty hunters (RR p.42)"> 🗡 debt&gt;XP</span>
+              </td>
+              <td><button x-show="loan.status === 'active'" @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Bank accounts -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-2">🏦 Bank Accounts <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingAccounts().length"></span></h3>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Owner
+        <select x-model="bankAcctOwnerId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in bankingActiveChars()" :key="'ow-'+ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Market (custodian)
+        <select x-model="bankAcctMarketId" class="w-40">
+          <option value="">— none —</option>
+          <template x-for="s in bankingSettlements()" :key="'acct-'+s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Initial deposit (gp)<input type="number" min="0" x-model="bankAcctInitial" class="w-28" placeholder="0"></label>
+      <button @click="bankingOpenAccount()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Open account</button>
+    </div>
+    <template x-if="bankingAccounts().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No bank accounts. Open one above (or via 🔍 Inspector ▸ Create ▸ Bank Account).</p>
+    </template>
+    <template x-if="bankingAccounts().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Owner</th><th>Custodian</th><th class="text-right">Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="acc in bankingAccounts()" :key="acc.id">
+            <tr>
+              <td class="font-semibold" x-text="bankingPartyName(acc.owner)"></td>
+              <td x-text="(acc.custodian && (acc.custodian.label || acc.custodian.kind)) || '—'"></td>
+              <td class="text-right" x-text="(acc.balanceGp||0).toLocaleString() + ' gp'"></td>
+              <td x-text="acc.status"></td>
+              <td>
+                <button x-show="acc.status === 'open'" @click="bankingDeposit(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
+                <button x-show="acc.status === 'open'" @click="bankingWithdraw(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+</div>
 <!-- b7-magicitems: panel + modals -->
 <!-- b7-knowledge: panel + modals -->
 <!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
@@ -15587,7 +15696,75 @@ return {
   // ═══ TEAM BURST b7 — per-agent Alpine state + methods (inside the domainApp() return object) ═══
   //   Add your state props AND methods (comma-terminated object members) right after YOUR marker line.
   //   Disjoint markers ⇒ clean 6-way merge. Lead strips this block at integration.
-  // --- b7-banking ---
+  // --- b7-banking ---  (Banking & Loans B1, #148 — RR p.42 Access to Capital + RR p.313 custody)
+  bankingSubView: 'loans',            // 'loans' | 'accounts'
+  bankLoanDebtorId: '', bankLoanCreditorId: 'bank', bankLoanAmount: '', bankLoanMarketId: '', bankLoanCollateral: false,
+  bankAcctOwnerId: '', bankAcctMarketId: '', bankAcctInitial: '',
+  bankingLoans(){ return (this.currentCampaign && this.currentCampaign.loans) || []; },
+  bankingAccounts(){ return (this.currentCampaign && this.currentCampaign.bankAccounts) || []; },
+  bankingActiveChars(){ return ((this.currentCampaign && this.currentCampaign.characters) || []).filter(c => c && c.alive !== false && c.lifecycleState !== 'deceased' && c.lifecycleState !== 'candidate'); },
+  bankingSettlements(){ return (this.currentCampaign && this.currentCampaign.settlements) || []; },
+  bankingPartyName(ref){
+    if(!ref) return '—';
+    if(ref.kind === 'character'){ const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === ref.id); return ch ? ch.name : (ref.id || '?'); }
+    if(ref.kind === 'domain'){ const d = ((this.currentCampaign && this.currentCampaign.domains) || []).find(x => x && x.id === ref.id); return d ? d.name : (ref.id || '?'); }
+    return ref.label || ref.kind || '?';
+  },
+  bankingMarketName(id){ const s = this.bankingSettlements().find(x => x && x.id === id); return s ? s.name : '—'; },
+  bankingCapText(){ const id = this.bankLoanMarketId; if(!id || this.bankLoanCreditorId !== 'bank') return ''; return 'Market capital left here: ' + ((window.ACKS.marketCapitalRemaining(this.currentCampaign, id)) || 0).toLocaleString() + 'gp'; },
+  bankingPct(n){ return (Math.round((Number(n) || 0) * 1000) / 10) + '%'; },
+  bankingTakeLoan(){
+    if(!this.bankLoanDebtorId){ this.showToast('Pick a borrower first.'); return; }
+    const amt = Math.round(Number(this.bankLoanAmount) || 0);
+    if(amt <= 0){ this.showToast('Enter a loan amount.'); return; }
+    const isBank = (this.bankLoanCreditorId === 'bank' || !this.bankLoanCreditorId);
+    const opts = { debtor:{ kind:'character', id: this.bankLoanDebtorId }, principalGp: amt,
+      collateral: this.bankLoanCollateral ? { kind:'note', label:'collateral' } : null };
+    if(isBank){ opts.kind = 'commercial'; opts.creditor = { kind:'bank', label:'Bank' }; if(this.bankLoanMarketId) opts.marketSettlementId = this.bankLoanMarketId; }
+    else { opts.kind = 'personal'; opts.creditor = { kind:'character', id: this.bankLoanCreditorId }; }
+    const r = window.ACKS.takeLoan(this.currentCampaign, opts);
+    if(!r.ok){ this.showToast('Loan refused: ' + r.reason + (r.remaining != null ? (' (pool ' + r.remaining.toLocaleString() + 'gp left)') : ''), 4000); return; }
+    this.bankLoanAmount = ''; this.bankLoanCollateral = false;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan issued: ' + amt.toLocaleString() + 'gp.');
+  },
+  bankingRepay(loanId){
+    const loan = this.bankingLoans().find(l => l && l.id === loanId); if(!loan) return;
+    const raw = window.prompt('Repay how much? (blank = full balance ' + (loan.balanceGp || 0).toLocaleString() + 'gp)', String(loan.balanceGp || 0));
+    if(raw === null) return;
+    const opts = {}; const n = Math.round(Number(raw) || 0); if(String(raw).trim() !== '' && n > 0) opts.amount = n;
+    const r = window.ACKS.repayLoan(this.currentCampaign, loanId, opts);
+    if(!r.ok){ this.showToast('Repayment failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Repaid ' + (r.paid || 0).toLocaleString() + 'gp' + (loan.status === 'repaid' ? ' — settled.' : '.'));
+  },
+  bankingOpenAccount(){
+    if(!this.bankAcctOwnerId){ this.showToast('Pick an account owner first.'); return; }
+    const opts = { owner:{ kind:'character', id: this.bankAcctOwnerId } };
+    if(this.bankAcctMarketId){ opts.marketSettlementId = this.bankAcctMarketId; opts.custodian = { kind:'bank', label:'Bank', marketSettlementId: this.bankAcctMarketId }; }
+    const init = Math.round(Number(this.bankAcctInitial) || 0); if(init > 0) opts.initialDepositGp = init;
+    const r = window.ACKS.openBankAccount(this.currentCampaign, opts);
+    if(!r.ok){ this.showToast('Could not open account: ' + r.reason, 4000); return; }
+    this.bankAcctInitial = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Bank account opened.');
+  },
+  bankingDeposit(accId){
+    const raw = window.prompt('Deposit how much gp?'); if(raw === null) return;
+    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
+    const r = window.ACKS.depositToBankAccount(this.currentCampaign, accId, n, {});
+    if(!r.ok){ this.showToast('Deposit failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deposited ' + n.toLocaleString() + 'gp.');
+  },
+  bankingWithdraw(accId){
+    const raw = window.prompt('Withdraw how much gp?'); if(raw === null) return;
+    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
+    const r = window.ACKS.withdrawFromBankAccount(this.currentCampaign, accId, n, {});
+    if(!r.ok){ this.showToast('Withdrawal failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
+  },
   // --- b7-magicitems ---
   // --- b7-knowledge ---
   // --- b7-cl3 ---
@@ -15766,6 +15943,7 @@ return {
       ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       // ═══ TEAM BURST b7 — per-agent top-level tab entries (new-tab lanes only; extend-lanes add none) ═══
       // --- b7-banking ---  (add { id:'banking', label:'🏦 Banking', count:… } after this line)
+      { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       // --- b7-magicitems ---  (add { id:'magic-items', label:'🪄 Magic Items', count:… })
       // --- b7-knowledge ---  (add { id:'knowledge', label:'📚 Knowledge', count:… })
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
@@ -26218,6 +26396,8 @@ return {
       'researchProjects',
       // Sanctums AD-B (2026-06-15) — the apprenticeship relation (L0 apprentice ↔ sanctum master) (§8.9 importer mandate)
       'apprenticeships',
+      // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
+      'loans', 'bankAccounts',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -26313,7 +26493,8 @@ return {
       attunements:'attunement', settlementVisits:'settlement visit',
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
       units:'unit', armies:'army',
-      researchProjects:'research project', apprenticeships:'apprenticeship'
+      researchProjects:'research project', apprenticeships:'apprenticeship',
+      loans:'loan', bankAccounts:'bank account'
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){
