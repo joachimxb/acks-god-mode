@@ -231,6 +231,173 @@ section('Event registration + replay + no collision');
   ok('item-identified is wizard-opt-out', ACKS.wizardEmittableKinds && ACKS.wizardEmittableKinds().indexOf('item-identified') < 0);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+// W2 — COMMISSIONING (the Command exemplar; routes into Magic Research) + MI-5 TRAITS
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// A campaign with a paying commissioner + an eligible arcane caster. The full engine (incl. magic-research
+// + economy/GP-Wave-B) is loaded by _engine.js, so the routing + wealth-transfer run for real.
+function mkCommission(patronGp){
+  const camp = mkCampaign({ researchProjects:[], itemCustody:[], houseRules:{} });
+  const patron = { id:'chr-patron', name:'Lord Aelric', level:5, coins:{ pp:0, gp:(patronGp!=null?patronGp:50000), ep:0, sp:0, cp:0 }, personalGp:(patronGp!=null?patronGp:50000), currentHexId:'hex-1' };
+  const mage   = { id:'chr-mage', name:'Quintus', level:9, isArcaneCaster:true, coins:{ pp:0, gp:0, ep:0, sp:0, cp:0 }, personalGp:0, abilities:{ INT:16 }, proficiencies:[], currentHexId:'hex-1' };
+  camp.characters = [patron, mage];
+  return { camp, patron, mage };
+}
+
+// ── 8. Commission costs + preview (TT p.28: 3× base = material 1× + component 1× up front + research 1×) ──
+section('Commission — costs + preview (TT p.28)');
+{
+  // arms/armor +N is EXACT (the +N ladder matches RR's ITEM_BONUS_COST): +1 base 5000 → 3× = 15000.
+  const c1 = ACKS.commissionCosts({ effectType:'permanent-bonus', enchantBonus:1 });
+  ok('commissionCosts base = research item-creation cost', c1.baseCost === 5000);
+  ok('up-front = material 1× + component 1× = 2× base', c1.upFrontGp === 10000);
+  ok('research fee 1× = base', c1.researchFeeGp === 5000);
+  ok('commission price = 3× base', c1.commissionPriceGp === 15000);
+  const c2 = ACKS.commissionCosts({ effectType:'permanent-bonus', enchantBonus:3 });
+  ok('a +3 weapon commission = 3× 35000 = 105000', c2.baseCost === 35000 && c2.commissionPriceGp === 105000);
+
+  const { camp } = mkCommission();
+  const pre = ACKS.commissionPreview(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  ok('preview ok (eligible + affords)', pre.ok === true);
+  ok('preview costs', pre.costs.commissionPriceGp === 15000 && pre.costs.upFrontGp === 10000);
+  ok('preview eligibility passes for an arcane L9 caster', pre.eligibility.ok === true);
+  ok('preview reports affordability', pre.affordsUpFront === true && pre.available === 50000);
+  ok('preview reports the throw target + chance', typeof pre.throwTarget === 'number' && typeof pre.successChance === 'number' && pre.successChance > 0);
+  // preview refusals (pure — no mutation)
+  const poor = mkCommission(100);
+  ok('preview flags insufficient funds', poor.camp && ACKS.commissionPreview(poor.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' }).reason === 'insufficient-funds');
+  const lowCamp = mkCommission(); lowCamp.mage.level = 3;
+  ok('preview flags an ineligible (too-low) caster', ACKS.commissionPreview(lowCamp.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' }).reason === 'level-too-low');
+}
+
+// ── 9. Commission issue — the GP Wave B up-front + the routed research project ──────────────────────
+section('Commission — issue (routes into Magic Research; commissioner pays up front)');
+{
+  const { camp, patron, mage } = mkCommission();
+  const iss = ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  ok('issue ok', iss.ok === true);
+  ok('routes into a Magic Research item-creation project', iss.project && iss.project.kind === 'item-creation' && iss.project.researcherCharacterId === 'chr-mage');
+  ok('the project carries a commission rider', iss.project.commission && iss.project.commission.status === 'commissioned');
+  ok('lives in campaign.researchProjects (no new collection/prefix)', Array.isArray(camp.researchProjects) && camp.researchProjects.indexOf(iss.project) >= 0 && /^rsp-/.test(iss.project.id));
+  // the GP accounting: commissioner pays the up-front 2× (material → caster funds the engine debit; component → external)
+  ok('commissioner pays the up-front 2× (50000 → 40000)', patron.coins.gp === 40000);
+  ok('the caster is a funded pass-through (net 0)', mage.coins.gp === 0);
+  ok('emits magic-item-commissioned', camp.eventLog.some(e => e.event.kind === 'magic-item-commissioned'));
+  ok('the commission event carries the price breakdown', (() => { const e = camp.eventLog.find(e => e.event.kind === 'magic-item-commissioned'); return e && e.event.payload.commissionPriceGp === 15000 && e.event.payload.upFrontGp === 10000 && e.event.payload.casterCharacterId === 'chr-mage'; })());
+  // refusals are ATOMIC — no gp moves on a rejected issue
+  const r2 = mkCommission(100);
+  const broke = ACKS.commissionMagicItem(r2.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  ok('insufficient funds → refused atomically (no gp moved, no events)', broke.ok === false && broke.error === 'insufficient-funds' && r2.patron.coins.gp === 100 && r2.camp.eventLog.length === 0);
+  const r3 = mkCommission(); r3.mage.level = 3;
+  ok('ineligible caster → refused (gp untouched)', ACKS.commissionMagicItem(r3.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' }).error === 'caster-level-too-low' && r3.patron.coins.gp === 50000);
+  ok('self-commission refused', ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-patron', catalogKey:'weapon-plus-1' }).error === 'commissioner-cannot-be-the-caster');
+  ok('unknown commissioner/caster refused', ACKS.commissionMagicItem(camp, { commissionerCharacterId:'nope', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' }).error === 'unknown-commissioner');
+}
+
+// ── 10. Commission resolve — success (item delivered, fee paid, custody re-homed) ───────────────────
+section('Commission — resolve success (TT p.28 fee on success; maker provenance; custody to commissioner)');
+{
+  const { camp, patron, mage } = mkCommission();
+  const iss = ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  // research must be complete — expedite the GM-fiat way (else advance turns); RNG_NAT20 → success.
+  const res = ACKS.resolveCommission(camp, iss.project.id, { expedite:true, rng:RNG_NAT20 });
+  ok('resolve ok + success', res.ok === true && res.success === true);
+  ok('the item is minted', camp.notableItems.length === 1 && res.notableItemId && res.item);
+  ok('maker provenance = the caster (sells ×2 as a created item)', res.item.provenance && res.item.provenance.makerCharacterId === 'chr-mage');
+  ok('custody re-homed to the commissioner', (camp.itemCustody.find(c => c.itemId === res.notableItemId) || {}).custodianId === 'chr-patron');
+  ok('the research fee 1× paid on success (patron 40000 → 35000 = 3× total)', patron.coins.gp === 35000 && res.feePaid === true);
+  ok('the caster keeps the fee (their professional pay)', mage.coins.gp === 5000);
+  ok('commission marked completed', iss.project.commission.status === 'completed' && iss.project.commission.notableItemId === res.notableItemId);
+  ok('emits magic-item-commission-resolved (success)', camp.eventLog.some(e => e.event.kind === 'magic-item-commission-resolved' && e.event.payload.success === true));
+  ok('cannot resolve twice', ACKS.resolveCommission(camp, iss.project.id, { rng:RNG_NAT20 }).error === 'already-resolved');
+  // a custom itemConfig commission (not a catalog key) — drives the base off the research engine's cost
+  const c2 = mkCommission();
+  const iss2 = ACKS.commissionMagicItem(c2.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', itemConfig:{ effectType:'one-use', spellLevel:2, itemKind:'potion', targetName:'Potion of Flight' }, expedite:true });
+  ok('a custom-config commission (one-use L2, base 1000)', iss2.ok && iss2.costs.baseCost === 1000 && iss2.costs.commissionPriceGp === 3000);
+  const res2 = ACKS.resolveCommission(c2.camp, iss2.project.id, { rng:RNG_NAT20 });
+  ok('custom-config commission delivers a potion', res2.success && c2.camp.notableItems.length === 1 && c2.camp.notableItems[0].kind === 'potion');
+}
+
+// ── 11. Commission resolve — failure (up-front lost, no item, no fee) ───────────────────────────────
+section('Commission — resolve failure (RR p.388 total loss of the up-front)');
+{
+  const { camp, patron, mage } = mkCommission();
+  const iss = ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  const res = ACKS.resolveCommission(camp, iss.project.id, { expedite:true, rng:RNG_NAT1 });
+  ok('resolve ok but the throw failed', res.ok === true && res.success === false);
+  ok('no item delivered', camp.notableItems.length === 0 && !res.notableItemId);
+  ok('the up-front 2× is lost (patron stays at 40000 — no fee, no refund)', patron.coins.gp === 40000 && res.lostGp === 10000);
+  ok('the caster gets no fee on failure', mage.coins.gp === 0);
+  ok('commission marked failed', iss.project.commission.status === 'failed');
+  ok('emits magic-item-commission-resolved (failure)', camp.eventLog.some(e => e.event.kind === 'magic-item-commission-resolved' && e.event.payload.success === false && e.event.payload.lostGp === 10000));
+  // resolving an incomplete (un-expedited, un-accrued) commission is refused
+  const c2 = mkCommission();
+  const i2 = ACKS.commissionMagicItem(c2.camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  ok('resolve refuses an incomplete commission', ACKS.resolveCommission(c2.camp, i2.project.id, { rng:RNG_NAT20 }).error === 'research-incomplete');
+  ok('resolve(non-commission project) refused', ACKS.resolveCommission(c2.camp, 'nope').error === 'not-a-commission');
+}
+
+// ── 12. Commission lookups + status ─────────────────────────────────────────────────────────────────
+section('Commission — lookups + derived status');
+{
+  const { camp } = mkCommission();
+  const iss = ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-2' });
+  ok('isCommission', ACKS.isCommission(iss.project) === true);
+  ok('commissionProjects + activeCommissions', ACKS.commissionProjects(camp).length === 1 && ACKS.activeCommissions(camp).length === 1);
+  ok('commissionsFor finds both parties', ACKS.commissionsFor(camp, 'chr-patron').length === 1 && ACKS.commissionsFor(camp, 'chr-mage').length === 1);
+  const st = ACKS.commissionStatus(camp, iss.project);
+  ok('commissionStatus reports the price + the rollable gate', st && st.commissionPriceGp === 45000 && st.status === 'commissioned' && st.rollable === false);
+  ACKS.resolveCommission(camp, iss.project.id, { expedite:true, rng:RNG_NAT20 });
+  ok('after delivery, activeCommissions drops to 0', ACKS.activeCommissions(camp).length === 0);
+}
+
+// ── 13. MI-5 — Magic Item Traits (the optional content pack; default OFF) ──────────────────────────
+section('Magic Item Traits — the magic-item-traits house rule (default OFF)');
+{
+  ok('traits catalog ships archetypes + a page-ref (IP-safe, no prose)', ACKS.magicItemTraitsCatalog().length >= 10 && ACKS.magicItemTraitsCatalog().every(t => Object.isFrozen(t) && t.key && t.name && t.category && t.pageRef && t.note));
+  ok('traits span categories', ['sensory','behavioral','boon','bane','sentience'].every(cat => Object.keys(ACKS.magicItemTraitsByCategory()).indexOf(cat) >= 0));
+  ok('findMagicItemTrait resolves a key', ACKS.findMagicItemTrait('glimmering').name === 'Glimmering' && ACKS.findMagicItemTrait('nope') === null);
+
+  const camp = mkCampaign();
+  const ni = ACKS.createNotableFromCatalog(camp, 'ring-permanent');
+  // gate OFF (default) — assignment refused + hidden
+  ok('traits disabled by default', ACKS.magicItemTraitsEnabled(camp) === false);
+  ok('assign refused when the rule is OFF', ACKS.assignMagicItemTrait(camp, { itemId:ni.id, traitKey:'glimmering' }).error === 'house-rule-off');
+  ok('no trait written when OFF', ACKS.magicItemTraits(ni).length === 0);
+  // gate ON
+  camp.houseRules = { 'magic-item-traits': { enabled:true } };
+  ok('traits enabled by the house rule', ACKS.magicItemTraitsEnabled(camp) === true);
+  const a = ACKS.assignMagicItemTrait(camp, { itemId:ni.id, traitKey:'glimmering', gmNote:'shimmers blue' });
+  ok('assign ok + written to intrinsic.traits[]', a.ok && ACKS.magicItemTraits(ni).length === 1 && ACKS.itemHasTrait(ni, 'glimmering'));
+  ok('the trait carries its archetype + the gmNote', ni.intrinsic.traits[0].name === 'Glimmering' && ni.intrinsic.traits[0].gmNote === 'shimmers blue' && ni.intrinsic.traits[0].pageRef === 'JJ p.172');
+  ok('an item-history line is stamped', Array.isArray(ni.history) && ni.history.some(h => h.type === 'trait-assigned'));
+  ok('duplicate trait refused', ACKS.assignMagicItemTrait(camp, { itemId:ni.id, traitKey:'glimmering' }).error === 'already-has-trait');
+  const rolled = ACKS.rollMagicItemTrait(camp, { itemId:ni.id, rng:() => 0.5 });
+  ok('rollMagicItemTrait assigns a random (different) trait', rolled.ok && ACKS.magicItemTraits(ni).length === 2);
+  ok('removeMagicItemTrait removes one', ACKS.removeMagicItemTrait(camp, { itemId:ni.id, traitKey:'glimmering' }).ok && ACKS.magicItemTraits(ni).length === 1);
+  // NO new event kind for traits (benign GM authoring — the only W2 kinds are the 2 commission kinds)
+  ok('trait assignment emits NO event', camp.eventLog.length === 0);
+}
+
+// ── 14. W2 event registration + replay + no-collision ───────────────────────────────────────────────
+section('W2 event registration + replay + wizard-opt-out');
+{
+  ['magic-item-commissioned','magic-item-commission-resolved'].forEach(k => {
+    ok(k + ' is a known kind', ACKS.isEventKindKnown(k) === true);
+    ok(k + ' has a schema', ACKS.EVENT_SCHEMAS && !!ACKS.EVENT_SCHEMAS[k]);
+    ok(k + ' is wizard-opt-out (verb-owned)', ACKS.wizardEmittableKinds && ACKS.wizardEmittableKinds().indexOf(k) < 0);
+  });
+  // no collision with the shipped magic-item kinds
+  ['magic-item-created','item-transfer','item-identified'].forEach(k => ok('shipped/W1 kind ' + k + ' intact', ACKS.isEventKindKnown(k) === true));
+  // the record-only replay handler keeps a commission event well-formed
+  const { camp } = mkCommission();
+  const iss = ACKS.commissionMagicItem(camp, { commissionerCharacterId:'chr-patron', casterCharacterId:'chr-mage', catalogKey:'weapon-plus-1' });
+  const ev = camp.eventLog.find(e => e.event.kind === 'magic-item-commissioned').event;
+  const replay = ACKS.applyEvent(camp, ev);
+  ok('replay handler returns a narrativeSummary', replay && replay.result && typeof replay.result.narrativeSummary === 'string' && replay.result.narrativeSummary.length > 0);
+}
+
 // ── summary ───────────────────────────────────────────────────────────────────────────────────────
 console.log('\n=============================================');
 console.log('magic-items.smoke: ' + passed + ' passed, ' + failed + ' failed');

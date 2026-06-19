@@ -95,7 +95,7 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
@@ -15368,6 +15368,8 @@ document.addEventListener('alpine:init', () => {
           <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
         </select>
         <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+        <span class="opacity-30">|</span>
+        <button @click="openCommissionModal()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-200 hover:bg-yellow-300" title="Commission a magic item from an NPC caster (TT p.28: 3× base — routes into Magic Research)">🛠 Commission…</button>
       </div>
     </div>
     <template x-if="magicItemList().length === 0">
@@ -15408,6 +15410,43 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-60 mt-3 italic">The magic-item economy (#143) over <code>campaign.notableItems[]</code>: identify (5 RAW methods, rarity-gated), appraise (the TT p.28 price spread), and use charges. Buying/selling routes through the existing market verbs; item creation is Magic Research's. The catalog ships mechanical fields + a page-ref only — the effect text stays in your book.</p>
   </div>
+
+  <!-- === @b8-magicitems (team) — Commissions card (W2; the Command exemplar) === -->
+  <template x-if="magicItemCommissions().length">
+    <div class="vellum border border-ink rounded p-4 mt-4">
+      <h3 class="font-bold text-lg mb-2">🛠 Commissions <span class="text-sm opacity-70 font-normal" x-text="'· ' + magicItemCommissions().length"></span></h3>
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Item</th><th>Patron</th><th>Caster</th><th class="text-right">Price (3×)</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          <template x-for="p in magicItemCommissions()" :key="p.id">
+            <tr>
+              <td x-text="p.name || 'magic item'"></td>
+              <td x-text="commissionPartyName(p.commission.commissionerCharacterId)"></td>
+              <td x-text="commissionPartyName(p.commission.casterCharacterId)"></td>
+              <td class="text-right font-mono" x-text="(p.commission.commissionPriceGp||0).toLocaleString()+' gp'"></td>
+              <td>
+                <template x-if="commissionStatusOf(p).status==='commissioned'">
+                  <span x-text="commissionStatusOf(p).rollable ? '⏳ research done — roll it' : ('🔬 researching · '+commissionStatusOf(p).progressPct+'%'+(commissionStatusOf(p).daysRemaining!=null && isFinite(commissionStatusOf(p).daysRemaining) ? (' ('+commissionStatusOf(p).daysRemaining+'d left)') : ''))"></span>
+                </template>
+                <template x-if="commissionStatusOf(p).status==='completed'"><span class="text-green-800">✓ delivered<span x-show="commissionStatusOf(p).feeOwedGp>0" class="text-red-700" x-text="' (fee owed '+commissionStatusOf(p).feeOwedGp.toLocaleString()+'gp)'"></span></span></template>
+                <template x-if="commissionStatusOf(p).status==='failed'"><span class="text-red-700">✗ failed — up-front lost</span></template>
+              </td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="commissionStatusOf(p).status==='commissioned'">
+                  <span>
+                    <button x-show="commissionStatusOf(p).rollable" @click="resolveCommissionUi(p.id, false)" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 text-xs" :title="'Roll the magic-research throw — '+(commissionStatusOf(p).successChance!=null ? Math.round(commissionStatusOf(p).successChance*100)+'% to succeed' : '')">🎲 Roll</button>
+                    <button @click="resolveCommissionUi(p.id, true)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-xs" title="GM expedite — skip the research months, then roll">⏩ Expedite + roll</button>
+                  </span>
+                </template>
+                <template x-if="commissionStatusOf(p).status==='completed' && commissionStatusOf(p).notableItemId"><button @click="openMagicItemDetail(commissionStatusOf(p).notableItemId)" class="underline text-xs">open item</button></template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <p class="text-sm opacity-60 mt-2 italic">A commission (TT p.28) is the first <strong>Command</strong> — a costed (3× base), timed, can-fail action that yields an item by routing into Magic Research. The patron pays up front; an NPC caster researches; the fee is paid on delivery. Advance the turn to accrue the research, or ⏩ Expedite.</p>
+    </div>
+  </template>
 
   <!-- detail modal: appraise + identify + use-charge -->
   <div x-show="magicItemDetailId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeMagicItemDetail()" @keydown.escape.window="closeMagicItemDetail()">
@@ -15478,6 +15517,31 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-ink/30 rounded p-2 mb-2 flex justify-between items-center">
               <strong class="text-sm">🔋 Use a charge</strong>
               <button @click="runMagicItemUseCharge()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="magicItemIsDepletedUi(magicItemDetail())">Spend 1</button>
+            </div>
+          </template>
+
+          <!-- === @b8-magicitems (team) — MI-5 Traits (gated on the magic-item-traits house rule) === -->
+          <template x-if="magicItemTraitsOn()">
+            <div class="border border-ink/30 rounded p-2 mb-2">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <strong class="text-sm">✨ Traits <span class="opacity-60 font-normal">(optional · JJ p.172)</span></strong>
+                <div class="flex gap-2 items-center text-sm">
+                  <select x-model="magicItemTraitPick" class="text-sm">
+                    <option value="">+ add a trait…</option>
+                    <template x-for="t in magicItemTraitCatalog()" :key="t.key"><option :value="t.key" x-text="t.name + ' (' + t.category + ')'"></option></template>
+                  </select>
+                  <button @click="assignMagicItemTraitUi()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+                  <button @click="rollMagicItemTraitUi()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Assign a random trait">🎲</button>
+                </div>
+              </div>
+              <template x-if="magicItemTraitsOf(magicItemDetail()).length">
+                <ul class="text-sm mt-1 space-y-0.5">
+                  <template x-for="t in magicItemTraitsOf(magicItemDetail())" :key="t.key">
+                    <li class="flex justify-between gap-2"><span><span class="font-semibold" x-text="t.name"></span> <span class="opacity-70" x-text="'— ' + t.note"></span></span><button @click="removeMagicItemTraitUi(t.key)" class="text-red-700 underline">remove</button></li>
+                  </template>
+                </ul>
+              </template>
+              <template x-if="!magicItemTraitsOf(magicItemDetail()).length"><p class="text-sm italic opacity-60 mt-1">No traits yet — add a quirk or 🎲 roll one. (Archetypes in our words; the full d% table is in your JJ p.172.)</p></template>
             </div>
           </template>
 
@@ -15805,6 +15869,59 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
 <!-- === @b8-politics   (team) — senate influence modal === -->
 <!-- === @b8-magicitems (team) — commission modal === -->
+<div x-show="magicItemCommissionOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeCommissionModal()" @keydown.escape.window="closeCommissionModal()">
+  <div class="vellum border border-ink rounded p-4 max-w-xl w-full max-h-[85vh] overflow-y-auto">
+    <div class="flex justify-between items-baseline mb-2">
+      <h3 class="font-bold text-lg">🛠 Commission a magic item</h3>
+      <button @click="closeCommissionModal()" class="text-sm underline">close ✕</button>
+    </div>
+    <p class="text-sm opacity-70 mb-3">A patron pays an NPC caster to craft an item (TT p.28: <strong>3× base</strong> = material + components up front, the fee on success). It routes into a Magic Research project — the patron pays, the caster researches. It can fail.</p>
+    <div class="space-y-2 text-sm">
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Patron</span>
+        <select x-model="commissionForm.commissionerId" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— who pays —</option>
+          <template x-for="c in commissionPatronOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||c.id) + ' (' + ((c.coins&&c.coins.gp)||0).toLocaleString() + ' gp)'"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Caster</span>
+        <select x-model="commissionForm.casterId" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— the NPC who crafts —</option>
+          <template x-for="c in commissionCasterOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||c.id) + ' (arcane L' + (c.level||1) + ')'"></option></template>
+        </select>
+      </label>
+      <template x-if="!commissionCasterOptions().length"><p class="text-xs italic text-red-700">No arcane casters in this campaign — set a character's class to an arcane caster (or its <code>isArcaneCaster</code> flag) to commission.</p></template>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Item</span>
+        <select x-model="commissionForm.catalogKey" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— from the catalog —</option>
+          <template x-for="e in magicItemCatalogList()" :key="e.key"><option :value="e.key" x-text="e.name + ' (base ' + e.baseCost.toLocaleString() + 'gp)'"></option></template>
+        </select>
+      </label>
+    </div>
+
+    <!-- live forecast -->
+    <template x-if="commissionPreviewNow()">
+      <div class="border border-ink/40 rounded p-2 mt-3 text-sm" :class="commissionPreviewNow().ok ? 'bg-green-50' : 'bg-red-50'">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-0.5">
+          <span>Commission (3×): <span class="font-mono font-semibold" x-text="commissionPreviewNow().costs.commissionPriceGp.toLocaleString()+' gp'"></span></span>
+          <span>Up front (2×): <span class="font-mono" x-text="commissionPreviewNow().costs.upFrontGp.toLocaleString()+' gp'"></span></span>
+          <span>Fee on delivery: <span class="font-mono" x-text="commissionPreviewNow().costs.researchFeeGp.toLocaleString()+' gp'"></span></span>
+          <span x-show="commissionPreviewNow().successChance!=null">Caster's chance: <span class="font-mono" x-text="Math.round((commissionPreviewNow().successChance||0)*100)+'%'"></span></span>
+        </div>
+        <template x-if="!commissionPreviewNow().ok"><p class="text-red-700 mt-1" x-text="'⚠ ' + commissionErrorText(commissionPreviewNow().reason || 'not ready')"></p></template>
+        <template x-if="commissionPreviewNow().ok"><p class="text-green-800 mt-1">✓ Ready — the patron can afford the up-front and the caster is eligible.</p></template>
+      </div>
+    </template>
+
+    <template x-if="commissionFormResult">
+      <p class="text-sm mt-2 font-semibold" :class="commissionFormResult.ok ? 'text-green-800' : 'text-red-700'" x-text="commissionFormResult.msg"></p>
+    </template>
+
+    <div class="flex justify-end gap-2 mt-3">
+      <button @click="closeCommissionModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Cancel</button>
+      <button @click="submitCommission()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 text-sm" :disabled="!(commissionPreviewNow() && commissionPreviewNow().ok)" :class="(commissionPreviewNow() && commissionPreviewNow().ok) ? '' : 'opacity-40 cursor-not-allowed'" x-text="commissionPreviewNow() && commissionPreviewNow().ok ? ('Commission (' + commissionPreviewNow().costs.upFrontGp.toLocaleString() + ' gp up front)') : 'Commission'"></button>
+    </div>
+  </div>
+</div>
 <!-- === @b8-sages      (team) — sage-commission modal === -->
 <!-- === @b8-banking    (team) — loan modal === -->
 
@@ -16745,6 +16862,31 @@ return {
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
   // === @b8-politics   (team) — Politics P-3: state + methods ===
   // === @b8-magicitems (team) — Magic Items W2: state + methods ===
+  // Commissioning (the Command exemplar; routes into Magic Research) + MI-5 Traits.
+  magicItemCommissionOpen: false,
+  commissionForm: { commissionerId: '', casterId: '', catalogKey: '' },
+  commissionFormResult: null,
+  magicItemTraitPick: '',
+  // — Commissioning —
+  commissionPatronOptions(){ return (this.currentCampaign && this.currentCampaign.characters) || []; },
+  commissionCasterOptions(){ const A = window.ACKS; return ((this.currentCampaign && this.currentCampaign.characters) || []).filter(c => c && (A.isArcaneCaster ? A.isArcaneCaster(c) : c.isArcaneCaster)); },
+  openCommissionModal(){ this.commissionForm = { commissionerId:'', casterId:'', catalogKey:'' }; this.commissionFormResult = null; this.magicItemCommissionOpen = true; },
+  closeCommissionModal(){ this.magicItemCommissionOpen = false; },
+  commissionPreviewNow(){ const f = this.commissionForm; if(!f.commissionerId || !f.casterId || !f.catalogKey) return null; return window.ACKS.commissionPreview(this.currentCampaign, { commissionerCharacterId:f.commissionerId, casterCharacterId:f.casterId, catalogKey:f.catalogKey }); },
+  commissionErrorText(e){ const m = { 'insufficient-funds':'the patron cannot afford the up-front payment', 'level-too-low':'the caster is not powerful enough', 'caster-level-too-low':'the caster is not powerful enough', 'caster-not-an-arcane-caster':'the caster is not an arcane caster', 'no-caster':'pick a caster', 'no-commissioner':'pick a patron', 'commissioner-cannot-be-the-caster':'the patron and the caster must differ', 'no-item-config':'pick an item', 'research-engine-unavailable':'the magic-research engine is unavailable' }; return m[e] || e; },
+  submitCommission(){ const f = this.commissionForm; const r = window.ACKS.commissionMagicItem(this.currentCampaign, { commissionerCharacterId:f.commissionerId, casterCharacterId:f.casterId, catalogKey:f.catalogKey }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.commissionFormResult = { ok:true, msg:'Commissioned ' + (r.project.name || 'a magic item') + ' — ' + r.costs.upFrontGp.toLocaleString() + 'gp paid up front; ' + r.costs.researchFeeGp.toLocaleString() + 'gp on delivery.' }; this.showToast('Commission issued.', 3000); this.commissionForm = { commissionerId:'', casterId:'', catalogKey:'' }; } else { this.commissionFormResult = { ok:false, msg:'Cannot commission: ' + this.commissionErrorText(r.error || '?') }; } },
+  // — the commissions list (on the tab) —
+  magicItemCommissions(){ return window.ACKS.commissionProjects(this.currentCampaign); },
+  commissionStatusOf(p){ return window.ACKS.commissionStatus(this.currentCampaign, p); },
+  commissionPartyName(id){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === id); return c ? (c.name || c.id) : (id || '—'); },
+  resolveCommissionUi(projectId, expedite){ const r = window.ACKS.resolveCommission(this.currentCampaign, projectId, { expedite: !!expedite }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast(r.success ? ('🛠 Commission delivered!' + (r.feePaid ? '' : ' (fee still owed)')) : '🛠 Commission FAILED — up-front lost.', 3500); } else { this.showToast('Cannot resolve: ' + (r.error === 'research-incomplete' ? 'the research is not finished — Expedite, or advance turns' : r.error), 3500); } },
+  // — Traits (the optional content pack; in the detail modal) —
+  magicItemTraitsOn(){ return window.ACKS.magicItemTraitsEnabled(this.currentCampaign); },
+  magicItemTraitsOf(ni){ return ni ? window.ACKS.magicItemTraits(ni) : []; },
+  magicItemTraitCatalog(){ return window.ACKS.magicItemTraitsCatalog(); },
+  assignMagicItemTraitUi(){ const ni = this.magicItemDetail(); if(!ni || !this.magicItemTraitPick) return; const r = window.ACKS.assignMagicItemTrait(this.currentCampaign, { itemId:ni.id, traitKey:this.magicItemTraitPick }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.magicItemTraitPick = ''; this.showToast('Trait added: ' + r.trait.name, 2500); } else { this.showToast('Cannot add trait: ' + r.error, 2500); } },
+  rollMagicItemTraitUi(){ const ni = this.magicItemDetail(); if(!ni) return; const r = window.ACKS.rollMagicItemTrait(this.currentCampaign, { itemId:ni.id }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🎲 Rolled trait: ' + r.trait.name, 2500); } else { this.showToast('Cannot roll a trait: ' + r.error, 2500); } },
+  removeMagicItemTraitUi(traitKey){ const ni = this.magicItemDetail(); if(!ni) return; window.ACKS.removeMagicItemTrait(this.currentCampaign, { itemId:ni.id, traitKey }); this.markDirty(); this.schedulePersist(); },
   // === @b8-sages      (team) — Sages SG-2: state + methods ===
   // === @b8-banking    (team) — Banking B2: state + methods ===
 

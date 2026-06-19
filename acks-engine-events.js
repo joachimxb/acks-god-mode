@@ -363,7 +363,11 @@ const EVENT_KINDS = Object.freeze([
   // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
   'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
   'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
-  'item-appraised'       // a character appraises a magic item (the TT p.28 price spread + rarity)
+  'item-appraised',      // a character appraises a magic item (the TT p.28 price spread + rarity)
+  // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
+  // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
+  'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
+  'magic-item-commission-resolved' // the commission's research throw resolves (item delivered | up-front lost)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1156,6 +1160,16 @@ const EVENT_SCHEMAS = Object.freeze({
   'item-appraised': {
     R: { itemId: 'string' },
     O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
+  },
+  // === Magic Items W2 (burst8, team) === — #143 commissioning (acks-engine-magic-items.js). projectId =
+  // the routed Magic Research item-creation project; notableItemId is set on a successful delivery.
+  'magic-item-commissioned': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string' },
+    O: { itemName: 'string', baseCost: 'number', commissionPriceGp: 'number', upFrontGp: 'number', researchFeeGp: 'number', narrative: 'string' }
+  },
+  'magic-item-commission-resolved': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
+    O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
   }
 });
 
@@ -2911,6 +2925,10 @@ function applyEvent_magicItemAudit(campaign, event){
 registerEventHandler('item-identified', applyEvent_magicItemAudit);
 registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
 registerEventHandler('item-appraised', applyEvent_magicItemAudit);
+// === Magic Items W2 (burst8, team) === — commissioning events share the record-only audit posture
+// (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
+registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6009,7 +6027,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
   // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
   // identification + intrinsic.charges don't show.
-  'item-identified', 'item-charge-spent', 'item-appraised'
+  'item-identified', 'item-charge-spent', 'item-appraised',
+  // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
+  'magic-item-commissioned', 'magic-item-commission-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
