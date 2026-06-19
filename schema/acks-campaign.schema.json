@@ -285,6 +285,12 @@
         "$ref": "#/$defs/rumor"
       }
     },
+    "sageCommissions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sageCommission"
+      }
+    },
     "senates": {
       "type": "array",
       "items": {
@@ -3239,6 +3245,122 @@
         "id"
       ]
     },
+    "sageCommission": {
+      "title": "Sage Commission",
+      "description": "\"sageCommission\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sageCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "clientCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "settlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answerText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inSpecialty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "target": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "daysRequired": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startedAtOrd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "feeGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "feePaidGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "status": {
+          "enum": [
+            "in-progress",
+            "complete",
+            "abandoned",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "settlementVisit": {
       "title": "Settlement Visit",
       "description": "\"settlementVisit\" entity (no field schema yet — id-bearing object, fields open)",
@@ -5942,14 +6064,20 @@
                 "death-from-old-age",
                 "treasure-generated",
                 "sage-consultation",
+                "sage-commission-started",
+                "sage-commission-resolved",
                 "senate-vote",
                 "policy-enacted",
+                "senate-influenced",
+                "senate-dispute-opened",
                 "delve-foray",
                 "wilderness-foray",
                 "disease-contracted",
                 "disease-recovered",
                 "condition-applied",
                 "condition-cleared",
+                "character-died",
+                "inheritance-resolved",
                 "dungeon-attuned",
                 "attunement-ended",
                 "sovereignty-established",
@@ -5981,11 +6109,15 @@
                 "loan-interest",
                 "bank-deposit",
                 "bank-withdrawal",
+                "loan-reconciled",
                 "lore-learned",
                 "lore-shared",
                 "item-identified",
                 "item-charge-spent",
-                "item-appraised"
+                "item-appraised",
+                "generation",
+                "magic-item-commissioned",
+                "magic-item-commission-resolved"
               ]
             },
             "id": {
@@ -6077,9 +6209,9 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 54,
-    "typedKinds": 37,
-    "eventKinds": 127,
+    "entityKinds": 55,
+    "typedKinds": 38,
+    "eventKinds": 137,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
