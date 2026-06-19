@@ -1,4 +1,15 @@
 // =============================================================================
+// sages.smoke.js — Sages #147, SG-1 + SG-2 (Phase_4_Sages_Plan.md + Sages_Knowledge_RAW_Survey.md).
+// SG-2 (burst8 b8-sages) adds the multi-week SageCommission (sag-, campaign.sageCommissions[]; §3.3):
+// a work-in-progress research entity advanced on the SHIPPED day-tick (slot 64, the Construction-
+// Project propose-review-commit pattern) and resolved on the SAME Layer-1 die (REUSES sageConsult-
+// Resolve). Covers: the entity/prefix/registry/field-schema/event registrations + the slot-64
+// consumer; blankSageCommission + sageCommissionProgress (derive daysElapsed off startedAtOrd — no
+// drift); commissionSage (pre-rolled throw, GP-Wave-B fee + child, npc/pc paths, secret, guards,
+// insufficient-funds abort); the day-tick consumer (direct + via the real orchestrator — completion,
+// the resolved event + §528 envelope, idempotency, failed-research-no-answer); abandonSageCommission;
+// and the migrate-no-op invariant (blankCampaign SEEDS the collection, migrate does NOT inject it).
+// =============================================================================
 // sages.smoke.js — Sages #147, SG-1 (Phase_4_Sages_Plan.md + Sages_Knowledge_RAW_Survey.md).
 // A sage consultation is an EVENT (`sage-consultation`), NOT an entity — a thin service over the
 // shipped Proficiency-Throws Layer-1 die (RR p.171 in-specialty 3+ / out 18+; RR p.112/p.110 the
@@ -186,15 +197,148 @@ if(typeof ACKS.characterActivityBudget === 'function'){
 }
 
 // =============================================================================
+section('SG-2 — exports + entity/event registration');
+// =============================================================================
+['blankSageCommission','sageCommissions','findSageCommission','sageCommissionsForCharacter','sageCommissionProgress','commissionSage','abandonSageCommission','proposeSageCommissionDay','commitSageCommissionRecord']
+  .forEach(k => ok('ACKS.' + k + ' exported', typeof ACKS[k] === 'function'));
+ok('sag- prefix registered', ACKS.ID_PREFIXES && ACKS.ID_PREFIXES.sageCommission === 'sag');
+ok('blankCampaign seeds sageCommissions[]', Array.isArray(ACKS.blankCampaign().sageCommissions));
+ok('blankSageCommission mints a sag- id', String(ACKS.blankSageCommission({}).id).slice(0,4) === 'sag-');
+ok('registry has the sageCommission kind (chronicleable, 📜)', (ACKS.ENTITY_KINDS_LIST||[]).some(e => e.kind === 'sageCommission' && e.chronicleable));
+ok('registry displayName reads only factory fields', (() => { const e = (ACKS.ENTITY_KINDS_LIST||[]).find(x => x.kind === 'sageCommission'); return e && e.displayName({}, { subject:'dragons', id:'sag-1' }) === 'Research: dragons'; })());
+ok('field-schema names blankSageCommission', ACKS.fieldSchemaFor('sageCommission') && ACKS.fieldSchemaFor('sageCommission').factory === 'blankSageCommission');
+ok('field-schema fields ⊆ blankSageCommission keys', (() => { const sch = ACKS.fieldSchemaFor('sageCommission'); const keys = new Set(Object.keys(ACKS.blankSageCommission({}))); return sch.fields.filter(f=>f.type!=='computed').every(f => keys.has(f.name)); })());
+ok('field-schema validates clean', ACKS.validateFieldSchema('sageCommission', ACKS.fieldSchemaFor('sageCommission')).ok);
+ok('sage-commission-started is a known event kind', ACKS.isEventKindKnown('sage-commission-started'));
+ok('sage-commission-resolved is a known event kind', ACKS.isEventKindKnown('sage-commission-resolved'));
+ok('both commission kinds opt out of the Event Wizard', ACKS.isWizardEmittable && !ACKS.isWizardEmittable('sage-commission-started') && !ACKS.isWizardEmittable('sage-commission-resolved'));
+ok('schemas require sageCommissionId + sage + client', (() => { const s = ACKS.EVENT_SCHEMAS['sage-commission-started'], r = ACKS.EVENT_SCHEMAS['sage-commission-resolved']; return s && s.R.sageCommissionId === 'string' && s.R.sageCharacterId === 'string' && r && r.R.clientCharacterId === 'string'; })());
+ok('resolved schema declares success + throw', (() => { const r = ACKS.EVENT_SCHEMAS['sage-commission-resolved']; return r && r.O.success === 'boolean' && r.O.throw === 'object'; })());
+ok('day-consumer registered at slot 64 (with a commit)', (() => { const c = (ACKS.dayConsumersInOrder()||[]).find(x => x.name === 'sage-commission'); return c && c.order === 64 && typeof c.commit === 'function' && (c.pauseTriggers||[]).length === 0; })());
+
+// =============================================================================
+section('SG-2 — blankSageCommission factory + sageCommissionProgress (derive, no drift)');
+// =============================================================================
+const bc2 = ACKS.blankSageCommission({ sageCharacterId:'chr-s', clientCharacterId:'chr-c', subject:'history', daysRequired:10, feeGp:200 });
+ok('factory defaults status in-progress', bc2.status === 'in-progress');
+ok('factory carries the spec fields', bc2.sageCharacterId === 'chr-s' && bc2.clientCharacterId === 'chr-c' && bc2.subject === 'history' && bc2.daysRequired === 10 && bc2.feeGp === 200);
+ok('factory has resolved + result null, history []', bc2.resolved === null && bc2.result === null && Array.isArray(bc2.history));
+ok('factory defaults daysRequired 30 when absent', ACKS.blankSageCommission({}).daysRequired === 30);
+ok('factory has NO stored daysElapsed (derived, Architecture §3.3)', !('daysElapsed' in bc2));
+// progress derives elapsed from startedAtOrd (the truth)
+const pcom = ACKS.blankSageCommission({ daysRequired:10, startedAtOrd:1, status:'in-progress' });
+const prog = ACKS.sageCommissionProgress({ currentTurn:1, currentDayInMonth:5, sageCommissions:[] }, pcom);   // nowOrd 5 → elapsed 4
+ok('progress derives daysElapsed from startedAtOrd', prog.daysElapsed === 4 && prog.daysRemaining === 6 && prog.completesOnOrd === 11);
+ok('progress completesNow false before the completion day', prog.completesNow === false);
+ok('progress completesNow true on/after the completion day', ACKS.sageCommissionProgress({ currentTurn:1, currentDayInMonth:11, sageCommissions:[] }, pcom).completesNow === true);
+ok('progress clamps daysElapsed at daysRequired', ACKS.sageCommissionProgress({ currentTurn:5, currentDayInMonth:1, sageCommissions:[] }, pcom).daysElapsed === 10);
+
+// =============================================================================
+section('SG-2 — commissionSage (npc-specialist + pc-scholar) + the GP-Wave-B fee');
+// =============================================================================
+let cc = camp([specialist(), client()]);
+let cr = ACKS.commissionSage(cc, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', daysRequired:5, feeGp:120, answerText:'The Tarkauns ruled.', rng: rng(0.5) });
+ok('commission ok', cr.ok === true);
+ok('mode npc-specialist, target 3 (in-specialty)', cr.mode === 'npc-specialist' && cr.target === 3);
+ok('startedAtOrd = 1 (turn 1 day 1)', cr.startedAtOrd === 1);
+ok('commission stored, status in-progress', cc.sageCommissions.length === 1 && cc.sageCommissions[0].status === 'in-progress');
+ok('throw PRE-ROLLED at commissioning (resolved.success, nat-11 ≥ 3)', cc.sageCommissions[0].resolved && cc.sageCommissions[0].resolved.success === true && cc.sageCommissions[0].resolved.natural === 11);
+ok('result still null while in-progress', cc.sageCommissions[0].result === null);
+ok('fee debited 500 → 380', cc.characters.find(x=>x.id==='chr-cli').coins.gp === 380, 'got ' + cc.characters.find(x=>x.id==='chr-cli').coins.gp);
+ok('two events: started + fee child', cc.eventLog.length === 2);
+const sev = cc.eventLog[0].event;
+ok('started event kind = sage-commission-started', sev.kind === 'sage-commission-started');
+ok('started day-stamped (turn 1, day 1)', sev.appliedAtTurn === 1 && sev.appliedAtDay === 1);
+ok('started §528 envelope: sage source, client beneficiary, commission subject', (() => { const re = sev.context.relatedEntities||[]; return re.some(e=>e.id==='chr-sage'&&e.role==='source') && re.some(e=>e.id==='chr-cli'&&e.role==='beneficiary') && re.some(e=>e.kind==='sageCommission'&&e.id===cc.sageCommissions[0].id&&e.role==='subject'); })());
+ok('started payload carries daysRequired + target', sev.payload.daysRequired === 5 && sev.payload.target === 3);
+const fchild = cc.eventLog[1].event;
+ok('fee child = wealth-transfer under the parent (campaignLogHidden)', fchild.kind === 'wealth-transfer' && fchild.parentEventId === sev.id && fchild.campaignLogHidden === true);
+// out-of-specialty
+let cc2 = camp([specialist(), client()]);
+ACKS.commissionSage(cc2, { sageId:'chr-sage', clientId:'chr-cli', subject:'dragon anatomy', daysRequired:5, feeGp:0, rng: rng(0.5) });
+ok('out-of-specialty → target 18, pre-rolled FAIL (nat-11 < 18)', cc2.sageCommissions[0].target === 18 && cc2.sageCommissions[0].resolved.success === false);
+ok('fee 0 → only the started event (no fee child)', cc2.eventLog.length === 1);
+// pc-scholar + self-commission
+let cc3 = camp([scholar()]);   // Knowledge rank 2 → 7+
+let cr3 = ACKS.commissionSage(cc3, { sageId:'chr-sch', subject:'lore', daysRequired:5, feeGp:0, rng: rng(0.5) });
+ok('pc-scholar mode + target 7 + self-commission (client defaults to sage)', cr3.mode === 'pc-scholar' && cr3.target === 7 && cc3.sageCommissions[0].clientCharacterId === 'chr-sch');
+// secret
+let cc4 = camp([scholar()]);
+ACKS.commissionSage(cc4, { sageId:'chr-sch', subject:'x', daysRequired:5, secret:true, rng: rng(0.5) });
+ok('secret stored on resolved', cc4.sageCommissions[0].resolved.secret === true);
+// insufficient funds aborts (nothing created)
+let cc5 = camp([specialist(), client({ id:'chr-poor', coins:{gp:10} })]);
+let cins = ACKS.commissionSage(cc5, { sageId:'chr-sage', clientId:'chr-poor', subject:'history', daysRequired:5, feeGp:100, rng: rng(0.5) });
+ok('insufficient funds → ok:false insufficient-funds', cins.ok === false && cins.error === 'insufficient-funds');
+ok('insufficient funds → nothing created, no events, no gp moved', !(cc5.sageCommissions && cc5.sageCommissions.length) && cc5.eventLog.length === 0 && cc5.characters.find(x=>x.id==='chr-poor').coins.gp === 10);
+// guards
+ok('no campaign → ok:false', ACKS.commissionSage(null, {}).ok === false);
+ok('unknown sage → unknown-sage', ACKS.commissionSage(camp([scholar()]), { sageId:'nope' }).error === 'unknown-sage');
+ok('not-a-sage → not-a-sage', ACKS.commissionSage(camp([{ id:'chr-pl', proficiencies:[] }]), { sageId:'chr-pl', subject:'x' }).error === 'not-a-sage');
+
+// =============================================================================
+section('SG-2 — the slot-64 day-tick consumer (direct + via the orchestrator)');
+// =============================================================================
+// direct: propose on the completion day → 1 record + 1 TRANSIENT notable → commit resolves
+let dc = camp([specialist(), client()]);
+ACKS.commissionSage(dc, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', daysRequired:3, feeGp:0, answerText:'Yes.', rng: rng(0.1) });   // in-spec 3+, nat-3 → success
+ok('propose BEFORE completion → 0 records', ACKS.proposeSageCommissionDay(dc, { dayInMonth: 2 }).pendingRecords.length === 0);
+dc.currentDayInMonth = 4;   // ord 4 = startedAtOrd(1) + daysRequired(3)
+let propD = ACKS.proposeSageCommissionDay(dc, { dayInMonth: 4 });
+ok('propose ON the completion day → 1 record', propD.pendingRecords.filter(r=>r.kind==='sage-commission-complete').length === 1);
+ok('propose → 1 TRANSIENT review notable (not logged as its own event)', propD.notableEvents.length === 1 && propD.notableEvents[0].transient === true && propD.notableEvents[0].type === 'sage-commission');
+ACKS.commitSageCommissionRecord(dc, propD.pendingRecords[0]);
+ok('commit → status complete', dc.sageCommissions[0].status === 'complete');
+ok('commit → result set + answer delivered on success', dc.sageCommissions[0].result && dc.sageCommissions[0].result.success === true && dc.sageCommissions[0].result.answerText === 'Yes.');
+let drev = dc.eventLog.find(e => e.event.kind === 'sage-commission-resolved');
+ok('commit emits sage-commission-resolved', !!drev);
+ok('resolved §528 envelope (sage source + commission subject)', !!drev && (drev.event.context.relatedEntities||[]).some(e=>e.id==='chr-sage'&&e.role==='source') && (drev.event.context.relatedEntities||[]).some(e=>e.kind==='sageCommission'&&e.role==='subject'));
+ok('resolved payload carries success + throw', !!drev && drev.event.payload.success === true && drev.event.payload.throw && drev.event.payload.throw.total != null);
+// idempotent
+let beforeLen = dc.eventLog.length;
+ACKS.commitSageCommissionRecord(dc, propD.pendingRecords[0]);
+ok('commit is idempotent (no second resolved event)', dc.eventLog.length === beforeLen);
+// a FAILED research delivers no answer
+let dcF = camp([specialist(), client()]);
+ACKS.commissionSage(dcF, { sageId:'chr-sage', clientId:'chr-cli', subject:'dragon anatomy', daysRequired:2, feeGp:0, answerText:'Should not deliver.', rng: rng(0.5) });   // out-spec 18+, nat-11 → fail
+dcF.currentDayInMonth = 3;
+let pF = ACKS.proposeSageCommissionDay(dcF, { dayInMonth:3 });
+ACKS.commitSageCommissionRecord(dcF, pF.pendingRecords[0]);
+ok('failed research → complete, success false, empty answer', dcF.sageCommissions[0].status === 'complete' && dcF.sageCommissions[0].result.success === false && dcF.sageCommissions[0].result.answerText === '');
+// end-to-end via the real orchestrator (proves slot-64 registration fires)
+let oc = camp([specialist(), client()]);
+ACKS.commissionSage(oc, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', daysRequired:3, feeGp:0, answerText:'Delivered.', rng: rng(0.1) });
+let prop = ACKS.proposeDayTick(oc, 3, { force:true });   // ticks days 2,3,4 — the slot-64 consumer fires on day 4
+ok('orchestrator surfaces the slot-64 completion record', prop.pendingRecords.some(r => r.consumer === 'sage-commission' && r.kind === 'sage-commission-complete'));
+ACKS.commitDayTick(oc, prop);
+ok('orchestrator commit resolves the commission + logs the event', oc.sageCommissions[0].status === 'complete' && !!oc.eventLog.find(e=>e.event.kind==='sage-commission-resolved'));
+ok('resolved stamps the COMPLETION day (record.dayInMonth, not the pre-tick day) — day 4', oc.sageCommissions[0].result.deliveredAtDay === 4, 'got ' + oc.sageCommissions[0].result.deliveredAtDay);
+
+// =============================================================================
+section('SG-2 — abandonSageCommission + lookups');
+// =============================================================================
+let abc = camp([specialist(), client()]);
+let ar = ACKS.commissionSage(abc, { sageId:'chr-sage', clientId:'chr-cli', subject:'metaphysics', daysRequired:30, feeGp:0, rng: rng(0.85) });
+let ab = ACKS.abandonSageCommission(abc, ar.commission.id);
+ok('abandon ok → status abandoned (no refund)', ab.ok === true && abc.sageCommissions[0].status === 'abandoned');
+ok('re-abandon refused (not-in-progress)', ACKS.abandonSageCommission(abc, ar.commission.id).error === 'not-in-progress');
+ok('abandon unknown → unknown-commission', ACKS.abandonSageCommission(abc, 'sag-nope').error === 'unknown-commission');
+ok('findSageCommission resolves by id', ACKS.findSageCommission(abc, ar.commission.id) === abc.sageCommissions[0]);
+ok('sageCommissionsForCharacter finds by sage OR client', ACKS.sageCommissionsForCharacter(abc, 'chr-cli').length === 1 && ACKS.sageCommissionsForCharacter(abc, 'chr-sage').length === 1);
+
+// =============================================================================
 section('Team-session invariants — record-only, no migrate inject, no blankCharacter field');
 // =============================================================================
-ok('no replay handler registered (record-only): applyEvent of a raw sage-consultation is harmless', (() => {
-  // A record-only kind has no EVENT_HANDLERS entry; the verb pushes directly. Confirm there is no
-  // sage-collection injected by migrateCampaign onto a fresh blank campaign.
-  if(typeof ACKS.blankCampaign !== 'function') return true;
-  const blank = ACKS.blankCampaign ? ACKS.blankCampaign() : { characters:[] };
-  const migrated = (typeof ACKS.migrateCampaign === 'function') ? ACKS.migrateCampaign(blank) : blank;
-  return !('sageConsultations' in migrated) && !('sageCommissions' in migrated) && !('sages' in migrated);
+ok('SG-1 record-only: migrate injects no sage-consultation collection', (() => {
+  // The everyday consultation is an EVENT, not an entity — no collection at all.
+  if(typeof ACKS.migrateCampaign !== 'function') return true;
+  const bare = ACKS.migrateCampaign({ schemaVersion:2, characters:[] });
+  return !('sageConsultations' in bare) && !('sages' in bare);
+})());
+ok('SG-2: blankCampaign SEEDS sageCommissions[] (the multi-week commission collection is real)', Array.isArray(ACKS.blankCampaign().sageCommissions));
+ok('SG-2: migrate does NOT inject sageCommissions onto a campaign that lacks it (migrate-no-op, templates unchanged)', (() => {
+  if(typeof ACKS.migrateCampaign !== 'function') return true;
+  return !('sageCommissions' in ACKS.migrateCampaign({ schemaVersion:2, characters:[] }));
 })());
 ok('blankCharacter carries no sageSpecialty (defensive read; init-on-write)', (() => {
   if(typeof ACKS.blankCharacter !== 'function') return true;

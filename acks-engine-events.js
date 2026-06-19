@@ -264,6 +264,11 @@ const EVENT_KINDS = Object.freeze([
   // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
   // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
   'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (commissionSage +
+  // the slot-64 day-tick consumer; Phase_4_Sages_Plan.md §3.3). Both record-only (the verb / the
+  // day-tick commit already applied the state): -started at commissioning, -resolved when the
+  // research completes. The §528 envelope (sage = source, client = beneficiary, the commission = subject).
+  'sage-commission-started', 'sage-commission-resolved',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
@@ -937,6 +942,18 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
          inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
          answerText: 'string', loreId: 'string', activityCost: 'object' }
+  },
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (Phase_4_Sages_Plan.md
+  // §3.3). Record-only (commissionSage / the slot-64 day-tick commit already applied the state).
+  'sage-commission-started': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', daysRequired: 'number', feeGp: 'number', secret: 'boolean' }
+  },
+  'sage-commission-resolved': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', subject: 'string', success: 'boolean', throw: 'object',
+         answerText: 'string', daysRequired: 'number' }
   },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
@@ -5951,6 +5968,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
   // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
   'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — owned by commissionSage / the slot-64 day-tick
+  // consumer (the 📜 Commission modal + the Day Clock); a raw emit would record a commission the
+  // sageCommissions[] state doesn't show. The GM commissions a sage via the modal, not the Wizard.
+  'sage-commission-started', 'sage-commission-resolved',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',

@@ -202,7 +202,11 @@ const ID_PREFIXES = Object.freeze({
   // Wave B); `knowledge` = the per-knower relation (campaign.knowledge[]; character ↔ lore, the
   // believed-vs-true / confidence + provenance link). Resolved by acks-engine-knowledge.js. ===
   lore:                 'lor',
-  knowledge:            'knw'
+  knowledge:            'knw',
+  // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission research-commission
+  // (campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on
+  // the slot-64 day-tick + resolved on the shipped Proficiency-Throws die. Resolved by acks-engine-sages.js. ===
+  sageCommission:       'sag'
 });
 
 function newId(prefix){
@@ -1109,6 +1113,10 @@ function lazyDefaultV1ScopeReservations(campaign){
   // (+ importer + UI) reads both arrays defensively (?? []) and seeds them on first write, so the
   // 6 templates + demo stay TRUE migrate-no-ops with no template regen (the team-session enabler,
   // burst4). blankCampaign seeds them for new campaigns.
+  // === Sages SG-2 (burst8 b8-sages 2026-06-19) — campaign.sageCommissions[] (the multi-week research-
+  // commission, sag-). DELIBERATELY NOT lazy-injected here (the banking precedent above): the sages
+  // module + importer + UI read it defensively + seed it on first write (commissionSage), so the 6
+  // templates + demo stay TRUE migrate-no-ops with no regen. blankCampaign seeds it for new campaigns.
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
