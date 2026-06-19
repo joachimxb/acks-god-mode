@@ -256,6 +256,16 @@
       find: (c, id) => ((c && c.researchProjects) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.kind)) || (obj && obj.id) },
 
+    // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission (sag-,
+    // campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). A work-in-progress research
+    // undertaking advanced on the slot-64 day-tick. displayName reads only blankSageCommission
+    // keys (subject/id) per the registry⊆factory invariant (tests/smoke.js). ──
+    { kind: 'sageCommission', label: 'Sage Commission', pluralLabel: 'Sage Commissions', icon: '📜',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.sageCommissions) || [],
+      find: (c, id) => ((c && c.sageCommissions) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.subject) ? ('Research: ' + obj.subject) : (obj && obj.id) },
+
     { kind: 'settlementVisit', label: 'Settlement Visit', pluralLabel: 'Settlement Visits', icon: '🛤',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.settlementVisits) || [],

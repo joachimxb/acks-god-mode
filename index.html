@@ -11779,6 +11779,8 @@ document.addEventListener('alpine:init', () => {
             <span class="flex gap-2">
               <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
               <button @click="openSageConsultModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
+              <!-- @b8-sages (team) — SG-2 commission opener -->
+              <button @click="openSageCommissionModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Commission a sage for multi-week research (Phase 4 Sages §3.3) — set them to research a deep question over N days; the Day Clock advances it and delivers the answer on completion.">📜 Commission</button>
             </span>
           </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
@@ -16318,6 +16320,128 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 <!-- === @b8-sages      (team) — sage-commission modal === -->
+<div x-show="sageCommission.open" @keydown.escape.window="if(sageCommission.open && !$event.defaultPrevented){ closeSageCommissionModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSageCommissionModal()">
+  <template x-if="sageCommission.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
+      <button @click="closeSageCommissionModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <p class="text-xs opacity-70">Set a sage to research a deep question over several days while the party adventures elsewhere. The Day Clock advances it; the answer is delivered on completion. Same throw as a quick consult (in-specialty 3+ / out 18+, or the scholar's own Knowledge / Loremastery).</p>
+
+      <!-- Sage + inquirer -->
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <label class="block"><span class="opacity-70">Sage</span>
+          <select class="w-full text-sm mt-0.5" @change="sageCommissionSetSage($event.target.value)">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" :selected="a.id===sageCommission.sageId" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block"><span class="opacity-70">Commissioned by</span>
+          <select class="w-full text-sm mt-0.5" x-model="sageCommission.clientId" @change="sageCommission.result=null">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+
+      <!-- Resolved mode -->
+      <template x-if="sageCommissionForecastUI()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <template x-if="sageCommissionForecastUI().available">
+            <div>
+              <template x-if="sageCommissionForecastUI().mode==='npc-specialist'">
+                <span><span class="font-semibold">Hired sage</span> — specialty <span class="italic" x-text="sageCommissionForecastUI().specialty || '(set one below)'"></span> · <span x-text="sageCommissionForecastUI().inSpecialty ? 'in-specialty 3+' : 'out-of-specialty 18+'"></span></span>
+              </template>
+              <template x-if="sageCommissionForecastUI().mode==='pc-scholar'">
+                <span><span class="font-semibold">Scholar</span> — <span x-text="(sageCommissionForecastUI().label || 'own learning')"></span><span class="opacity-70" x-text="sageCommissionForecastUI().proficiency ? (' · ' + sageCommissionForecastUI().proficiency.key + ' rank ' + sageCommissionForecastUI().proficiency.ranks) : ''"></span> · target <span x-text="sageCommissionForecastUI().target + '+'"></span></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="!sageCommissionForecastUI().available">
+            <span class="opacity-80">This character is not yet a sage — give them a <span class="font-semibold">specialty</span> below, or add the Knowledge / Loremastery proficiency.</span>
+          </template>
+        </div>
+      </template>
+
+      <!-- Specialty -->
+      <label class="block text-sm"><span class="opacity-70">Specialty subject</span> <span class="opacity-50 text-xs">— set to commission as a hired sage (3+/18+); leave blank to use the character's own Knowledge/Loremastery</span>
+        <input type="text" class="w-full text-sm mt-0.5" x-model="sageCommission.specialty" @input="sageCommission.result=null" placeholder="e.g. history · geography · metaphysics">
+      </label>
+
+      <!-- Subject + in-specialty override -->
+      <div class="text-sm">
+        <label class="block"><span class="opacity-70">Research subject</span>
+          <input type="text" class="w-full text-sm mt-0.5" x-model="sageCommission.subject" @input="sageCommission.result=null; sageCommission.inSpecialtyOverride=null" placeholder="what is the research about?">
+        </label>
+        <template x-if="sageCommissionForecastUI() && sageCommissionForecastUI().mode==='npc-specialist'">
+          <label class="flex items-center gap-1 text-xs mt-1"><input type="checkbox" :checked="sageCommissionForecastUI().inSpecialty" @change="sageCommission.inSpecialtyOverride = $event.target.checked; sageCommission.result=null"> In the sage's specialty (3+) <span class="opacity-50">— auto-derived from the subject; tick to override</span></label>
+        </template>
+      </div>
+
+      <!-- Question -->
+      <label class="block text-sm"><span class="opacity-70">The question (GM)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageCommission.query" placeholder="What deep question is being researched?"></textarea>
+      </label>
+
+      <!-- Duration + fee + secret -->
+      <div class="flex items-center gap-4 text-sm flex-wrap">
+        <label class="flex items-center gap-1">Duration <input type="number" min="1" class="w-20 text-sm" x-model.number="sageCommission.daysRequired" @input="sageCommission.result=null"> days <span class="opacity-50 text-xs">(🔧 GM-set; RAW pins none)</span></label>
+        <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-24 text-sm" x-model.number="sageCommission.feeGp" @input="sageCommission.result=null"> gp <span class="opacity-50 text-xs">(charged upfront)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="sageCommission.secret"> Secret (GM rolls)</label>
+      </div>
+
+      <!-- Answer -->
+      <label class="block text-sm"><span class="opacity-70">The answer, on success (GM supplies)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageCommission.answerText" placeholder="The content of what the sage discovers — the engine resolves only whether the research succeeds."></textarea>
+      </label>
+
+      <!-- Forecast -->
+      <template x-if="sageCommissionForecastUI() && sageCommissionForecastUI().available">
+        <div class="wizard-forecast-row" :class="(sageCommissionForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full text-sm">
+            <span class="font-semibold" x-text="'Target ' + sageCommissionForecastUI().target + '+'"></span>
+            <span class="opacity-75" x-text="' · success chance ' + Math.round((sageCommissionForecastUI().successChance||0)*100) + '% · ' + (sageCommission.daysRequired||30) + ' days' + (sageCommission.feeGp>0 ? (' · fee ' + sageCommission.feeGp + 'gp upfront') : '')"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Commission + result -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <button @click="sageCommissionSubmit()" :disabled="!(sageCommissionForecastUI() && sageCommissionForecastUI().available)"
+                :class="(sageCommissionForecastUI() && sageCommissionForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                class="px-4 py-2 border-2 border-ink rounded font-semibold">📜 Commission research</button>
+        <template x-if="sageCommission.result && sageCommission.result.ok">
+          <div class="mt-2 text-sm text-green-800" x-text="'Commissioned — the sage will research for ' + sageCommission.result.daysRequired + ' days. Advance the Day Clock to deliver the answer.'"></div>
+        </template>
+        <template x-if="sageCommission.result && !sageCommission.result.ok">
+          <div class="mt-2 text-sm text-red-800" x-text="sageCommission.result.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot commission: ' + sageCommission.result.error)"></div>
+        </template>
+      </div>
+
+      <!-- This sage's commissions (track + abandon) -->
+      <template x-if="sageCommissionList().length">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <div class="font-semibold mb-1">This sage's commissions</div>
+          <template x-for="com in sageCommissionList()" :key="com.id">
+            <div class="flex items-center justify-between gap-2 py-0.5 border-t border-ink/10 first:border-t-0">
+              <div class="min-w-0">
+                <span x-text="com.subject || '(unspecified subject)'"></span>
+                <span class="opacity-60 text-xs" x-text="' · ' + (com.status === 'in-progress' ? (com.progress.daysElapsed + '/' + com.progress.daysRequired + ' days') : com.status) + (com.status==='complete' ? (com.result && com.result.success ? ' ✓ answered' : ' ✗ no answer') : '')"></span>
+              </div>
+              <button x-show="com.status === 'in-progress'" @click="abandonSageCommissionUi(com.id)" class="text-xs px-2 py-0.5 border border-ink/40 rounded hover:bg-red-100 shrink-0" title="Call off the commission (no refund)">Abandon</button>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- === @b8-banking    (team) — loan modal === -->
 
 <script>
@@ -17532,6 +17656,63 @@ return {
   rollMagicItemTraitUi(){ const ni = this.magicItemDetail(); if(!ni) return; const r = window.ACKS.rollMagicItemTrait(this.currentCampaign, { itemId:ni.id }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🎲 Rolled trait: ' + r.trait.name, 2500); } else { this.showToast('Cannot roll a trait: ' + r.error, 2500); } },
   removeMagicItemTraitUi(traitKey){ const ni = this.magicItemDetail(); if(!ni) return; window.ACKS.removeMagicItemTrait(this.currentCampaign, { itemId:ni.id, traitKey }); this.markDirty(); this.schedulePersist(); },
   // === @b8-sages      (team) — Sages SG-2: state + methods ===
+  // The 📜 Commission modal — set a sage to research a deep question over N days; the slot-64
+  // day-tick (acks-engine-sages.js) advances it + delivers the answer on completion. A thin Alpine
+  // layer over commissionSage / abandonSageCommission / sageCommissionProgress; the forecast reuses
+  // sageConsultForecast (the throw classification is identical) + the actor list reuses sageConsultActors().
+  sageCommission: { open:false, sageId:null, clientId:null, subject:'', query:'', specialty:'', daysRequired:30, feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null },
+  openSageCommissionModal(ch){
+    const actors = this.sageConsultActors();
+    const def = (ch && actors.some(a => a.id === ch.id)) ? ch.id : (actors[0] ? actors[0].id : null);
+    if(!def){ if(this.showToast) this.showToast('No active character to commission.'); return; }
+    const sageCh = (this.currentCampaign.characters||[]).find(c => c && c.id === def);
+    this.sageCommission = { open:true, sageId:def, clientId:def, subject:'', query:'', specialty:(sageCh && sageCh.sageSpecialty) || '', daysRequired:30, feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null };
+  },
+  closeSageCommissionModal(){ this.sageCommission.open = false; this.sageCommission.result = null; },
+  sageCommissionSetSage(id){
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id);
+    this.sageCommission.sageId = id;
+    if(!this.sageCommission.clientId) this.sageCommission.clientId = id;
+    this.sageCommission.specialty = (ch && ch.sageSpecialty) || '';
+    this.sageCommission.inSpecialtyOverride = null;
+    this.sageCommission.result = null;
+  },
+  sageCommissionSageObj(){
+    const id = this.sageCommission.sageId;
+    return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+  },
+  sageCommissionForecastUI(){
+    const sage = this.sageCommissionSageObj();
+    if(!sage || !window.ACKS.sageConsultForecast) return null;
+    return window.ACKS.sageConsultForecast(this.currentCampaign, sage, {
+      subject: this.sageCommission.subject, specialty: this.sageCommission.specialty,
+      inSpecialty: this.sageCommission.inSpecialtyOverride
+    });
+  },
+  sageCommissionSubmit(){
+    const sage = this.sageCommissionSageObj();
+    if(!sage) return;
+    const r = window.ACKS.commissionSage(this.currentCampaign, {
+      sageId: this.sageCommission.sageId, clientId: this.sageCommission.clientId || this.sageCommission.sageId,
+      subject: this.sageCommission.subject, query: this.sageCommission.query, specialty: this.sageCommission.specialty,
+      inSpecialty: this.sageCommission.inSpecialtyOverride, daysRequired: Number(this.sageCommission.daysRequired) || 30,
+      feeGp: Number(this.sageCommission.feeGp) || 0, answerText: this.sageCommission.answerText, secret: this.sageCommission.secret
+    });
+    this.sageCommission.result = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('The sage begins the research.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot commission: ' + r.error)); }
+  },
+  sageCommissionList(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !A.sageCommissionsForCharacter || !this.sageCommission.sageId) return [];
+    return A.sageCommissionsForCharacter(c, this.sageCommission.sageId)
+      .map(com => Object.assign({}, com, { progress: A.sageCommissionProgress(c, com) }))
+      .sort((a, b) => (a.status === 'in-progress' ? 0 : 1) - (b.status === 'in-progress' ? 0 : 1));
+  },
+  abandonSageCommissionUi(id){
+    const r = window.ACKS.abandonSageCommission(this.currentCampaign, id);
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Commission called off.'); }
+  },
   // === @b8-banking    (team) — Banking B2: state + methods ===
   // F&D feudal-loan reconcile (promote-link) + commercial-loan depth (Phase_4_Banking_Plan.md B3, RR p.42 + p.348).
   bankingReconcileFeudal(){
@@ -28027,6 +28208,8 @@ return {
       'loans', 'bankAccounts',
       // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
       'lore', 'knowledge',
+      // === Sages SG-2 (team burst8 2026-06-19) — the multi-week SageCommission research-commission (§8.9 importer mandate)
+      'sageCommissions',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
