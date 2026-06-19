@@ -283,7 +283,8 @@
             "quantity": 1,
             "notes": "Tower of Thornreach. 30' high × 20' diameter."
           }
-        ]
+        ],
+        "constructibleId": "cst-nhdi2z0"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -546,7 +547,41 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-nhdi2z0",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "tower",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Tower",
+      "hexId": "hex-tower-of-thornreach",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-of-thornreach",
+      "buildValue": 15000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Tower\" (15 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

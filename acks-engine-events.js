@@ -91,6 +91,10 @@ const EVENT_KINDS = Object.freeze([
   'construction-damaged',
   'construction-repair-started',
   'construction-demolished',
+  // Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit emitted by
+  // acks-engine-followers.js (attractFollowers already minted the follower Characters + the troop Group
+  // + marked the ruler attracted-once). The Stronghold-tab card + review modal drive it.
+  'follower-arrival',
   // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
   // (day-tick consumer + startJourney); opted out of the Event Wizard below.
   'journey-start',
@@ -162,6 +166,10 @@ const EVENT_KINDS = Object.freeze([
   // owned by the slot-88 military consumer (its commit advances the weekly cadence). Core RAW —
   // NOT gated on the optional vagaries-of-war table. The per-unit Death saves are the GM's.
   'army-disease',
+  // Forward supply base (RR p.451, Construction Wave C 2026-06-19) — an army built a 10,000gp
+  // border fort as a forward supply base (a Class VI market + a line-extending relay). Record-only
+  // audit; buildSupplyBaseFort mints the Constructible + designates it.
+  'army-supply-base-built',
   // Phase 3 Military W8 (2026-06-17) — the Vagaries of Recruitment / War / Battle (JJ pp.110–117),
   // record-only GM-resolve audits owned by acks-engine-vagaries.js. Each carries the rolled vagary's
   // name + brief + a structured effect descriptor (ready for a future auto-apply wave). Behind the
@@ -556,6 +564,11 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { constructibleId: 'string' },
     O: { reason: 'string', narrative: 'string' }
   },
+  // Phase 4 Construction Wave C — follower attraction (RR p.334).
+  'follower-arrival': {
+    R: { domainId: 'string', rulerCharacterId: 'string' },
+    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', narrative: 'string' }
+  },
   // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
   'journey-start': {
     R: { journeyId: 'string' },
@@ -695,6 +708,11 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { armyId: 'string', contracted: 'boolean' },
     O: { causes: 'object', condPct: 'number', tempPct: 'number',
          condition: 'string', temperature: 'string', narrative: 'string' }
+  },
+  // army-supply-base-built (RR p.451): an army raised a 10,000gp border fort as a forward base.
+  'army-supply-base-built': {
+    R: { armyId: 'string', constructibleId: 'string' },
+    O: { hexId: 'string', cost: 'number', narrative: 'string' }
   },
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Record-only;
   // `effect` is the structured descriptor (effect.category + params). recruitment is keyed to the
@@ -2318,6 +2336,46 @@ function applyEvent_constructionCompleted(campaign, event){
     type: 'completed',
     narrative: p.narrative || ('Constructed: ' + cst.name + ' (' + cst.buildValue + ' gp)')
   });
+  // Construction Wave C (2026-06-18) — a domain-owned stronghold-component Project adds a real component
+  // to the owner domain's stronghold (so strongholdValue, which reads the components, grows) and links
+  // the minted Constructible as that component's mirror — the SAME forward/back link pair
+  // migrateStrongholdComponentsToConstructibles makes (comp.constructibleId is the migration's dedup key,
+  // so on next load the migration treats the new component as already-mirrored → no double-mint; the
+  // economy reads the component, not the Constructible, so no double-count — zero-drift preserved).
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    const blankComp = A && A.blankStrongholdComponent;
+    if(dom && typeof blankComp === 'function'){
+      dom.stronghold = dom.stronghold || {};
+      if(!Array.isArray(dom.stronghold.components)){
+        // Legacy single-stronghold → seed a components array from the existing stronghold FIRST, so its
+        // buildValue isn't dropped (strongholdValue sums components only when the array is present, else
+        // it reads the legacy buildValue). Mirrors the migration's [s] treatment + carries any mirror link.
+        const s = dom.stronghold, seeded = [];
+        if(s.type || s.name || (s.buildValue || 0) > 0 || (Array.isArray(s.structures) && s.structures.length)){
+          const legacy = blankComp({ type: s.type || '', name: s.name || s.type || 'Stronghold',
+            buildValue: s.buildValue || 0, structures: Array.isArray(s.structures) ? s.structures : [] });
+          if(s.constructibleId) legacy.constructibleId = s.constructibleId;
+          seeded.push(legacy);
+        }
+        dom.stronghold.components = seeded;
+      }
+      const spec = proj.completionSpec || {};
+      const comp = blankComp({
+        type: spec.componentType || '',
+        name: proj.name || cst.name,
+        buildValue: proj.totalCost || cst.buildValue || 0,
+        structures: Array.isArray(spec.structures) ? spec.structures : []
+      });
+      comp.constructibleId = cst.id;                  // forward link — the migration's dedup key
+      cst.functionData = cst.functionData || {};
+      cst.functionData.legacyComponentId = comp.id;   // back link
+      cst.siteType = 'stronghold-courtyard';
+      dom.stronghold.components.push(comp);
+      _pushConstructionHistory(cst, { turn: campaign.currentTurn || null, type: 'added-to-stronghold',
+        narrative: 'Added as a component of ' + (dom.name || 'the domain') + "'s stronghold (+" + (comp.buildValue || 0).toLocaleString() + ' gp value).' });
+    }
+  }
   // AD-C (RR p.386) — a completed kind:'dungeon' Project mints a first-class Dungeon entity (dun-),
   // auto-attuning the arcane-L9+ owner. Try-guarded + late-bound (a missing module can never fail
   // construction completion); idempotent (onDungeonConstructed returns an existing build). Mirrors the sanctum hook.
@@ -2334,7 +2392,15 @@ function applyEvent_constructionCompleted(campaign, event){
   }
   const builtName = dungeon ? dungeon.name : (cst ? cst.name : proj.name);
   const builtValue = (dungeon ? dungeon.buildValueGp : (cst && cst.buildValue)) || 0;
-  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' } };
+  // Construction Wave C — follower attraction heads-up (RR p.334). A completed stronghold-component that
+  // grows a domain whose ruler is name-level (9th+) may now attract followers. We don't materialize here
+  // (the GM reviews + accepts via the Stronghold tab's Followers card) — just hint it in the narrative.
+  let followerHint = '';
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair && A && typeof A.domainFollowerEligibility === 'function'){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    try { if(dom && A.domainFollowerEligibility(campaign, dom).ok) followerHint = ' Its ruler may now attract followers (RR p.334) — review on the Stronghold tab.'; } catch(_e){}
+  }
+  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' + followerHint } };
 }
 registerEventHandler('construction-completed', applyEvent_constructionCompleted);
 
@@ -2440,6 +2506,15 @@ function applyEvent_constructionDemolished(campaign, event){
 }
 registerEventHandler('construction-demolished', applyEvent_constructionDemolished);
 
+// Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit: attractFollowers
+// (acks-engine-followers.js) already minted the follower Characters + the troop Group + marked the ruler
+// attracted-once; this handler keeps the event well-formed on replay (the arcane/research audit posture).
+function applyEvent_followerArrival(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'followers arrive (RR p.334)' } };
+}
+registerEventHandler('follower-arrival', applyEvent_followerArrival);
+
 // ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
 // The Journey day-tick consumer mutates journey state in its commit() and emits these
 // events as an audit trail via emitDayTickEvents (which constructs + pushes the event
@@ -2503,6 +2578,7 @@ registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
 registerEventHandler('army-disease', applyEvent_warfareAudit);  // RR p.449 weather epidemic — record-only (the GM resolves the Death saves)
+registerEventHandler('army-supply-base-built', applyEvent_warfareAudit); // RR p.451 forward fort — record-only (buildSupplyBaseFort owns the state)
 // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) share the audit
 // posture: acks-engine-vagaries.js rolls them + (for the self-contained omen mod) the consumer commit
 // applies; these handlers only keep the events well-formed on replay (the GM applies the rest).
@@ -5672,7 +5748,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply', 'army-disease',
+  'army-contact', 'domain-warfare', 'army-supply', 'army-disease', 'army-supply-base-built',
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) are AUTO-ROLLED
   // at their RAW cadence (the monthly turn / the slot-88 weekly check / declareForay), not authored
   // raw — a hand emit would carry no real roll. Owned by acks-engine-vagaries.js + the consumers.
@@ -5732,7 +5808,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // AD-M3 — owned by acks-engine-magic-research.js (the ritual learn/cast result of a research throw).
   'ritual-learned', 'ritual-cast',
   // AD-M4 — owned by acks-engine-magic-research.js (the breakthrough/mishap of an experimental research throw).
-  'magic-experiment-breakthrough', 'magic-experiment-mishap'
+  'magic-experiment-breakthrough', 'magic-experiment-mishap',
+  // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
+  // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
+  'follower-arrival'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

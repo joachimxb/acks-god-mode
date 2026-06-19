@@ -1090,6 +1090,50 @@
     const loserLossLine = casualties.filter(x => x.side === battle.result.loser).reduce((s, x) => s + x.loss, 0);
     lines.push('⚰ Casualties: ' + W.label + ' loses ' + victorLossLine + ' troops; ' + L.label + ' loses ' + loserLossLine + ' (the victor\'s lightly wounded return in a week; ' + prisoners + ' prisoner(s) taken). Half-strength units may be consolidated (Split/Merge).');
 
+    // ── Bandit-army outcome (RR p.351) — defeating a morale-banditry band heals the domain.
+    // Per domain whose banditry band(s) (group.banditryDomainId) were defeated on the LOSER
+    // side: the victory raises CURRENT morale by 1 (the Anárion example −3→−2); the bandits
+    // KILLED are the domain's own men, so the population falls by the slain; the CAPTURED are
+    // freed to return to work (no family loss — peasantFamilies already counts them; if morale
+    // stays below −1 the monthly re-derive re-musters them). Freed peasants aren't ransomed, so
+    // their captives are excluded from the prisoner spoils. The world-write is applied in
+    // applyBattleAftermath; here we compute the proposal + the summary lines.
+    const _moraleClamp = (m) => Math.max(-4, Math.min(4, m));
+    const _banditByDomain = {};
+    let banditCaptured = 0;
+    if(battle.result && battle.result.loser){
+      for(const cc of casualties){
+        if(cc.side !== battle.result.loser || cc.sourceKind !== 'group') continue;
+        const g = (campaign.groups || []).find(x => x && x.id === cc.sourceId);
+        if(!g || !g.banditryDomainId) continue;
+        const rec = _banditByDomain[g.banditryDomainId] || (_banditByDomain[g.banditryDomainId] = { dead: 0, captured: 0, bands: [] });
+        const cap = cc.prisoners || 0;
+        rec.dead += (cc.dead || 0); rec.captured += cap;
+        // loss = the band's full combat loss (dead + captured + any deserted). The band shrinks
+        // by loss; only the DEAD reduce families — the captured (freed) and deserted (scattered)
+        // are not killed, so they return to the population (the monthly re-derive re-musters them
+        // if morale stays bad).
+        rec.bands.push({ groupId: g.id, dead: cc.dead || 0, captured: cap, loss: cc.loss || 0 });
+        banditCaptured += cap;
+      }
+    }
+    const banditOutcome = Object.keys(_banditByDomain).map((domainId) => {
+      const d = (campaign.domains || []).find(x => x && x.id === domainId) || null;
+      const before = (d && d.demographics && d.demographics.morale != null) ? d.demographics.morale : 0;
+      const rec = _banditByDomain[domainId];
+      return { domainId, domainName: (d && (d.name || d.id)) || domainId,
+               dead: rec.dead, captured: rec.captured, bands: rec.bands,
+               moraleBefore: before, moraleAfter: _moraleClamp(before + 1) };
+    });
+    for(const b of banditOutcome){
+      const nm = A().MORALE_LEVEL_NAMES || {};
+      lines.push('⚖ Banditry quelled in ' + b.domainName + ': the victory raises domain morale ' +
+        b.moraleBefore + ' → ' + b.moraleAfter + ' (' + (nm[String(b.moraleAfter)] || ('morale ' + b.moraleAfter)) + ', RR p.351)' +
+        (b.dead ? '; ' + b.dead + ' bandit(s) slain — ' + b.domainName + ' loses ' + b.dead + ' families' : '') +
+        (b.captured ? '; ' + b.captured + ' taken prisoner — the domain\'s own men, freed to return to work' +
+          (b.moraleAfter < -1 ? ' (morale still below −1 — they may turn bandit again next month)' : '') : '') + '.');
+    }
+
     // Officer + hero casualties (RR p.470) — the GM rolls Mortal Wounds at the table
     // (victor net 0 / defeated net −4) and enters the outcome band per officer.
     const officers = [];
@@ -1115,9 +1159,10 @@
     const defeatedUnits = L.units.filter(u => u.status === 'destroyed' || u.status === 'routed' || u.eliminatedByPursuit);
     const wageSpoils = defeatedUnits.reduce((s, u) => s + (u.wageMonthlyGp || 0), 0);
     const monsterSpoils = defeatedUnits.some(u => u.sourceKind === 'group');
-    const prisonerSpoils = prisoners * 40;
+    const ransomablePrisoners = Math.max(0, prisoners - banditCaptured);   // freed bandit-peasants aren't ransomed (RR p.351)
+    const prisonerSpoils = ransomablePrisoners * 40;
     const spoilsGp = wageSpoils + prisonerSpoils;
-    lines.push('💰 Spoils of war: ' + wageSpoils + 'gp (one month\'s wages of every destroyed or routed unit) + ' + prisonerSpoils + 'gp (' + prisoners + ' prisoners × 40gp ransom/slave value' + (prisoners ? '; kept prisoners can serve as construction workers' : '') + ') = ' + spoilsGp + 'gp.' + (monsterSpoils ? ' Monster units carry no wages — their spoils are the band\'s own treasure (see the lair/group).' : ''));
+    lines.push('💰 Spoils of war: ' + wageSpoils + 'gp (one month\'s wages of every destroyed or routed unit) + ' + prisonerSpoils + 'gp (' + ransomablePrisoners + ' prisoners × 40gp ransom/slave value' + (ransomablePrisoners ? '; kept prisoners can serve as construction workers' : '') + ') = ' + spoilsGp + 'gp.' + (banditCaptured ? ' ' + banditCaptured + ' captured bandit(s) are the domain\'s own men — freed, not ransomed (RR p.351).' : '') + (monsterSpoils ? ' Monster units carry no wages — their spoils are the band\'s own treasure (see the lair/group).' : ''));
 
     // XP (RR pp.471–472)
     const defeatedValue = defeatedUnits.reduce((s, u) => s + (u.xpValue || 0), 0);
@@ -1157,7 +1202,7 @@
     battle.aftermath = {
       computedAtTurn: (campaign.currentTurn || 1), retreatNote, pursuit, casualties, prisoners,
       officers, spoils: { wageSpoils, prisonerSpoils, total: spoilsGp, monsterSpoilsNote: monsterSpoils },
-      xp, lines, applied: false
+      banditOutcome, xp, lines, applied: false
     };
     return battle.aftermath;
   }
@@ -1217,6 +1262,11 @@
       if(c.sourceKind === 'unit') unitLoss[c.sourceId] = (unitLoss[c.sourceId] || 0) + c.loss;
       else if(c.sourceKind === 'group') groupLoss[c.sourceId] = (groupLoss[c.sourceId] || 0) + c.loss;
     }
+    // Defeated banditry bands are settled by the bandit step below (it must split the loss into
+    // killed vs freed-prisoners), so they're held out of the generic group-casualty accrual to
+    // avoid a double-deduction at the monthly banditry settle.
+    const banditBandIds = new Set();
+    for(const b of (af.banditOutcome || [])) for(const x of (b.bands || [])) banditBandIds.add(x.groupId);
     for(const id of Object.keys(unitLoss)){
       const u = (campaign.units || []).find(x => x && x.id === id);
       if(!u) continue;
@@ -1225,11 +1275,37 @@
       u.history.push({ atTurn: campaign.currentTurn || 1, type: 'battle', summary: unitLoss[id] + ' lost at ' + battle.name });
     }
     for(const id of Object.keys(groupLoss)){
+      if(banditBandIds.has(id)) continue;                     // settled by the bandit step (RR p.351)
       const g = (campaign.groups || []).find(x => x && x.id === id);
       if(!g) continue;
       g.casualties = Math.min(g.count || 0, (g.casualties || 0) + groupLoss[id]);
       if(!Array.isArray(g.history)) g.history = [];
       g.history.push({ atTurn: campaign.currentTurn || 1, type: 'battle', summary: groupLoss[id] + ' lost at ' + battle.name });
+    }
+    // 1b) bandit-army outcome (RR p.351): the defeated bandits' domains are healed — +1 current
+    //     morale, the slain reduce the population, the captured are freed back to work (no family
+    //     loss). The bands are settled HERE (count −= loss, casualties zeroed) so the monthly
+    //     banditry processor neither double-deducts nor re-derives them as still in the field; a
+    //     wholly-defeated band is removed (the monthly processor's wiped-band rule, applied now).
+    if((af.banditOutcome || []).length){
+      const wipedBands = new Set();
+      for(const b of af.banditOutcome){
+        const d = (campaign.domains || []).find(x => x && x.id === b.domainId);
+        if(!d || !d.demographics) continue;
+        d.demographics.morale = b.moraleAfter;                // +1 current morale on victory (RR p.351)
+        if(b.dead) d.demographics.peasantFamilies = Math.max(0, (d.demographics.peasantFamilies || 0) - b.dead);
+        for(const x of (b.bands || [])){
+          const g = (campaign.groups || []).find(gr => gr && gr.id === x.groupId);
+          if(!g) continue;
+          g.count = Math.max(0, (g.count || 0) - (x.loss || ((x.dead || 0) + (x.captured || 0))));
+          g.casualties = 0;
+          if(!Array.isArray(g.history)) g.history = [];
+          g.history.push({ atTurn: campaign.currentTurn || 1, type: 'battle',
+            summary: 'Defeated at ' + battle.name + ' — ' + (x.dead || 0) + ' slain, ' + (x.captured || 0) + ' freed to ' + (d.name || d.id) });
+          if((g.count || 0) <= 0) wipedBands.add(g.id);
+        }
+      }
+      if(wipedBands.size) campaign.groups = (campaign.groups || []).filter(g => !(g && wipedBands.has(g.id)));
     }
     // 2) officers — resolve each fallen officer through the shipped Mortal Wounds resolver
     //    (Delves D1): the wound record + the standing permanentWoundPenalty + the convalescence
@@ -1277,13 +1353,23 @@
     try { if(typeof Ax.checkAllCharacterLevelUps === 'function') Ax.checkAllCharacterLevelUps(campaign); } catch (_) {}
     // 4) the comprehensive resolution event
     const W = battle.sides[battle.result.winner];
-    _emitBattleEvent(campaign, battle, 'battle-resolved', {
+    const banditNarr = (af.banditOutcome || []).map(b =>
+      ' Banditry quelled in ' + b.domainName + ' (morale ' + b.moraleBefore + '→' + b.moraleAfter + ', RR p.351; ' + b.dead + ' slain, ' + b.captured + ' freed).').join('');
+    const ev = _emitBattleEvent(campaign, battle, 'battle-resolved', {
       battleId: battle.id, winner: W.label, endedBy: battle.result.endedBy,
       turns: battle.result.endedAtTurn, spoilsGp: af.spoils.total, prisoners: af.prisoners,
       casualties: af.casualties.map(c => ({ side: c.side, label: c.label, loss: c.loss })),
+      banditOutcome: (af.banditOutcome || []).map(b => ({ domainId: b.domainId, dead: b.dead, captured: b.captured, moraleBefore: b.moraleBefore, moraleAfter: b.moraleAfter })),
       xp: { commanders: af.xp.commanderXpTotal, troopEach: af.xp.troopCombatXpEach },
-      narrative: battle.name + ' — ' + W.label + ' wins by ' + battle.result.endedBy + ' after ' + battle.result.endedAtTurn + ' turn(s); spoils ' + af.spoils.total + 'gp, ' + af.prisoners + ' prisoners.'
+      narrative: battle.name + ' — ' + W.label + ' wins by ' + battle.result.endedBy + ' after ' + battle.result.endedAtTurn + ' turn(s); spoils ' + af.spoils.total + 'gp, ' + af.prisoners + ' prisoners.' + banditNarr
     }, { hidden: false, turnNumber: battle.result.endedAtTurn });
+    // the healed domain(s) read the resolution in their chronicle (Event context envelope)
+    if(ev && ev.context && Array.isArray(ev.context.relatedEntities)){
+      for(const b of (af.banditOutcome || [])){
+        if(!ev.context.relatedEntities.some(r => r.kind === 'domain' && r.id === b.domainId))
+          ev.context.relatedEntities.push({ kind: 'domain', id: b.domainId, role: 'beneficiary' });
+      }
+    }
     af.applied = true;
     battle.status = 'resolved';
     _battleHistory(campaign, battle, 'resolved', 'Aftermath applied — casualties, spoils, and XP recorded');

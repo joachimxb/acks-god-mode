@@ -322,7 +322,8 @@
         "buildValue": 200000,
         "maintenancePerMonth": 0,
         "garrisonCapacity": 500,
-        "structures": []
+        "structures": [],
+        "constructibleId": "cst-vp04yvl"
       },
       "specialists": [
         {
@@ -615,7 +616,41 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-vp04yvl",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "citadel",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Citadel",
+      "hexId": "hex-cyfaraun-city",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-cyfaraun",
+      "buildValue": 200000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Citadel\" (200 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

@@ -39,18 +39,18 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-18-constructionwiz"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine-entities.js?v=2026-06-18-w7spec"></script>
+<script src="acks-engine.js?v=2026-06-18-constructionwiz"></script>
+<script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-18-weatherwar"></script>
-<script src="acks-engine-battles.js?v=2026-06-18-weatherwar"></script>
-<script src="acks-engine-maneuvers.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-events.js?v=2026-06-19-supplybase"></script>
+<script src="acks-engine-battles.js?v=2026-06-18-banditbattle"></script>
+<script src="acks-engine-maneuvers.js?v=2026-06-19-supplybase"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-18-weatherwar"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
@@ -62,7 +62,7 @@
 <script src="acks-engine-hijinks.js?v=2026-06-14-pt5"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
-<script src="acks-engine-sieges.js?v=2026-06-13-a"></script>
+<script src="acks-engine-sieges.js?v=2026-06-19-siegeprofile"></script>
 <!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
@@ -82,6 +82,8 @@
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
+<!-- Phase 4 Construction Wave C — Follower Attraction (RR p.334): the stronghold-completion attraction sibling of the sanctum's apprentices. Late-binds strongholdValue / rulerCharacter / blankCharacter / blankGroup. -->
+<script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
@@ -2004,6 +2006,20 @@ document.addEventListener('alpine:init', () => {
             <template x-if="battlePanel().aftermath">
               <div class="mt-2 text-sm space-y-1">
                 <template x-for="(ln, li) in battlePanel().aftermath.lines" :key="'afl-' + li"><p x-text="ln"></p></template>
+                <!-- bandit-army outcome (RR p.351): defeating the domain's own bandits heals it on Apply -->
+                <template x-if="battlePanel().aftermath.banditOutcome && battlePanel().aftermath.banditOutcome.length">
+                  <div class="border rounded p-2 mt-1" style="border-color:#3f7a1f; background:#f1f6e8">
+                    <p class="font-semibold text-xs mb-1" style="color:#3f7a1f">⚖ Banditry quelled — applied to the domain on ✓ Apply (RR p.351)</p>
+                    <template x-for="bo in battlePanel().aftermath.banditOutcome" :key="'afbo-' + bo.domainId">
+                      <div class="text-xs mb-0.5">
+                        <span class="font-semibold" x-text="bo.domainName"></span>
+                        <span x-text="' — the victory raises domain morale ' + bo.moraleBefore + ' → ' + bo.moraleAfter"></span>
+                        <span x-show="bo.dead" x-text="'; ' + bo.dead + ' bandit(s) slain (−' + bo.dead + ' families — the domain\'s own men)'"></span>
+                        <span x-show="bo.captured" class="text-green-900" x-text="'; ' + bo.captured + ' taken prisoner → freed to return to work' + (bo.moraleAfter < -1 ? ' (morale still below −1 — they may turn bandit again next month)' : '')"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
                 <!-- officer outcome entry -->
                 <template x-if="battlePanel().aftermath.officers && battlePanel().aftermath.officers.length">
                   <div class="border border-ink/40 rounded p-2 mt-1">
@@ -2665,6 +2681,182 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
     </template>
+  </div>
+</div>
+
+<!-- Construction Wizard (Architecture §10.8 — Wave C, 2026-06-18) — the Action verb that builds a
+     Constructible OVER TIME. Creates an under-construction Project (RR p.174 labor-paid); advancing the
+     Day Clock / Advance Month builds it toward completion, then construction-completed mints the
+     Constructible (and, for a domain-owned stronghold-component, adds a real stronghold component so the
+     realm's value grows). Launched from Inspector Create→Project (Admin verb) + the Domain Stronghold tab
+     (deep-link prefill). z-75 — above the recruit/train modals (z-73/74). -->
+<div x-show="constructionWizard.open" @keydown.escape.window="if(constructionWizard.open){ closeConstructionWizard(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak @click.self="closeConstructionWizard()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <h3 class="font-bold text-lg">🏗 Build a structure</h3>
+      <button @click="closeConstructionWizard()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <p class="text-xs opacity-70">Construction is labor-paid and takes time (RR p.174). This raises an <span class="font-semibold">under-construction project</span> — advance the Day Clock / Advance Month and it builds toward completion, then becomes a real structure. (The instant <span class="font-semibold">+ add component</span> on the Stronghold tab is the admin shortcut.)</p>
+
+      <!-- Kind -->
+      <label class="flex items-center gap-2 flex-wrap">What to build:
+        <select x-model="constructionWizard.kind" @change="constructionWizardOnKind()" class="border border-ink rounded px-1 py-0.5 text-sm">
+          <template x-for="k in constructionWizardKinds()" :key="k.key"><option :value="k.key" x-text="k.label"></option></template>
+        </select>
+      </label>
+
+      <!-- What: stronghold-component → catalog structure picker (RR r10 p.132); else name + GM cost -->
+      <template x-if="constructionWizard.kind === 'stronghold-component'">
+        <label class="block">Structure <span class="opacity-60 font-normal">(RR r10 p.132)</span>:
+          <select :value="constructionWizard.structureKey" @change="constructionWizardPickStructure($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            <option value="">— pick a structure —</option>
+            <template x-for="cat in [...new Set((window.ACKS.STRONGHOLD_CATALOG||[]).map(s => s.category))]" :key="cat">
+              <optgroup :label="cat">
+                <template x-for="s in (window.ACKS.STRONGHOLD_CATALOG||[]).filter(x => x.category === cat)" :key="s.key">
+                  <option :value="s.key" x-text="s.name + ' — ' + s.cost.toLocaleString() + ' gp'"></option>
+                </template>
+              </optgroup>
+            </template>
+          </select>
+        </label>
+      </template>
+      <template x-if="constructionWizard.kind !== 'stronghold-component'">
+        <div class="space-y-1">
+          <label class="block">Cost (gp):
+            <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+          </label>
+          <p class="text-[11px] opacity-60" x-text="constructionWizardKindNote()"></p>
+        </div>
+      </template>
+
+      <!-- Name -->
+      <label class="block">Name:
+        <input type="text" x-model="constructionWizard.name" placeholder="(e.g. The Great Keep)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+      </label>
+
+      <!-- Owner -->
+      <div class="flex items-center gap-4 flex-wrap text-xs">
+        <span class="opacity-70">Owner:</span>
+        <label class="flex items-center gap-1"><input type="radio" value="domain" x-model="constructionWizard.ownerKind"> Domain</label>
+        <label class="flex items-center gap-1"><input type="radio" value="character" x-model="constructionWizard.ownerKind"> Character</label>
+      </div>
+      <template x-if="constructionWizard.ownerKind === 'domain'">
+        <label class="block">Domain:
+          <select x-model="constructionWizard.ownerDomainId" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            <option value="">— pick —</option>
+            <template x-for="d in (domains||[])" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+          </select>
+        </label>
+      </template>
+      <template x-if="constructionWizard.ownerKind === 'character'">
+        <label class="block">Character:
+          <select x-model="constructionWizard.ownerCharacterId" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            <option value="">— pick —</option>
+            <template x-for="c in ((currentCampaign&&currentCampaign.characters)||[])" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
+          </select>
+        </label>
+      </template>
+
+      <!-- Site -->
+      <label class="block">Site (hex):
+        <select x-model="constructionWizard.siteHexId" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+          <option value="">— pick a hex —</option>
+          <template x-for="h in constructionWizardSiteOptions()" :key="h.id">
+            <option :value="h.id" :disabled="!h.eligible" x-text="h.label + (h.eligible ? '' : ' — ' + h.reason)"></option>
+          </template>
+        </select>
+      </label>
+
+      <!-- Workforce -->
+      <div class="border border-ink/30 rounded p-2 space-y-1">
+        <p class="font-semibold text-xs">Workforce <span class="opacity-60 font-normal">— RR p.174 (laborers 5 cf/day, craftsmen 25)</span></p>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <label class="flex items-center justify-between gap-2">Laborers <input type="number" min="0" x-model.number="constructionWizard.laborers" class="w-20 border border-ink rounded px-1"></label>
+          <label class="flex items-center justify-between gap-2">Masons <input type="number" min="0" x-model.number="constructionWizard.masons" class="w-20 border border-ink rounded px-1"></label>
+          <label class="flex items-center justify-between gap-2">Carpenters <input type="number" min="0" x-model.number="constructionWizard.carpenters" class="w-20 border border-ink rounded px-1"></label>
+          <label class="flex items-center justify-between gap-2">Smiths <input type="number" min="0" x-model.number="constructionWizard.smiths" class="w-20 border border-ink rounded px-1"></label>
+        </div>
+      </div>
+
+      <!-- Supervisor(s) — RR p.174: engineer ≤100k / siege engineer ≤25k; caps additive -->
+      <div class="border border-ink/30 rounded p-2 space-y-1">
+        <p class="font-semibold text-xs">Supervisor(s) <span class="opacity-60 font-normal">— engineer ≤100,000gp / siege engineer ≤25,000gp (RR p.174)</span></p>
+        <template x-if="constructionWizardSupervisorCandidates().length === 0">
+          <p class="text-[11px] italic opacity-60">No character with Engineering or Siege Engineering. Add the proficiency on a character, or enable the <span class="font-semibold">abstract construction</span> house rule to build without a supervisor.</p>
+        </template>
+        <template x-for="c in constructionWizardSupervisorCandidates()" :key="c.id">
+          <label class="flex items-center gap-2 text-xs">
+            <input type="checkbox" :value="c.id" x-model="constructionWizard.supervisorIds">
+            <span x-text="c.name + ' — ' + c.cap.toLocaleString() + 'gp cap' + (c.onSite ? '' : ' · off-site (won\'t count)')"></span>
+          </label>
+        </template>
+      </div>
+
+      <!-- Forecast -->
+      <template x-if="constructionWizardForecast()">
+        <div class="border border-ink/30 rounded p-2 text-xs space-y-1" style="background:rgba(0,0,0,.04)">
+          <p class="font-semibold">Forecast</p>
+          <p><span class="opacity-70">Cost:</span> <span class="font-semibold" x-text="constructionWizardForecast().totalCost.toLocaleString()"></span> gp · <span class="opacity-70">labor:</span> <span x-text="constructionWizardForecast().laborRequired.toLocaleString()"></span> cf</p>
+          <p><span class="opacity-70">Daily rate:</span> <span class="font-semibold" x-text="Math.round(constructionWizardForecast().dailyGp).toLocaleString()"></span> gp/day (<span x-text="Math.round(constructionWizardForecast().dailyCf).toLocaleString()"></span> cf) · <span class="opacity-70">wages</span> <span x-text="constructionWizardForecast().dailyWageGp.toLocaleString()"></span> gp/day</p>
+          <p><span class="opacity-70">Time to complete:</span> <span class="font-semibold" x-text="constructionWizardForecast().daysToComplete == null ? 'never (assign workers)' : (constructionWizardForecast().daysToComplete.toLocaleString() + ' days (~' + Math.ceil(constructionWizardForecast().daysToComplete/30) + ' months)')"></span></p>
+          <p class="accent-red" x-show="constructionWizardForecast().capLimited" x-text="'⚠ ' + constructionWizardForecast().workerTotal + ' workers exceed the supervisor cap of ' + constructionWizardForecast().workerCap + ' — output is throttled. Add supervisors or use fewer workers.'"></p>
+          <p x-show="constructionWizardForecast().requiresSupervisor" :class="constructionWizardForecast().supervisorOk ? 'opacity-70' : 'accent-red font-semibold'" x-text="constructionWizardForecast().supervisorOk ? ('✓ supervisor cap ' + constructionWizardForecast().supervisorCostCap.toLocaleString() + 'gp covers the cost') : ('⚠ ' + constructionWizardForecast().supervisorBlockReason)"></p>
+        </div>
+      </template>
+    </div>
+    <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+      <button @click="closeConstructionWizard()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+      <button @click="submitConstructionWizard()" :disabled="!!constructionWizardSubmitReason()" :class="!constructionWizardSubmitReason() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="constructionWizardSubmitReason() || 'Begin construction'">🏗 Begin construction</button>
+    </div>
+  </div>
+</div>
+
+<!-- Follower Arrival modal (Construction Wave C — RR p.334) — opened from the Stronghold-tab Followers
+     card. Rolls the arrival, lets the GM ⟳ re-roll, and Accept materializes the followers (companions →
+     follower Characters; troops/novices → count-Groups). z-76: a review over the domain view. -->
+<div x-show="followerArrival.open" @keydown.escape.window="if(followerArrival.open){ closeFollowerArrival(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeFollowerArrival()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <h3 class="font-bold text-lg">🎺 Followers arrive <span class="text-sm font-normal opacity-70">· RR p.334</span></h3>
+      <button @click="closeFollowerArrival()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+    </div>
+    <template x-if="followerArrival.proposal && followerArrival.proposal.ok">
+      <div class="p-4 space-y-3 text-sm">
+        <p class="text-xs opacity-70" x-text="followerArrivalIntro()"></p>
+        <template x-if="followerArrival.proposal.companionCount > 0">
+          <div class="vellum border border-ink/40 rounded p-2">
+            <div class="font-semibold" x-text="'⚔ ' + followerArrival.proposal.companionCount + ' companion' + (followerArrival.proposal.companionCount === 1 ? '' : 's') + (followerArrivalCompanionClass() ? ' (' + followerArrivalCompanionClass() + ')' : '')"></div>
+            <div class="opacity-70 text-xs" x-text="followerArrivalCompanionLevels()"></div>
+            <div class="opacity-70 text-xs">→ follower characters lieged to the ruler — they don't take a henchman slot (RR p.335).</div>
+          </div>
+        </template>
+        <template x-if="followerArrival.proposal.troopCount > 0">
+          <div class="vellum border border-ink/40 rounded p-2">
+            <div class="font-semibold" x-text="'🪖 ' + followerArrival.proposal.troopCount.toLocaleString() + ' ' + (followerArrival.proposal.troopLevel >= 1 ? '1st' : '0th') + '-level troops'"></div>
+            <div class="opacity-70 text-xs">→ a follower band commanded by the ruler (they follow him on adventures).</div>
+          </div>
+        </template>
+        <template x-if="followerArrival.proposal.apprenticeCount > 0">
+          <div class="vellum border border-ink/40 rounded p-2">
+            <div class="font-semibold" x-text="'📿 ' + followerArrival.proposal.apprenticeCount.toLocaleString() + ' novices'"></div>
+            <div class="opacity-70 text-xs">→ a cloister band (become priestesses over ~2 years — a Religion layer).</div>
+          </div>
+        </template>
+        <p class="text-[11px] opacity-70" x-show="followerArrival.proposal.divine">✦ Fanatical followers — loyalty + morale start at +4 (RR p.335).</p>
+        <p class="text-[11px] opacity-60">The arrival is rolled. Re-roll for a different draw, or welcome them to bring them in. Followers come once.</p>
+      </div>
+    </template>
+    <template x-if="!followerArrival.proposal || !followerArrival.proposal.ok">
+      <div class="p-4 text-sm italic opacity-70" x-text="'No followers available' + (followerArrival.proposal && followerArrival.proposal.reason ? ' (' + followerArrival.proposal.reason + ')' : '') + '.'"></div>
+    </template>
+    <div class="flex justify-between items-center gap-2 p-4 border-t border-ink/30">
+      <button @click="rerollFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? 'hover:bg-yellow-50' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm" title="Roll the arrival again">⟳ Re-roll</button>
+      <div class="flex gap-2">
+        <button @click="closeFollowerArrival()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+        <button @click="submitFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold">🎺 Welcome them</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -6255,11 +6447,54 @@ document.addEventListener('alpine:init', () => {
                  structure catalog and its buildValue is computed; off, buildValue is GM-set. -->
             <div class="flex justify-between items-baseline mb-2">
               <h3 class="font-bold">Components</h3>
-              <button @click="
-                const comp = window.ACKS.blankStrongholdComponent({});
-                commitListMutation({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'stronghold.components', label:'Stronghold component', action:'add', value:comp});
-              " class="text-sm underline">+ add component</button>
+              <div class="flex items-center gap-3">
+                <button @click="openConstructionWizard({ kind:'stronghold-component', ownerDomainId:selectedDomain.id, siteHexId:(window.ACKS._strongholdSeatHexId ? window.ACKS._strongholdSeatHexId(currentCampaign, selectedDomain) : null) })"
+                        class="text-sm underline" title="Build a component over time (RR p.174 — labor-paid; advance the Day Clock toward completion)">🏗 Build (over time)</button>
+                <button @click="
+                  const comp = window.ACKS.blankStrongholdComponent({});
+                  commitListMutation({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'stronghold.components', label:'Stronghold component', action:'add', value:comp});
+                " class="text-sm underline" title="Add a finished component instantly (admin shortcut)">+ add component</button>
+              </div>
             </div>
+
+            <!-- In-flight construction (Construction Wave C) — under-construction structure projects for
+                 this domain, with a live forecast. Completing one adds a real component above. -->
+            <template x-if="domainConstructionProjects(selectedDomain).length > 0">
+              <div class="vellum border border-ink/40 rounded p-2 mb-3" style="background:rgba(0,0,0,.03)">
+                <h4 class="font-semibold text-sm mb-1">🏗 Under construction</h4>
+                <template x-for="proj in domainConstructionProjects(selectedDomain)" :key="proj.id">
+                  <div class="text-sm border-t border-ink/20 first:border-t-0 py-1">
+                    <template x-if="domainProjectForecast(proj)">
+                      <div class="flex justify-between items-center gap-2 flex-wrap">
+                        <span>
+                          <span class="font-semibold" x-text="proj.name || proj.constructibleSubtype || proj.constructibleKind"></span>
+                          <span class="opacity-70" x-text="' — ' + domainProjectForecast(proj).pctComplete + '% · ' + (domainProjectForecast(proj).daysToComplete == null ? 'stalled (no workers)' : (domainProjectForecast(proj).daysToComplete.toLocaleString() + ' days left')) + ' · ' + Math.round(domainProjectForecast(proj).dailyGp).toLocaleString() + ' gp/day'"></span>
+                          <span class="accent-red" x-show="domainProjectForecast(proj).requiresSupervisor && !domainProjectForecast(proj).supervisorOk" x-text="' · ⚠ ' + domainProjectForecast(proj).supervisorBlockReason"></span>
+                        </span>
+                        <button @click="cancelConstructionProject(proj)" class="text-sm accent-red px-2 border border-ink/30 rounded hover:bg-red-50" title="Abandon this project">× abandon</button>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <p class="text-[11px] opacity-60 mt-1">Advance the Day Clock / Advance Month to build toward completion. On completion the structure becomes a component above (its value joins the stronghold).</p>
+              </div>
+            </template>
+
+            <!-- Follower Attraction (Construction Wave C — RR p.334). Eligibility-DERIVED: shown whenever the
+                 ruler is name-level (9th+) with a stronghold ≥ his class threshold and hasn't yet attracted
+                 followers. Covers the build-a-castle, reach-9th, and legacy-save paths uniformly. -->
+            <template x-if="followerEligibility(selectedDomain).ok">
+              <div class="vellum border-2 rounded p-3 mb-3" style="border-color:rgba(160,110,20,.5); background:rgba(180,120,20,.06)">
+                <h3 class="font-bold text-lg">🎺 Followers await</h3>
+                <p class="text-sm mt-1">
+                  <span class="font-semibold" x-text="followerEligibility(selectedDomain).ruler.name || 'The ruler'"></span><span
+                    x-text="' (' + (followerEligibility(selectedDomain).ruler.class || '') + ', level ' + (followerEligibility(selectedDomain).ruler.level || 9) + ') holds a ' + (followerEligibility(selectedDomain).row.stronghold || 'stronghold') + ' worth ' + (followerEligibility(selectedDomain).strongholdValue || 0).toLocaleString() + 'gp — enough to attract followers (RR p.334).'"></span>
+                </p>
+                <p class="text-sm opacity-80 mt-1"><span x-text="followerCardWho(selectedDomain)"></span> will rally to the banner.</p>
+                <button @click="openFollowerArrival(selectedDomain)" class="mt-2 px-3 py-1 border border-ink rounded text-sm font-semibold hover:bg-amber-50" title="Roll + review the followers, then bring them in (RR p.334)">🎺 Summon followers…</button>
+              </div>
+            </template>
+
             <template x-if="(selectedDomain.stronghold.components||[]).length === 0">
               <p class="text-sm italic opacity-60">No stronghold components yet. Click <strong>+ add component</strong> to add a Tower, Keep, Castle, etc.</p>
             </template>
@@ -6320,7 +6555,7 @@ document.addEventListener('alpine:init', () => {
                                       @change="commitStatEdit({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'stronghold.components.'+ci+'.structures.'+si+'.structureKey', label:'Structure #'+(si+1)+' kind', oldValue:row.structureKey, newValue:$event.target.value})"
                                       class="w-full">
                                 <option value="">— pick structure —</option>
-                                <template x-for="cat in ['Towers','Walls','Gates &amp; barriers','Buildings']" :key="cat">
+                                <template x-for="cat in [...new Set(STRONGHOLD_CATALOG.map(s => s.category))]" :key="cat">
                                   <optgroup :label="cat">
                                     <template x-for="s in STRONGHOLD_CATALOG.filter(x => x.category === cat)" :key="s.key">
                                       <option :value="s.key" x-text="s.name + ' — ' + s.cost.toLocaleString() + ' gp'"></option>
@@ -9984,19 +10219,23 @@ document.addEventListener('alpine:init', () => {
               <p x-show="armySupply().inSupply" class="text-green-800">🚚 In supply — <span x-text="(armySupply().cost || 0).toLocaleString()"></span>gp/wk<span class="opacity-60" x-show="armySupply().line && armySupply().line.status === 'simplified'"> · simplified (no line computed)</span><span class="opacity-60" x-show="armySupply().line && armySupply().line.weightedLength != null" x-text="' · line ' + armySupply().line.weightedLength + '/16 weighted hexes'"></span></p>
               <p x-show="!armySupply().inSupply" class="accent-red font-semibold">⚠ OUT OF SUPPLY — <span x-text="armySupplyReasonText(armySupply().reasons)"></span></p>
               <p x-show="!armySupply().inSupply" class="text-xs opacity-80" x-text="'cost ' + (armySupply().cost || 0).toLocaleString() + 'gp/wk · base value ' + (armySupply().baseValue != null ? armySupply().baseValue.toLocaleString() + 'gp' : '—') + (armySupply().line ? (' · line ' + armySupply().line.status) : '')"></p>
-              <p class="text-xs opacity-60" x-show="armyMarketClassLabel()" x-text="'🛒 Campaign market: Class ' + armyMarketClassLabel() + ' — the baggage train (RR p.452)'"></p>
+              <p class="text-xs opacity-60" x-show="armyMarketClassLabel()" x-text="'🛒 Campaign market: Class ' + armyMarketClassLabel() + ' — ' + armyMarketSourceText() + ' (RR pp.451–452)'"></p>
               <button x-show="armyMarketClassLabel()" @click="openTrade({ armyId: armySelected().id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mt-1" title="Buy or sell equipment at the army's own baggage-train market (RR p.452)">🛒 Shop in camp</button>
             </div>
           </template>
-          <!-- supply bases (the GM designates friendly domains; value chains through clear lines) -->
+          <!-- supply bases — friendly/occupied domains, built forts & captured strongholds; value chains through clear lines (RR pp.450–451) -->
           <div class="mt-1">
-            <button @click="supplyBasesOpen = !supplyBasesOpen" class="text-xs underline" x-text="supplyBasesOpen ? 'close bases' : ('＋ Supply bases (' + (armySelected().supplyBaseIds || []).length + ')')"></button>
+            <div class="flex items-center gap-3 flex-wrap">
+              <button @click="supplyBasesOpen = !supplyBasesOpen" class="text-xs underline" x-text="supplyBasesOpen ? 'close bases' : ('＋ Supply bases (' + (armySelected().supplyBaseIds || []).length + ')')"></button>
+              <button @click="armyBuildSupplyFort()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Spend 10,000gp to raise a border fort where the army stands — a forward supply base + a Class VI market (RR p.451)">🏰 Build border fort (10,000gp)</button>
+            </div>
             <div x-show="supplyBasesOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
-              <template x-if="armySupplyBaseDomains().length === 0"><p class="text-xs italic opacity-60 p-2">No friendly domains to designate as supply bases.</p></template>
-              <template x-for="bd in armySupplyBaseDomains()" :key="'sb-' + bd.id">
+              <template x-if="armySupplyBaseRows().length === 0"><p class="text-xs italic opacity-60 p-2">No domains, forts, or strongholds to designate yet — build a border fort above.</p></template>
+              <template x-for="bd in armySupplyBaseRows()" :key="'sb-' + bd.id">
                 <label class="flex items-center gap-2 px-2 py-1 text-xs border-b border-ink/10">
                   <input type="checkbox" :checked="bd.added" @change="armyToggleSupplyBase(bd.id)">
                   <span class="flex-1" x-text="bd.name"></span>
+                  <span class="opacity-50 uppercase tracking-wide" x-text="bd.label"></span>
                 </label>
               </template>
             </div>
@@ -15569,8 +15808,11 @@ return {
       // === Magic Research (AD-M1) — Admin verb (blank planning project → schemaForm edit). The guided
       // in-fiction Action verb is the character-sheet ⚗ Research panel (＋ New research). ===
       case 'research-project': return () => this.inspectorCreateBlankResearchProject();
+      // Construction Wave C (2026-06-18) — the Construction Wizard is the create path for a Project (the
+      // guided Action verb; the schemaForm edit under Inspect→Edit is the free-form tweak). No prefill →
+      // the GM picks kind / structure / site / owner / supervisor / crew from scratch.
+      case 'project':   return () => this.openConstructionWizard();
       // Future entries land here as wizards ship:
-      //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
       //   case 'rumor':     return () => this.openAddRumorPrompt();
       //   case 'hex':       return () => { this.currentView = 'world'; this.worldSubView = 'hexes'; };
@@ -17196,6 +17438,252 @@ return {
     return 'Admin Create: a schema-driven Create form lands in Wave Inspector-C+ when more entity kinds have authored schemas. No dedicated Admin Wizard for this kind yet.';
   },
 
+  // ── Construction Wizard (Architecture §10.8 — Wave C, 2026-06-18) — the Action verb. Creates an
+  //    under-construction Project that the Day Clock / Advance Month builds toward completion. Launched
+  //    from the Inspector Create→Project (Admin) + the Domain Stronghold tab (deep-link prefill). ──
+  constructionWizardKinds(){
+    return [
+      { key:'stronghold-component', label:'Stronghold component (Keep, Tower, Wall…)' },
+      { key:'settlement-building',  label:'Settlement building' },
+      { key:'vessel',               label:'Vessel (ship / boat)' },
+      { key:'sanctum',              label:'Sanctum' },
+      { key:'dungeon',              label:'Dungeon' },
+      { key:'mine',                 label:'Mine' },
+      { key:'vault',                label:'Vault' },
+      { key:'hideout',              label:'Hideout' },
+      { key:'fortification',        label:'Fortification' },
+      { key:'civic-monument',       label:'Civic monument' },
+      { key:'road',                 label:'Road / bridge' }
+    ];
+  },
+  constructionWizardKindNote(){
+    const k = this.constructionWizard.kind;
+    if(k === 'vessel') return 'Pick a waterway-adjacent site. Vessel catalogs land in a later wave — enter the RR cost.';
+    if(k === 'settlement-building') return 'Requires a settlement at the site. Building catalogs land in a later wave — enter the cost.';
+    return 'Per-kind catalogs land in later waves — enter the RR cost for now.';
+  },
+  openConstructionWizard(prefill){
+    prefill = prefill || {};
+    const firstDom = (this.domains || [])[0];
+    this.constructionWizard = {
+      open: true,
+      kind: prefill.kind || 'stronghold-component',
+      structureKey: '',
+      componentType: prefill.componentType || '',
+      name: prefill.name || '',
+      totalCost: Number(prefill.totalCost) || 0,
+      ownerKind: prefill.ownerCharacterId ? 'character' : 'domain',
+      ownerDomainId: prefill.ownerDomainId || (firstDom ? firstDom.id : ''),
+      ownerCharacterId: prefill.ownerCharacterId || '',
+      siteHexId: prefill.siteHexId || '',
+      laborers: 0, masons: 0, carpenters: 0, smiths: 0,
+      supervisorIds: []
+    };
+  },
+  closeConstructionWizard(){ this.constructionWizard.open = false; },
+  // ── Follower Attraction (Construction Wave C — RR p.334) ──
+  // The Stronghold-tab card is eligibility-DERIVED (shown whenever the ruler is name-level with a
+  // qualifying stronghold and hasn't yet attracted followers); the modal rolls → reviews → materializes.
+  followerEligibility(domain){
+    try { return (window.ACKS && window.ACKS.domainFollowerEligibility && domain) ? window.ACKS.domainFollowerEligibility(this.currentCampaign, domain) : { ok:false }; }
+    catch(_e){ return { ok:false }; }
+  },
+  _followerDice(spec){ return spec ? String(spec).replace(/\*/g, '×') : ''; },
+  followerCardWho(domain){
+    const e = this.followerEligibility(domain);
+    if(!e.ok) return '';
+    const row = e.row, parts = [];
+    if(row.troops) parts.push(this._followerDice(row.troops) + ' ' + (row.troopLevel >= 1 ? '1st' : '0th') + '-level troops');
+    if(row.companions) parts.push(this._followerDice(row.companions) + ' companions' + (row.companionLevels === '1d6' ? ' of 1st–3rd level' : ' of 1st level'));
+    if(row.apprentices) parts.push(this._followerDice(row.apprentices) + ' 0th-level novices');
+    return parts.join(' + ') || 'Followers';
+  },
+  openFollowerArrival(domain){
+    if(!domain) return;
+    const prop = (window.ACKS && window.ACKS.proposeFollowerArrival) ? window.ACKS.proposeFollowerArrival(this.currentCampaign, domain) : null;
+    this.followerArrival = { open: true, domainId: domain.id, proposal: prop };
+  },
+  rerollFollowerArrival(){
+    const dom = (this.domains || []).find(d => d && d.id === this.followerArrival.domainId);
+    if(!dom) return;
+    this.followerArrival.proposal = (window.ACKS && window.ACKS.proposeFollowerArrival) ? window.ACKS.proposeFollowerArrival(this.currentCampaign, dom) : null;
+  },
+  closeFollowerArrival(){ this.followerArrival.open = false; },
+  followerArrivalIntro(){
+    const p = this.followerArrival.proposal;
+    if(!p || !p.ok) return '';
+    const dom = (this.domains || []).find(d => d && d.id === p.domainId);
+    return (dom ? (dom.name || 'The domain') : 'The domain') + "'s ruler has reached name level with a worthy stronghold (" + (p.strongholdValue || 0).toLocaleString() + 'gp). Followers rally to serve (RR p.334):';
+  },
+  followerArrivalCompanionClass(){
+    const p = this.followerArrival.proposal;
+    if(!p || !p.ok) return '';
+    const ruler = (this.currentCampaign && (this.currentCampaign.characters || []).find(c => c && c.id === p.rulerId)) || null;
+    return (ruler && ruler.class) || '';
+  },
+  followerArrivalCompanionLevels(){
+    const p = this.followerArrival.proposal;
+    if(!p || !p.ok || !p.companions || !p.companions.length) return '';
+    const tally = {}; p.companions.forEach(c => { tally[c.level] = (tally[c.level] || 0) + 1; });
+    return 'levels: ' + Object.keys(tally).sort().map(lv => tally[lv] + '× L' + lv).join(', ');
+  },
+  submitFollowerArrival(){
+    const camp = this.currentCampaign, p = this.followerArrival.proposal;
+    if(!camp || !p || !p.ok){ this.closeFollowerArrival(); return; }
+    const dom = (this.domains || []).find(d => d && d.id === this.followerArrival.domainId);
+    if(!dom){ this.closeFollowerArrival(); return; }
+    const r = (window.ACKS && window.ACKS.attractFollowers) ? window.ACKS.attractFollowers(camp, dom, p) : { ok:false };
+    if(r && r.ok){
+      this.markDirty(); this.schedulePersist();
+      const bits = [];
+      if(r.companionCount) bits.push(r.companionCount + ' companion' + (r.companionCount === 1 ? '' : 's'));
+      if(r.troopCount) bits.push(r.troopCount.toLocaleString() + ' troops');
+      if(r.apprenticeCount) bits.push(r.apprenticeCount.toLocaleString() + ' novices');
+      this.showToast && this.showToast('🎺 Followers arrive — ' + (bits.join(' + ') || 'none') + ' (RR p.334). See the Characters roster.');
+    } else {
+      this.showToast && this.showToast('Could not attract followers' + (r && r.reason ? ' (' + r.reason + ')' : '') + '.');
+    }
+    this.closeFollowerArrival();
+  },
+  constructionWizardOnKind(){
+    // Reset the per-kind picks when the kind changes (the catalog structure only applies to strongholds).
+    const cw = this.constructionWizard;
+    cw.structureKey = ''; cw.componentType = '';
+    if(cw.kind === 'stronghold-component') cw.totalCost = 0;
+  },
+  constructionWizardPickStructure(key){
+    const cw = this.constructionWizard;
+    cw.structureKey = key;
+    const s = (window.ACKS.STRONGHOLD_CATALOG || []).find(x => x.key === key);
+    if(s){
+      cw.totalCost = s.cost;
+      if(!cw.name || !cw.name.trim()) cw.name = s.name;
+      // Derive the component type from the structure key (keep→Keep, tower→Tower, …); else leave blank
+      // (the component still carries name + buildValue + structures, which is what the value uses).
+      cw.componentType = /^keep/.test(key) ? 'Keep' : /^tower/.test(key) ? 'Tower' :
+        /^citadel/.test(key) ? 'Citadel' : /^castle/.test(key) ? 'Castle' : /^vault/.test(key) ? 'Vault' : '';
+    }
+  },
+  constructionWizardOwnerDomain(){
+    const cw = this.constructionWizard;
+    if(cw.ownerKind !== 'domain') return null;
+    return (this.domains || []).find(d => d && d.id === cw.ownerDomainId) || null;
+  },
+  constructionWizardSiteOptions(){
+    const cw = this.constructionWizard, A = window.ACKS;
+    const dom = this.constructionWizardOwnerDomain();
+    let hexes = (dom && dom.geography && Array.isArray(dom.geography.hexes) && dom.geography.hexes.length)
+      ? dom.geography.hexes.slice()
+      : ((this.currentCampaign && this.currentCampaign.hexes) || []);
+    return hexes.filter(Boolean).map(h => {
+      const e = A.isSiteEligibleForKind ? A.isSiteEligibleForKind(this.currentCampaign, h, cw.kind, cw.structureKey) : { eligible:true, reason:null };
+      return { id: h.id, label: (typeof this.hexName === 'function' ? this.hexName(h) : h.id),
+               eligible: e.eligible, reason: this.constructionWizardSiteReason(e.reason) };
+    });
+  },
+  constructionWizardSiteReason(r){
+    return ({ 'requires-waterway':'needs a waterway', 'requires-settlement':'needs a settlement', 'no-site':'no site' })[r] || r || '';
+  },
+  constructionWizardSupervisorCandidates(){
+    const A = window.ACKS, cw = this.constructionWizard;
+    return (((this.currentCampaign && this.currentCampaign.characters) || []).map(c => {
+      const cap = A.constructionSupervisorCapForCharacter ? A.constructionSupervisorCapForCharacter(c) : (c.constructionSupervisorCap || 0);
+      const onSite = !c.currentHexId || c.currentHexId === cw.siteHexId;
+      return { id: c.id, name: c.name || c.id, cap, onSite };
+    })).filter(c => c.cap > 0);
+  },
+  constructionWizardWorkerCounts(){
+    const cw = this.constructionWizard, wc = {};
+    if(cw.laborers   > 0) wc.laborer   = Math.floor(cw.laborers);
+    if(cw.masons     > 0) wc.mason     = Math.floor(cw.masons);
+    if(cw.carpenters > 0) wc.carpenter = Math.floor(cw.carpenters);
+    if(cw.smiths     > 0) wc.smith     = Math.floor(cw.smiths);
+    return wc;
+  },
+  constructionWizardProject(){
+    const cw = this.constructionWizard;
+    return {
+      constructibleKind: cw.kind, constructibleSubtype: cw.structureKey || null,
+      siteHexId: cw.siteHexId || null, totalCost: Number(cw.totalCost) || 0,
+      workerCounts: this.constructionWizardWorkerCounts(),
+      supervisorCharacterIds: (cw.supervisorIds || []).slice(), laborInvested: 0
+    };
+  },
+  constructionWizardForecast(){
+    if(!this.currentCampaign || !window.ACKS.projectConstructionForecast) return null;
+    return window.ACKS.projectConstructionForecast(this.currentCampaign, this.constructionWizardProject());
+  },
+  constructionWizardSubmitReason(){
+    const cw = this.constructionWizard;
+    if(!cw.name || !cw.name.trim()) return 'Name the structure';
+    if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
+    if(!(Number(cw.totalCost) > 0)) return 'Cost must be greater than 0';
+    if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
+    if(cw.ownerKind === 'character' && !cw.ownerCharacterId) return 'Pick an owner character';
+    if(!cw.siteHexId) return 'Pick a site hex';
+    if(Object.keys(this.constructionWizardWorkerCounts()).length === 0) return 'Assign at least one worker';
+    const f = this.constructionWizardForecast();
+    if(f && f.requiresSupervisor && !f.supervisorOk) return f.supervisorBlockReason || 'Assign a qualified supervisor';
+    return '';
+  },
+  submitConstructionWizard(){
+    const cw = this.constructionWizard, camp = this.currentCampaign;
+    if(!camp){ this.showToast && this.showToast('No campaign loaded.'); return; }
+    if(this.constructionWizardSubmitReason()) return;
+    const opts = {
+      constructibleKind: cw.kind,
+      constructibleSubtype: cw.structureKey || null,
+      name: cw.name.trim(),
+      siteHexId: cw.siteHexId || null,
+      ownerDomainId: cw.ownerKind === 'domain' ? (cw.ownerDomainId || null) : null,
+      ownerCharacterId: cw.ownerKind === 'character' ? (cw.ownerCharacterId || null) : null,
+      totalCost: Number(cw.totalCost) || 0,
+      workerCounts: this.constructionWizardWorkerCounts(),
+      supervisorCharacterIds: (cw.supervisorIds || []).slice()
+    };
+    if(cw.kind === 'stronghold-component'){
+      opts.completionSpec = { componentType: cw.componentType || '', structures: cw.structureKey ? [{ structureKey: cw.structureKey, quantity: 1 }] : [] };
+    }
+    const p = window.ACKS.startConstructionProject(camp, opts);
+    if(!p){ this.showToast && this.showToast('Could not start the project.'); return; }
+    // Audit: emit construction-project-started (the handler stamps the 'started' history + a narrative).
+    if(!Array.isArray(camp.eventLog)) camp.eventLog = [];
+    const ev = window.ACKS.newEvent('construction-project-started', {
+      payload: { projectId: p.id, ownerDomainId: opts.ownerDomainId || undefined, ownerCharacterId: opts.ownerCharacterId || undefined,
+                 siteHexId: opts.siteHexId || undefined, constructibleKind: opts.constructibleKind,
+                 constructibleSubtype: opts.constructibleSubtype || undefined, totalCost: opts.totalCost, laborRequired: p.laborRequired },
+      submittedBy: 'gm', targetTurn: camp.currentTurn || 1, status: 'applied'
+    });
+    const out = window.ACKS.applyEvent(camp, ev);
+    ev.appliedAtTurn = camp.currentTurn || 1; ev.result = out.result;
+    camp.eventLog.push({ event: ev, result: out.result, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(out.result && out.result.narrativeSummary ? out.result.narrativeSummary : ('Construction begun on ' + opts.name + '.'));
+    this.closeConstructionWizard();
+  },
+  // In-flight construction projects for the Stronghold tab — under-construction structure projects for a
+  // domain, each with its live forecast. (Agricultural improvements have their own Demographics surface.)
+  domainConstructionProjects(domain){
+    if(!this.currentCampaign || !domain) return [];
+    const A = window.ACKS;
+    const list = A.projectsForDomain ? A.projectsForDomain(this.currentCampaign, domain.id)
+                                     : (this.currentCampaign.projects || []).filter(p => p && p.ownerDomainId === domain.id);
+    return list.filter(p => p && p.lifecycleState === 'under-construction' && p.constructibleKind !== 'agricultural-improvement');
+  },
+  domainProjectForecast(project){
+    if(!this.currentCampaign || !project) return null;
+    return window.ACKS.projectConstructionForecast(this.currentCampaign, project);
+  },
+  cancelConstructionProject(project){
+    if(!project || !this.currentCampaign) return;
+    if(!confirm('Abandon "' + (project.name || 'this project') + '"? It will be removed and no structure is built.')) return;
+    const arr = this.currentCampaign.projects || [];
+    const i = arr.findIndex(p => p && p.id === project.id);
+    if(i >= 0) arr.splice(i, 1);
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Project abandoned.');
+  },
+
   // Registry-driven kind picker for the Browse sub-view. Sorted by display label.
   inspectorKindOptions(){
     if(!window.ACKS || !window.ACKS.entityKinds) return [];
@@ -18752,16 +19240,56 @@ return {
     if((a.supplySimplified !== false) === v) return;
     this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'supplySimplified', label: 'Supply mode', oldValue: a.supplySimplified !== false, newValue: v, suppressFromCampaignLog: true });
   },
-  armySupplyBaseDomains(){
+  armySupplyBaseRows(){
     const a = this.armySelected(); if(!a) return [];
-    const camp = this.currentCampaign, A = window.ACKS, ids = a.supplyBaseIds || [], out = [];
+    const camp = this.currentCampaign, A = window.ACKS, ids = a.supplyBaseIds || [], out = [], seen = {};
+    // friendly + occupied-by-my-side domains (RR p.450 — "any friendly or occupied city, town, or stronghold")
     for(const d of (this.domains || [])){
       if(!d) continue;
       const friendly = (typeof A.domainFriendlyToArmy === 'function') ? A.domainFriendlyToArmy(camp, d, a) : true;
-      if(!friendly && ids.indexOf(d.id) < 0) continue;   // only friendly domains (keep any already-listed)
-      out.push({ id: d.id, name: d.name || d.id, added: ids.indexOf(d.id) >= 0 });
+      const occupiedByMe = d.occupiedBy && d.occupiedBy.leaderCharacterId && d.occupiedBy.leaderCharacterId === a.leaderCharacterId;
+      if(!friendly && !occupiedByMe && ids.indexOf(d.id) < 0) continue;
+      seen[d.id] = true;
+      out.push({ id: d.id, name: (d.name || d.id) + (occupiedByMe && !friendly ? ' (occupied)' : ''), label: 'domain', added: ids.indexOf(d.id) >= 0 });
+    }
+    // built forts + captured strongholds (Constructibles the army's side controls — RR p.451)
+    for(const c of ((camp && camp.constructibles) || [])){
+      if(!c || seen[c.id]) continue;
+      if(c.constructionState && c.constructionState !== 'complete') continue;
+      const isFort = c.constructibleKind === 'field-fortification';
+      const isStronghold = c.constructibleKind === 'stronghold-component' || c.constructibleKind === 'vault' || c.constructibleKind === 'hideout';
+      if(!isFort && !isStronghold) continue;
+      let controlled = c.ownerCharacterId && c.ownerCharacterId === a.leaderCharacterId;
+      if(!controlled && c.hexId){
+        const hex = ((camp.hexes) || []).find(h => h && h.id === c.hexId);
+        const dom = hex && hex.domainId ? (this.domains || []).find(d => d && d.id === hex.domainId) : null;
+        if(dom){
+          const friendly = (typeof A.domainFriendlyToArmy === 'function') ? A.domainFriendlyToArmy(camp, dom, a) : false;
+          const occupiedByMe = dom.occupiedBy && dom.occupiedBy.leaderCharacterId === a.leaderCharacterId;
+          controlled = friendly || occupiedByMe;
+        }
+      }
+      if(!controlled && ids.indexOf(c.id) < 0) continue;
+      out.push({ id: c.id, name: c.name || (isFort ? 'Border fort' : 'Stronghold'), label: isFort ? 'fort' : 'stronghold', added: ids.indexOf(c.id) >= 0 });
     }
     return out;
+  },
+  armyBuildSupplyFort(){
+    const a = this.armySelected(); if(!a) return;
+    const out = window.ACKS.buildSupplyBaseFort(this.currentCampaign, a, {});
+    if(!out || !out.ok){
+      const why = { 'no-army': 'no army', 'no-hex': 'the army has no location', 'cannot-pay': "the leader can't pay 10,000gp", 'no-factory': 'engine error' }[out && out.reason] || (out && out.reason) || 'unknown';
+      this.showToast('🏰 Cannot build a fort — ' + why + '.');
+      return;
+    }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🏰 ' + (a.name || 'The army') + ' built a border fort — a Class VI forward supply base (10,000gp, RR p.451).');
+  },
+  armyMarketSourceText(){
+    const a = this.armySelected(); if(!a) return 'the supply train';
+    const A = window.ACKS, troops = (typeof A.armyTroopCount === 'function') ? A.armyTroopCount(this.currentCampaign, a) : 0;
+    const baggage = (typeof A.armyMarketClassForSize === 'function') ? A.armyMarketClassForSize(troops) : null;
+    return baggage ? 'the baggage train' : 'a border fort';
   },
   armyToggleSupplyBase(domainId){
     const a = this.armySelected(); if(!a) return;
@@ -24031,6 +24559,8 @@ return {
   recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
   recruitSpecialistModal: { open: false, domainId: null, typeKey: '', detailLevel: 'lightweight' },  // 🎖 Recruit-officer/specialist (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
+  constructionWizard: { open: false, kind: 'stronghold-component', structureKey: '', componentType: '', name: '', totalCost: 0, ownerKind: 'domain', ownerDomainId: '', ownerCharacterId: '', siteHexId: '', laborers: 0, masons: 0, carpenters: 0, smiths: 0, supervisorIds: [] },  // 🏗 Construction Wizard (Domain ▸ Stronghold + Inspector)
+  followerArrival: { open: false, domainId: '', proposal: null },  // 🎺 Follower Arrival modal (Domain ▸ Stronghold — RR p.334)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
@@ -27630,8 +28160,13 @@ return {
       const A = window.ACKS, c = this.currentCampaign;
       const dom = (c.domains || []).find(d => d && d.id === w.defenderDomainId);
       let shp = parseInt(w.shpOverride, 10) || 0;
-      if(shp <= 0 && dom) shp = A.strongholdShpEstimate(A.strongholdValue(c, dom), w.material);
-      const cap = parseInt(w.unitCapacityOverride, 10) || A.unitCapacityEstimate(shp);
+      let cap = parseInt(w.unitCapacityOverride, 10) || 0;
+      if((shp <= 0 || cap <= 0) && dom){
+        const prof = A.strongholdRawProfile(c, dom, w.material);
+        if(shp <= 0) shp = prof.shp;
+        if(cap <= 0) cap = prof.unitCapacity;
+      }
+      if(cap <= 0) cap = A.unitCapacityEstimate(shp);
       const tmp = A.blankSiege({ besiegerArmyId: w.besiegerArmyId, defenderDomainId: w.defenderDomainId, stronghold: { material: w.material, strongholdShp: shp, unitCapacity: cap, siteType: w.siteType } });
       const adv = A.siegeUnitAdvantage(c, tmp);
       const dur = A.siegeDurationDays(shp, adv, w.siteType);

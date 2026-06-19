@@ -18,29 +18,59 @@
 // read these directly off window.ACKS to know e.g. all valid merchandise IDs.
 // =============================================================================
 
-// Stronghold structure catalog. Costs from ACKS II RR + By This Axe surface structure table.
+// Stronghold structure catalog — ACKS II RR r10 p.132 (Structures), transcribed exactly.
 // Catalog entries use `key` (not `id`) because they're reference rows, not entities.
+// cost is in gp (the crude palisade's RR 125sp = 12.5gp at 1gp = 10sp, RR r10 p.~50 coinage table).
+// shp = structural hit points, ac = armor class, unitCapacity = units the structure holds/defends.
+//   - unitCapacity `0` is the RAW "–" (no defenders, e.g. battlement/moat/drawbridge/wall-walk).
+//   - Walls' RAW capacity is a range that scales with height ("1.5 – N"); the stored value is the
+//     1.5 base (the floor); the height-scaled max is left to the GM / a future siege read.
+// shp + unitCapacity are RAW-exact here — the W6 siege engine reads them (strongholdRawProfile, sieges.js):
+//   it sums a stronghold's components' structure shp + unit capacity, falling back to the gp÷10 / shp÷1,000
+//   estimate only for a stronghold with no keyed structures.
+// This catalog is ATOMIC RAW structures. Composite whole-stronghold descriptors used as flavor tags
+//   on template components (citadel-stone, castle-stone, cathedral-fortified, keep-stone-small,
+//   bridge-keep) and the dwarven vault structures (vault-*) are deliberately NOT catalog entries —
+//   they have no atomic RAW cost; the component's own buildValue is authoritative for them, and the
+//   `stronghold-by-buildings` rule is off by default so they never need to resolve to a cost.
 const STRONGHOLD_CATALOG = Object.freeze([
-  { key: 'tower-small-round',   name: "Tower, small round (30' high × 20' dia)", cost: 15000, category: 'Towers' },
-  { key: 'tower-medium-round',  name: "Tower, medium round (40' high × 20' dia)", cost: 22500, category: 'Towers' },
-  { key: 'tower-large-round',   name: "Tower, large round (40' high × 30' dia)", cost: 30000, category: 'Towers' },
-  { key: 'tower-huge-round',    name: "Tower, huge round (60' high × 30' dia)", cost: 54000, category: 'Towers' },
-  { key: 'wall-20',             name: "Wall, stone castle (20' × 100')", cost:  5000, category: 'Walls' },
-  { key: 'wall-30',             name: "Wall, stone castle (30' × 100')", cost:  7500, category: 'Walls' },
-  { key: 'wall-40',             name: "Wall, stone castle (40' × 100')", cost: 12500, category: 'Walls' },
-  { key: 'wall-50',             name: "Wall, stone castle (50' × 100')", cost: 17500, category: 'Walls' },
-  { key: 'wall-60',             name: "Wall, stone castle (60' × 100')", cost: 22500, category: 'Walls' },
-  { key: 'gatehouse',           name: "Gatehouse (20' × 30' × 20', portcullis)", cost:  6500, category: 'Gates & barriers' },
-  { key: 'barbican',            name: 'Barbican (gatehouse + 2 small towers + drawbridge)', cost: 38000, category: 'Gates & barriers' },
-  { key: 'drawbridge',          name: "Drawbridge, wood (10' × 20')", cost:   250, category: 'Gates & barriers' },
-  { key: 'palisade',            name: "Palisade, wood (10' high × 100' long)", cost:   125, category: 'Gates & barriers' },
-  { key: 'rampart',             name: "Rampart, earthen (10' high × 100' long × 15' thick)", cost:  2500, category: 'Gates & barriers' },
-  { key: 'battlement',          name: "Battlement (100' crenellated parapet)", cost:   500, category: 'Gates & barriers' },
-  { key: 'moat-unfilled',       name: "Moat, unfilled (100' × 20' × 10' deep)", cost:   400, category: 'Gates & barriers' },
-  { key: 'moat-filled',         name: "Moat, filled (100' × 20' × 10' deep)", cost:   800, category: 'Gates & barriers' },
-  { key: 'building-wood',       name: "Building, wood (20' high × 30' square)", cost:  1500, category: 'Buildings' },
-  { key: 'building-stone',      name: "Building, stone (20' high × 30' square)", cost:  3000, category: 'Buildings' },
-  { key: 'keep-square',         name: "Keep, square (80' high × 60' square)", cost: 75000, category: 'Buildings' }
+  // Towers (RR r10 p.132)
+  { key: 'tower-small-square',  name: "Tower, stone, small square (20' × 20' × 30' high)", cost:  6500, shp:  825, ac: 6, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-small-round',   name: "Tower, stone, small round (20' dia × 30' high)",     cost:  7500, shp:  650, ac: 8, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-medium-round',  name: "Tower, stone, medium round (20' dia × 40' high)",    cost: 10000, shp:  850, ac: 8, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-large-round',   name: "Tower, stone, large round (30' dia × 40' high)",     cost: 18500, shp: 1600, ac: 8, unitCapacity: 1.5, category: 'Towers' },
+  { key: 'tower-huge-round',    name: "Tower, stone, huge round (30' dia × 60' high)",      cost: 27500, shp: 2400, ac: 8, unitCapacity: 2,   category: 'Towers' },
+  // Walls (RR r10 p.132). Defended capacity scales with height; stored value is the 1.5 base.
+  { key: 'wall-10',             name: "Wall, stone (100' long × 10' high × 5' thick)",      cost:  2500, shp:  425, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-20',             name: "Wall, stone (100' long × 20' high × 5' thick)",      cost:  5000, shp:  850, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-30',             name: "Wall, stone (100' long × 30' high × 5' thick)",      cost:  7500, shp: 1275, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-40',             name: "Wall, stone (100' long × 40' high × 7.5' thick)",    cost: 15000, shp: 2550, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-50',             name: "Wall, stone (100' long × 50' high × 10' thick)",     cost: 25000, shp: 4250, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-60',             name: "Wall, stone (100' long × 60' high × 10' thick)",     cost: 30000, shp: 5100, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-walk',           name: "Wall-walk, wood (100' long × 5' wide)",              cost:   125, shp:   10, ac: 2, unitCapacity: 0,   category: 'Walls' },
+  // Gates & barriers (RR r10 p.132)
+  { key: 'barbican',            name: 'Barbican, stone (gatehouse + 2 small towers + drawbridge)', cost: 20000, shp: 2750, ac: 6, unitCapacity: 2, category: 'Gates & barriers' },
+  { key: 'gatehouse-20',        name: "Gatehouse, stone (20' long × 30' wide × 20' high)",  cost:  6000, shp:  750, ac: 6, unitCapacity: 1,   category: 'Gates & barriers' },
+  { key: 'gatehouse-30',        name: "Gatehouse, stone (30' long × 30' wide × 20' high)",  cost:  7500, shp: 1000, ac: 6, unitCapacity: 1,   category: 'Gates & barriers' },
+  { key: 'drawbridge',          name: "Drawbridge, wood (10' wide × 20' tall × 1' thick)",  cost:   300, shp:    6, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'palisade-wooden',     name: "Palisade, wood (100' long × 7.5' high × 6\" thick)", cost:   125, shp:    9, ac: 2, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'palisade-crude',      name: "Palisade, crude (100' long × 7.5' high × 6\" thick)",cost:  12.5, shp:    3, ac: 2, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'rampart-rammed',      name: "Rampart, rammed earth (100' long × 10' high × 15' thick)", cost: 300, shp: 425, ac: 4, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'rampart-piled',       name: "Rampart, piled earth (100' long × 10' high × 15' thick)",  cost:  30, shp: 135, ac: 3, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'battlement',          name: "Battlement, stone (100' long, crenellated parapets)",cost:   500, shp:  100, ac: 6, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-filled',         name: "Moat, filled (100' long × 20' wide × 10' deep)",     cost:   800, shp: 1000, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-unfilled',       name: "Moat, unfilled (100' long × 20' wide × 10' deep)",   cost:   400, shp: 1000, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-unfilled-crude', name: "Moat, unfilled, crude (100' long × 20' wide × 10' deep)",  cost:  40, shp: 1000, ac: 3, unitCapacity: 0, category: 'Gates & barriers' },
+  // Buildings (RR r10 p.132)
+  { key: 'keep-stone',          name: "Keep, stone (80' high × 60' square)",                cost: 125000, shp: 16000, ac: 6, unitCapacity: 6, category: 'Buildings' },
+  { key: 'headquarters',        name: "Headquarters, concrete (125' × 85' × 15–25' high)",  cost: 25000, shp: 2000, ac: 5, unitCapacity: 2,   category: 'Buildings' },
+  { key: 'stable-barracks',     name: "Stable-barracks, concrete (200' × 50' × 15' high)",  cost:  7500, shp:  625, ac: 5, unitCapacity: 4,   category: 'Buildings' },
+  { key: 'granary',             name: "Granary/warehouse, concrete (180' × 30' × 10' high)",cost:  3500, shp:  300, ac: 5, unitCapacity: 2,   category: 'Buildings' },
+  { key: 'hospital',            name: "Hospital, concrete (75' × 75' × 10' high)",          cost:  3000, shp:  250, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'barracks',            name: "Barracks, concrete (140' × 30' × 10' high)",         cost:  2750, shp:  225, ac: 5, unitCapacity: 1.5, category: 'Buildings' },
+  { key: 'chapter-house',       name: "Chapterhouse, concrete (85' × 45' × 10' high)",      cost:  2400, shp:  200, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'building-concrete',   name: "Building, concrete (30' × 30' × 20' high)",          cost:  1700, shp:  135, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'building-wood',       name: "Building, wood (30' × 30' × 20' high)",              cost:   350, shp:   25, ac: 1, unitCapacity: 1,   category: 'Buildings' }
 ]);
 function lookupStrongholdStructure(key){ return STRONGHOLD_CATALOG.find(s => s.key === key) || null; }
 
@@ -789,6 +819,20 @@ function totalDailyWageGp(workerCounts){
     total += (w.wagePerDay || 0) * count;
   }
   return total;
+}
+
+// cf↔gp conversion for the day-tick labor model (Construction Wave C — 2026-06-18).
+// RR p.174's "Typical Laborer" simplification: 3,000 laborers build 500gp/day. A laborer is
+// 5 cf/day → 3,000 × 5 = 15,000 cf/day = 500gp/day → 30 cf per gp. So a structure's labor
+// requirement in cubic feet = totalCost × 30, and the day-tick's daily gp-equivalent progress
+// = totalDailyOutputCf / 30. This keeps a 3,000-laborer crew building at the same 500gp/day the
+// agricultural drip uses (AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY), so the two paths are consistent.
+const CONSTRUCTION_CF_PER_GP = 30;
+
+// Labor (cubic feet) required to build a structure of the given gp cost. The day-tick consumer
+// completes a Project when laborInvested (cf accrued from the crew) reaches this. Pure.
+function constructionLaborForGp(gp){
+  return Math.max(0, Math.round((Number(gp) || 0) * CONSTRUCTION_CF_PER_GP));
 }
 
 // =============================================================================
@@ -2612,6 +2656,7 @@ Object.assign(ACKS, {
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
+  CONSTRUCTION_CF_PER_GP, constructionLaborForGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
   // Phase 2.5 §16 CoL-2 — wage-by-level (RR p.168) + Living Expenses helpers (RR p.173).

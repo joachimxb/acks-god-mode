@@ -302,7 +302,8 @@
             "quantity": 1,
             "notes": "Royal Citadel of Vellengard. Five towers, three baileys, stone curtain walls."
           }
-        ]
+        ],
+        "constructibleId": "cst-rmb03vt"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -544,7 +545,8 @@
             "quantity": 1,
             "notes": "Brennstone Castle — stone curtain wall, twin gatehouses, central keep."
           }
-        ]
+        ],
+        "constructibleId": "cst-ssprs2h"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -787,7 +789,8 @@
             "quantity": 1,
             "notes": "Stone cathedral with attached fortified chapter-house and curtain wall."
           }
-        ]
+        ],
+        "constructibleId": "cst-e435kkb"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -983,7 +986,8 @@
             "quantity": 1,
             "notes": "Small stone keep on the high pasture."
           }
-        ]
+        ],
+        "constructibleId": "cst-a0z1fkb"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -1213,7 +1217,8 @@
             "quantity": 1,
             "notes": "Stone bridge-keep with twin gatetowers commanding the river crossing."
           }
-        ]
+        ],
+        "constructibleId": "cst-dycscuo"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -2224,7 +2229,173 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-rmb03vt",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "citadel",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Citadel",
+      "hexId": "hex-vellengard-capital",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-kingdom-of-vellengard",
+      "buildValue": 400000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Citadel\" (400 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-ssprs2h",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "castle-medium",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Castle (medium)",
+      "hexId": "hex-brennstone-seat",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-duchy-brennstone",
+      "buildValue": 150000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Castle (medium)\" (150 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-e435kkb",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "cathedral-fortress",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Cathedral-fortress",
+      "hexId": "hex-westfen-cathedral",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-duchy-westfen",
+      "buildValue": 95000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Cathedral-fortress\" (95 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-a0z1fkb",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "keep-small",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Keep (small)",
+      "hexId": "hex-highmark-keep",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-highmark",
+      "buildValue": 22000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Keep (small)\" (22 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-dycscuo",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "bridge-keep",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Bridge-keep",
+      "hexId": "hex-stoneford-bridge",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-stoneford",
+      "buildValue": 25000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Bridge-keep\" (25 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

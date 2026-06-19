@@ -896,6 +896,10 @@ function migrateCampaign(raw){
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
   migrateAgriculturalToProjects(current);
+  // Phase 4 Construction Wave C — lift each domain's stronghold onto a first-class Constructible mirror
+  // (additive; the economy keeps reading the stronghold's own value — zero drift). Runs after the ag
+  // migration; both guarantee their collections via lazyDefaultV1ScopeReservations above. Idempotent.
+  migrateStrongholdComponentsToConstructibles(current);
   // #521 follow-up — rebuild each party's member mirror + validate leader from the
   // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
   reconcilePartyMembership(current);
@@ -1495,6 +1499,124 @@ function migrateAgriculturalToProjects(campaign){
         + (hex.landImprovementBonus || 0) + ', ' + invested.toLocaleString() + 'gp invested, '
         + budget.toLocaleString() + 'gp budget).'
     });
+  }
+  return campaign;
+}
+
+// =============================================================================
+// Phase 4 Construction Wave C — lift stronghold components onto first-class Constructibles
+// =============================================================================
+// Foundation #16 stores a domain's stronghold as domain.stronghold.components[] ({type, name,
+// buildValue, structures[]}) — or, for un-converted saves, the legacy single-stronghold shape
+// ({type, buildValue, structures} on the stronghold itself; the UI's migrateStrongholdToComponents
+// converts it on load). The economy's strongholdValue (acks-engine-economy.js) reads either shape.
+//
+// This migration lifts each content-bearing stronghold onto a first-class Constructible
+// (campaign.constructibles[], constructibleKind:'stronghold-component') as an ADDITIVE MIRROR:
+//   • the economy is UNTOUCHED — strongholdValue still sums the components/legacy value (zero drift
+//     by construction; this only ADDS a constructibleId pointer to the source, which the economy and
+//     the W4 pillage path — which writes s.buildValue directly, acks-engine-maneuvers.js — both ignore);
+//   • the Constructible is the first-class, Inspector-visible, Wizard-extensible record (Wave C+ build
+//     onto it);
+//   • linked forward (source.constructibleId → the dedup key) + back (constructible.functionData
+//     .legacyComponentId, best-effort); migrateStrongholdToComponents carries the forward link onto the
+//     new component when the UI converts legacy→components, so a load→convert→save→reload never duplicates;
+//   • the mirror is reconciled to its source on every load (resync buildValue/name/subtype), so a GM edit
+//     or a pillage that mutates the source value doesn't leave the mirror stale;
+//   • idempotent (an existing live mirror is reconciled, not duplicated) — the shipped templates stay
+//     migrate-no-ops (migrations.smoke §P3.6) once regenerated through migrateCampaign.
+// It does NOT restructure the stronghold (no migrateStrongholdToComponents call here) — that would delete
+// s.buildValue, which W4 pillage reads/writes directly. The canonical-setter wiring (the Construction
+// Wizard's "+ build a component" writing the component AND its mirror through one setter) lands with
+// Wave C's Wizard. See Phase_4_Construction_Plan.md Wave C.
+
+// The stronghold's seat hex — robust at migrateCampaign time (campaign.hexes may not be lifted yet), so
+// read the domain's own nested geography.hexes first, falling back to the lifted top-level copy.
+// Deterministic + lift-state-independent → no drift between the regen write and a later reload.
+function _strongholdSeatHexId(campaign, dom){
+  const byId = Object.create(null);
+  if(dom.geography && Array.isArray(dom.geography.hexes)){
+    for(const h of dom.geography.hexes){ if(h && h.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && h.id && h.domainId === dom.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  const hexes = Object.keys(byId).map(k => byId[k]);
+  if(!hexes.length) return null;
+  const ruler = dom.rulerCharacterId ? (campaign.characters || []).find(c => c && c.id === dom.rulerCharacterId) : null;
+  if(ruler && ruler.currentHexId && hexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
+  let best = null, bestPop = -1;
+  for(const h of hexes){
+    const s = h.settlement || null;
+    const pop = s ? (s.families || s.population || 0) : 0;
+    if(pop > bestPop){ bestPop = pop; best = h; }
+  }
+  return (best || hexes[0]).id;
+}
+
+function migrateStrongholdComponentsToConstructibles(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
+  if(!Array.isArray(campaign.domains)) return campaign;
+  const A = global.ACKS || {};
+  const blank = A.blankConstructible;
+  if(typeof blank !== 'function') return campaign;   // entities.js not loaded yet (never at runtime)
+  const byId = Object.create(null);
+  for(const c of campaign.constructibles){ if(c && c.id) byId[c.id] = c; }
+  for(const dom of campaign.domains){
+    if(!dom || !dom.stronghold) continue;
+    const s = dom.stronghold;
+    // Mirror BOTH shapes WITHOUT restructuring the stronghold: the Foundation-#16 components[] shape,
+    // and the legacy single-stronghold shape (the stronghold object itself is the one "component").
+    const refs = Array.isArray(s.components) ? s.components : [s];
+    let seatHexId = null, seatResolved = false;
+    for(const ref of refs){
+      if(!ref) continue;
+      const hasContent = ref.type || ref.name || (ref.buildValue || 0) > 0 ||
+        (Array.isArray(ref.structures) && ref.structures.length > 0);
+      if(!hasContent) continue;   // skip empty placeholder components — don't mint a Constructible for nothing
+      if(!seatResolved){ seatHexId = _strongholdSeatHexId(campaign, dom); seatResolved = true; }
+      const name = ref.name || ref.type || 'Stronghold component';
+      const subtype = ref.type ? slugify(ref.type) : null;
+      let cst = ref.constructibleId ? byId[ref.constructibleId] : null;
+      if(cst){
+        // Reconcile the mirror to its source (principle #10; resync-only, no history append). A no-op on
+        // already-synced data (the regenerated templates), so the migrate-no-op invariant holds; keeps the
+        // mirror correct after the source value changes (a GM edit, or a W4 pillage of s.buildValue).
+        cst.functionData = cst.functionData || {};
+        cst.buildValue = ref.buildValue || 0;
+        cst.name = name;
+        if(subtype) cst.constructibleSubtype = subtype;
+        cst.ownerDomainId = dom.id;
+        if(seatHexId && !cst.hexId) cst.hexId = seatHexId;
+        if(ref.id && !cst.functionData.legacyComponentId) cst.functionData.legacyComponentId = ref.id;
+        continue;
+      }
+      cst = blank({
+        constructibleKind: 'stronghold-component',
+        constructibleSubtype: subtype,
+        constructionState: 'complete',
+        damageState: 'intact',
+        ownership: 'domain',
+        siteType: 'stronghold-courtyard',
+        operationalState: 'operational',
+        name: name,
+        hexId: seatHexId,
+        ownerDomainId: dom.id,
+        buildValue: ref.buildValue || 0
+      });
+      cst.functionData = cst.functionData || {};
+      if(ref.id) cst.functionData.legacyComponentId = ref.id;
+      cst.history.push({
+        turn: (typeof campaign.currentTurn === 'number' ? campaign.currentTurn : null),
+        type: 'migrated',
+        narrative: 'Lifted onto the unified Constructible model from the stronghold component "' +
+          name + '" (' + (ref.buildValue || 0).toLocaleString() + 'gp).'
+      });
+      ref.constructibleId = cst.id;
+      campaign.constructibles.push(cst);
+      byId[cst.id] = cst;
+    }
   }
   return campaign;
 }
@@ -10513,6 +10635,123 @@ function isSiteEligibleForKind(campaign, hex, kind, subtype){
   return { eligible:true, reason:null };
 }
 
+// ── Construction Wave C — Construction Wizard engine (the creation verb + forecast; 2026-06-18) ──
+// The day-tick consumer (proposeConstructionDay) already ADVANCES a structure Project — it accrues
+// totalDailyOutputCf(workerCounts) per day toward laborRequired, completes at laborRequired, and the
+// construction-completed event mints the Constructible. What was missing is the START: a setter that
+// CREATES the Project (computing laborRequired from totalCost) + a forecast the Wizard previews. These
+// fill that gap; the advance + completion machinery is unchanged.
+
+// RR p.174: a STRUCTURE or VESSEL construction must be overseen by a siege engineer (≤25,000gp) or
+// engineer (≤100,000gp). Land improvement (agricultural-improvement) is neither — it needs no engineer.
+function projectRequiresSupervisor(project){
+  return !!project && project.constructibleKind !== 'agricultural-improvement';
+}
+
+// Combined on-site supervisor COST cap (RR p.174 — engineer ≤100,000gp / siege engineer ≤25,000gp;
+// caps additive). On-site = supervisor.currentHexId unset OR === the project's site hex (the
+// agriculturalSupervisorAdequacy convention). Returns { ok, totalCap, report, blockReason }. The cap
+// must cover the project's total cost. (Distinct from supervisorCapTotal, which is the WORKER-COUNT
+// cap the day-tick uses to throttle output — N supervisors × 100 workers each.)
+function projectSupervisorCostAdequacy(campaign, project){
+  const ids = (project && Array.isArray(project.supervisorCharacterIds)) ? project.supervisorCharacterIds : [];
+  const cost = (project && project.totalCost) || 0;
+  const report = []; let totalCap = 0;
+  const findCh = (id) => ((campaign && campaign.characters) || []).find(c => c && c.id === id) || null;
+  if(!ids.length) return { ok:false, totalCap:0, report, blockReason:'no supervisor assigned' };
+  ids.forEach(sid => {
+    const sup = findCh(sid);
+    if(!sup){ report.push({ id:sid, name:'(missing)', onSite:false, cap:0, reason:'character not found' }); return; }
+    const cap = constructionSupervisorCapForCharacter(sup);
+    const onSite = !sup.currentHexId || sup.currentHexId === project.siteHexId;
+    if(cap <= 0){ report.push({ id:sid, name:sup.name, onSite, cap, reason:'not a construction supervisor (needs Engineering or Siege Engineering)' }); return; }
+    if(!onSite){ report.push({ id:sid, name:sup.name, onSite:false, cap, reason:'not on-site (at a different hex)' }); return; }
+    report.push({ id:sid, name:sup.name, onSite:true, cap }); totalCap += cap;
+  });
+  if(totalCap <= 0){
+    const issues = report.filter(r => r.reason).map(r => r.name + ': ' + r.reason).join('; ');
+    return { ok:false, totalCap:0, report, blockReason:'no eligible on-site supervisor (' + (issues || 'none') + ')' };
+  }
+  if(totalCap < cost) return { ok:false, totalCap, report, blockReason:'combined on-site supervisor cap (' + totalCap.toLocaleString() + 'gp) below project cost (' + cost.toLocaleString() + 'gp)' };
+  return { ok:true, totalCap, report, blockReason:'' };
+}
+
+// PURE forecast for a Project — the Wizard preview AND a project card read it. Mirrors the day-tick
+// math (proposeConstructionDay) exactly: crew cf/day, the worker-cap throttle when realistic, mage-assist
+// multiplier, days to completion from the cf remaining. Plus the RR p.174 supervisor-cost adequacy.
+function projectConstructionForecast(campaign, project){
+  const A = global.ACKS || {};
+  const out = { totalCost:0, laborRequired:0, laborInvested:0, remainingCf:0, pctComplete:0,
+    dailyCf:0, dailyGp:0, dailyWageGp:0, workerTotal:0, workerCap:0, capLimited:false,
+    daysToComplete:null, daysElapsed:0, requiresSupervisor:false, supervisorOk:true,
+    supervisorCostCap:0, supervisorReport:[], supervisorBlockReason:'', realistic:true };
+  if(!project) return out;
+  const cfPerGp = A.CONSTRUCTION_CF_PER_GP || 30;
+  const totalCost = project.totalCost || 0;
+  const laborRequired = project.laborRequired || Math.round(totalCost * cfPerGp);
+  const laborInvested = project.laborInvested || 0;
+  const wc = project.workerCounts || {};
+  const workerTotal = Object.values(wc).reduce((s,n) => s + (n||0), 0);
+  let dailyCf = A.totalDailyOutputCf ? A.totalDailyOutputCf(wc) : 0;
+  const realistic = !isHouseRuleEnabled(campaign, 'abstract-construction');
+  const workerCap = supervisorCapTotal(project);
+  let capLimited = false;
+  if(realistic && workerCap > 0 && workerTotal > workerCap){ dailyCf = dailyCf * (workerCap / workerTotal); capLimited = true; }
+  if(isHouseRuleEnabled(campaign, 'mage-assisted-construction') && project.magicAssist && project.magicAssist.multipliers){
+    const mult = Object.values(project.magicAssist.multipliers).reduce((s,n) => s + (n||0), 1);
+    dailyCf = dailyCf * mult;
+  }
+  const dailyWageGp = A.totalDailyWageGp ? A.totalDailyWageGp(wc) : 0;
+  const remainingCf = Math.max(0, laborRequired - laborInvested);
+  const daysToComplete = dailyCf > 0 ? Math.ceil(remainingCf / dailyCf) : null;   // null = never (no productive crew)
+  const pctComplete = laborRequired > 0 ? Math.min(100, Math.round(laborInvested / laborRequired * 100)) : 0;
+  const requiresSupervisor = projectRequiresSupervisor(project);
+  const sup = projectSupervisorCostAdequacy(campaign, project);
+  Object.assign(out, { totalCost, laborRequired, laborInvested, remainingCf, pctComplete,
+    dailyCf, dailyGp: dailyCf / cfPerGp, dailyWageGp, workerTotal, workerCap, capLimited,
+    daysToComplete, daysElapsed: project.daysElapsed || 0, requiresSupervisor,
+    supervisorOk: (!requiresSupervisor || !realistic) ? true : sup.ok,
+    supervisorCostCap: sup.totalCap, supervisorReport: sup.report, supervisorBlockReason: sup.blockReason, realistic });
+  return out;
+}
+
+// The creation verb the Construction Wizard calls (Architecture §10.8). Builds a Project, computes
+// laborRequired from totalCost (cf = gp × CONSTRUCTION_CF_PER_GP), and pushes it to campaign.projects
+// in 'under-construction' state so the day-tick advances it immediately. Returns the Project. Does NOT
+// emit an event (the UI emits construction-project-started for the audit trail + the 'started' history;
+// the handler is idempotent on an already-started project). opts.start === false leaves it 'planning'.
+function startConstructionProject(campaign, opts={}){
+  if(!campaign) return null;
+  if(!Array.isArray(campaign.projects)) campaign.projects = [];
+  const blank = (global.ACKS && global.ACKS.blankProject) || null;
+  if(typeof blank !== 'function') return null;
+  const totalCost = Math.max(0, Number(opts.totalCost) || 0);
+  const p = blank({
+    id: opts.id,
+    constructibleKind: opts.constructibleKind || 'stronghold-component',
+    constructibleSubtype: opts.constructibleSubtype || null,
+    name: opts.name || '',
+    siteHexId: opts.siteHexId || null,
+    siteSettlementId: opts.siteSettlementId || null,
+    siteConstructibleId: opts.siteConstructibleId || null,
+    ownerCharacterId: opts.ownerCharacterId || null,
+    ownerDomainId: opts.ownerDomainId || null,
+    isRepair: opts.isRepair === true,
+    repairTargetConstructibleId: opts.repairTargetConstructibleId || null,
+    totalCost,
+    workerCounts: opts.workerCounts || {},
+    supervisorCharacterIds: Array.isArray(opts.supervisorCharacterIds) ? opts.supervisorCharacterIds.filter(Boolean) : [],
+    completionSpec: opts.completionSpec || null,
+    notes: opts.notes || ''
+  });
+  p.laborRequired = (typeof opts.laborRequired === 'number') ? opts.laborRequired
+    : (global.ACKS && global.ACKS.constructionLaborForGp ? global.ACKS.constructionLaborForGp(totalCost) : Math.round(totalCost * 30));
+  p.lifecycleState = (opts.start === false) ? 'planning' : 'under-construction';
+  if(p.lifecycleState === 'under-construction') p.startedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : null;
+  campaign.projects.push(p);
+  return p;
+}
+
 // ── A.6 — Day-tick consumer for construction (with monthly fallback) ──
 //
 // Advance every in-progress Project by N days. For each Project, compute laborInvested
@@ -11464,6 +11703,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Construction-specific helpers
   isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind,
   tickConstructionByDays, tickConstructionMonthly,
+  // Wave Construction-C — the Construction Wizard engine (creation verb + forecast; 2026-06-18)
+  startConstructionProject, projectConstructionForecast, projectRequiresSupervisor, projectSupervisorCostAdequacy,
   // Construction predicates
   isProject, isConstructible, isConstructibleKind, isUnderConstruction, isComplete, isDamaged, isOperational, isInRepair,
   displayConstructibleKind,
@@ -11471,6 +11712,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
+  // Wave Construction-C — stronghold components lifted onto first-class Constructibles
+  migrateStrongholdComponentsToConstructibles, _strongholdSeatHexId,
   // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,

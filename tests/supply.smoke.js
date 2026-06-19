@@ -258,10 +258,89 @@ section('the slot-88 consumer — proposeMilitaryDay supply step + commit (RR p.
   ok('commit sets the unit out of supply + logs a calamity', ACKS.armyUnits(w, wa)[0].supplyState !== 'supplied' && ACKS.armyUnits(w, wa)[0].calamities.length === 1);
 }
 
-section('registry — the army-supply event kind (§5.6 mandates)');
+section('Forward supply base (RR p.451) — buildSupplyBaseFort + a fort relays to the capital');
+{
+  const realNet = ACKS.monthlyNet;
+  ACKS.monthlyNet = (camp, d) => (d && d.id === 'dom-cap') ? 40000 : 0;
+  try {
+    // a 20-hex straight row: army at h0, the capital seat at h19 (direct line 19 > 16 → overextended)
+    const c = mkCampaign();
+    for(let q = 0; q < 20; q++) c.hexes.push(ACKS.blankHex({ id: 'h' + q, coord: { q, r: 0 }, terrain: 'grassland' }));
+    const cap = ACKS.blankDomain({ name: 'Capital' }); cap.id = 'dom-cap'; cap.rulerCharacterId = 'chr-cmd'; c.domains.push(cap);
+    c.hexes[19].domainId = 'dom-cap'; c.hexes[19].settlement = { families: 5000 };
+    c.characters.push(payChar('chr-cmd', 50000));
+    const u = ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', scale: 'company', count: 120 }); c.units.push(u);
+    const army = ACKS.createArmy(c, { name: 'Field', leaderCharacterId: 'chr-cmd', currentHexId: 'h0', unitIds: [u.id] });
+    army.supplyBaseIds = ['dom-cap']; c.currentTurn = 3;
+    // before the fort: the direct line to a 19-hex-distant capital is overextended → the flood reaches nothing
+    ok('direct line to the far capital → overextended', ACKS.supplyLineStatus(c, army).status === 'overextended');
+    ok('no reachable base → base total 0', ACKS.armySupplyBaseTotalValue(c, army) === 0);
+    ok('a small army has no baggage-train market', ACKS.armyMarketClass(c, army) === null);
+    // build a border fort at the half-way hex (h10) — RR p.451's relay
+    const out = ACKS.buildSupplyBaseFort(c, army, { hexId: 'h10' });
+    ok('buildSupplyBaseFort succeeds + costs 10,000', out.ok === true && out.cost === 10000);
+    ok('mints a COMPLETE field-fortification at h10, value 10,000', out.constructible.constructibleKind === 'field-fortification' && out.constructible.constructionState === 'complete' && out.constructible.hexId === 'h10' && out.constructible.buildValue === 10000);
+    ok('owned by the army leader', out.constructible.ownerCharacterId === 'chr-cmd' && out.constructible.ownership === 'character');
+    ok('the leader paid 10,000 from the purse (50000 → 40000)', c.characters[0].coins.gp === 40000, 'got ' + c.characters[0].coins.gp);
+    ok('the fort is auto-designated as a supply base', army.supplyBaseIds.indexOf(out.constructible.id) >= 0);
+    ok('the fort is pushed to campaign.constructibles', (c.constructibles || []).some(x => x.id === out.constructible.id));
+    const fev = (c.eventLog || []).find(e => e.event && e.event.kind === 'army-supply-base-built');
+    ok('an army-supply-base-built event is emitted with the constructible id', !!fev && fev.event.payload.constructibleId === out.constructible.id && fev.event.context.primaryHexId === 'h10');
+    // the flood now relays army(h0)→fort(h10, 10 weighted) → capital(h19, 9 weighted) → reaches the capital
+    ok('the fort itself contributes 0 own income (a relay node)', ACKS.supplyBaseValue(c, out.constructible.id) === 0);
+    ok('the fort relays to the capital → base total = 40,000', ACKS.armySupplyBaseTotalValue(c, army) === 40000, 'got ' + ACKS.armySupplyBaseTotalValue(c, army));
+    ok('the army is now IN supply (full check)', ACKS.armyInSupply(c, army, { forceFull: true }).inSupply === true);
+    ok('the built fort grants the small army a Class VI market (RR p.451)', ACKS.armyMarketClass(c, army) === 'VI');
+  } finally { ACKS.monthlyNet = realNet; }
+}
+
+section('Forward supply base — guards, captured stronghold, occupied domain');
+{
+  // guards
+  const c0 = mkCampaign(); c0.hexes.push(ACKS.blankHex({ id: 'g0', coord: { q: 0, r: 0 }, terrain: 'grassland' }));
+  c0.characters.push(payChar('chr-broke', 500));
+  const u0 = ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', scale: 'company', count: 120 }); c0.units.push(u0);
+  const a0 = ACKS.createArmy(c0, { name: 'Broke', leaderCharacterId: 'chr-broke', currentHexId: 'g0', unitIds: [u0.id] });
+  ok('build fails when the leader cannot pay 10,000 (cannot-pay)', ACKS.buildSupplyBaseFort(c0, a0).reason === 'cannot-pay');
+  ok('build fails with no army', ACKS.buildSupplyBaseFort(c0, null).ok === false);
+  const a1 = ACKS.createArmy(c0, { name: 'Nowhere', leaderCharacterId: 'chr-broke', currentHexId: null, unitIds: [] });
+  ok('build fails with no hex (no-hex)', ACKS.buildSupplyBaseFort(c0, a1).reason === 'no-hex');
+
+  // a captured stronghold: a stronghold-component Constructible in an OCCUPIED enemy domain, used as a base
+  const realNet = ACKS.monthlyNet;
+  ACKS.monthlyNet = (camp, d) => (d && d.id === 'dom-enemy') ? 25000 : 0;
+  try {
+    const c = mkCampaign();
+    for(let q = 0; q < 5; q++) c.hexes.push(ACKS.blankHex({ id: 's' + q, coord: { q, r: 0 }, terrain: 'grassland' }));
+    c.characters.push(payChar('chr-me', 9999));
+    c.characters.push(ACKS.blankCharacter({ name: 'Foe' })); c.characters[1].id = 'chr-foe';
+    const enemy = ACKS.blankDomain({ name: 'Enemy March' }); enemy.id = 'dom-enemy'; enemy.rulerCharacterId = 'chr-foe'; c.domains.push(enemy);
+    c.hexes[4].domainId = 'dom-enemy'; c.hexes[4].settlement = { families: 1000 };
+    const sh = ACKS.blankConstructible({ constructibleKind: 'stronghold-component', name: 'Castle', hexId: 's4', ownerCharacterId: 'chr-me', buildValue: 50000 });
+    c.constructibles.push(sh);
+    const u = ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', scale: 'company', count: 120 }); c.units.push(u);
+    const army = ACKS.createArmy(c, { name: 'Invader', leaderCharacterId: 'chr-me', currentHexId: 's0', unitIds: [u.id] });
+    army.supplyBaseIds = [sh.id];
+    // un-captured (no occupation): the enemy domain is opposed → the stronghold draws no income
+    ok('un-captured enemy stronghold draws 0 income', ACKS.supplyBaseValue(c, sh.id) === 0, 'got ' + ACKS.supplyBaseValue(c, sh.id));
+    // occupy the enemy domain → the captured stronghold now draws its territory's income
+    enemy.occupiedBy = { leaderCharacterId: 'chr-me', sinceOrd: 1, priorMorale: 0 };
+    ok('a clear line routes to the captured stronghold at s4', ACKS.supplyLineStatus(c, army).baseId === sh.id && ACKS.supplyLineStatus(c, army).status === 'clear');
+    ok('the captured stronghold (occupied domain) draws its 25,000 income', ACKS.supplyBaseValue(c, sh.id) === 25000, 'got ' + ACKS.supplyBaseValue(c, sh.id));
+    ok('the army draws on the captured stronghold (base total 25,000)', ACKS.armySupplyBaseTotalValue(c, army) === 25000);
+    // an occupied-by-my-side DOMAIN works as a base directly (it is a _domain → the existing path)
+    army.supplyBaseIds = ['dom-enemy'];
+    ok('the occupied domain itself works as a base (25,000)', ACKS.armySupplyBaseTotalValue(c, army) === 25000);
+  } finally { ACKS.monthlyNet = realNet; }
+}
+
+section('registry — the army-supply + army-supply-base-built event kinds (§5.6 mandates)');
 ok('army-supply ∈ EVENT_KINDS', ACKS.EVENT_KINDS.indexOf('army-supply') >= 0);
 ok('army-supply has a schema', !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['army-supply']));
 ok('army-supply is wizard-opt-out (engine-emitted record)', ACKS.EVENT_WIZARD_OPTOUT.has('army-supply'));
+ok('army-supply-base-built ∈ EVENT_KINDS', ACKS.EVENT_KINDS.indexOf('army-supply-base-built') >= 0);
+ok('army-supply-base-built has a schema', !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['army-supply-base-built']));
+ok('army-supply-base-built is wizard-opt-out', ACKS.EVENT_WIZARD_OPTOUT.has('army-supply-base-built'));
 ok('domain-warfare carries the requisition/loot actions', true);   // payload.action ∈ requisitioned|looted (verified via requisitionSupplies)
 
 // ─────────────────────────────────────────────────────────────────────────────

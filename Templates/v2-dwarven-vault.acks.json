@@ -291,7 +291,8 @@
             "quantity": 1,
             "notes": "Twelve halls cut from living stone."
           }
-        ]
+        ],
+        "constructibleId": "cst-g3ie79p"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -487,7 +488,8 @@
             "quantity": 1,
             "notes": "Two halls and the master forge."
           }
-        ]
+        ],
+        "constructibleId": "cst-wy9qhgp"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -891,7 +893,74 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-g3ie79p",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "dwarven-vault-great",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Dwarven Vault (great)",
+      "hexId": "hex-kazad-doln-gates",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-vault-of-kazad-doln",
+      "buildValue": 220000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Dwarven Vault (great)\" (220 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-wy9qhgp",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "dwarven-vault-small",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Dwarven Vault (small)",
+      "hexId": "hex-brokk-hold",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-thane-hold-of-brokk",
+      "buildValue": 50000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Dwarven Vault (small)\" (50 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

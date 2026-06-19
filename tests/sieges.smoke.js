@@ -161,6 +161,84 @@ section('startSiege — estimate from strongholdValue, compute the simplified cl
   ok('siege-started context names hex + domain + army', ev.event.context.primaryHexId === 'hex-keep' && ev.event.context.relatedEntities.some(r => r.kind === 'siege') && ev.event.context.relatedEntities.some(r => r.kind === 'army'));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+section('startSiege — RAW-exact shp + unit capacity from stronghold components (RR r10 p.132)');
+{
+  // A stronghold component carries its catalog key in structures[] (authored regardless of the
+  // stronghold-by-buildings rule). strongholdRawProfile sums the real catalog shp + unit capacity,
+  // not buildValue÷10 / shp÷1,000.
+  const keep = () => ({ structures: [{ structureKey: 'keep-stone', quantity: 1 }], buildValue: 75000 });
+
+  // (1) a single keep → real 16,000 shp + RAW capacity 6 (NOT shp/10 = 7,500, NOT ⌈16,000/1000⌉ = 16),
+  //     end-to-end through startSiege.
+  {
+    const { c, army, dom } = mkFixture({ besiegerUnits: 5, defenderUnits: 2 });
+    dom.stronghold = { components: [keep()] };
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('keep-stone → real shp 16,000 (not buildValue/10)', prof.shp === 16000 && ACKS.strongholdRawShp(c, dom, 'stone') === 16000);
+    ok('keep-stone → RAW capacity 6 (not ⌈16,000/1000⌉ = 16)', prof.unitCapacity === 6 && ACKS.strongholdRawCapacity(c, dom, 'stone') === 6);
+    const s = ACKS.startSiege(c, { besiegerArmyId: army.id, defenderDomainId: dom.id }).siege;
+    ok('startSiege carries the real shp 16,000 + capacity 6 end-to-end', s.stronghold.strongholdShp === 16000 && s.stronghold.unitCapacity === 6);
+  }
+
+  // (2) quantity scales: 3 × wall-20 (shp 850, cap 1.5 each) = 2,550 shp, ⌈4.5⌉ = 5 capacity
+  {
+    const { c, dom } = mkFixture({});
+    dom.stronghold = { components: [{ structures: [{ structureKey: 'wall-20', quantity: 3 }] }] };
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('3 × wall-20 → 2,550 shp', prof.shp === 2550);
+    ok('3 × wall-20 (cap 1.5) → ⌈4.5⌉ = 5 capacity', prof.unitCapacity === 5);
+  }
+
+  // (3) Σ across components, mixed material: stone keep (shp 16,000, cap 6) + wood palisade (shp 9, cap 1.5)
+  //     = 16,009 shp, ⌈7.5⌉ = 8 capacity; and the real-catalog path is material-independent.
+  {
+    const { c, dom } = mkFixture({});
+    dom.stronghold = { components: [keep(), { structures: [{ structureKey: 'palisade-wooden', quantity: 1 }] }] };
+    ok('Σ keep + palisade → 16,009 shp', ACKS.strongholdRawShp(c, dom, 'stone') === 16009);
+    ok('Σ keep + palisade → ⌈7.5⌉ = 8 capacity', ACKS.strongholdRawCapacity(c, dom, 'stone') === 8);
+    ok('real-catalog shp is material-independent', ACKS.strongholdRawShp(c, dom, 'wood') === 16009);
+  }
+
+  // (4) a key on the component itself (no structures list) resolves → tower shp 650, ⌈0.5⌉ = 1 capacity
+  {
+    const { c, dom } = mkFixture({});
+    dom.stronghold = { components: [{ structureKey: 'tower-small-round', buildValue: 15000 }] };
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('component structureKey tower-small-round → 650 shp', prof.shp === 650);
+    ok('tower-small-round (cap 0.5) → ⌈0.5⌉ = 1 capacity', prof.unitCapacity === 1);
+  }
+
+  // (5) a structure that RAW-legitimately defends 0 units (a moat) still RESOLVES — shp 1,000, capacity 0
+  //     (the cap-0-≠-unresolved edge: it does NOT fall through to the gp/10 estimate).
+  {
+    const { c, dom } = mkFixture({});
+    dom.stronghold = { components: [{ structures: [{ structureKey: 'moat-filled', quantity: 1 }] }] };
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('moat resolves → shp 1,000 (not estimated)', prof.shp === 1000);
+    ok('moat defends 0 units → capacity 0 (not the shp/1000 estimate)', prof.unitCapacity === 0);
+  }
+
+  // (6) no resolvable key (a composite flavor tag like citadel-stone) → estimate both from the buildValue
+  {
+    const { c, dom } = mkFixture({});
+    dom.stronghold = { components: [{ structureKey: 'citadel-stone', buildValue: 30000 }] };  // not a catalog key
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('unkeyed component → gp/10 estimate (30,000 → 3,000 shp, cap 3)', prof.shp === 3000 && prof.unitCapacity === 3);
+    ok('unkeyed wood component → gp/100 estimate (30,000 → 300 shp)', ACKS.strongholdRawShp(c, dom, 'wood') === 300);
+  }
+
+  // (7) legacy single-stronghold (no components) → estimate fallback, unchanged behaviour
+  {
+    const { c, dom } = mkFixture({ strongholdGp: 185000 });   // dom.stronghold = { buildValue: 185000 }
+    const prof = ACKS.strongholdRawProfile(c, dom, 'stone');
+    ok('legacy buildValue → estimate (185,000 → 18,500 shp, cap 19)', prof.shp === 18500 && prof.unitCapacity === 19);
+  }
+
+  ok('strongholdRawProfile / strongholdRawShp / strongholdRawCapacity exported',
+    typeof ACKS.strongholdRawProfile === 'function' && typeof ACKS.strongholdRawShp === 'function' && typeof ACKS.strongholdRawCapacity === 'function');
+}
+
 section('startSiege — guards + overrides');
 {
   const { c, army, dom } = mkFixture({});
