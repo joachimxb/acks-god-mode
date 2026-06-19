@@ -152,7 +152,12 @@ function blankCampaign(opts={}){
     // relation (character ↔ lore, confidence + provenance — the believed-vs-true link). Read DEFENSIVELY
     // everywhere (campaign.lore ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
     lore: opts.lore || [],
-    knowledge: opts.knowledge || []
+    knowledge: opts.knowledge || [],
+    // === Sages SG-2 (burst8 b8-sages 2026-06-19) === — the multi-week SageCommission research-commission
+    // (sag-; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on the slot-64 day-tick.
+    // Read DEFENSIVELY everywhere (campaign.sageCommissions ?? []); NOT lazy-injected by migrateCampaign,
+    // so templates stay migrate-no-ops (the lore/knowledge precedent above).
+    sageCommissions: opts.sageCommissions || []
   };
 }
 

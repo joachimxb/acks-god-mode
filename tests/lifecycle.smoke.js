@@ -614,5 +614,181 @@ section('CL-3 conditions — migrate-no-op (the demo carries no conditions)');
 }
 
 // =============================================================================
+// === Character Lifecycle CL-4a (burst8, team) — death & inheritance (RR pp.311–313) ==========
+// Locks: the unified cause-tagged character-died record (recordCharacterDeath — idempotent; the four
+// in-module death sites [aging old-age / disease / hypothermia / enervation] route through it cause-
+// tagged); the reconcile sweep that back-fills externally-set deaths (D1/fiat); Reserve XP accrual
+// (90% of no-benefit spend) + the prior-character cap; the Heroic Funeral (90% of funeral gp, heroic-
+// only); the will/heir setters + characterDeathInfo; successionCandidates; resolveSuccession (promote /
+// heir / back-up modes + the reserve/funeral XP + the ~10% bank-fee inheritance + no-heir treasure-lost)
+// + inheritance-resolved; pendingSuccessions; and the migrate-no-op (the demo carries no death fields).
+// =============================================================================
+section('CL-4a death — data layer + registries');
+{
+  const b = ACKS.blankCharacter({});
+  ok('blankCharacter seeds reserveXp:0 but NOT heir/will/death fields (migrate-no-op)',
+     b.reserveXp === 0 && b.heirCharacterId === undefined && b.will === undefined && b.causeOfDeath === undefined && b.deathRecordedTurn === undefined && b.successionResolved === undefined);
+  ok('exports the CL-4a verbs + reads', typeof ACKS.recordCharacterDeath==='function' && typeof ACKS.reconcileCharacterDeaths==='function' && typeof ACKS.addReserveXp==='function' && typeof ACKS.characterReserveXp==='function' && typeof ACKS.setCharacterHeir==='function' && typeof ACKS.setCharacterWill==='function' && typeof ACKS.successionCandidates==='function' && typeof ACKS.resolveSuccession==='function' && typeof ACKS.pendingSuccessions==='function' && typeof ACKS.characterDeathInfo==='function');
+  ok('RAW constants (Reserve 90% / Funeral 90% / bank fee 10%)', ACKS.RESERVE_XP_RATE===0.9 && ACKS.FUNERAL_XP_RATE===0.9 && ACKS.INHERITANCE_BANK_FEE_PCT===10);
+  ok('DEATH_CAUSES vocabulary includes the cause-tags', Array.isArray(ACKS.DEATH_CAUSES) && ACKS.DEATH_CAUSES.indexOf('old-age')>=0 && ACKS.DEATH_CAUSES.indexOf('wounds')>=0 && ACKS.DEATH_CAUSES.indexOf('fiat')>=0);
+}
+ok("event kind 'character-died' is registered", ACKS.isEventKindKnown('character-died'));
+ok("event kind 'inheritance-resolved' is registered", ACKS.isEventKindKnown('inheritance-resolved'));
+ok('both CL-4a events opt out of the Event Wizard', !ACKS.isWizardEmittable('character-died') && !ACKS.isWizardEmittable('inheritance-resolved'));
+
+section('CL-4a death — recordCharacterDeath (the unified record, idempotent)');
+{
+  const c = mkCampaign({ turn:3 }); const ch = mkChar(c, { name:'Slain', extra:{ xp:5000 } });
+  const rec = ACKS.recordCharacterDeath(c, ch.id, { cause:'battle', heroic:true });
+  ok('a direct kill sets deceased + alive:false + deceasedTurn', ch.lifecycleState==='deceased' && ch.alive===false && ch.deceasedTurn===3);
+  ok('the record tags the cause + heroism + stamps deathRecordedTurn', ch.causeOfDeath==='battle' && ch.diedHeroically===true && ch.deathRecordedTurn===3 && rec.cause==='battle');
+  ok('a character-died event fires with the subject context + cause payload', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='character-died'); return e && e.event.payload.cause==='battle' && e.event.payload.heroic===true && e.event.payload.characterId===ch.id && e.event.context.relatedEntities[0].id===ch.id && e.event.context.relatedEntities[0].role==='subject'; })());
+  const rec2 = ACKS.recordCharacterDeath(c, ch.id, { cause:'fiat' });
+  ok('recordCharacterDeath is idempotent (2nd call → null, no 2nd event, cause unchanged)', rec2===null && c.eventLog.filter(e=>e.event.kind==='character-died').length===1 && ch.causeOfDeath==='battle');
+}
+
+section('CL-4a death — the four in-module death sites route through it (cause-tagged at the source)');
+{
+  // old-age (CL-1 aging) → cause 'old-age'
+  const c = mkCampaign(); const ch = mkChar(c, { age:70, ageMonths:11, abilities:{CON:14}, savingThrows:{death:18} });
+  advance(c, 1, RNG0); advance(c, 1, RNG0);   // arm, then fail the Death save → die
+  ok('an old-age death emits character-died cause "old-age"', ch.lifecycleState==='deceased' && ch.causeOfDeath==='old-age' && c.eventLog.some(e=>e.event.kind==='character-died' && e.event.payload.cause==='old-age' && e.event.payload.characterId===ch.id) && c.eventLog.filter(e=>e.event.kind==='character-died').length===1);
+}
+{
+  // disease (CL-2) → cause 'disease'
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Doomed2', savingThrows:{death:15} });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:2, forcedOnset:1, forcedSymptom:1 });
+  ACKS.advanceDiseases(c, 1); ACKS.advanceDiseases(c, 1);
+  ok('a disease death emits character-died cause "disease"', ch.lifecycleState==='deceased' && ch.causeOfDeath==='disease' && c.eventLog.some(e=>e.event.kind==='character-died' && e.event.payload.cause==='disease'));
+}
+{
+  // hypothermia (CL-3) → cause 'exposure'
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Frozen2', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:3,CHA:10} });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.99 }).pendingRecords[0]);  // 1d3=3 → effCon 0 → death
+  ok('a hypothermia death emits character-died cause "exposure"', ch.lifecycleState==='deceased' && ch.causeOfDeath==='exposure' && c.eventLog.some(e=>e.event.kind==='character-died' && e.event.payload.cause==='exposure'));
+}
+{
+  // enervation (CL-3) → cause 'enervation'
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Drained2', savingThrows:{death:15}, extra:{ hp:{ current:1, max:1, hitDice:'1d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.0 }).pendingRecords[0]);  // fail → 0 max hp → death
+  ok('an enervation death emits character-died cause "enervation"', ch.lifecycleState==='deceased' && ch.causeOfDeath==='enervation' && c.eventLog.some(e=>e.event.kind==='character-died' && e.event.payload.cause==='enervation'));
+}
+
+section('CL-4a death — reconcileCharacterDeaths (back-fill deaths set outside this module: D1/battle/fiat)');
+{
+  const c = mkCampaign({ turn:4 });
+  const wd = mkChar(c, { id:'wd', name:'Hewn' });   wd.lifecycleState='deceased'; wd.alive=false; wd.mortalWounds=[{ band:'killed' }];
+  const fd = mkChar(c, { id:'fd', name:'Vanished' }); fd.lifecycleState='deceased';
+  const al = mkChar(c, { id:'al', name:'Hale' });
+  const out = ACKS.reconcileCharacterDeaths(c);
+  ok('the sweep records exactly the un-recorded dead (not the living)', out.length===2 && al.deathRecordedTurn===undefined);
+  ok('a wound death infers cause "wounds" (from mortalWounds[])', wd.causeOfDeath==='wounds' && c.eventLog.some(e=>e.event.kind==='character-died' && e.event.payload.characterId==='wd' && e.event.payload.cause==='wounds'));
+  ok('an unattributable death tags cause "unknown" + stamps deathRecordedTurn', fd.causeOfDeath==='unknown' && fd.deathRecordedTurn===4);
+  ok('the sweep is idempotent (a re-run records nothing new)', ACKS.reconcileCharacterDeaths(c).length===0);
+  // causeByCharId override
+  const c2 = mkCampaign(); const x = mkChar(c2, { id:'x', name:'Named' }); x.lifecycleState='deceased';
+  ACKS.reconcileCharacterDeaths(c2, { causeByCharId:{ x:'battle' } });
+  ok('causeByCharId overrides the inference', x.causeOfDeath==='battle');
+}
+
+section('CL-4a death — Reserve XP accrual (RR p.311: 90% of no-benefit spend, carried on the character)');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Carouser' });
+  ok('reserveXp starts 0', ACKS.characterReserveXp(ch)===0);
+  ACKS.addReserveXp(c, ch.id, { gpSpent:1000 });
+  ok('gpSpent 1000 → +900 reserve XP (90%)', ch.reserveXp===900);
+  ACKS.addReserveXp(c, ch.id, { amount:100 });
+  ok('a direct amount accrues + accumulates', ch.reserveXp===1000);
+  ok('a reserve-xp history entry is recorded', Array.isArray(ch.history) && ch.history.some(h=>/Reserve XP/.test(h.summary||h.note||JSON.stringify(h))));
+  ok('characterReserveXp is defensive (absent → 0)', ACKS.characterReserveXp({})===0 && ACKS.characterReserveXp(null)===0);
+}
+
+section('CL-4a death — will / heir setters + characterDeathInfo');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Testator' });
+  ACKS.setCharacterHeir(c, ch.id, 'chr-heir');
+  ACKS.setCharacterWill(c, ch.id, { bequests:[{ kind:'stash', ref:'stash-1' }, { kind:'gp' }] });
+  const info = ACKS.characterDeathInfo(ch);
+  ok('heir + will set; characterDeathInfo reads them (alive)', ch.heirCharacterId==='chr-heir' && ch.will.bequests.length===2 && info.deceased===false && info.heirCharacterId==='chr-heir' && info.bequestCount===2);
+  ACKS.recordCharacterDeath(c, ch.id, { cause:'old-age', heroic:false });
+  const info2 = ACKS.characterDeathInfo(ch);
+  ok('characterDeathInfo reads the death record (cause/label/recorded)', info2.deceased===true && info2.cause==='old-age' && info2.causeLabel==='old age' && info2.deathRecorded===true && info2.successionResolved===false);
+}
+
+section('CL-4a death — successionCandidates (heir / henchmen / party)');
+{
+  const c = mkCampaign();
+  const lord  = mkChar(c, { id:'lord', name:'Lord' });
+  const hench = mkChar(c, { id:'h1', name:'Hench' }); hench.liegeCharacterId='lord'; hench.socialTier='henchman';
+  const heir  = mkChar(c, { id:'hr', name:'Heir' }); lord.heirCharacterId='hr';
+  const other = mkChar(c, { id:'o', name:'Stranger' });
+  lord.lifecycleState='deceased';
+  const cands = ACKS.successionCandidates(c, 'lord');
+  ok('candidates include the henchman + the declared heir, exclude self + strangers', cands.some(x=>x.id==='h1'&&x.relationship==='henchman') && cands.some(x=>x.id==='hr'&&x.relationship==='heir') && !cands.some(x=>x.id==='lord') && !cands.some(x=>x.id==='o'));
+}
+
+section('CL-4a death — resolveSuccession: promote a henchman + inheritance (RR pp.311–313)');
+{
+  const c = mkCampaign();
+  const lord  = mkChar(c, { id:'lord', name:'Lord', extra:{ xp:12000, coins:{ pp:0, gp:2000, ep:0, sp:0, cp:0 } } }); lord.reserveXp=9000;
+  const hench = mkChar(c, { id:'h1', name:'Hench', extra:{ xp:3000 } }); hench.liegeCharacterId='lord'; hench.socialTier='henchman';
+  ACKS.recordCharacterDeath(c, lord, { cause:'battle', heroic:true });
+  const res = ACKS.resolveSuccession(c, 'lord', { mode:'promote-henchman', successorCharacterId:'h1', funeralGpSpent:1000 });
+  ok('reserveXpApplied = min(reserve 9000, prior XP 12000) = 9000', res.reserveXpApplied===9000);
+  ok('heroic funeral = 90% of 1000 = 900 XP', res.funeralXp===900);
+  ok('the henchman keeps max(own 3000, reserve 9000) + funeral 900 = 9900 XP + becomes active', hench.xp===9900 && hench.lifecycleState==='active' && hench.successorOf==='lord');
+  ok('inheritance: 2000 gp purse passes minus the 10% bank fee → 1800 to the heir', res.transferredGp===1800 && res.bankFeeGp===200 && hench.coins.gp===1800 && hench.personalGp===1800);
+  ok("the deceased's purse is emptied (banked treasure passed on)", lord.coins.gp===0 && lord.personalGp===0);
+  ok('an inheritance-resolved event fires (subject deceased + beneficiary successor)', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='inheritance-resolved'); return e && e.event.payload.deceasedId==='lord' && e.event.payload.successorId==='h1' && e.event.context.relatedEntities.some(r=>r.role==='beneficiary'&&r.id==='h1'); })());
+  ok('the succession is marked resolved + idempotent', lord.successionResolved===true && lord.successorCharacterId==='h1' && ACKS.resolveSuccession(c,'lord',{}).alreadyResolved===true);
+  ok('pendingSuccessions no longer lists the resolved lord', !ACKS.pendingSuccessions(c).some(x=>x.id==='lord'));
+}
+
+section('CL-4a death — resolveSuccession: a new character at the Reserve-XP floor (capped at the prior XP)');
+{
+  const c = mkCampaign();
+  const poor = mkChar(c, { id:'p2', name:'Poor', extra:{ xp:1000 } }); poor.reserveXp=5000; poor.lifecycleState='deceased'; poor.diedHeroically=false;
+  const res = ACKS.resolveSuccession(c, 'p2', { mode:'new-character', newCharacterName:'Backup', funeralGpSpent:5000 });
+  ok('reserveXpApplied capped at the prior character XP (min(5000,1000)=1000)', res.reserveXpApplied===1000);
+  ok('a non-heroic death earns NO funeral XP even with funeral spend', res.funeralXp===0);
+  ok('a fresh successor is minted at the reserve floor + carries the reserve forward', res.createdNew===true && res.successor && res.successor.xp===1000 && res.successor.successorOf==='p2' && res.successor.reserveXp===5000 && c.characters.some(x=>x.id===res.successor.id));
+  ok('resolving an un-recorded external death records character-died first', poor.deathRecordedTurn!=null && c.eventLog.some(e=>e.event.kind==='character-died'&&e.event.payload.characterId==='p2'));
+}
+
+section('CL-4a death — resolveSuccession: no heir ⇒ banked treasure lost (RR p.313)');
+{
+  const c = mkCampaign();
+  const lonely = mkChar(c, { id:'l3', name:'Lonely', extra:{ xp:5000, coins:{ pp:0, gp:3000, ep:0, sp:0, cp:0 } } });
+  lonely.lifecycleState='deceased';
+  const res = ACKS.resolveSuccession(c, 'l3', { mode:'new-character', newCharacterName:'B', heirId:null });
+  ok('no heir → nothing transferred, the banked treasure is recorded lost', res.transferredGp===0 && res.treasureLost===3000 && res.heirId===null);
+}
+if(typeof ACKS.changeStashController === 'function'){
+  // a will's stash bequest changes the stash's controller to the heir on resolution.
+  const c = mkCampaign();
+  c.stashes = [{ id:'stash-w', kind:'personal', ownerCharacterId:'l4', ownerPartyId:null, ownerDomainId:null, items:[], history:[] }];
+  const lord = mkChar(c, { id:'l4', name:'Willer', extra:{ xp:4000 } }); lord.lifecycleState='deceased';
+  const heir = mkChar(c, { id:'h4', name:'Inheritor' });
+  ACKS.setCharacterWill(c, 'l4', { bequests:[{ kind:'stash', ref:'stash-w' }] });
+  const res = ACKS.resolveSuccession(c, 'l4', { mode:'heir', successorCharacterId:'h4', heirId:'h4' });
+  ok('a will stash bequest changes the stash controller to the heir', res.stashesTransferred===1 && c.stashes[0].ownerCharacterId==='h4');
+} else {
+  ok('will stash-bequest test skipped (stash module not present)', true);
+}
+
+section('CL-4a death — migrate-no-op (the demo carries no death fields)');
+{
+  require(path.join(__dirname, '..', 'acks-demo-template.js'));
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('no demo character carries heir/will/death fields after migrate', demo.characters.every(c => c.heirCharacterId===undefined && c.will===undefined && c.causeOfDeath===undefined && c.deathRecordedTurn===undefined && c.successionResolved===undefined));
+  const before = demo.eventLog.length;
+  const recs = ACKS.reconcileCharacterDeaths(demo);
+  ok('reconcile on the (all-living) demo is a no-op (no deaths, no character-died)', recs.length===0 && demo.eventLog.length===before && !demo.eventLog.some(e=>e.event.kind==='character-died'));
+  ok('pendingSuccessions(demo) is empty', ACKS.pendingSuccessions(demo).length===0);
+}
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? '✅' : '❌') + ' lifecycle.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('   failures: ' + failures.join(' · ')); process.exit(1); }

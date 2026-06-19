@@ -264,12 +264,22 @@ const EVENT_KINDS = Object.freeze([
   // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
   // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
   'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (commissionSage +
+  // the slot-64 day-tick consumer; Phase_4_Sages_Plan.md §3.3). Both record-only (the verb / the
+  // day-tick commit already applied the state): -started at commissioning, -resolved when the
+  // research completes. The §528 envelope (sage = source, client = beneficiary, the commission = subject).
+  'sage-commission-started', 'sage-commission-resolved',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
   // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
   'senate-vote',
   'policy-enacted',
+  // === Politics P-3 (team) === — RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only.
+  // senate-influenced: bribe/intimidate/seduce/gift/escaped/ill-treated/reveal. senate-dispute-opened:
+  // the dispute-lifecycle transitions (opened/escalated/cleared/abandoned/reestablished — action-discriminated).
+  'senate-influenced',
+  'senate-dispute-opened',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -295,6 +305,13 @@ const EVENT_KINDS = Object.freeze([
   // (like disease-recovered carrying died:bool); the eventLog narrative reads correctly for each.
   'condition-applied',
   'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — death & inheritance (RR pp.311–313). Record-only
+  // audit emitted by acks-engine-lifecycle.js. 'character-died' is the unified cause-tagged death record
+  // (fired by recordCharacterDeath — routed from the aging/disease/condition death sites + the reconcile
+  // sweep for D1/battle/fiat deaths set outside this module); 'inheritance-resolved' carries the
+  // succession economy (successor + Reserve XP + Heroic Funeral + the will/heir transfer). Wizard opt-out below.
+  'character-died',
+  'inheritance-resolved',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -352,6 +369,10 @@ const EVENT_KINDS = Object.freeze([
   'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
   'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
   'bank-withdrawal',   // gp withdrawn from a bank account
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (Phase_4_Banking_Plan.md B3).
+  // Record-only: reconcileFeudalLoans (acks-engine-banking.js) materializes a kind:'feudal' Loan from a
+  // GIVEN F&D loan obligation (it moves no gp — the principal already moved in giveLoanObligation). ===
+  'loan-reconciled',   // a shipped F&D feudal loan promoted onto the shared Loan relation (fdObligationId link)
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
   // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
@@ -363,7 +384,17 @@ const EVENT_KINDS = Object.freeze([
   // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
   'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
   'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
-  'item-appraised'       // a character appraises a magic item (the TT p.28 price spread + rarity)
+  'item-appraised',      // a character appraises a magic item (the TT p.28 price spread + rarity)
+  // === Generators G1 (team burst8 2026-06-19) === — #435/Phase 4.8 §4. ONE event kind, NO new
+  // entity/prefix (a generation run is an EVENT, not an entity — §3.1; the reserved gen- stays unused).
+  // Record-only, owned by acks-engine-generators.js (generateAndLandNPC already pushed the produced
+  // Character); the event carries the run's params + seed + the produced ids (context.relatedEntities)
+  // so "what did the generator make here, and how" is one eventLog filter (the derived-history pattern).
+  'generation',          // a generator run produced one or more entities (NPC Generator; the Wizards family later)
+  // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
+  // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
+  'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
+  'magic-item-commission-resolved' // the commission's research throw resolves (item delivered | up-front lost)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -938,6 +969,18 @@ const EVENT_SCHEMAS = Object.freeze({
          inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
          answerText: 'string', loreId: 'string', activityCost: 'object' }
   },
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (Phase_4_Sages_Plan.md
+  // §3.3). Record-only (commissionSage / the slot-64 day-tick commit already applied the state).
+  'sage-commission-started': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', daysRequired: 'number', feeGp: 'number', secret: 'boolean' }
+  },
+  'sage-commission-resolved': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', subject: 'string', success: 'boolean', throw: 'object',
+         answerText: 'string', daysRequired: 'number' }
+  },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
   'senate-vote': {
@@ -951,6 +994,22 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { senateId: 'string' },
     O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
          outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
+  },
+  // === Politics P-3 (team) === (RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate-influence action (bribe/intimidate/seduce/gift/escaped/ill-treated/reveal). action discriminates.
+  'senate-influenced': {
+    R: { senateId: 'string' },
+    O: { action: 'string', senatorshipId: 'string', byCharacterId: 'string', value: 'number',
+         period: 'string', gp: 'number', paid: 'boolean', success: 'boolean', natural: 'number', total: 'number',
+         votes: 'number', reactionBonus: 'number', qualifies: 'boolean', controlled: 'number',
+         revealedCount: 'number', narrative: 'string' }
+  },
+  // A dispute-lifecycle transition. action ∈ opened|escalated|cleared|abandoned|reestablished.
+  'senate-dispute-opened': {
+    R: { senateId: 'string' },
+    O: { action: 'string', topic: 'string', attempts: 'number', replaceRulerCount: 'number',
+         forVotes: 'number', againstVotes: 'number', hostileCount: 'number', cooldownMonths: 'number',
+         reestablishAtTurn: 'number', honeymoonUntilTurn: 'number', apexDomainId: 'string', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -994,6 +1053,20 @@ const EVENT_SCHEMAS = Object.freeze({
   'condition-cleared': {
     R: { characterId: 'string', condition: 'string' },
     O: { conditionLabel: 'string', outcome: 'string', died: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-4a (burst8, team) === (RR pp.311–313; engine-emitted, record-only).
+  // The unified cause-tagged death record. cause ∈ wounds|disease|old-age|exposure|enervation|battle|fiat|unknown.
+  'character-died': {
+    R: { characterId: 'string', cause: 'string' },
+    O: { heroic: 'boolean', reserveXp: 'number', deceasedTurn: 'number', sourceEventId: 'string', narrative: 'string' }
+  },
+  // The succession economy resolved (RR pp.311–313): the successor + Reserve XP + Heroic Funeral + the will/heir transfer.
+  'inheritance-resolved': {
+    R: { deceasedId: 'string' },
+    O: { successorId: 'string', successorMode: 'string', heirId: 'string', reserveXpApplied: 'number',
+         funeralXp: 'number', funeralGpSpent: 'number', heroic: 'boolean', transferredGp: 'number',
+         bankFeeGp: 'number', bankFeePct: 'number', treasureLost: 'number', stashesTransferred: 'number',
+         successorStartXp: 'number', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -1132,6 +1205,12 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { accountId: 'string' },
     O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
   },
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (record-only; the
+  // principal already moved in giveLoanObligation — this only materializes the shared Loan record). ===
+  'loan-reconciled': {
+    R: { loanId: 'string', fdObligationId: 'string' },
+    O: { kind: 'string', principalGp: 'number', creditor: 'object', debtor: 'object', narrative: 'string' }
+  },
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
   // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
   'lore-learned': {
@@ -1156,6 +1235,22 @@ const EVENT_SCHEMAS = Object.freeze({
   'item-appraised': {
     R: { itemId: 'string' },
     O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
+  },
+  // === Generators G1 (team burst8 2026-06-19) === — a generation run's audit record (record-only).
+  // producedCharacterIds carries the ids (also in context.relatedEntities); the rest is the run's params.
+  'generation': {
+    R: { generator: 'string', producedCharacterIds: 'array' },
+    O: { occupation: 'string', classKey: 'string', bucket: 'string', level: 'number', race: 'string', attributeMethod: 'string', detailLevel: 'string', wealthGp: 'number', magicItemValue: 'number', seed: 'string', narrative: 'string' }
+  },
+  // === Magic Items W2 (burst8, team) === — #143 commissioning (acks-engine-magic-items.js). projectId =
+  // the routed Magic Research item-creation project; notableItemId is set on a successful delivery.
+  'magic-item-commissioned': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string' },
+    O: { itemName: 'string', baseCost: 'number', commissionPriceGp: 'number', upFrontGp: 'number', researchFeeGp: 'number', narrative: 'string' }
+  },
+  'magic-item-commission-resolved': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
+    O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
   }
 });
 
@@ -2797,6 +2892,12 @@ function applyEvent_senateAudit(campaign, event){
 }
 registerEventHandler('senate-vote', applyEvent_senateAudit);
 registerEventHandler('policy-enacted', applyEvent_senateAudit);
+// === Politics P-3 (team) === — the influence + dispute-lifecycle events share the same record-only
+// audit posture: ACKS.bribeSenator / intimidate / seduce / gift / resolveDisputeByConsult / abandon /
+// reestablish (acks-engine-politics.js) already applied the state (the standing influenceModifiers[] /
+// the dispute transition); the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-influenced', applyEvent_senateAudit);
+registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -2828,6 +2929,16 @@ function applyEvent_conditionAudit(campaign, event){
 }
 registerEventHandler('condition-applied', applyEvent_conditionAudit);
 registerEventHandler('condition-cleared', applyEvent_conditionAudit);
+// === Character Lifecycle CL-4a (burst8, team) === — death + succession events share the record-only
+// audit posture: acks-engine-lifecycle.js (recordCharacterDeath / resolveSuccession) already applied the
+// state (lifecycleState 'deceased' + the cause tags; the successor's XP + the reserve/funeral/inheritance
+// transfer); the handler keeps the event well-formed on replay (records the narrative only). Mirrors aging.
+function applyEvent_lifecycleDeathAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'character death' } };
+}
+registerEventHandler('character-died', applyEvent_lifecycleDeathAudit);
+registerEventHandler('inheritance-resolved', applyEvent_lifecycleDeathAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -2890,6 +3001,8 @@ registerEventHandler('loan-repaid', applyEvent_bankingAudit);
 registerEventHandler('loan-interest', applyEvent_bankingAudit);
 registerEventHandler('bank-deposit', applyEvent_bankingAudit);
 registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
+// === Banking B2 (team burst8 2026-06-19) === — the feudal-loan reconcile reuses the same record-only audit.
+registerEventHandler('loan-reconciled', applyEvent_bankingAudit);
 // === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
 // shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
 // keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
@@ -2911,6 +3024,19 @@ function applyEvent_magicItemAudit(campaign, event){
 registerEventHandler('item-identified', applyEvent_magicItemAudit);
 registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
 registerEventHandler('item-appraised', applyEvent_magicItemAudit);
+// === Magic Items W2 (burst8, team) === — commissioning events share the record-only audit posture
+// (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
+registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
+
+// === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
+// (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
+// the event well-formed on replay (mirrors applyEvent_magicItemAudit / applyEvent_loreAudit).
+function applyEvent_generationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'generation run' } };
+}
+registerEventHandler('generation', applyEvent_generationAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5951,9 +6077,16 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
   // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
   'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — owned by commissionSage / the slot-64 day-tick
+  // consumer (the 📜 Commission modal + the Day Clock); a raw emit would record a commission the
+  // sageCommissions[] state doesn't show. The GM commissions a sage via the modal, not the Wizard.
+  'sage-commission-started', 'sage-commission-resolved',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
+  // === Politics P-3 (team) === — owned by the Senate tab's influence + dispute actions (acks-engine-
+  // politics.js); a raw Wizard emit would record an influence/dispute the senate state doesn't show.
+  'senate-influenced', 'senate-dispute-opened',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
@@ -5968,6 +6101,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // the slot-59 conditions consumer); a raw emit would narrate a condition the character's conditions[]
   // + lifecycleState don't show. The GM applies/clears a condition via the character sheet, not the Wizard.
   'condition-applied', 'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — owned by acks-engine-lifecycle.js
+  // (recordCharacterDeath / resolveSuccession); a raw emit would record a death/succession the
+  // character's lifecycleState + the successor/inheritance state don't show. The GM marks a death +
+  // resolves succession on the character sheet, not the Event Wizard.
+  'character-died', 'inheritance-resolved',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
@@ -6002,6 +6140,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
   // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
   'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal',
+  // === Banking B2 (team burst8 2026-06-19) === — owned by acks-engine-banking.js (reconcileFeudalLoans);
+  // a raw emit would record a feudal-loan link the campaign.loans[] entry doesn't actually carry.
+  'loan-reconciled',
   // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
@@ -6009,7 +6150,13 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
   // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
   // identification + intrinsic.charges don't show.
-  'item-identified', 'item-charge-spent', 'item-appraised'
+  'item-identified', 'item-charge-spent', 'item-appraised',
+  // === Generators G1 (team burst8 2026-06-19) === — owned by acks-engine-generators.js (generateAndLandNPC
+  // produces the Character + emits the run record). A raw Event-Wizard emit would record a generation
+  // that produced nothing — the Generators tab is the real surface.
+  'generation',
+  // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
+  'magic-item-commissioned', 'magic-item-commission-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

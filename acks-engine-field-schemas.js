@@ -783,6 +783,38 @@
     },
     // === end Hijinks HJ-2 ===
 
+    // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission (sag-,
+    // campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). Fields ⊆ blankSageCommission keys
+    // (the global schema⊆factory invariant, tests/smoke.js). resolved (the pre-rolled throw) +
+    // result (the delivered envelope) are engine-managed → omitted from the form, raw-JSON-edited
+    // (the delve foraysResolved[] precedent). daysElapsed is DERIVED (sageCommissionProgress) off
+    // startedAtOrd — no stored mirror, so it is not a field here. adminCreate:'schemaForm' = the
+    // generic Admin form (the in-fiction Action verb is the 📜 Commission modal). ──
+    'sageCommission': {
+      factory: 'blankSageCommission',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Question', 'Progress', 'History'],
+      fields: [
+        { name: 'id',                type: 'string', readonly: true, group: 'Parties' },
+        { name: 'sageCharacterId',   type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The consulting sage (an NPC specialist or a PC-scholar)' },
+        { name: 'clientCharacterId', type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'Who commissioned the research' },
+        { name: 'settlementId',      type: 'id', idKind: 'settlement', group: 'Parties', description: 'Where (the Tower-of-Knowledge POI)' },
+        { name: 'subject',           type: 'string', group: 'Question', description: 'Matched vs the sage\'s specialty (in 3+ / out 18+)' },
+        { name: 'query',             type: 'longText', group: 'Question', description: 'The GM-framed question (free text)' },
+        { name: 'answerText',        type: 'longText', group: 'Question', description: 'Delivered on success (the GM supplies the content; the engine resolves only whether the sage knows)' },
+        { name: 'mode',              type: 'string', readonly: true, group: 'Question', description: 'npc-specialist | pc-scholar — resolved at commissioning' },
+        { name: 'inSpecialty',       type: 'boolean', readonly: true, group: 'Question' },
+        { name: 'target',            type: 'number', readonly: true, group: 'Question', description: 'The resolved throw target (3+/18+ or the PC\'s Knowledge/Loremastery target)' },
+        { name: 'daysRequired',      type: 'number', min: 1, group: 'Progress', default: 30, description: 'Research duration (🔧 GM-set; RAW pins none)' },
+        { name: 'startedAtOrd',      type: 'number', readonly: true, group: 'Progress', description: 'The day ordinal it began (daysElapsed derives from this — no stored mirror)' },
+        { name: 'feeGp',             type: 'gp', group: 'Progress', description: 'The fee (charged upfront, GP Wave B)' },
+        { name: 'feePaidGp',         type: 'gp', readonly: true, group: 'Progress' },
+        { name: 'status',            type: 'enum', enumValues: ['in-progress','complete','abandoned'], group: 'Progress', default: 'in-progress' },
+        { name: 'history',           type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Sages SG-2 ===
+
     // === Delves D2 (burst4) — Dungeon + Delve (Phase_3.5_Delves_Plan.md §4; the RECONCILED shape,
     // Data_Dictionary §13.2). Every field is a key the matching factory emits (the global schema⊆
     // factory invariant, tests/smoke.js). The Dungeon schema covers the BASE + delve-target facet

@@ -616,6 +616,375 @@
     return ev;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // W2 — COMMISSIONING (the first big Command exemplar, Architecture §12). TT p.28.
+  // A commission is a costed (3× base), timed, can-fail in-fiction action that yields a
+  // magic item — run by ROUTING INTO the SHIPPED Magic Research item-creation kind
+  // (acks-engine-magic-research.js, AD-M1). The COMMISSIONER pays (GP Wave B); the NPC
+  // caster RESEARCHES. This module invokes the research engine — it never edits it.
+  //
+  // The gp model (TT p.28: material 1× + component 1× up front, research 1× on success):
+  //   ISSUE  — commissioner → caster (material 1×, funds the engine's startResearchProject
+  //            debit, net caster 0) + commissioner → external (component 1×, consumed; the
+  //            throw runs gmOverride so the engine neither re-charges nor penalizes it).
+  //   RESOLVE on success — commissioner → caster (research fee 1×, the caster's pay) + the
+  //            minted item's custody re-homes to the commissioner. On failure the up-front
+  //            2× is lost (already spent at issue); the fee never fires. The caster (a paid
+  //            professional) is a funded pass-through — never out of pocket.
+  // The commission rides on its research project as a DEFENSIVE `project.commission` rider
+  // (no new entity/collection — a commission IS a funded item-creation research project).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _hasResearchEngine(){ const A = _miACKS(); return typeof A.startResearchProject === 'function' && typeof A.researchProjectCosts === 'function' && typeof A.payAndRollResearchThrow === 'function'; }
+
+  // The gp a wealth handle can currently provide (the up-front affordability pre-check). character |
+  // character-gp → coin purse; treasury → domainTreasuryGp; external → unbounded.
+  function _handleAvailableGp(campaign, handle){
+    const A = _miACKS();
+    if(!handle) return 0;
+    if(handle.kind === 'external') return Infinity;
+    if(handle.kind === 'treasury') return (typeof A.domainTreasuryGp === 'function') ? (Number(A.domainTreasuryGp(campaign, handle.id)) || 0) : 0;
+    const ch = _findChar(campaign, handle.id);   // 'character' | 'character-gp'
+    return ch ? (Number(ch.coins && ch.coins.gp) || 0) : 0;
+  }
+  function _wealthTransfer(campaign, spec){ const A = _miACKS(); if(typeof A.applyWealthTransfer !== 'function') return null; return A.applyWealthTransfer(campaign, spec); }
+
+  // Map a catalog entry → a Magic Research item-creation config (best-effort; the research engine's
+  // magicItemCreationCost is the cost AUTHORITY). Arms/armor +N is EXACT (the +N ladder matches RR's
+  // ITEM_BONUS_COST); other forms pick a spell level to ~approach the catalog base cost (the GM tunes it).
+  function _commissionConfigFromCatalog(entry){
+    if(!entry) return null;
+    const cfg = { itemKind: entry.kind, targetName: entry.name, baseCatalogKey: entry.key || null, intrinsic: _intrinsicFromCatalog(entry) };
+    const bonus = Number(entry.enchantmentBonus) || 0;
+    if(bonus > 0){ cfg.effectType = 'permanent-bonus'; cfg.enchantBonus = Math.max(1, Math.min(3, bonus)); return cfg; }
+    const charges = entry.charges;
+    if(charges != null && charges > 1){ cfg.effectType = 'charged'; cfg.charges = charges; cfg.spellLevel = Math.max(1, Math.round((Number(entry.baseCost) || 500) / (500 * charges))); return cfg; }
+    if(charges === 1){ cfg.effectType = 'one-use'; cfg.spellLevel = Math.max(1, Math.round((Number(entry.baseCost) || 500) / 500)); return cfg; }
+    cfg.effectType = 'permanent'; cfg.permanentDuration = '1-day'; cfg.spellLevel = Math.max(1, Math.round((Number(entry.baseCost) || 7500) / (500 * 15))); return cfg;
+  }
+  // Resolve the item-creation config a commission will build (from a catalog key OR an explicit itemConfig).
+  function _commissionConfig(opts){
+    if(opts.itemConfig && typeof opts.itemConfig === 'object') return Object.assign({}, opts.itemConfig);
+    if(opts.catalogKey){ const e = findMagicItemCatalog(opts.catalogKey); if(e) return _commissionConfigFromCatalog(e); }
+    return null;
+  }
+
+  // The price breakdown for a commission config (TT p.28). base = the research engine's item-creation
+  // cost (the authority); up-front = material 1× + component 1× = 2× base; fee = research 1× = base;
+  // commissionPrice = 3× base. (For arms/armor this equals 3× the catalog base cost exactly.)
+  function commissionCosts(cfg){
+    const A = _miACKS();
+    const costs = (typeof A.researchProjectCosts === 'function') ? A.researchProjectCosts('item-creation', cfg || {}) : { baseCost:0, componentCostGp:0, materialCostGp:0, researchCostGp:0 };
+    const base = Number(costs.baseCost) || 0;
+    const upFront = (Number(costs.materialCostGp) || 0) + (Number(costs.componentCostGp) || 0);
+    const fee = Number(costs.researchCostGp) || 0;
+    return { baseCost: base, materialCostGp: Number(costs.materialCostGp) || 0, componentCostGp: Number(costs.componentCostGp) || 0,
+             upFrontGp: upFront, researchFeeGp: fee, commissionPriceGp: base * 3 };
+  }
+
+  // commissionPreview(campaign, opts) — a PURE read for the UI/forecast (no mutation). opts:
+  // { commissionerCharacterId, casterCharacterId, catalogKey | itemConfig, sourceHandle? }.
+  // Returns the price breakdown, the caster's eligibility, affordability, and the success chance.
+  function commissionPreview(campaign, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    const out = { ok:false };
+    if(!_hasResearchEngine()) return { ok:false, error:'research-engine-unavailable' };
+    const cfg = _commissionConfig(opts);
+    if(!cfg) return { ok:false, error:'no-item-config' };
+    const costs = commissionCosts(cfg);
+    out.costs = costs;
+    const commissioner = _findChar(campaign, opts.commissionerCharacterId);
+    const caster = _findChar(campaign, opts.casterCharacterId);
+    out.commissionerName = commissioner ? (commissioner.name || commissioner.id) : null;
+    out.casterName = caster ? (caster.name || caster.id) : null;
+    // Eligibility (the caster must be an arcane caster of the effective min level — RR p.391).
+    out.eligibility = (typeof A.isEligibleResearcher === 'function') ? A.isEligibleResearcher(campaign, caster, 'item-creation', cfg) : { ok:false, reason:'no-engine' };
+    // Affordability of the up-front (2×) from the source handle (default the commissioner's purse).
+    const src = opts.sourceHandle || (commissioner ? { kind:'character', id: commissioner.id } : null);
+    out.sourceHandle = src;
+    out.available = src ? _handleAvailableGp(campaign, src) : 0;
+    out.affordsUpFront = out.available >= costs.upFrontGp;
+    // The caster's magic-research throw chance (a throwaway project, never pushed).
+    if(caster && typeof A.blankResearchProject === 'function' && typeof A.researchThrowInfo === 'function'){
+      const draft = A.blankResearchProject({ kind:'item-creation', researcherCharacterId: caster.id, config: cfg,
+        baseCost: costs.baseCost, componentCostGp: costs.componentCostGp, materialCostGp: costs.materialCostGp, researchCostGp: costs.researchFeeGp });
+      const info = A.researchThrowInfo(campaign, draft);
+      out.throwTarget = info.target; out.successChance = info.chance;
+    }
+    out.ok = !!(commissioner && caster && out.eligibility && out.eligibility.ok && out.affordsUpFront);
+    out.reason = !commissioner ? 'no-commissioner' : (!caster ? 'no-caster' : (out.eligibility && !out.eligibility.ok ? out.eligibility.reason : (!out.affordsUpFront ? 'insufficient-funds' : null)));
+    return out;
+  }
+
+  // Fast-forward a project's research labor to complete (the GM-fiat expedite — like other verbs'
+  // `instant`; bypasses the months of monthly accrual so a commission resolves in one sitting).
+  function _expediteResearch(project){
+    if(!project) return;
+    project.researchInvestedGp = Number(project.researchCostGp) || 0;
+    if(project.status === 'in-progress' || project.status === 'planning') project.status = 'awaiting-throw';
+  }
+
+  // commissionMagicItem(campaign, opts) — ISSUE the commission. Pays the up-front 2× (GP Wave B) and
+  // starts the routed item-creation research project. opts: { commissionerCharacterId, casterCharacterId,
+  // catalogKey | itemConfig, sourceHandle?, name?, expedite?, gmOverride?, submittedBy? }.
+  // Returns { ok, commission, project, costs } or { ok:false, error }.
+  function commissionMagicItem(campaign, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    if(!_hasResearchEngine()) return { ok:false, error:'research-engine-unavailable' };
+    const commissioner = _findChar(campaign, opts.commissionerCharacterId);
+    if(!commissioner) return { ok:false, error:'unknown-commissioner' };
+    const caster = _findChar(campaign, opts.casterCharacterId);
+    if(!caster) return { ok:false, error:'unknown-caster' };
+    if(caster.id === commissioner.id) return { ok:false, error:'commissioner-cannot-be-the-caster' };
+    const cfg = _commissionConfig(opts);
+    if(!cfg) return { ok:false, error:'no-item-config' };
+    // Eligibility (RR p.391) — the caster must be a sufficiently-powerful arcane caster.
+    if(!opts.gmOverride){
+      const elig = A.isEligibleResearcher(campaign, caster, 'item-creation', cfg);
+      if(!elig.ok) return { ok:false, error:'caster-' + (elig.reason || 'ineligible'), minLevel: elig.minLevel };
+    }
+    const costs = commissionCosts(cfg);
+    const src = opts.sourceHandle || { kind:'character', id: commissioner.id };
+    // Affordability pre-check of the up-front (2×) — atomic: refuse BEFORE any gp moves.
+    const available = _handleAvailableGp(campaign, src);
+    if(available < costs.upFrontGp) return { ok:false, error:'insufficient-funds', need: costs.upFrontGp, have: available };
+
+    // ── Pay the up-front (GP Wave B) ──
+    // 1. Material 1× → the caster's purse (funds the engine's startResearchProject debit; net caster 0).
+    try { _wealthTransfer(campaign, { amount: costs.materialCostGp, source: src, destination: { kind:'character', id: caster.id }, bucket:'commission', reason:'commission materials' }); }
+    catch(e){ return { ok:false, error:'payment-failed', detail:String(e && e.message || e) }; }
+    // 2. Component 1× → external (consumed up front; the throw runs gmOverride, so penalty-free).
+    try { if(costs.componentCostGp > 0) _wealthTransfer(campaign, { amount: costs.componentCostGp, source: src, destination: { kind:'external' }, bucket:'commission', reason:'commission components' }); }
+    catch(e){ return { ok:false, error:'payment-failed', detail:String(e && e.message || e) }; }
+
+    // ── Start the routed research project (the engine debits the caster's now-funded purse) ──
+    const started = A.startResearchProject(campaign, { kind:'item-creation', researcherCharacterId: caster.id, config: cfg,
+      name: opts.name || cfg.targetName || (cfg.itemKind || 'magic item'), gmOverride: true });   // gmOverride: eligibility already validated; never re-block here
+    if(!started || !started.ok || !started.project) return { ok:false, error:'research-start-failed', detail: started && started.reason };
+    const project = started.project;
+
+    // ── The commission rider (defensive — a commission IS a funded item-creation project) ──
+    project.commission = {
+      commissionerCharacterId: commissioner.id,
+      casterCharacterId: caster.id,
+      sourceHandle: src,
+      baseCost: costs.baseCost,
+      upFrontGp: costs.upFrontGp,
+      researchFeeGp: costs.researchFeeGp,
+      commissionPriceGp: costs.commissionPriceGp,
+      status: 'commissioned',     // commissioned → completed | failed
+      feePaid: false,
+      issuedAtTurn: campaign.currentTurn || 1,
+      resolvedAtTurn: null,
+      notableItemId: null
+    };
+    if(!Array.isArray(project.history)) project.history = [];
+    project.history.push({ turn: campaign.currentTurn || 1, type: 'commissioned', reason: (commissioner.name || commissioner.id) + ' commissions ' + (project.name || 'a magic item') + ' — ' + costs.commissionPriceGp.toLocaleString() + 'gp (' + costs.upFrontGp.toLocaleString() + ' up front)' });
+
+    if(opts.expedite) _expediteResearch(project);
+
+    const payload = {
+      projectId: project.id, commissionerCharacterId: commissioner.id, casterCharacterId: caster.id,
+      itemName: project.name, baseCost: costs.baseCost, commissionPriceGp: costs.commissionPriceGp,
+      upFrontGp: costs.upFrontGp, researchFeeGp: costs.researchFeeGp,
+      narrative: (commissioner.name || 'A patron') + ' commissions ' + (project.name || 'a magic item') + ' from ' + (caster.name || 'a mage') + ' (' + costs.commissionPriceGp.toLocaleString() + 'gp; ' + costs.upFrontGp.toLocaleString() + ' paid up front).'
+    };
+    const ev = _emitMagicItemEvent(campaign, 'magic-item-commissioned', payload, { character: commissioner, submittedBy: opts.submittedBy });
+    return { ok:true, commission: project.commission, project, costs, event: ev };
+  }
+
+  // resolveCommission(campaign, projectId, opts) — roll the magic-research throw + settle. opts:
+  // { rng?, expedite?, submittedBy? }. The research labor must be complete (advance turns, or pass
+  // expedite). Routes the throw through payAndRollResearchThrow(gmOverride) — the component was pre-paid
+  // at issue, so it's penalty-free. On success: re-home custody to the commissioner + pay the research
+  // fee 1× (commissioner → caster). On failure: the up-front 2× is lost. Returns { ok, success, ... }.
+  function resolveCommission(campaign, projectId, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    if(!_hasResearchEngine()) return { ok:false, error:'research-engine-unavailable' };
+    const project = A.findResearchProject(campaign, projectId);
+    if(!project || !project.commission) return { ok:false, error:'not-a-commission' };
+    const com = project.commission;
+    if(com.status !== 'commissioned') return { ok:false, error:'already-resolved', status: com.status };
+    if(opts.expedite) _expediteResearch(project);
+    if(project.status !== 'awaiting-throw' && (Number(project.researchInvestedGp) || 0) < (Number(project.researchCostGp) || 0)){
+      return { ok:false, error:'research-incomplete', invested: project.researchInvestedGp, of: project.researchCostGp };
+    }
+    const commissioner = _findChar(campaign, com.commissionerCharacterId);
+    const caster = _findChar(campaign, com.casterCharacterId);
+
+    // The throw — gmOverride: the component was pre-paid at issue (penalty-free; the engine must not re-charge).
+    const roll = A.payAndRollResearchThrow(campaign, projectId, { gmOverride: true, rng: (typeof opts.rng === 'function') ? opts.rng : Math.random });
+    if(!roll || !roll.ok) return { ok:false, error:'throw-failed', detail: roll && roll.reason };
+    const throwResult = roll.throwResult || null;
+
+    if(roll.succeeded){
+      const itemId = (project.kindResult && project.kindResult.notableItemId) || null;
+      const item = itemId ? _findNotable(campaign, itemId) : null;
+      // Re-home custody to the commissioner (they commissioned + paid → they own it; the maker provenance
+      // stays the caster, so it sells ×2 as a created item).
+      _rehomeCustody(campaign, itemId, commissioner ? commissioner.id : null);
+      // Pay the research fee 1× (on success) — commissioner → caster.
+      let feePaid = false, feeOwedGp = 0;
+      if(com.researchFeeGp > 0){
+        const available = _handleAvailableGp(campaign, com.sourceHandle);
+        if(available >= com.researchFeeGp){
+          try { _wealthTransfer(campaign, { amount: com.researchFeeGp, source: com.sourceHandle, destination: { kind:'character', id: com.casterCharacterId }, bucket:'commission', reason:'commission research fee' }); feePaid = true; }
+          catch(_e){ feeOwedGp = com.researchFeeGp; }
+        } else { feeOwedGp = com.researchFeeGp; }
+      } else { feePaid = true; }
+      com.status = 'completed'; com.feePaid = feePaid; com.feeOwedGp = feeOwedGp; com.resolvedAtTurn = campaign.currentTurn || 1; com.notableItemId = itemId;
+      if(item){ if(!Array.isArray(item.history)) item.history = []; item.history.push({ turn: campaign.currentTurn || 1, type:'commission-delivered', reason: 'Commissioned by ' + ((commissioner && commissioner.name) || com.commissionerCharacterId) + '; crafted by ' + ((caster && caster.name) || com.casterCharacterId) }); }
+      project.history.push({ turn: campaign.currentTurn || 1, type:'commission-completed', reason: 'delivered to ' + ((commissioner && commissioner.name) || com.commissionerCharacterId) + (feePaid ? ' — fee paid' : (' — fee owed (' + feeOwedGp.toLocaleString() + 'gp)')) });
+      const payload = { projectId: project.id, commissionerCharacterId: com.commissionerCharacterId, casterCharacterId: com.casterCharacterId,
+        notableItemId: itemId, success: true, researchFeeGp: com.researchFeeGp, feePaid, feeOwedGp,
+        throw: throwResult ? { natural: throwResult.roll, total: throwResult.total, target: throwResult.target } : null,
+        narrative: ((caster && caster.name) || 'The mage') + ' completes ' + (project.name || 'the commission') + ' for ' + ((commissioner && commissioner.name) || 'the patron') + (feePaid ? '' : ' — the research fee is still owed') + '.' };
+      const ev = _emitMagicItemEvent(campaign, 'magic-item-commission-resolved', payload, { character: commissioner, item, submittedBy: opts.submittedBy });
+      return { ok:true, success:true, project, notableItemId: itemId, item, feePaid, feeOwedGp, throw: throwResult, event: ev };
+    }
+
+    // Failure — the up-front 2× is lost (already spent at issue); the fee never fires.
+    com.status = 'failed'; com.resolvedAtTurn = campaign.currentTurn || 1;
+    project.history.push({ turn: campaign.currentTurn || 1, type:'commission-failed', reason: 'the research throw failed — ' + com.upFrontGp.toLocaleString() + 'gp up-front lost' });
+    const payload = { projectId: project.id, commissionerCharacterId: com.commissionerCharacterId, casterCharacterId: com.casterCharacterId,
+      success: false, lostGp: com.upFrontGp,
+      throw: throwResult ? { natural: throwResult.roll, total: throwResult.total, target: throwResult.target } : null,
+      narrative: ((caster && caster.name) || 'The mage') + ' fails ' + (project.name || 'the commission') + ' — ' + ((commissioner && commissioner.name) || 'the patron') + ' loses the ' + com.upFrontGp.toLocaleString() + 'gp up-front payment.' };
+    const ev = _emitMagicItemEvent(campaign, 'magic-item-commission-resolved', payload, { character: commissioner, submittedBy: opts.submittedBy });
+    return { ok:true, success:false, project, lostGp: com.upFrontGp, throw: throwResult, event: ev };
+  }
+
+  // Re-home a Notable Item's custody record to a new character custodian (the commission delivery). Updates
+  // the existing itemCustody row the research engine made for the maker; pushes a fresh one if none exists.
+  function _rehomeCustody(campaign, itemId, custodianId){
+    if(!itemId || !custodianId) return;
+    const A = _miACKS();
+    if(!Array.isArray(campaign.itemCustody)) campaign.itemCustody = [];
+    const rec = campaign.itemCustody.find(c => c && c.itemId === itemId);
+    if(rec){ rec.custodianKind = 'character'; rec.custodianId = custodianId; rec.sinceTurn = campaign.currentTurn || 1; }
+    else if(typeof A.blankItemCustody === 'function'){ campaign.itemCustody.push(A.blankItemCustody({ itemId, custodianKind:'character', custodianId, sinceTurn: campaign.currentTurn || 1 })); }
+  }
+
+  // ── Commission lookups (derived; no new collection — commissions ride research projects) ──
+  function isCommission(project){ return !!(project && project.commission); }
+  function findCommission(campaign, projectId){ const A = _miACKS(); const p = (typeof A.findResearchProject === 'function') ? A.findResearchProject(campaign, projectId) : null; return (p && p.commission) ? p : null; }
+  function commissionProjects(campaign){ return ((campaign && Array.isArray(campaign.researchProjects)) ? campaign.researchProjects : []).filter(p => p && p.commission); }
+  function activeCommissions(campaign){ return commissionProjects(campaign).filter(p => p.commission.status === 'commissioned'); }
+  function commissionsFor(campaign, characterId){ return commissionProjects(campaign).filter(p => p.commission.commissionerCharacterId === characterId || p.commission.casterCharacterId === characterId); }
+
+  // A derived descriptor for the UI (price, research progress, days remaining, throw chance, the rollable gate).
+  function commissionStatus(campaign, project){
+    if(!project || !project.commission) return null;
+    const A = _miACKS();
+    const com = project.commission;
+    const invested = Number(project.researchInvestedGp) || 0;
+    const cost = Number(project.researchCostGp) || 0;
+    const researchDone = invested >= cost && cost > 0;
+    const info = (typeof A.researchThrowInfo === 'function') ? A.researchThrowInfo(campaign, project) : null;
+    return {
+      status: com.status,
+      commissionerCharacterId: com.commissionerCharacterId,
+      casterCharacterId: com.casterCharacterId,
+      baseCost: com.baseCost, upFrontGp: com.upFrontGp, researchFeeGp: com.researchFeeGp, commissionPriceGp: com.commissionPriceGp,
+      progressPct: cost > 0 ? Math.min(100, Math.round(invested / cost * 100)) : 0,
+      investedGp: _round(invested, 0), researchCostGp: cost,
+      daysRemaining: (typeof A.researchDaysRemaining === 'function') ? A.researchDaysRemaining(campaign, project) : null,
+      rollable: com.status === 'commissioned' && (project.status === 'awaiting-throw' || researchDone),
+      throwTarget: info ? info.target : null, successChance: info ? info.chance : null,
+      feePaid: com.feePaid, feeOwedGp: com.feeOwedGp || 0, notableItemId: com.notableItemId
+    };
+  }
+  function _round(n){ return Math.round(Number(n) || 0); }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // W2 / MI-5 — MAGIC ITEM TRAITS (the OPTIONAL content pack; JJ p.172). Default OFF via the
+  // `magic-item-traits` house rule. ⚠ IP §13.6: these are ARCHETYPES in our own words + a page-ref
+  // — NOT the JJ d% table prose; the full named table is the content-pack deepening (Autarch §13.9).
+  // A trait is written defensively onto notableItem.intrinsic.traits[] (no factory edit, no event kind).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _trait(o){ return Object.freeze({ key:o.key, name:o.name, category:o.category, note:o.note, pageRef:o.pageRef || 'JJ p.172' }); }
+  const MAGIC_ITEM_TRAITS = Object.freeze({
+    // — sensory —
+    'glimmering':   _trait({ key:'glimmering',   category:'sensory',    name:'Glimmering',   note:'Sheds a faint light near magic or when its purpose is at hand (a detection tell).' }),
+    'resonant':     _trait({ key:'resonant',     category:'sensory',    name:'Resonant',     note:'Hums or warms when its intended use is near (an attunement tell).' }),
+    'sigil-marked': _trait({ key:'sigil-marked', category:'sensory',    name:'Sigil-marked', note:'Bears an identifying maker’s sigil — eases recognition / appraisal.' }),
+    // — behavioral —
+    'temperamental':_trait({ key:'temperamental',category:'behavioral', name:'Temperamental',note:'Functions only for a wielder it deems worthy (alignment / attunement — GM-set).' }),
+    'eager':        _trait({ key:'eager',        category:'behavioral', name:'Eager',        note:'Activates readily — a minor edge to its activation (GM-adjudicated).' }),
+    'reluctant':    _trait({ key:'reluctant',    category:'behavioral', name:'Reluctant',    note:'Slow to rouse — a minor delay to its activation (GM-adjudicated).' }),
+    // — boon —
+    'blessed':      _trait({ key:'blessed',      category:'boon',       name:'Blessed',      note:'A minor circumstantial boon in a narrow situation (GM-set).' }),
+    'enduring':     _trait({ key:'enduring',     category:'boon',       name:'Enduring',     note:'Unusually resistant to damage and dispelling.' }),
+    // — bane —
+    'conspicuous':  _trait({ key:'conspicuous',  category:'bane',       name:'Conspicuous',  note:'Hard to conceal — a penalty to hide it from those who seek it.' }),
+    'quirk-bane':   _trait({ key:'quirk-bane',   category:'bane',       name:'Minor curse',  note:'A small persistent drawback that does not impair the core function (GM-set).' }),
+    // — sentience (the intelligent-item seam) —
+    'flicker-of-will': _trait({ key:'flicker-of-will', category:'sentience', name:'Flicker of will', note:'A faint personality / ego — the intelligent-item seam (GM-roleplayed).' }),
+    'named':        _trait({ key:'named',        category:'sentience',  name:'Named',        note:'Bears a true name; reacts to it being spoken.' })
+  });
+  function magicItemTraitsCatalog(){ return Object.values(MAGIC_ITEM_TRAITS); }
+  function findMagicItemTrait(key){ return (key && MAGIC_ITEM_TRAITS[key]) || null; }
+  function magicItemTraitKeys(){ return Object.keys(MAGIC_ITEM_TRAITS); }
+  function magicItemTraitsByCategory(){ const out = {}; for(const t of Object.values(MAGIC_ITEM_TRAITS)){ (out[t.category] = out[t.category] || []).push(t); } return out; }
+
+  // The gate — the `magic-item-traits` house rule (default OFF; §6 polarity — an optional content variant).
+  function magicItemTraitsEnabled(campaign){
+    const A = _miACKS();
+    if(typeof A.isHouseRuleEnabled === 'function') return !!A.isHouseRuleEnabled(campaign, 'magic-item-traits');
+    const hr = campaign && campaign.houseRules && campaign.houseRules['magic-item-traits'];
+    return !!(hr && (hr === true || hr.enabled));
+  }
+  // The traits assigned to an item (defensive read).
+  function magicItemTraits(ni){ return (ni && ni.intrinsic && Array.isArray(ni.intrinsic.traits)) ? ni.intrinsic.traits.slice() : []; }
+  function itemHasTrait(ni, key){ return magicItemTraits(ni).some(t => t && t.key === key); }
+
+  // assignMagicItemTrait(campaign, opts) — attach a trait to an item. opts: { itemId, traitKey, gmNote? }.
+  // Gated on the house rule (hidden + non-functional when OFF — principle 8). Writes intrinsic.traits[]
+  // defensively + an item-history line; NO event kind (benign GM authoring). Returns { ok, trait } or { ok:false, error }.
+  function assignMagicItemTrait(campaign, opts){
+    opts = opts || {};
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    if(!magicItemTraitsEnabled(campaign)) return { ok:false, error:'house-rule-off' };
+    const ni = _findNotable(campaign, opts.itemId);
+    if(!ni) return { ok:false, error:'unknown-item' };
+    const trait = findMagicItemTrait(opts.traitKey);
+    if(!trait) return { ok:false, error:'unknown-trait' };
+    if(itemHasTrait(ni, trait.key)) return { ok:false, error:'already-has-trait', trait };
+    ni.intrinsic = ni.intrinsic || {};
+    if(!Array.isArray(ni.intrinsic.traits)) ni.intrinsic.traits = [];
+    const entry = { key: trait.key, name: trait.name, category: trait.category, note: trait.note, pageRef: trait.pageRef, gmNote: opts.gmNote || null, assignedAtTurn: campaign.currentTurn || 1 };
+    ni.intrinsic.traits.push(entry);
+    if(!Array.isArray(ni.history)) ni.history = [];
+    ni.history.push({ turn: campaign.currentTurn || 1, type:'trait-assigned', reason: 'Trait: ' + trait.name + ' (' + trait.category + ')' });
+    return { ok:true, trait: entry };
+  }
+  // rollMagicItemTrait(campaign, opts) — assign a RANDOM trait (rng); skips traits the item already has.
+  function rollMagicItemTrait(campaign, opts){
+    opts = opts || {};
+    if(!magicItemTraitsEnabled(campaign)) return { ok:false, error:'house-rule-off' };
+    const ni = _findNotable(campaign, opts.itemId);
+    if(!ni) return { ok:false, error:'unknown-item' };
+    const pool = magicItemTraitKeys().filter(k => !itemHasTrait(ni, k));
+    if(!pool.length) return { ok:false, error:'no-traits-left' };
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const key = pool[Math.min(pool.length - 1, Math.floor((rng() || 0) * pool.length))];
+    return assignMagicItemTrait(campaign, { itemId: opts.itemId, traitKey: key, gmNote: opts.gmNote });
+  }
+  function removeMagicItemTrait(campaign, opts){
+    opts = opts || {};
+    const ni = _findNotable(campaign, opts.itemId);
+    if(!ni || !ni.intrinsic || !Array.isArray(ni.intrinsic.traits)) return { ok:false, error:'no-trait' };
+    const before = ni.intrinsic.traits.length;
+    ni.intrinsic.traits = ni.intrinsic.traits.filter(t => t && t.key !== opts.traitKey);
+    return { ok: ni.intrinsic.traits.length < before };
+  }
+
   // ── Export ──────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // catalog + reference
@@ -631,7 +1000,13 @@
     magicItemIdMethods, magicItemIdMethodsFor, magicItemIdentifyResolve, identifyMagicItem,
     isItemIdentifiedBy, isItemFullyIdentifiedBy, magicItemKnownProperties,
     // use / charges
-    magicItemCharges, magicItemIsCharged, magicItemIsDepleted, useMagicItemCharge
+    magicItemCharges, magicItemIsCharged, magicItemIsDepleted, useMagicItemCharge,
+    // W2 — commissioning (the Command exemplar; routes into Magic Research)
+    commissionCosts, commissionPreview, commissionMagicItem, resolveCommission,
+    isCommission, findCommission, commissionProjects, activeCommissions, commissionsFor, commissionStatus,
+    // W2 / MI-5 — Magic Item Traits (optional content pack)
+    MAGIC_ITEM_TRAITS, magicItemTraitsCatalog, findMagicItemTrait, magicItemTraitKeys, magicItemTraitsByCategory,
+    magicItemTraitsEnabled, magicItemTraits, itemHasTrait, assignMagicItemTrait, rollMagicItemTrait, removeMagicItemTrait
   });
 
 })(typeof window !== 'undefined' ? window : global);

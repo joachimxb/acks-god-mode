@@ -95,14 +95,16 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
+<!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
+<script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
-<script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-banking.js?v=2026-06-19-b8"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -11698,6 +11700,72 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Character Lifecycle CL-4a (b8-lifecycle, burst8) — Lifecycle / Death & inheritance (RR pp.311–313).
+             Completes the "what happens to this person" cluster (Wounds / Diseases / Conditions above): plan
+             ahead while alive (Reserve XP / heir / will), mark a death (cause + heroism), then resolve
+             succession (promote a henchman · name an heir · start a back-up — with the Reserve XP + Heroic
+             Funeral + the will/heir inheritance). Death is event-driven; the succession flow is a GM action. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Lifecycle <span class="text-sm font-normal opacity-60">(death &amp; inheritance — RR pp.311–313)</span></h4>
+              <template x-if="!cl4aDeathInfo(characterEditing).deceased">
+                <button @click="cl4aOpenDeath(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-red-200 hover:bg-red-300 font-semibold" title="Mark this character dead (RR pp.311–313)">💀 Mark dead</button>
+              </template>
+              <template x-if="cl4aDeathInfo(characterEditing).deceased && !cl4aDeathInfo(characterEditing).successionResolved">
+                <button @click="cl4aOpenSuccession(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold" title="Resolve the succession + inheritance (RR pp.311–313)">⚰ Resolve succession</button>
+              </template>
+            </div>
+
+            <!-- alive: planning (Reserve XP / heir / will) -->
+            <template x-if="!cl4aDeathInfo(characterEditing).deceased">
+              <div class="space-y-2 text-sm">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span>🏦 <span class="font-semibold">Reserve XP:</span> <span x-text="cl4aReserveXp(characterEditing)"></span></span>
+                  <span class="opacity-60">·</span>
+                  <span class="opacity-70">bank gp spent to no benefit:</span>
+                  <input type="number" min="0" x-model.number="cl4aAccrueGp" class="w-24 text-sm" placeholder="gp">
+                  <button @click="cl4aAccrueReserveXp(characterEditing)" :disabled="!(Number(cl4aAccrueGp)>0)" :class="(Number(cl4aAccrueGp)>0) ? 'hover:bg-yellow-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink/40 rounded text-xs" title="Bank 90% of the spend as Reserve XP (RR p.311)">+ accrue 90%</button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold">Heir:</span>
+                  <select @change="cl4aSetHeir(characterEditing, $event.target.value)" class="text-sm">
+                    <option value="" :selected="!cl4aDeathInfo(characterEditing).heirCharacterId">— no heir —</option>
+                    <template x-for="h in cl4aHeirOptions(characterEditing)" :key="h.id">
+                      <option :value="h.id" :selected="cl4aDeathInfo(characterEditing).heirCharacterId === h.id" x-text="h.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <template x-if="cl4aOwnedStashes(characterEditing).length">
+                  <div>
+                    <span class="font-semibold">Will</span> <span class="opacity-60 text-xs">— bequeath stashes to the heir:</span>
+                    <ul class="mt-0.5">
+                      <template x-for="st in cl4aOwnedStashes(characterEditing)" :key="st.id">
+                        <li><label class="flex items-center gap-2 text-xs"><input type="checkbox" :checked="cl4aStashBequeathed(characterEditing, st.id)" @change="cl4aToggleBequest(characterEditing, st.id)"> <span x-text="st.name || st.id"></span></label></li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+                <p class="text-xs italic opacity-60">Reserve XP (90% of money spent to no lasting benefit) carries to your next character; a will + an heir passes treasure on death. Set them now (RR pp.311–313).</p>
+              </div>
+            </template>
+
+            <!-- deceased -->
+            <template x-if="cl4aDeathInfo(characterEditing).deceased">
+              <div class="space-y-1 text-sm">
+                <p class="accent-red font-semibold">💀 Died<span x-show="cl4aDeathInfo(characterEditing).cause" x-text="' of ' + cl4aDeathInfo(characterEditing).causeLabel"></span><span x-show="cl4aDeathInfo(characterEditing).heroic"> · a heroic death</span><span x-show="cl4aDeathInfo(characterEditing).deceasedTurn != null" x-text="' · turn ' + cl4aDeathInfo(characterEditing).deceasedTurn"></span></p>
+                <p>🏦 Reserve XP carried on: <span class="font-semibold" x-text="cl4aReserveXp(characterEditing)"></span></p>
+                <template x-if="cl4aDeathInfo(characterEditing).successionResolved">
+                  <p class="accent-blue">⚰ Succeeded by <span class="font-semibold" x-text="cl4aCharName(cl4aDeathInfo(characterEditing).successorCharacterId)"></span>.</p>
+                </template>
+                <template x-if="!cl4aDeathInfo(characterEditing).successionResolved">
+                  <p class="text-xs italic opacity-60">Resolve the succession to choose a successor + carry over the Reserve XP, Heroic Funeral, and the will/heir inheritance (RR pp.311–313).</p>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -11711,6 +11779,8 @@ document.addEventListener('alpine:init', () => {
             <span class="flex gap-2">
               <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
               <button @click="openSageConsultModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
+              <!-- @b8-sages (team) — SG-2 commission opener -->
+              <button @click="openSageCommissionModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Commission a sage for multi-week research (Phase 4 Sages §3.3) — set them to research a deep question over N days; the Day Clock advances it and delivers the answer on completion.">📜 Commission</button>
             </span>
           </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
@@ -14848,6 +14918,20 @@ document.addEventListener('alpine:init', () => {
     </template>
   </div>
 
+  <!-- @b8-politics P-3: re-establish a dissolved senate (RR p.359 — after the 2d6-month cooldown).
+       Rendered at the view top level (not under senateSelected) so an abandoned senate stays reachable. -->
+  <template x-if="senateDissolvedRows().length > 0">
+    <div class="vellum border border-red-400 bg-red-50 rounded p-4 mb-4">
+      <h3 class="font-bold text-lg mb-2">Dissolved senates <span class="text-sm font-normal opacity-70">· abandoned (RR p.359)</span></h3>
+      <template x-for="d in senateDissolvedRows()" :key="d.id">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1">
+          <span><strong x-text="d.name"></strong> — senatorial government abandoned. <span class="opacity-70" x-show="!d.canReestablish" x-text="'A survivor may re-establish it on/after turn ' + d.readyAtTurn + '.'"></span></span>
+          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🏛 Re-establish</button>
+        </div>
+      </template>
+    </div>
+  </template>
+
   <template x-if="senateSelected()">
     <div class="space-y-4">
 
@@ -14879,7 +14963,13 @@ document.addEventListener('alpine:init', () => {
             ⚠ The realm is <strong>in dispute</strong> over <em x-text="senateSelected().dispute.defiedTopic"></em>
             (since turn <span x-text="senateSelected().dispute.sinceTurn"></span>, attempt <span x-text="senateSelected().dispute.attempts"></span>).
             All senate benefits are suspended until the ruler wins the senate's retroactive approval.
-            <button @click="senateResolveDispute()" class="ml-2 px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold">Resolve (retroactive approval)</button>
+            <!-- @b8-politics P-3: the real RAW retroactive-approval consult (clears on a majority FOR,
+                 escalates → 'replace-ruler' on against) + the abandon-government path -->
+            <div class="flex flex-wrap gap-2 mt-2">
+              <button @click="senateDisputeResolveByConsult()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold" title="Roll 2d6 per senator on the defied topic — a majority FOR ends the dispute; against deepens it and the against-voters seek to replace the ruler (RR p.359)">🗳 Resolve by consult</button>
+              <button @click="senateResolveDispute()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs" title="Assume the senate grants retroactive approval (GM fiat — no vote)">Clear (GM fiat)</button>
+              <button @click="senateDisputeAbandon()" class="px-2 py-0.5 border border-red-500 rounded bg-red-200 hover:bg-red-300 text-xs font-semibold" title="Dissolve the senate — permanent benefit loss, Hostile replace-ruler senators, a 2d6-month re-establish cooldown (RR p.359)">🏳 Abandon government</button>
+            </div>
           </div>
         </template>
         <ul class="text-sm space-y-0.5">
@@ -14921,7 +15011,7 @@ document.addEventListener('alpine:init', () => {
         </template>
         <template x-if="senateLeadingSenatorRows().length > 0">
           <table class="bookkeeping text-sm w-full">
-            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th></tr></thead>
+            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th><th>Influence</th></tr></thead>
             <tbody>
               <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
                 <tr>
@@ -14932,11 +15022,44 @@ document.addEventListener('alpine:init', () => {
                   <td class="text-right" x-text="s.votes"></td>
                   <td class="text-xs opacity-80" x-text="s.objectives"></td>
                   <td x-text="s.attitude"></td>
+                  <!-- @b8-politics P-3: standing-influence chips + the 🎯 action + the −5 turn -->
+                  <td>
+                    <div class="flex flex-wrap items-center gap-1">
+                      <template x-for="chip in senateSenatorChips(s.id)" :key="chip.key">
+                        <span class="text-xs px-1 rounded" :class="chip.cls" x-text="chip.label"></span>
+                      </template>
+                      <span x-show="senateSenatorChips(s.id).length && senateSenatorSecret(s.id)" class="text-xs opacity-60" title="Secret until revealed (RR p.357)">🤫</span>
+                      <button @click="senateOpenInfluence(s.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Bribe / intimidate / seduce (RR p.358)">🎯</button>
+                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='intimidated')" @click="senateFlipInfluence(s.id, 'intimidated')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The senator escapes the ruler's dominance → −5 (RR p.358)">−5 escaped</button>
+                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='seduced')" @click="senateFlipInfluence(s.id, 'seduced')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The seduced senator is later ill-treated → −5 (RR p.359)">−5 ill-treated</button>
+                    </div>
+                  </td>
                 </tr>
               </template>
             </tbody>
           </table>
         </template>
+      </div>
+
+      <!-- @b8-politics P-3: gifts → directing the independent minor-senator bloc (RR p.359 §4.7) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Gifts to independent senators <span class="text-sm font-normal opacity-70">· RR p.359</span></h3>
+        <p class="text-sm opacity-70 mb-2">The anonymous independent minor senators (<strong x-text="senateReadout().independentVotes"></strong> votes) can be directed by gifts: a <strong>+3</strong>-reaction gift, or a <strong>+1</strong>-reaction gift to a <strong>Friendly</strong> senator. The larger competing gift wins. The ruler now directs <strong x-text="senateControlledIndependents()"></strong> independent vote(s) this month.</p>
+        <div class="grid sm:grid-cols-2 gap-3 text-sm mb-2">
+          <label class="flex flex-col">Gift-giver
+            <select x-model="senateGift.byCharacterId" class="w-full">
+              <option value="">— the ruler —</option>
+              <template x-for="o in senateActorOptions()" :key="'g'+o.id"><option :value="o.id" x-text="o.name"></option></template>
+            </select></label>
+          <label class="flex flex-col">Independent votes to direct
+            <input type="number" min="0" :max="senateReadout().independentVotes" x-model.number="senateGift.votes" class="w-full"></label>
+          <label class="flex flex-col">Gift reaction bonus
+            <select x-model.number="senateGift.reactionBonus" class="w-full"><option :value="1">+1</option><option :value="2">+2</option><option :value="3">+3</option></select></label>
+          <label class="flex flex-col">Gift value (gp)
+            <input type="number" min="0" x-model.number="senateGift.gp" class="w-full"></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateGift.friendly"> The senators are Friendly <span class="opacity-60">(needed for a +1 gift)</span></label>
+        </div>
+        <button @click="senateGiftSubmit()" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold">🎁 Give gifts</button>
       </div>
 
       <!-- Consult the senate (the 2d6 vote) -->
@@ -14975,7 +15098,8 @@ document.addEventListener('alpine:init', () => {
           </label>
           <label class="flex flex-col">Controlled independent votes
             <input type="number" min="0" x-model.number="senateConsult.controlledIndependentVotes" class="w-full">
-            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side</span></label>
+            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side.
+              <button type="button" x-show="senateControlledIndependents() > 0" @click="senateUseControlledIndependents()" class="underline" x-text="'use ' + senateControlledIndependents() + ' gift-controlled'"></button></span></label>
           <label class="flex flex-col" x-show="!senateAutoVoteOn()">GM outcome (auto-vote off)
             <select x-model="senateConsult.gmOutcome" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
         </div>
@@ -15030,6 +15154,10 @@ document.addEventListener('alpine:init', () => {
               </tbody>
             </table>
           </template>
+          <!-- @b8-politics P-3: reveal-on-a-natural-2 (a bribed/intimidated/seduced senator who rolled a 2 reveals the ruler's hand) -->
+          <div class="mb-2" x-show="senateConsultHasNaturalTwo()">
+            <button @click="senateApplyReveals()" class="px-3 py-1 border border-ink rounded bg-purple-200 hover:bg-purple-300 text-sm font-semibold" title="A senator carrying secret bribe/intimidate/seduce influence who rolled an unmodified 2 reveals it — the ruler is then implicated (RR p.358)">👁 Reveal influence (natural 2)</button>
+          </div>
           <div class="flex flex-wrap gap-2 items-center">
             <span class="text-sm opacity-70">Enact the policy:</span>
             <button @click="senateEnact(true)" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 text-sm font-semibold">Enact with the senate's sanction</button>
@@ -15255,7 +15383,11 @@ document.addEventListener('alpine:init', () => {
 
   <!-- Loans -->
   <div class="vellum border border-ink rounded p-4">
-    <h3 class="font-bold text-lg mb-2">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+      <h3 class="font-bold text-lg">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+      <button @click="bankingReconcileFeudal()" class="px-2 py-1 border border-ink rounded bg-amber-100 hover:bg-amber-200 text-sm font-semibold" title="Promote any given Favors &amp; Duties feudal loan (RR p.348) onto this shared ledger as a kind:'feudal' loan linking back to its obligation. Idempotent — also runs automatically each Advance Month.">🔗 Reconcile F&amp;D feudal loans</button>
+    </div>
+    <p class="text-sm opacity-70 mb-2" x-show="bankingLoans().length > 0" x-text="bankingLedgerText()"></p>
     <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
       <label class="flex flex-col">Borrower
         <select x-model="bankLoanDebtorId" class="w-44">
@@ -15285,22 +15417,33 @@ document.addEventListener('alpine:init', () => {
     </template>
     <template x-if="bankingLoans().length > 0">
       <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th>Status</th><th>Flags</th><th></th></tr></thead>
+        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th class="text-right">Interest/mo</th><th>Status</th><th>Flags</th><th></th></tr></thead>
         <tbody>
           <template x-for="loan in bankingLoans()" :key="loan.id">
             <tr>
-              <td x-text="loan.kind"></td>
+              <td x-text="bankingLoanKindLabel(loan)" :title="loan.kind === 'feudal' ? ('Feudal loan promoted from a Favors &amp; Duties obligation (RR p.348) — interest-free' + (loan.fdObligationId ? (' · ' + loan.fdObligationId) : '')) : loan.kind"></td>
               <td class="font-semibold" x-text="bankingPartyName(loan.debtor)"></td>
               <td x-text="bankingPartyName(loan.creditor)"></td>
               <td class="text-right" x-text="(loan.principalGp||0).toLocaleString()"></td>
               <td class="text-right" x-text="(loan.balanceGp||0).toLocaleString()"></td>
               <td x-text="bankingPct(loan.interestRateMonthly)"></td>
-              <td x-text="loan.status"></td>
+              <td class="text-right opacity-80" x-text="bankingLoanInterest(loan)"></td>
+              <td x-text="bankingLoanStatus(loan)"></td>
               <td class="text-xs">
                 <span x-show="loan.disreputable" class="text-red-700" title="Unpaid interest built up (RR p.42)">⚠ disreputable</span>
-                <span x-show="loan.debtOverXp" class="text-red-700" title="Balance exceeds the borrower's XP — bounty hunters (RR p.42)"> 🗡 debt&gt;XP</span>
+                <span x-show="loan.debtOverXp" class="text-red-700" :title="bankingBountyTip(loan)"> 🗡 debt&gt;XP</span>
               </td>
-              <td><button x-show="loan.status === 'active'" @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button></td>
+              <td class="whitespace-nowrap">
+                <template x-if="loan.status === 'active' && loan.kind !== 'feudal'">
+                  <span class="inline-flex gap-1">
+                    <button @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button>
+                    <button @click="bankingRestructure(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" :title="loan.collateral ? 'Drop collateral → 3%/mo (RR p.42)' : 'Post collateral → 1%/mo (RR p.42)'">Restructure</button>
+                    <button @click="bankingDefault(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-orange-100 hover:bg-orange-200 text-xs" title="Call the loan in default — bounty hunters (RR p.42)">Default</button>
+                    <button @click="bankingWriteOff(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 text-xs" title="Creditor forgives the remaining balance">Write off</button>
+                  </span>
+                </template>
+                <span x-show="loan.kind === 'feudal'" class="text-xs opacity-60 italic" title="Owned by Favors &amp; Duties — repaid on revoke / the monthly CHA% check">F&amp;D-managed</span>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -15368,6 +15511,8 @@ document.addEventListener('alpine:init', () => {
           <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
         </select>
         <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+        <span class="opacity-30">|</span>
+        <button @click="openCommissionModal()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-200 hover:bg-yellow-300" title="Commission a magic item from an NPC caster (TT p.28: 3× base — routes into Magic Research)">🛠 Commission…</button>
       </div>
     </div>
     <template x-if="magicItemList().length === 0">
@@ -15408,6 +15553,43 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-60 mt-3 italic">The magic-item economy (#143) over <code>campaign.notableItems[]</code>: identify (5 RAW methods, rarity-gated), appraise (the TT p.28 price spread), and use charges. Buying/selling routes through the existing market verbs; item creation is Magic Research's. The catalog ships mechanical fields + a page-ref only — the effect text stays in your book.</p>
   </div>
+
+  <!-- === @b8-magicitems (team) — Commissions card (W2; the Command exemplar) === -->
+  <template x-if="magicItemCommissions().length">
+    <div class="vellum border border-ink rounded p-4 mt-4">
+      <h3 class="font-bold text-lg mb-2">🛠 Commissions <span class="text-sm opacity-70 font-normal" x-text="'· ' + magicItemCommissions().length"></span></h3>
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Item</th><th>Patron</th><th>Caster</th><th class="text-right">Price (3×)</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          <template x-for="p in magicItemCommissions()" :key="p.id">
+            <tr>
+              <td x-text="p.name || 'magic item'"></td>
+              <td x-text="commissionPartyName(p.commission.commissionerCharacterId)"></td>
+              <td x-text="commissionPartyName(p.commission.casterCharacterId)"></td>
+              <td class="text-right font-mono" x-text="(p.commission.commissionPriceGp||0).toLocaleString()+' gp'"></td>
+              <td>
+                <template x-if="commissionStatusOf(p).status==='commissioned'">
+                  <span x-text="commissionStatusOf(p).rollable ? '⏳ research done — roll it' : ('🔬 researching · '+commissionStatusOf(p).progressPct+'%'+(commissionStatusOf(p).daysRemaining!=null && isFinite(commissionStatusOf(p).daysRemaining) ? (' ('+commissionStatusOf(p).daysRemaining+'d left)') : ''))"></span>
+                </template>
+                <template x-if="commissionStatusOf(p).status==='completed'"><span class="text-green-800">✓ delivered<span x-show="commissionStatusOf(p).feeOwedGp>0" class="text-red-700" x-text="' (fee owed '+commissionStatusOf(p).feeOwedGp.toLocaleString()+'gp)'"></span></span></template>
+                <template x-if="commissionStatusOf(p).status==='failed'"><span class="text-red-700">✗ failed — up-front lost</span></template>
+              </td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="commissionStatusOf(p).status==='commissioned'">
+                  <span>
+                    <button x-show="commissionStatusOf(p).rollable" @click="resolveCommissionUi(p.id, false)" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 text-xs" :title="'Roll the magic-research throw — '+(commissionStatusOf(p).successChance!=null ? Math.round(commissionStatusOf(p).successChance*100)+'% to succeed' : '')">🎲 Roll</button>
+                    <button @click="resolveCommissionUi(p.id, true)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-xs" title="GM expedite — skip the research months, then roll">⏩ Expedite + roll</button>
+                  </span>
+                </template>
+                <template x-if="commissionStatusOf(p).status==='completed' && commissionStatusOf(p).notableItemId"><button @click="openMagicItemDetail(commissionStatusOf(p).notableItemId)" class="underline text-xs">open item</button></template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <p class="text-sm opacity-60 mt-2 italic">A commission (TT p.28) is the first <strong>Command</strong> — a costed (3× base), timed, can-fail action that yields an item by routing into Magic Research. The patron pays up front; an NPC caster researches; the fee is paid on delivery. Advance the turn to accrue the research, or ⏩ Expedite.</p>
+    </div>
+  </template>
 
   <!-- detail modal: appraise + identify + use-charge -->
   <div x-show="magicItemDetailId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeMagicItemDetail()" @keydown.escape.window="closeMagicItemDetail()">
@@ -15478,6 +15660,31 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-ink/30 rounded p-2 mb-2 flex justify-between items-center">
               <strong class="text-sm">🔋 Use a charge</strong>
               <button @click="runMagicItemUseCharge()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="magicItemIsDepletedUi(magicItemDetail())">Spend 1</button>
+            </div>
+          </template>
+
+          <!-- === @b8-magicitems (team) — MI-5 Traits (gated on the magic-item-traits house rule) === -->
+          <template x-if="magicItemTraitsOn()">
+            <div class="border border-ink/30 rounded p-2 mb-2">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <strong class="text-sm">✨ Traits <span class="opacity-60 font-normal">(optional · JJ p.172)</span></strong>
+                <div class="flex gap-2 items-center text-sm">
+                  <select x-model="magicItemTraitPick" class="text-sm">
+                    <option value="">+ add a trait…</option>
+                    <template x-for="t in magicItemTraitCatalog()" :key="t.key"><option :value="t.key" x-text="t.name + ' (' + t.category + ')'"></option></template>
+                  </select>
+                  <button @click="assignMagicItemTraitUi()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+                  <button @click="rollMagicItemTraitUi()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Assign a random trait">🎲</button>
+                </div>
+              </div>
+              <template x-if="magicItemTraitsOf(magicItemDetail()).length">
+                <ul class="text-sm mt-1 space-y-0.5">
+                  <template x-for="t in magicItemTraitsOf(magicItemDetail())" :key="t.key">
+                    <li class="flex justify-between gap-2"><span><span class="font-semibold" x-text="t.name"></span> <span class="opacity-70" x-text="'— ' + t.note"></span></span><button @click="removeMagicItemTraitUi(t.key)" class="text-red-700 underline">remove</button></li>
+                  </template>
+                </ul>
+              </template>
+              <template x-if="!magicItemTraitsOf(magicItemDetail()).length"><p class="text-sm italic opacity-60 mt-1">No traits yet — add a quirk or 🎲 roll one. (Archetypes in our words; the full d% table is in your JJ p.172.)</p></template>
             </div>
           </template>
 
@@ -15797,6 +16004,445 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
+
+<!-- ─── burst8 (team session) — per-agent modal/overlay tail. Append your new
+     <template>/fixed-overlay modal AFTER your OWN marker (disjoint anchors → clean merge).
+     A lane that only extends an existing tab edits that tab's region in-place instead. ─── -->
+<!-- === @b8-generators (team) — NPC Generator modal === -->
+<div x-show="currentCampaign && currentView === 'generators'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">🧙 NPC Generator</h2>
+      <span class="text-sm italic opacity-70">Roll a complete RAW NPC (JJ Ch.9) — occupation → attributes → class/level → HD·AC·saves → proficiencies → age → wealth → appearance. The generated NPC lands in your 👥 Characters roster.</span>
+    </div>
+
+    <!-- the context form -->
+    <div class="vellum border border-ink p-3 rounded grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+      <label class="flex flex-col">Level
+        <input type="number" min="0" max="14" x-model="genForm.targetLevel" placeholder="(roll · 0th)" class="border border-ink rounded px-1 py-0.5">
+      </label>
+      <label class="flex flex-col">Class
+        <select x-model="genForm.classKey" class="border border-ink rounded px-1 py-0.5">
+          <option value="">(roll by demographics)</option>
+          <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Race
+        <select x-model="genForm.race" class="border border-ink rounded px-1 py-0.5">
+          <template x-for="r in ['human','dwarf','elf','halfling','nobiran','zaharan']" :key="r"><option :value="r" x-text="r"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Home settlement
+        <select x-model="genForm.settlementId" class="border border-ink rounded px-1 py-0.5">
+          <option value="">(none)</option>
+          <template x-for="st in genSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Detail
+        <select x-model="genForm.detailLevel" class="border border-ink rounded px-1 py-0.5">
+          <option value="full">Full (rolled)</option>
+          <option value="lightweight">Lightweight stub</option>
+        </select>
+      </label>
+      <label class="flex flex-col">Attributes
+        <select x-model="genForm.attributeMethod" class="border border-ink rounded px-1 py-0.5">
+          <option value="3d6">3d6 in order (+swap)</option>
+          <option value="one-high-one-low">One 13 / one 8</option>
+          <option value="flat">Flat 9–11</option>
+        </select>
+      </label>
+      <label class="flex flex-col">Seed
+        <input x-model="genForm.seed" placeholder="(random)" class="border border-ink rounded px-1 py-0.5">
+      </label>
+      <div class="flex items-end">
+        <button @click="genRoll()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 w-full">🎲 Generate</button>
+      </div>
+    </div>
+
+    <!-- the preview card -->
+    <template x-if="genPreview && genPreviewChar()">
+      <div class="vellum border-2 border-ink p-3 rounded space-y-2" x-data="{ c: genPreviewChar() }">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-lg font-bold" x-text="c.name"></span>
+          <span class="text-sm opacity-80" x-text="c.race + ' ' + c.class + (c.isZerothLevel ? ' (0th level)' : ' · L' + c.level)"></span>
+          <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="'⚒ ' + c.occupation"></span>
+          <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="c.alignment"></span>
+          <span x-show="c.detailLevel==='lightweight'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80">🪶 lightweight</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Attributes</div>
+            <div class="font-mono text-xs">
+              STR <span x-text="c.abilities.STR"></span> · INT <span x-text="c.abilities.INT"></span> · WIL <span x-text="c.abilities.WIL"></span><br>
+              DEX <span x-text="c.abilities.DEX"></span> · CON <span x-text="c.abilities.CON"></span> · CHA <span x-text="c.abilities.CHA"></span>
+            </div>
+          </div>
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Combat</div>
+            <div class="text-xs">Attack <span x-text="c.attackThrow + '+'"></span> · AC <span x-text="c.ac"></span> · HP <span x-text="c.hp.max"></span> <span class="opacity-60" x-text="'(' + (c.hp.hitDice||'') + ')'"></span></div>
+            <div class="text-xs">Saves P<span x-text="c.savingThrows.paralysis"></span> D<span x-text="c.savingThrows.death"></span> B<span x-text="c.savingThrows.blast"></span> I<span x-text="c.savingThrows.implements"></span> S<span x-text="c.savingThrows.spells"></span></div>
+          </div>
+          <div>
+            <div class="font-semibold text-xs uppercase opacity-60">Life</div>
+            <div class="text-xs">Age <span x-text="c.age"></span> <span class="opacity-60" x-text="c.ageCategory ? '(' + c.ageCategory + ')' : ''"></span></div>
+            <div class="text-xs">Wealth <span x-text="(c.coins.gp||0).toLocaleString()"></span> gp · magic <span x-text="(c.magicItemValue||0).toLocaleString()"></span> gp</div>
+            <div class="text-xs" x-show="c.isZerothLevel">XP to 1st: <span x-text="c.xpToNextLevel"></span></div>
+          </div>
+        </div>
+        <div class="text-sm">
+          <span class="font-semibold text-xs uppercase opacity-60">Proficiencies </span>
+          <span class="text-xs" x-text="(c.proficiencies||[]).map(p => p.key + (p.ranks>1 ? ' ('+p.ranks+')' : '')).join(', ') || '—'"></span>
+        </div>
+        <div class="text-sm italic opacity-80" x-text="c.appearance ? c.appearance.summary : ''"></div>
+        <div class="flex gap-2 pt-1">
+          <button @click="genReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Re-roll</button>
+          <button @click="genCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400">✓ Add to roster</button>
+          <span class="text-xs opacity-50 self-center" x-show="genLastSeed" x-text="'seed: ' + genLastSeed"></span>
+        </div>
+      </div>
+    </template>
+    <template x-if="!genPreview">
+      <p class="text-sm italic opacity-60">No NPC generated yet — set a context above (or leave it to roll) and press 🎲 Generate. A 0th-level commoner rolls when you leave Level blank and the occupation isn't classed.</p>
+    </template>
+  </div>
+</div>
+<!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
+<!-- CL-4a death & inheritance (RR pp.311–313). z-[80] — above the character sheet. mode 'death'
+     (mark a death: cause + heroism) | 'succession' (resolve: successor + Reserve XP + Heroic Funeral
+     + the will/heir inheritance transfer). Driven entirely by the CL-4a engine. -->
+<template x-if="cl4aModal.open">
+  <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click.self="cl4aModal.open=false" @keydown.escape.window="cl4aModal.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-4">
+
+      <!-- ── mode: death ── -->
+      <template x-if="cl4aModal.mode === 'death'">
+        <div>
+          <h3 class="text-lg font-bold mb-1">💀 Mark a death</h3>
+          <p class="text-sm opacity-70 mb-3" x-text="cl4aModal.charName + ' dies. Tag the cause; a heroic death earns a Heroic-Funeral XP bonus for the successor (RR p.312).'"></p>
+          <label class="block text-sm font-semibold mb-1">Cause of death</label>
+          <select x-model="cl4aModal.cause" class="w-full mb-3 text-sm">
+            <template x-for="c in cl4aCauseOptions()" :key="c"><option :value="c" x-text="c"></option></template>
+          </select>
+          <label class="flex items-center gap-2 text-sm mb-4"><input type="checkbox" x-model="cl4aModal.heroic"> A heroic death (qualifies for the Heroic Funeral)</label>
+          <div class="flex justify-end gap-2">
+            <button @click="cl4aModal.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="cl4aConfirmDeath()" class="px-3 py-1 border border-ink rounded text-sm bg-red-200 hover:bg-red-300 font-semibold">💀 Confirm death</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── mode: succession ── -->
+      <template x-if="cl4aModal.mode === 'succession'">
+        <div>
+          <h3 class="text-lg font-bold mb-1">⚰ Resolve succession</h3>
+          <p class="text-sm opacity-70 mb-3" x-text="'The death of ' + cl4aModal.charName + ' (RR pp.311–313). Choose a successor; the Reserve XP + Heroic Funeral + the will/heir inheritance carry over.'"></p>
+
+          <!-- successor -->
+          <div class="mb-3 border border-ink/30 rounded p-2">
+            <div class="text-sm font-semibold mb-1">Successor</div>
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="radio" value="promote-henchman" x-model="cl4aModal.successorMode" :disabled="!cl4aModal.candidates.length"> Promote an existing character <span class="opacity-60" x-show="!cl4aModal.candidates.length">(none available)</span></label>
+            <template x-if="cl4aModal.successorMode === 'promote-henchman'">
+              <select @change="cl4aModal.successorCharacterId = $event.target.value" class="w-full mb-2 text-sm">
+                <template x-for="cand in cl4aModal.candidates" :key="cand.id"><option :value="cand.id" :selected="cl4aModal.successorCharacterId === cand.id" x-text="cand.name + ' (' + cand.relationship + ', L' + cand.level + ', ' + cand.xp + ' XP)'"></option></template>
+              </select>
+            </template>
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="radio" value="new-character" x-model="cl4aModal.successorMode"> Start a new / back-up character</label>
+            <template x-if="cl4aModal.successorMode === 'new-character'">
+              <input type="text" x-model="cl4aModal.newCharacterName" placeholder="successor name" class="w-full text-sm">
+            </template>
+          </div>
+
+          <!-- heroic funeral -->
+          <div class="mb-3 border border-ink/30 rounded p-2">
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="checkbox" x-model="cl4aModal.heroicDeath"> Heroic death — earns the Heroic Funeral (RR p.312)</label>
+            <label class="block text-sm" :class="cl4aModal.heroicDeath ? '' : 'opacity-50'">Funeral gp spent
+              <input type="number" min="0" x-model.number="cl4aModal.funeralGpSpent" :disabled="!cl4aModal.heroicDeath" class="w-28 text-sm ml-1">
+            </label>
+            <p class="text-xs mt-1 accent-blue" x-text="'Successor starts with ' + cl4aSuccessionPreview().startXp + ' XP (' + cl4aSuccessionPreview().reserveXpApplied + ' Reserve XP' + (cl4aSuccessionPreview().funeralXp ? (' + ' + cl4aSuccessionPreview().funeralXp + ' funeral XP') : '') + '). Reserve is capped at the prior character’s XP (RR p.311).'"></p>
+          </div>
+
+          <!-- inheritance -->
+          <div class="mb-4 border border-ink/30 rounded p-2">
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="checkbox" x-model="cl4aModal.transferTreasure"> Transfer the deceased’s treasure to an heir (RR p.313)</label>
+            <template x-if="cl4aModal.transferTreasure">
+              <div>
+                <label class="block text-sm mb-1">Heir
+                  <select @change="cl4aModal.heirId = $event.target.value" class="w-full text-sm">
+                    <option value="" :selected="!cl4aModal.heirId">— none (banked treasure is lost) —</option>
+                    <template x-for="h in cl4aModal.heirOptions" :key="h.id"><option :value="h.id" :selected="cl4aModal.heirId === h.id" x-text="h.name"></option></template>
+                  </select>
+                </label>
+                <label class="block text-sm">Bank fee %
+                  <input type="number" min="0" max="100" x-model.number="cl4aModal.bankFeePct" class="w-20 text-sm ml-1">
+                </label>
+                <p class="text-xs opacity-60 mt-1">With no heir, banked treasure is seized; only personal property on the body passes to the looters (RR p.313).</p>
+              </div>
+            </template>
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button @click="cl4aModal.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="cl4aResolveSuccession()" class="px-3 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold">⚰ Resolve succession</button>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div>
+</template>
+<!-- === @b8-politics   (team) — senate influence modal === -->
+<!-- Per-senator influence (bribe / intimidate / seduce) — RR pp.358–359. Bribery is a gp payment
+     (the Bribery prof shifts the rate); intimidation + seduction resolve via the shipped Layer-1
+     proficiency throw. Opened from the Leading-Senators roster's 🎯 button. -->
+<div x-show="senateInfluence.open" @keydown.escape.window="if(senateInfluence.open && !$event.defaultPrevented){ closeSenateInfluence(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSenateInfluence()">
+  <template x-if="senateInfluence.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🎯 Influence a senator <span class="text-sm font-normal opacity-70" x-text="'· ' + senateInfluenceSenator()"></span></h2>
+      <button @click="closeSenateInfluence()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="flex flex-col">Method
+          <select x-model="senateInfluence.method" @change="senateInfluence.result=null" class="w-full">
+            <option value="bribe">Bribery (gp — RR p.358)</option>
+            <option value="intimidate">Intimidation (a proficiency throw — RR p.358)</option>
+            <option value="seduce">Seduction (a proficiency throw — RR p.359)</option>
+          </select>
+        </label>
+        <label class="flex flex-col">Influencer
+          <select x-model="senateInfluence.byCharacterId" @change="senateInfluence.result=null" class="w-full">
+            <option value="">— pick —</option>
+            <template x-for="o in senateActorOptions()" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+          </select>
+        </label>
+      </div>
+      <!-- bribe -->
+      <template x-if="senateInfluence.method === 'bribe'">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="flex flex-col">Bonus to his vote
+            <select x-model.number="senateInfluence.value" @change="senateInfluence.result=null" class="w-28">
+              <option :value="1">+1</option><option :value="2">+2</option><option :value="3">+3</option>
+            </select></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.byRival" @change="senateInfluence.result=null"> Bribe against the ruler (a rival)</label>
+        </div>
+      </template>
+      <!-- intimidate -->
+      <template x-if="senateInfluence.method === 'intimidate'">
+        <div class="space-y-1">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.outranks" @change="senateInfluence.result=null"> Grossly out-ranks / out-numbers the senator <span class="opacity-60">(required)</span></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.credibleThreat" @change="senateInfluence.result=null"> Carries a credible threat</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.autoSucceed" @change="senateInfluence.result=null"> Auto-succeed <span class="opacity-60">(skip the die — the GM rules the conditions met)</span></label>
+        </div>
+      </template>
+      <!-- seduce -->
+      <template x-if="senateInfluence.method === 'seduce'">
+        <div class="space-y-1">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.attracted" @change="senateInfluence.result=null"> The senator is attracted to the seducer <span class="opacity-60">(required)</span></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.autoSucceed" @change="senateInfluence.result=null"> Auto-succeed <span class="opacity-60">(skip the die)</span></label>
+        </div>
+      </template>
+      <div class="wizard-forecast-row text-sm"><span x-text="senateInfluencePreview()"></span></div>
+      <!-- result -->
+      <template x-if="senateInfluence.result">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" :class="senateInfluence.result.ok === false ? 'bg-red-50' : (senateInfluence.result.success === false ? 'bg-yellow-50' : 'bg-green-50')">
+          <template x-if="senateInfluence.result.ok === false"><span class="text-red-800" x-text="'✗ Refused — ' + senateInfluence.result.reason"></span></template>
+          <template x-if="senateInfluence.result.ok !== false && senateInfluence.method === 'bribe'">
+            <span class="text-green-800" x-text="'💰 Bribed (' + (senateInfluence.result.value >= 0 ? '+' : '') + senateInfluence.result.value + ' to his vote, ' + senateInfluence.result.gp + 'gp' + (senateInfluence.result.paid ? '' : ' — purse short, track gp manually') + ').'"></span>
+          </template>
+          <template x-if="senateInfluence.result.ok !== false && senateInfluence.method !== 'bribe'">
+            <span :class="senateInfluence.result.success ? 'text-green-800' : 'text-yellow-800'"
+              x-text="(senateInfluence.result.success ? '✓ It lands (+1 to his vote).' : '✗ The attempt fails.') + (senateInfluence.result.throw ? ' (1d20 ' + senateInfluence.result.throw.natural + (senateInfluence.result.throw.modifierTotal ? (senateInfluence.result.throw.modifierTotal >= 0 ? '+' : '') + senateInfluence.result.throw.modifierTotal : '') + ' vs 11+)' : '')"></span>
+          </template>
+        </div>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Bribery / intimidation / seduction stand as a voting modifier until the senator's allegiance changes.</span>
+        <button @click="senateInfluenceSubmit()" :disabled="!senateInfluenceCanSubmit()" :class="senateInfluenceCanSubmit() ? 'bg-green-300 hover:bg-green-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply influence</button>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- === @b8-magicitems (team) — commission modal === -->
+<div x-show="magicItemCommissionOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeCommissionModal()" @keydown.escape.window="closeCommissionModal()">
+  <div class="vellum border border-ink rounded p-4 max-w-xl w-full max-h-[85vh] overflow-y-auto">
+    <div class="flex justify-between items-baseline mb-2">
+      <h3 class="font-bold text-lg">🛠 Commission a magic item</h3>
+      <button @click="closeCommissionModal()" class="text-sm underline">close ✕</button>
+    </div>
+    <p class="text-sm opacity-70 mb-3">A patron pays an NPC caster to craft an item (TT p.28: <strong>3× base</strong> = material + components up front, the fee on success). It routes into a Magic Research project — the patron pays, the caster researches. It can fail.</p>
+    <div class="space-y-2 text-sm">
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Patron</span>
+        <select x-model="commissionForm.commissionerId" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— who pays —</option>
+          <template x-for="c in commissionPatronOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||c.id) + ' (' + ((c.coins&&c.coins.gp)||0).toLocaleString() + ' gp)'"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Caster</span>
+        <select x-model="commissionForm.casterId" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— the NPC who crafts —</option>
+          <template x-for="c in commissionCasterOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||c.id) + ' (arcane L' + (c.level||1) + ')'"></option></template>
+        </select>
+      </label>
+      <template x-if="!commissionCasterOptions().length"><p class="text-xs italic text-red-700">No arcane casters in this campaign — set a character's class to an arcane caster (or its <code>isArcaneCaster</code> flag) to commission.</p></template>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Item</span>
+        <select x-model="commissionForm.catalogKey" class="border border-ink rounded px-2 py-1 flex-1 min-w-0">
+          <option value="">— from the catalog —</option>
+          <template x-for="e in magicItemCatalogList()" :key="e.key"><option :value="e.key" x-text="e.name + ' (base ' + e.baseCost.toLocaleString() + 'gp)'"></option></template>
+        </select>
+      </label>
+    </div>
+
+    <!-- live forecast -->
+    <template x-if="commissionPreviewNow()">
+      <div class="border border-ink/40 rounded p-2 mt-3 text-sm" :class="commissionPreviewNow().ok ? 'bg-green-50' : 'bg-red-50'">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-0.5">
+          <span>Commission (3×): <span class="font-mono font-semibold" x-text="commissionPreviewNow().costs.commissionPriceGp.toLocaleString()+' gp'"></span></span>
+          <span>Up front (2×): <span class="font-mono" x-text="commissionPreviewNow().costs.upFrontGp.toLocaleString()+' gp'"></span></span>
+          <span>Fee on delivery: <span class="font-mono" x-text="commissionPreviewNow().costs.researchFeeGp.toLocaleString()+' gp'"></span></span>
+          <span x-show="commissionPreviewNow().successChance!=null">Caster's chance: <span class="font-mono" x-text="Math.round((commissionPreviewNow().successChance||0)*100)+'%'"></span></span>
+        </div>
+        <template x-if="!commissionPreviewNow().ok"><p class="text-red-700 mt-1" x-text="'⚠ ' + commissionErrorText(commissionPreviewNow().reason || 'not ready')"></p></template>
+        <template x-if="commissionPreviewNow().ok"><p class="text-green-800 mt-1">✓ Ready — the patron can afford the up-front and the caster is eligible.</p></template>
+      </div>
+    </template>
+
+    <template x-if="commissionFormResult">
+      <p class="text-sm mt-2 font-semibold" :class="commissionFormResult.ok ? 'text-green-800' : 'text-red-700'" x-text="commissionFormResult.msg"></p>
+    </template>
+
+    <div class="flex justify-end gap-2 mt-3">
+      <button @click="closeCommissionModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Cancel</button>
+      <button @click="submitCommission()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 text-sm" :disabled="!(commissionPreviewNow() && commissionPreviewNow().ok)" :class="(commissionPreviewNow() && commissionPreviewNow().ok) ? '' : 'opacity-40 cursor-not-allowed'" x-text="commissionPreviewNow() && commissionPreviewNow().ok ? ('Commission (' + commissionPreviewNow().costs.upFrontGp.toLocaleString() + ' gp up front)') : 'Commission'"></button>
+    </div>
+  </div>
+</div>
+<!-- === @b8-sages      (team) — sage-commission modal === -->
+<div x-show="sageCommission.open" @keydown.escape.window="if(sageCommission.open && !$event.defaultPrevented){ closeSageCommissionModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSageCommissionModal()">
+  <template x-if="sageCommission.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
+      <button @click="closeSageCommissionModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <p class="text-xs opacity-70">Set a sage to research a deep question over several days while the party adventures elsewhere. The Day Clock advances it; the answer is delivered on completion. Same throw as a quick consult (in-specialty 3+ / out 18+, or the scholar's own Knowledge / Loremastery).</p>
+
+      <!-- Sage + inquirer -->
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <label class="block"><span class="opacity-70">Sage</span>
+          <select class="w-full text-sm mt-0.5" @change="sageCommissionSetSage($event.target.value)">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" :selected="a.id===sageCommission.sageId" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block"><span class="opacity-70">Commissioned by</span>
+          <select class="w-full text-sm mt-0.5" x-model="sageCommission.clientId" @change="sageCommission.result=null">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+
+      <!-- Resolved mode -->
+      <template x-if="sageCommissionForecastUI()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <template x-if="sageCommissionForecastUI().available">
+            <div>
+              <template x-if="sageCommissionForecastUI().mode==='npc-specialist'">
+                <span><span class="font-semibold">Hired sage</span> — specialty <span class="italic" x-text="sageCommissionForecastUI().specialty || '(set one below)'"></span> · <span x-text="sageCommissionForecastUI().inSpecialty ? 'in-specialty 3+' : 'out-of-specialty 18+'"></span></span>
+              </template>
+              <template x-if="sageCommissionForecastUI().mode==='pc-scholar'">
+                <span><span class="font-semibold">Scholar</span> — <span x-text="(sageCommissionForecastUI().label || 'own learning')"></span><span class="opacity-70" x-text="sageCommissionForecastUI().proficiency ? (' · ' + sageCommissionForecastUI().proficiency.key + ' rank ' + sageCommissionForecastUI().proficiency.ranks) : ''"></span> · target <span x-text="sageCommissionForecastUI().target + '+'"></span></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="!sageCommissionForecastUI().available">
+            <span class="opacity-80">This character is not yet a sage — give them a <span class="font-semibold">specialty</span> below, or add the Knowledge / Loremastery proficiency.</span>
+          </template>
+        </div>
+      </template>
+
+      <!-- Specialty -->
+      <label class="block text-sm"><span class="opacity-70">Specialty subject</span> <span class="opacity-50 text-xs">— set to commission as a hired sage (3+/18+); leave blank to use the character's own Knowledge/Loremastery</span>
+        <input type="text" class="w-full text-sm mt-0.5" x-model="sageCommission.specialty" @input="sageCommission.result=null" placeholder="e.g. history · geography · metaphysics">
+      </label>
+
+      <!-- Subject + in-specialty override -->
+      <div class="text-sm">
+        <label class="block"><span class="opacity-70">Research subject</span>
+          <input type="text" class="w-full text-sm mt-0.5" x-model="sageCommission.subject" @input="sageCommission.result=null; sageCommission.inSpecialtyOverride=null" placeholder="what is the research about?">
+        </label>
+        <template x-if="sageCommissionForecastUI() && sageCommissionForecastUI().mode==='npc-specialist'">
+          <label class="flex items-center gap-1 text-xs mt-1"><input type="checkbox" :checked="sageCommissionForecastUI().inSpecialty" @change="sageCommission.inSpecialtyOverride = $event.target.checked; sageCommission.result=null"> In the sage's specialty (3+) <span class="opacity-50">— auto-derived from the subject; tick to override</span></label>
+        </template>
+      </div>
+
+      <!-- Question -->
+      <label class="block text-sm"><span class="opacity-70">The question (GM)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageCommission.query" placeholder="What deep question is being researched?"></textarea>
+      </label>
+
+      <!-- Duration + fee + secret -->
+      <div class="flex items-center gap-4 text-sm flex-wrap">
+        <label class="flex items-center gap-1">Duration <input type="number" min="1" class="w-20 text-sm" x-model.number="sageCommission.daysRequired" @input="sageCommission.result=null"> days <span class="opacity-50 text-xs">(🔧 GM-set; RAW pins none)</span></label>
+        <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-24 text-sm" x-model.number="sageCommission.feeGp" @input="sageCommission.result=null"> gp <span class="opacity-50 text-xs">(charged upfront)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="sageCommission.secret"> Secret (GM rolls)</label>
+      </div>
+
+      <!-- Answer -->
+      <label class="block text-sm"><span class="opacity-70">The answer, on success (GM supplies)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageCommission.answerText" placeholder="The content of what the sage discovers — the engine resolves only whether the research succeeds."></textarea>
+      </label>
+
+      <!-- Forecast -->
+      <template x-if="sageCommissionForecastUI() && sageCommissionForecastUI().available">
+        <div class="wizard-forecast-row" :class="(sageCommissionForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full text-sm">
+            <span class="font-semibold" x-text="'Target ' + sageCommissionForecastUI().target + '+'"></span>
+            <span class="opacity-75" x-text="' · success chance ' + Math.round((sageCommissionForecastUI().successChance||0)*100) + '% · ' + (sageCommission.daysRequired||30) + ' days' + (sageCommission.feeGp>0 ? (' · fee ' + sageCommission.feeGp + 'gp upfront') : '')"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Commission + result -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <button @click="sageCommissionSubmit()" :disabled="!(sageCommissionForecastUI() && sageCommissionForecastUI().available)"
+                :class="(sageCommissionForecastUI() && sageCommissionForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                class="px-4 py-2 border-2 border-ink rounded font-semibold">📜 Commission research</button>
+        <template x-if="sageCommission.result && sageCommission.result.ok">
+          <div class="mt-2 text-sm text-green-800" x-text="'Commissioned — the sage will research for ' + sageCommission.result.daysRequired + ' days. Advance the Day Clock to deliver the answer.'"></div>
+        </template>
+        <template x-if="sageCommission.result && !sageCommission.result.ok">
+          <div class="mt-2 text-sm text-red-800" x-text="sageCommission.result.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot commission: ' + sageCommission.result.error)"></div>
+        </template>
+      </div>
+
+      <!-- This sage's commissions (track + abandon) -->
+      <template x-if="sageCommissionList().length">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <div class="font-semibold mb-1">This sage's commissions</div>
+          <template x-for="com in sageCommissionList()" :key="com.id">
+            <div class="flex items-center justify-between gap-2 py-0.5 border-t border-ink/10 first:border-t-0">
+              <div class="min-w-0">
+                <span x-text="com.subject || '(unspecified subject)'"></span>
+                <span class="opacity-60 text-xs" x-text="' · ' + (com.status === 'in-progress' ? (com.progress.daysElapsed + '/' + com.progress.daysRequired + ' days') : com.status) + (com.status==='complete' ? (com.result && com.result.success ? ' ✓ answered' : ' ✗ no answer') : '')"></span>
+              </div>
+              <button x-show="com.status === 'in-progress'" @click="abandonSageCommissionUi(com.id)" class="text-xs px-2 py-0.5 border border-ink/40 rounded hover:bg-red-100 shrink-0" title="Call off the commission (no refund)">Abandon</button>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- === @b8-banking    (team) — loan modal === -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -16721,9 +17367,396 @@ return {
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
+      // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
+      { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
+  },
+
+  // ─── burst8 (team session) — per-agent state + methods. Each builder appends its
+  //     object properties (`propName(){…},` / `stateVar: …,`) right AFTER its OWN marker
+  //     line below — disjoint anchors → clean 6-way merge. Wrap your block in a
+  //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
+  // === @b8-generators (team) — NPC Generator G1: state + methods ===
+  // NPC Generator G1 (Phase 4.8 §2.1) — the Generation door. genRoll() builds a PREVIEW Character
+  // (not yet landed); genCommit() lands the SAME object + emits the `generation` event. The
+  // full-vs-lightweight choice is a plain detailLevel param (no house rule — manifest houseRules:[]).
+  genForm: { targetLevel:'', classKey:'', race:'human', settlementId:'', detailLevel:'full', attributeMethod:'3d6', seed:'' },
+  genPreview: null,
+  genLastSeed: null,
+  genPreviewChar(){ return this.genPreview ? this.genPreview.character : null; },
+  genClassOptions(){
+    const A = window.ACKS;
+    const keys = (typeof A.seedClassTemplates==='function') ? A.seedClassTemplates().map(t=>({ key:t.key, label:t.displayName||t.key })) : [];
+    const camp = this.currentCampaign;
+    if(camp && Array.isArray(camp.customClasses)) camp.customClasses.forEach(c=>{ if(c && c.key && !keys.find(k=>k.key===c.key)) keys.push({ key:c.key, label:c.displayName||c.key }); });
+    return keys;
+  },
+  genSettlementOptions(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.settlements)) return [];
+    return camp.settlements.map(s=>({ id:s.id, name:s.name||s.id }));
+  },
+  _genCtxOpts(seed){
+    const f = this.genForm, camp = this.currentCampaign;
+    const ctx = {};
+    if(f.targetLevel!=='' && f.targetLevel!=null) ctx.targetLevel = Math.max(0, Math.min(14, parseInt(f.targetLevel,10)||0));
+    if(f.classKey) ctx.class = f.classKey;
+    if(f.race) ctx.race = f.race;
+    if(f.settlementId){ ctx.settlementId = f.settlementId; const st=(camp.settlements||[]).find(s=>s.id===f.settlementId); if(st){ if(st.hexId) ctx.hexId=st.hexId; if(st.domainId) ctx.domainId=st.domainId; } }
+    const opts = { detailLevel: (f.detailLevel==='lightweight'?'lightweight':'full'), attributeMethod: f.attributeMethod, seed };
+    return { ctx, opts };
+  },
+  genRoll(){
+    if(!this.currentCampaign){ this.showToast('Load a campaign first.', 3000, 'warn'); return; }
+    const seed = (this.genForm.seed!=='' && this.genForm.seed!=null) ? this.genForm.seed : ('npc-' + Math.floor(Math.random()*1e9));
+    this.genLastSeed = seed;
+    const { ctx, opts } = this._genCtxOpts(seed);
+    try { this.genPreview = window.ACKS.generateNPC(this.currentCampaign, ctx, opts); }
+    catch(e){ this.showToast('Generation failed: ' + e.message, 4000, 'error'); this.genPreview = null; }
+  },
+  genReroll(){ this.genForm.seed = ''; this.genRoll(); },
+  genCommit(){
+    if(!this.genPreview) return;
+    const { opts } = this._genCtxOpts(this.genLastSeed);
+    const c = window.ACKS.landGeneratedNPC(this.currentCampaign, this.genPreview, opts);
+    this.genPreview = null;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🧙 ' + (c ? c.name : 'NPC') + ' added to the roster.', 4000, 'success');
+  },
+  // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
+  // Death & inheritance (RR pp.311–313) — the char-sheet Health/Lifecycle-cluster surface: plan ahead
+  // while alive (Reserve XP / heir / will), mark a death (cause + heroism), then resolve succession
+  // (promote a henchman · name an heir · start a back-up — with the Reserve XP + Heroic Funeral XP + the
+  // will/heir inheritance transfer). One modal, mode 'death' | 'succession'. All over the CL-4a engine.
+  cl4aModal: { open:false, mode:null, charId:null, charName:'',
+    cause:'fiat', heroic:false,
+    successorMode:'promote-henchman', successorCharacterId:'', newCharacterName:'',
+    funeralGpSpent:0, heroicDeath:false, transferTreasure:true, heirId:'', bankFeePct:10,
+    candidates:[], heirOptions:[], reserveXp:0, deceasedXp:0 },
+  cl4aAccrueGp: 0,
+  cl4aDeathInfo(ch){ const A=window.ACKS; return (ch && A && A.characterDeathInfo) ? A.characterDeathInfo(ch) : { deceased:false }; },
+  cl4aReserveXp(ch){ const A=window.ACKS; return (ch && A && A.characterReserveXp) ? A.characterReserveXp(ch) : 0; },
+  cl4aCauseOptions(){ return (window.ACKS && window.ACKS.DEATH_CAUSES) || ['wounds','disease','old-age','battle','fiat','unknown']; },
+  cl4aCharName(id){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === id); return c ? c.name : '—'; },
+  cl4aHeirOptions(ch){ return (this.currentCampaign?.characters||[]).filter(x => x && x.id !== ch.id && x.lifecycleState !== 'deceased' && x.alive !== false).map(x => ({ id:x.id, name:x.name })); },
+  cl4aOwnedStashes(ch){ const A=window.ACKS; return (ch && A && A.stashesOwnedByCharacter) ? (A.stashesOwnedByCharacter(this.currentCampaign, ch.id) || []) : []; },
+  cl4aStashBequeathed(ch, stashId){ return !!(ch && ch.will && Array.isArray(ch.will.bequests) && ch.will.bequests.some(b => b && b.kind === 'stash' && b.ref === stashId)); },
+  _cl4aTouch(msg){ if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist(); if(msg && this.showToast) this.showToast(msg, 3000); },
+  cl4aSetHeir(ch, heirId){ const A=window.ACKS; if(!A||!A.setCharacterHeir) return; A.setCharacterHeir(this.currentCampaign, ch.id, heirId || null); this._cl4aTouch('Heir ' + (heirId ? ('set to ' + this.cl4aCharName(heirId)) : 'cleared') + '.'); },
+  cl4aAccrueReserveXp(ch){ const gp = Number(this.cl4aAccrueGp) || 0; if(gp <= 0) return; const A=window.ACKS; const total = A.addReserveXp(this.currentCampaign, ch.id, { gpSpent: gp, reason:'spent to no lasting benefit' }); this.cl4aAccrueGp = 0; this._cl4aTouch('Banked ' + Math.floor(gp * 0.9) + ' Reserve XP (now ' + total + ').'); },
+  cl4aToggleBequest(ch, stashId){ const A=window.ACKS; const will = ch.will || { bequests:[] }; if(!Array.isArray(will.bequests)) will.bequests = []; const i = will.bequests.findIndex(b => b && b.kind === 'stash' && b.ref === stashId); if(i >= 0) will.bequests.splice(i, 1); else will.bequests.push({ kind:'stash', ref:stashId }); A.setCharacterWill(this.currentCampaign, ch.id, will); this._cl4aTouch('Will updated.'); },
+  cl4aOpenDeath(ch){ this.cl4aModal = Object.assign({}, this.cl4aModal, { open:true, mode:'death', charId:ch.id, charName:ch.name, cause:'fiat', heroic:false }); },
+  cl4aConfirmDeath(){ const m=this.cl4aModal; const A=window.ACKS; A.recordCharacterDeath(this.currentCampaign, m.charId, { cause:m.cause, heroic:m.heroic }); this.cl4aModal.open=false; this._cl4aTouch(m.charName + ' has died (' + m.cause + ').'); },
+  cl4aOpenSuccession(ch){
+    const A=window.ACKS;
+    if(A.reconcileCharacterDeaths) A.reconcileCharacterDeaths(this.currentCampaign);   // back-fill any externally-set death
+    const cands = (A.successionCandidates && A.successionCandidates(this.currentCampaign, ch.id)) || [];
+    const info = A.characterDeathInfo ? A.characterDeathInfo(ch) : {};
+    this.cl4aModal = Object.assign({}, this.cl4aModal, {
+      open:true, mode:'succession', charId:ch.id, charName:ch.name,
+      successorMode: cands.length ? 'promote-henchman' : 'new-character',
+      successorCharacterId: cands.length ? cands[0].id : '',
+      newCharacterName: ch.name + "'s successor",
+      funeralGpSpent: 0, heroicDeath: info.heroic === true, transferTreasure: true,
+      heirId: info.heirCharacterId || ((cands.find(x => x.relationship === 'heir') || {}).id) || '',
+      bankFeePct: 10, candidates: cands, heirOptions: this.cl4aHeirOptions(ch),
+      reserveXp: (info.reserveXp || 0), deceasedXp: (Number(ch.xp) || 0)
+    });
+    this._cl4aTouch('');
+  },
+  cl4aSuccessionPreview(){ const m=this.cl4aModal; const reserveXpApplied = Math.min(Number(m.reserveXp)||0, Number(m.deceasedXp)||0); const funeralXp = (m.heroicDeath && Number(m.funeralGpSpent) > 0) ? Math.floor(0.9 * Number(m.funeralGpSpent)) : 0; return { reserveXpApplied, funeralXp, startXp: reserveXpApplied + funeralXp }; },
+  cl4aResolveSuccession(){
+    const m=this.cl4aModal; const A=window.ACKS;
+    const res = A.resolveSuccession(this.currentCampaign, m.charId, {
+      mode: m.successorMode, successorCharacterId: m.successorCharacterId || null,
+      newCharacterName: m.newCharacterName, funeralGpSpent: Number(m.funeralGpSpent) || 0,
+      heroic: m.heroicDeath, transferTreasure: m.transferTreasure,
+      heirId: m.heirId || null, bankFeePct: Number(m.bankFeePct) || 10
+    });
+    this.cl4aModal.open = false;
+    const who = (res && res.successor) ? res.successor.name : 'no successor';
+    this._cl4aTouch(m.charName + ' — succession resolved (' + who + ').');
+  },
+  // === @b8-politics   (team) — Politics P-3: state + methods ===
+  // P-3 — senate influence actions (bribe/intimidate/seduce/gift), reveal-on-2, and the
+  // dispute-lifecycle extensions (resolve-by-consult / abandon / re-establish). Thin Alpine
+  // layer over acks-engine-politics.js; reuses the P-2 senate methods (senateSelected,
+  // senateReadout, senateConsult, …). The per-senator modal is at the @b8-politics modal marker.
+  senateInfluence: { open: false, senatorshipId: '', method: 'bribe', byCharacterId: '',
+    value: 1, byRival: false, outranks: true, credibleThreat: true, attracted: true, autoSucceed: false, result: null },
+  senateGift: { byCharacterId: '', votes: 0, reactionBonus: 3, friendly: false, gp: 0 },
+  // the apex ruler (the default influencer / gift-giver)
+  senateRulerId(){ const apex = this._senateApex(this.senateSelected()); return apex ? (apex.rulerCharacterId || '') : ''; },
+  // character options for the influencer/gift-giver picker (active characters; the ruler floats to the top)
+  senateActorOptions(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.characters)) return [];
+    const rid = this.senateRulerId();
+    return c.characters.filter(ch => ch && (ch.alive !== false)).map(ch => ({ id: ch.id, name: (ch.name || ch.id) + (ch.id === rid ? ' (ruler)' : '') }))
+      .sort((a, b) => (a.name.includes('(ruler)') ? -1 : 0) - (b.name.includes('(ruler)') ? -1 : 0));
+  },
+  // the standing-influence chips shown beside each senator in the roster (bribe/intimidate/seduce/escaped/…)
+  senateSenatorChips(senatorshipId){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
+    if(!s || !Array.isArray(s.influenceModifiers)) return [];
+    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-orange-200',
+      seduced: 'bg-pink-200', 'intimidated-escaped': 'bg-red-300', 'seduced-ill-treated': 'bg-red-300', bewitched: 'bg-purple-200' };
+    return s.influenceModifiers.filter(m => m && m.kind).map(m => ({
+      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-gray-200' }));
+  },
+  senateSenatorSecret(senatorshipId){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
+    return !!(s && s.isSecretInfluence);
+  },
+  // open the per-senator influence modal
+  senateOpenInfluence(senatorshipId){
+    this.senateInfluence = { open: true, senatorshipId, method: 'bribe', byCharacterId: this.senateRulerId(),
+      value: 1, byRival: false, outranks: true, credibleThreat: true, attracted: true, autoSucceed: false, result: null };
+  },
+  closeSenateInfluence(){ this.senateInfluence.open = false; this.senateInfluence.result = null; },
+  senateInfluenceSenator(){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, this.senateInfluence.senatorshipId);
+    if(!s) return '(none)';
+    const ch = (this.currentCampaign.characters || []).find(x => x && x.id === s.senatorCharacterId);
+    return ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)');
+  },
+  // a live preview of the chosen influence action (the bribe gp/period, or the throw chance)
+  senateInfluencePreview(){
+    const A = window.ACKS, f = this.senateInfluence;
+    const s = A.findSenatorship(this.currentCampaign, f.senatorshipId);
+    if(!s) return '';
+    if(f.method === 'bribe'){
+      const actor = (this.currentCampaign.characters || []).find(x => x && x.id === f.byCharacterId);
+      const prof = !!(actor && A.hasProficiency && A.hasProficiency(actor, 'bribery'));
+      const period = (prof ? { 1:'day', 2:'week', 3:'month' } : { 1:'week', 2:'month', 3:'year' })[Math.min(3, Math.max(1, f.value))];
+      const gp = (s.bribeCostByPeriod && Number(s.bribeCostByPeriod[period])) || 0;
+      return (f.byRival ? 'Rival bribe ' : 'Bribe ') + (f.byRival ? '−' : '+') + f.value + ' to his vote · ' + gp + 'gp (' + period + (prof ? ', Bribery prof' : '') + ')';
+    }
+    if(f.autoSucceed) return 'Auto-succeed (the GM rules the conditions met) → +1 to his vote.';
+    const actor = (this.currentCampaign.characters || []).find(x => x && x.id === f.byCharacterId);
+    const chaMod = actor ? Math.floor((((actor.abilities && actor.abilities.CHA) || 10) - 10) / 3) : 0;
+    return 'A proficiency throw: 1d20 + ' + (chaMod >= 0 ? '+' : '') + chaMod + ' (CHA) vs 11+ → success gives +1 to his vote.';
+  },
+  senateInfluenceCanSubmit(){
+    const f = this.senateInfluence;
+    if(!f.senatorshipId || !f.byCharacterId) return false;
+    return true;
+  },
+  senateInfluenceSubmit(){
+    const A = window.ACKS, c = this.currentCampaign, f = this.senateInfluence;
+    if(!A || !c) return;
+    let r;
+    if(f.method === 'bribe') r = A.bribeSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, value: Number(f.value) || 1, byRival: f.byRival });
+    else if(f.method === 'intimidate') r = A.intimidateSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, outranks: f.outranks, credibleThreat: f.credibleThreat, autoSucceed: f.autoSucceed });
+    else r = A.seduceSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, attracted: f.attracted, autoSucceed: f.autoSucceed });
+    f.result = r;
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok === false){ this.showToast('✗ ' + (f.method) + ' refused: ' + r.reason, 4000); }
+    else if(f.method === 'bribe'){ this.showToast('💰 Senator bribed (' + (r.value >= 0 ? '+' : '') + r.value + ', ' + r.gp + 'gp' + (r.paid ? '' : ' — purse short, track gp manually') + ')', 5000); }
+    else { this.showToast((r.success ? '✓ ' : '✗ ') + f.method + (r.success ? ' lands (+1 to his vote)' : ' fails'), 5000); }
+  },
+  // the −5 turn: a once-intimidated/seduced senator escapes the ruler's dominance / is ill-treated
+  senateFlipInfluence(senatorshipId, kind){
+    const A = window.ACKS;
+    A.flipSocialInfluence(this.currentCampaign, { senatorshipId, kind, byCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    this.showToast('A senator once ' + kind + ' turns against the ruler (−5 to his vote).', 5000);
+  },
+  // gifts → converting part of the independent bloc (RR p.359 §4.7)
+  senateControlledIndependents(){
+    const A = window.ACKS, senate = this.senateSelected(), rid = this.senateRulerId();
+    if(!A || !senate || !rid) return 0;
+    return A.controlledIndependentVotesFor(this.currentCampaign, senate, rid, this.currentCampaign.currentTurn || 1) || 0;
+  },
+  senateGiftSubmit(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected(), g = this.senateGift;
+    if(!A || !c || !senate) return;
+    const r = A.giftIndependentSenators(c, { senateId: senate.id, byCharacterId: g.byCharacterId || this.senateRulerId(),
+      votes: Number(g.votes) || 0, reactionBonus: Number(g.reactionBonus) || 0, friendly: g.friendly, gp: Number(g.gp) || 0 });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast(r.qualifies ? ('🎁 Gift directs ' + r.controlled + ' independent vote(s).') : '🎁 Gift recorded — not enough to direct votes.', 5000);
+  },
+  // apply the gift-controlled bloc to the consult's FOR seed
+  senateUseControlledIndependents(){ this.senateConsult.controlledIndependentVotes = this.senateControlledIndependents(); },
+  // reveal-on-2: after a consult, flag the natural-2 secret-influence senators
+  senateApplyReveals(){
+    const A = window.ACKS;
+    if(!this.senateConsultResult) return;
+    const r = A.applyInfluenceReveals(this.currentCampaign, this.senateConsultResult, { rulerCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.revealed.length ? ('👁 ' + r.revealed.length + ' senator(s) reveal the ruler’s hand — he is implicated.') : 'No secret influence revealed (no natural 2 on a bribed/etc. senator).', 5000);
+  },
+  // does the last consult have any natural-2 roll (so the reveal button is worth showing)?
+  senateConsultHasNaturalTwo(){ return !!(this.senateConsultResult && (this.senateConsultResult.rolls || []).some(r => r.roll && r.roll.natural === 2)); },
+  // --- dispute lifecycle (P-3 extensions) ---
+  // the real RAW retroactive-approval consult: clears on a majority FOR, escalates (replace-ruler) on against
+  senateDisputeResolveByConsult(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || senate.dispute == null) return;
+    const r = A.resolveDisputeByConsult(c, {
+      senateId: senate.id, rulerCharacterId: this.senateRulerId(),
+      domainMorale: Number(this.senateConsult.domainMorale) || 0,
+      rulerFactionId: this.senateConsult.rulerFactionId || null,
+      militaryLoyalty: this.senateConsult.militaryLoyalty,
+      controlledIndependentVotes: Number(this.senateConsult.controlledIndependentVotes) || 0
+    });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.outcome === 'cleared') this.showToast('✓ The senate grants retroactive approval — the dispute ends.', 5000);
+    else if(r && r.outcome === 'escalated') this.showToast('⚠ The consult fails — the dispute deepens, and ' + (r.replaceRulerSenatorships || []).length + ' senator(s) now seek to replace the ruler.', 6000);
+  },
+  senateDisputeAbandon(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    if(!confirm('Abandon senatorial government? The senate is dissolved, all benefits are permanently lost, influential “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months.')) return;
+    const r = A.abandonSenatorialGovernment(c, { senateId: senate.id, rulerCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    if(r) this.showToast('🏳 Senatorial government abandoned — ' + r.penalties.hostileSenators.length + ' senator(s) turn Hostile; re-establish on/after turn ' + r.penalties.reestablishCooldownUntilTurn + '.', 7000);
+  },
+  // dissolved senates pending re-establishment (RR p.359 — after the 2d6-month cooldown)
+  senateDissolvedRows(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !Array.isArray(c.senates)) return [];
+    const turn = c.currentTurn || 1;
+    return c.senates.filter(s => s && s.status === 'dissolved').map(s => ({
+      id: s.id, name: s.name || s.id, readyAtTurn: s.reestablishCooldownUntilTurn,
+      canReestablish: A.canReestablishSenate(c, s, turn) }));
+  },
+  senateReestablish(senateId){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.reestablishSenate(c, { senateId });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast('🏛 The senate is re-established — a fresh honeymoon runs until turn ' + r.senate.honeymoonUntilTurn + '.', 6000);
+    else if(r && r.reason === 'cooldown') this.showToast('Still in the re-establish cooldown (ready on turn ' + r.readyAtTurn + ').', 5000);
+  },
+  // === @b8-magicitems (team) — Magic Items W2: state + methods ===
+  // Commissioning (the Command exemplar; routes into Magic Research) + MI-5 Traits.
+  magicItemCommissionOpen: false,
+  commissionForm: { commissionerId: '', casterId: '', catalogKey: '' },
+  commissionFormResult: null,
+  magicItemTraitPick: '',
+  // — Commissioning —
+  commissionPatronOptions(){ return (this.currentCampaign && this.currentCampaign.characters) || []; },
+  commissionCasterOptions(){ const A = window.ACKS; return ((this.currentCampaign && this.currentCampaign.characters) || []).filter(c => c && (A.isArcaneCaster ? A.isArcaneCaster(c) : c.isArcaneCaster)); },
+  openCommissionModal(){ this.commissionForm = { commissionerId:'', casterId:'', catalogKey:'' }; this.commissionFormResult = null; this.magicItemCommissionOpen = true; },
+  closeCommissionModal(){ this.magicItemCommissionOpen = false; },
+  commissionPreviewNow(){ const f = this.commissionForm; if(!f.commissionerId || !f.casterId || !f.catalogKey) return null; return window.ACKS.commissionPreview(this.currentCampaign, { commissionerCharacterId:f.commissionerId, casterCharacterId:f.casterId, catalogKey:f.catalogKey }); },
+  commissionErrorText(e){ const m = { 'insufficient-funds':'the patron cannot afford the up-front payment', 'level-too-low':'the caster is not powerful enough', 'caster-level-too-low':'the caster is not powerful enough', 'caster-not-an-arcane-caster':'the caster is not an arcane caster', 'no-caster':'pick a caster', 'no-commissioner':'pick a patron', 'commissioner-cannot-be-the-caster':'the patron and the caster must differ', 'no-item-config':'pick an item', 'research-engine-unavailable':'the magic-research engine is unavailable' }; return m[e] || e; },
+  submitCommission(){ const f = this.commissionForm; const r = window.ACKS.commissionMagicItem(this.currentCampaign, { commissionerCharacterId:f.commissionerId, casterCharacterId:f.casterId, catalogKey:f.catalogKey }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.commissionFormResult = { ok:true, msg:'Commissioned ' + (r.project.name || 'a magic item') + ' — ' + r.costs.upFrontGp.toLocaleString() + 'gp paid up front; ' + r.costs.researchFeeGp.toLocaleString() + 'gp on delivery.' }; this.showToast('Commission issued.', 3000); this.commissionForm = { commissionerId:'', casterId:'', catalogKey:'' }; } else { this.commissionFormResult = { ok:false, msg:'Cannot commission: ' + this.commissionErrorText(r.error || '?') }; } },
+  // — the commissions list (on the tab) —
+  magicItemCommissions(){ return window.ACKS.commissionProjects(this.currentCampaign); },
+  commissionStatusOf(p){ return window.ACKS.commissionStatus(this.currentCampaign, p); },
+  commissionPartyName(id){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === id); return c ? (c.name || c.id) : (id || '—'); },
+  resolveCommissionUi(projectId, expedite){ const r = window.ACKS.resolveCommission(this.currentCampaign, projectId, { expedite: !!expedite }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast(r.success ? ('🛠 Commission delivered!' + (r.feePaid ? '' : ' (fee still owed)')) : '🛠 Commission FAILED — up-front lost.', 3500); } else { this.showToast('Cannot resolve: ' + (r.error === 'research-incomplete' ? 'the research is not finished — Expedite, or advance turns' : r.error), 3500); } },
+  // — Traits (the optional content pack; in the detail modal) —
+  magicItemTraitsOn(){ return window.ACKS.magicItemTraitsEnabled(this.currentCampaign); },
+  magicItemTraitsOf(ni){ return ni ? window.ACKS.magicItemTraits(ni) : []; },
+  magicItemTraitCatalog(){ return window.ACKS.magicItemTraitsCatalog(); },
+  assignMagicItemTraitUi(){ const ni = this.magicItemDetail(); if(!ni || !this.magicItemTraitPick) return; const r = window.ACKS.assignMagicItemTrait(this.currentCampaign, { itemId:ni.id, traitKey:this.magicItemTraitPick }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.magicItemTraitPick = ''; this.showToast('Trait added: ' + r.trait.name, 2500); } else { this.showToast('Cannot add trait: ' + r.error, 2500); } },
+  rollMagicItemTraitUi(){ const ni = this.magicItemDetail(); if(!ni) return; const r = window.ACKS.rollMagicItemTrait(this.currentCampaign, { itemId:ni.id }); if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🎲 Rolled trait: ' + r.trait.name, 2500); } else { this.showToast('Cannot roll a trait: ' + r.error, 2500); } },
+  removeMagicItemTraitUi(traitKey){ const ni = this.magicItemDetail(); if(!ni) return; window.ACKS.removeMagicItemTrait(this.currentCampaign, { itemId:ni.id, traitKey }); this.markDirty(); this.schedulePersist(); },
+  // === @b8-sages      (team) — Sages SG-2: state + methods ===
+  // The 📜 Commission modal — set a sage to research a deep question over N days; the slot-64
+  // day-tick (acks-engine-sages.js) advances it + delivers the answer on completion. A thin Alpine
+  // layer over commissionSage / abandonSageCommission / sageCommissionProgress; the forecast reuses
+  // sageConsultForecast (the throw classification is identical) + the actor list reuses sageConsultActors().
+  sageCommission: { open:false, sageId:null, clientId:null, subject:'', query:'', specialty:'', daysRequired:30, feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null },
+  openSageCommissionModal(ch){
+    const actors = this.sageConsultActors();
+    const def = (ch && actors.some(a => a.id === ch.id)) ? ch.id : (actors[0] ? actors[0].id : null);
+    if(!def){ if(this.showToast) this.showToast('No active character to commission.'); return; }
+    const sageCh = (this.currentCampaign.characters||[]).find(c => c && c.id === def);
+    this.sageCommission = { open:true, sageId:def, clientId:def, subject:'', query:'', specialty:(sageCh && sageCh.sageSpecialty) || '', daysRequired:30, feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null };
+  },
+  closeSageCommissionModal(){ this.sageCommission.open = false; this.sageCommission.result = null; },
+  sageCommissionSetSage(id){
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id);
+    this.sageCommission.sageId = id;
+    if(!this.sageCommission.clientId) this.sageCommission.clientId = id;
+    this.sageCommission.specialty = (ch && ch.sageSpecialty) || '';
+    this.sageCommission.inSpecialtyOverride = null;
+    this.sageCommission.result = null;
+  },
+  sageCommissionSageObj(){
+    const id = this.sageCommission.sageId;
+    return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+  },
+  sageCommissionForecastUI(){
+    const sage = this.sageCommissionSageObj();
+    if(!sage || !window.ACKS.sageConsultForecast) return null;
+    return window.ACKS.sageConsultForecast(this.currentCampaign, sage, {
+      subject: this.sageCommission.subject, specialty: this.sageCommission.specialty,
+      inSpecialty: this.sageCommission.inSpecialtyOverride
+    });
+  },
+  sageCommissionSubmit(){
+    const sage = this.sageCommissionSageObj();
+    if(!sage) return;
+    const r = window.ACKS.commissionSage(this.currentCampaign, {
+      sageId: this.sageCommission.sageId, clientId: this.sageCommission.clientId || this.sageCommission.sageId,
+      subject: this.sageCommission.subject, query: this.sageCommission.query, specialty: this.sageCommission.specialty,
+      inSpecialty: this.sageCommission.inSpecialtyOverride, daysRequired: Number(this.sageCommission.daysRequired) || 30,
+      feeGp: Number(this.sageCommission.feeGp) || 0, answerText: this.sageCommission.answerText, secret: this.sageCommission.secret
+    });
+    this.sageCommission.result = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('The sage begins the research.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot commission: ' + r.error)); }
+  },
+  sageCommissionList(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !A.sageCommissionsForCharacter || !this.sageCommission.sageId) return [];
+    return A.sageCommissionsForCharacter(c, this.sageCommission.sageId)
+      .map(com => Object.assign({}, com, { progress: A.sageCommissionProgress(c, com) }))
+      .sort((a, b) => (a.status === 'in-progress' ? 0 : 1) - (b.status === 'in-progress' ? 0 : 1));
+  },
+  abandonSageCommissionUi(id){
+    const r = window.ACKS.abandonSageCommission(this.currentCampaign, id);
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Commission called off.'); }
+  },
+  // === @b8-banking    (team) — Banking B2: state + methods ===
+  // F&D feudal-loan reconcile (promote-link) + commercial-loan depth (Phase_4_Banking_Plan.md B3, RR p.42 + p.348).
+  bankingReconcileFeudal(){
+    const r = window.ACKS.reconcileFeudalLoans(this.currentCampaign, {});
+    this.markDirty(); this.schedulePersist();
+    if(r.created > 0) this.showToast('🔗 Reconciled ' + r.created + ' feudal loan' + (r.created === 1 ? '' : 's') + ' from Favors & Duties.', 3500);
+    else if(r.synced > 0) this.showToast('Synced ' + r.synced + ' feudal loan' + (r.synced === 1 ? '' : 's') + '.', 3000);
+    else this.showToast('No new feudal loans to reconcile (demand + give a Loan duty on a vassal first).', 4000);
+  },
+  bankingLedgerText(){
+    const L = window.ACKS.loanLedgerFor(this.currentCampaign, {});
+    const parts = [L.activeCount + ' active', (L.totalOutstandingGp || 0).toLocaleString() + 'gp outstanding'];
+    if(L.totalMonthlyInterestGp > 0) parts.push((L.totalMonthlyInterestGp).toLocaleString() + 'gp interest/mo');
+    if(L.feudalCount > 0) parts.push('🤝 ' + L.feudalCount + ' feudal');
+    if(L.disreputableCount > 0) parts.push('⚠ ' + L.disreputableCount + ' disreputable');
+    if(L.debtOverXpCount > 0) parts.push('🗡 ' + L.debtOverXpCount + ' debt>XP');
+    return parts.join(' · ');
+  },
+  bankingLoanKindLabel(loan){ if(!loan) return '—'; if(loan.kind === 'feudal') return '🤝 feudal'; if(loan.kind === 'personal') return '👤 personal'; return '🏦 commercial'; },
+  bankingLoanStatus(loan){ return window.ACKS.loanStatusLabel(loan); },
+  bankingLoanInterest(loan){ const n = window.ACKS.loanInterestDueNextMonth(loan); return n > 0 ? (n.toLocaleString() + ' gp') : '—'; },
+  bankingBountyTip(loan){ const b = window.ACKS.loanBountyNote(this.currentCampaign, loan); return b ? b.note : "Balance exceeds the borrower's XP — bounty hunters (RR p.42)"; },
+  bankingRestructure(loanId){
+    const loan = this.bankingLoans().find(l => l && l.id === loanId); if(!loan) return;
+    const has = !!loan.collateral;
+    if(!window.confirm(has ? 'Drop the collateral on this loan? The rate returns to 3%/mo (RR p.42).' : 'Post collateral on this loan? The rate drops to 1%/mo (RR p.42).')) return;
+    const r = window.ACKS.restructureLoan(this.currentCampaign, loanId, { collateral: has ? null : { kind:'note', label:'collateral' } });
+    if(!r.ok){ this.showToast('Restructure failed: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan restructured → ' + this.bankingPct(r.loan.interestRateMonthly) + '/mo.', 3000);
+  },
+  bankingDefault(loanId){
+    if(!window.confirm('Call this loan in default? It stops accruing interest; the creditor may send bounty hunters (RR p.42).')) return;
+    const r = window.ACKS.markLoanDefaulted(this.currentCampaign, loanId, {});
+    if(!r.ok){ this.showToast('Could not mark default: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan called in default' + (r.bountyNote ? ' — bounty hunters at ~' + r.bountyNote.monthlyWagesGp.toLocaleString() + 'gp/mo (RR p.42).' : '.'), 4500);
+  },
+  bankingWriteOff(loanId){
+    if(!window.confirm('Write off this loan? The creditor forgives the remaining balance.')) return;
+    const r = window.ACKS.writeOffLoan(this.currentCampaign, loanId, {});
+    if(!r.ok){ this.showToast('Could not write off: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan written off.', 3000);
   },
 
   // Events log — sub-tab toggle. Campaign log is the default (Joachim 2026-05-28).
@@ -27175,6 +28208,8 @@ return {
       'loans', 'bankAccounts',
       // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
       'lore', 'knowledge',
+      // === Sages SG-2 (team burst8 2026-06-19) — the multi-week SageCommission research-commission (§8.9 importer mandate)
+      'sageCommissions',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
