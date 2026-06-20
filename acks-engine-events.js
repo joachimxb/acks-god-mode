@@ -293,6 +293,14 @@ const EVENT_KINDS = Object.freeze([
   // voting senators). Wizard opt-out below.
   'senate-motion-opened',
   'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — the rule-of-the-few OLIGARCHY governance mode
+  // (JJ pp.402–404). Engine-emitted by acks-engine-politics.js (establishOligarchy /
+  // dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision), record-only: the verb
+  // already applied state (the apex governance sub-tree; decisions by MAJORITY, NOT the 2d6 senate
+  // vote). Carries the Event.context envelope (apex hex + ruler + the oligarchs). Wizard opt-out below.
+  'oligarchy-established',
+  'oligarchy-dissolved',
+  'oligarchy-decision',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -1075,6 +1083,23 @@ const EVENT_SCHEMAS = Object.freeze({
          outcome: 'string', approved: 'boolean', status: 'string',
          forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
          totalVotes: 'number', majorityThreshold: 'number', revealedCount: 'number', narrative: 'string' }
+  },
+  // === Politics P-7 (burst10 2026-06-20) === (JJ pp.402–404; engine-emitted by acks-engine-politics.js, record-only)
+  // The apex realm adopts the oligarchy governance mode (fromMode = the prior mode).
+  'oligarchy-established': {
+    R: { apexDomainId: 'string' },
+    O: { fromMode: 'string', memberCount: 'number', decisionRule: 'string', narrative: 'string' }
+  },
+  // The oligarchy is dissolved → the realm becomes feudal|senatorial. action ∈ dissolved|secession|conquered.
+  'oligarchy-dissolved': {
+    R: { apexDomainId: 'string' },
+    O: { into: 'string', action: 'string', narrative: 'string' }
+  },
+  // A majority decision by the oligarchs (NOT 2d6 voting). outcome ∈ passed|rejected|deadlock.
+  'oligarchy-decision': {
+    R: { apexDomainId: 'string' },
+    O: { policy: 'string', decisionRule: 'string', outcome: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -3017,6 +3042,13 @@ registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
 // the event well-formed on replay (records the narrative only).
 registerEventHandler('senate-motion-opened', applyEvent_senateAudit);
 registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
+// === Politics P-7 (burst10 2026-06-20) === — the oligarchy events share the same record-only audit:
+// ACKS.establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision
+// (acks-engine-politics.js) already applied the state (the apex governance sub-tree + the decision);
+// the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('oligarchy-established', applyEvent_senateAudit);
+registerEventHandler('oligarchy-dissolved', applyEvent_senateAudit);
+registerEventHandler('oligarchy-decision', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -6241,6 +6273,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // politics.js openSenateMotion / resolveSenateMotion); a raw Wizard emit would record a motion the
   // senate.motions[] state doesn't show.
   'senate-motion-opened', 'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — owned by the Senate tab's ⚖ Governance card
+  // (acks-engine-politics.js establish/dissolve/secede/decide); a raw Wizard emit would record an
+  // oligarchy transition the apex governance state doesn't show.
+  'oligarchy-established', 'oligarchy-dissolved', 'oligarchy-decision',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',

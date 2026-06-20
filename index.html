@@ -15088,6 +15088,37 @@ document.addEventListener('alpine:init', () => {
     </div>
   </template>
 
+  <!-- @b10-politics P-7 (burst10): the ⚖ Governance card — the rule-of-the-few OLIGARCHY mode.
+       Gated on rule-of-the-few (hidden + non-functional when OFF — principle 8). Rendered at the view
+       top level (not under senateSelected) so an oligarchy-only realm with no senate is reachable. The
+       senate machinery above is RAW-core + independent of this card. -->
+  <template x-if="ruleOfFewOn()">
+    <div class="vellum border border-ink rounded p-4">
+      <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+        <h3 class="font-bold text-lg">⚖ Governance <span class="text-sm opacity-70 font-normal">· Rule of the Few (oligarchies)</span></h3>
+        <button @click="openOligModal(null)" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm">⚖ Manage governance</button>
+      </div>
+      <p class="text-sm opacity-70 mb-2">An <strong>oligarchy</strong> is a collective of oligarchs who <em>are</em> the ruler — its Charisma, level (→ Personal Authority), and alignment derive from them (JJ p.402), and it decides by <strong>majority</strong> rather than the senate's 2d6 vote (a deadlock keeps last period's policy). Establish or dissolve one, run its decisions, and let an oligarch secede.</p>
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Realm (apex)</th><th>Mode</th><th>Oligarchy (derived)</th></tr></thead>
+        <tbody>
+          <template x-for="r in governanceApexRows()" :key="r.id">
+            <tr>
+              <td class="font-semibold" x-text="r.name"></td>
+              <td><span class="text-xs px-1 rounded" :class="r.mode==='oligarchic' ? 'bg-purple-200' : (r.mode==='senatorial' ? 'bg-blue-100' : 'bg-stone-100')" x-text="r.mode"></span></td>
+              <td class="text-xs opacity-80">
+                <template x-if="oligSummaryFor(r.id)">
+                  <span x-text="'CHA '+(oligSummaryFor(r.id).cha>=0?'+':'')+oligSummaryFor(r.id).cha+' · level '+oligSummaryFor(r.id).level+' · PA '+(oligSummaryFor(r.id).personalAuthority>=0?'+':'')+oligSummaryFor(r.id).personalAuthority+' · '+oligSummaryFor(r.id).alignment+' · '+oligSummaryFor(r.id).memberCount+' oligarchs'"></span>
+                </template>
+                <template x-if="!oligSummaryFor(r.id)"><span class="opacity-50">—</span></template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </template>
+
   <template x-if="senateSelected()">
     <div class="space-y-4">
 
@@ -15133,7 +15164,7 @@ document.addEventListener('alpine:init', () => {
       <div class="vellum border border-ink rounded p-4">
         <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
           <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
-            <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateSelected().kind || 'senate') + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
+            <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateKindLabel(senateSelected()) + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
           <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
         </div>
         <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -17107,6 +17138,118 @@ document.addEventListener('alpine:init', () => {
      extends an existing view (Senate / Gladiators / Religion / Activities▸Hijinks) or is a wizard/modal.
      The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
 <!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
+<!-- The ⚖ oligarchy governance modal (rule-of-the-few). Launched from the 🏛 Senate tab's ⚖ Governance
+     card: establish/dissolve an oligarchy, manage members, run a majority decision, let an oligarch
+     secede. Gated on rule-of-the-few (the launcher is hidden when OFF; the engine verbs refuse rule-off
+     too). State + methods at the @b10-politics domainApp marker. -->
+<div x-show="oligModal.open" @keydown.escape.window="if(oligModal.open && !$event.defaultPrevented){ closeOligModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeOligModal()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full my-6 p-5 space-y-3" @click.stop>
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
+      <button @click="closeOligModal()" class="text-xl px-2">×</button>
+    </div>
+
+    <label class="text-sm" x-show="governanceApexRows().length>1">Realm
+      <select x-model="oligModal.apexId" @change="_syncOligDraft(); oligModal.votes={}; oligModal.lastDecision=null; oligModal.lastSecede=null" class="ml-1">
+        <template x-for="r in governanceApexRows()" :key="r.id"><option :value="r.id" x-text="r.name+' ('+r.mode+')'"></option></template>
+      </select>
+    </label>
+
+    <!-- NOT oligarchic → establish -->
+    <template x-if="!oligIsOligarchic()">
+      <div class="border border-ink rounded p-3 space-y-2">
+        <h3 class="font-semibold text-sm">Establish an oligarchy</h3>
+        <p class="text-xs opacity-70">Pick the oligarchs (the collective ruler) + how they decide. The realm's Charisma, level → Personal Authority, and alignment derive from them (JJ p.402); they decide by majority, not the senate's 2d6 vote.</p>
+        <div>
+          <div class="text-xs font-semibold mb-1">Oligarchs (<span x-text="oligModal.draftMembers.length"></span>)</div>
+          <template x-if="oligModal.draftMembers.length===0"><div class="text-xs italic opacity-50">none yet — add at least one</div></template>
+          <template x-for="id in oligModal.draftMembers" :key="id">
+            <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 mr-1 mb-1">
+              <span x-text="charName(id)"></span>
+              <button @click="oligRemoveDraftMember(id)" class="opacity-60 hover:opacity-100" title="remove">×</button>
+            </span>
+          </template>
+        </div>
+        <div class="flex flex-wrap items-center gap-1">
+          <select x-model="oligModal.addPick" class="text-sm">
+            <option value="">+ add an oligarch…</option>
+            <template x-for="ch in oligCandidateChars()" :key="ch.id"><option :value="ch.id" x-text="ch.name||ch.id"></option></template>
+          </select>
+          <button @click="oligAddDraftMember()" :disabled="!oligModal.addPick" class="text-xs px-2 py-1 border border-ink rounded hover:bg-green-100 disabled:opacity-40">add</button>
+          <label class="text-sm ml-2">Decisions
+            <select x-model="oligModal.draftRule" class="ml-1">
+              <option value="majority">majority</option><option value="unanimous">unanimous</option><option value="weighted">weighted</option>
+            </select>
+          </label>
+        </div>
+        <button @click="oligEstablish()" :disabled="oligModal.draftMembers.length===0" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40">⚖ Establish oligarchy</button>
+      </div>
+    </template>
+
+    <!-- oligarchic → derived ruler + members + decision + dissolve -->
+    <template x-if="oligIsOligarchic()">
+      <div class="space-y-3">
+        <template x-if="oligStats()">
+          <div class="border border-ink rounded p-3 text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+            <div class="sm:col-span-2 font-semibold">The collective ruler <span class="opacity-60 font-normal">(derived — JJ p.402)</span></div>
+            <div>Charisma modifier: <strong x-text="(oligStats().cha>=0?'+':'')+oligStats().cha"></strong></div>
+            <div>Average level: <strong x-text="oligStats().level"></strong></div>
+            <div>Personal Authority: <strong x-text="(oligStats().personalAuthority>=0?'+':'')+oligStats().personalAuthority"></strong></div>
+            <div>Alignment: <strong x-text="oligStats().alignment"></strong></div>
+            <div>Decisions by: <strong x-text="oligDecisionRule()"></strong></div>
+            <div>Oligarchs: <strong x-text="oligStats().memberCount"></strong></div>
+          </div>
+        </template>
+
+        <div class="border border-ink rounded p-3">
+          <div class="text-xs font-semibold mb-1">Oligarchs</div>
+          <template x-for="m in oligMembers()" :key="m.id">
+            <div class="flex justify-between items-center text-sm py-0.5">
+              <span x-text="m.name"></span>
+              <button @click="oligSecede(m.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="This oligarch leaves with his stronghold; his henchman-vassals roll Loyalty to follow (RR). Collapses the oligarchy when fewer than 2 remain.">secede</button>
+            </div>
+          </template>
+          <template x-if="oligModal.lastSecede">
+            <div class="text-xs mt-2 p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="oligModal.lastSecede.name+' seceded'+(oligModal.lastSecede.collapsed?' — the oligarchy collapsed to '+oligModal.lastSecede.into+'.':'.')+(oligModal.lastSecede.henchmen.length?' Henchman-vassals roll Loyalty to follow: '+oligModal.lastSecede.henchmen.join(', ')+'.':'')"></div>
+          </template>
+        </div>
+
+        <div class="border border-ink rounded p-3 space-y-2">
+          <h3 class="font-semibold text-sm">Resolve a decision <span class="opacity-60 font-normal" x-text="'· by '+oligDecisionRule()"></span></h3>
+          <input x-model="oligModal.policy" placeholder="the policy / matter (e.g. raise the army)" class="w-full text-sm border border-ink rounded px-2 py-1">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Oligarch</th><th>Vote</th></tr></thead>
+            <tbody>
+              <template x-for="m in oligMembers()" :key="m.id">
+                <tr>
+                  <td x-text="m.name"></td>
+                  <td>
+                    <select :value="oligModal.votes[m.id]||'abstain'" @change="oligSetVote(m.id, $event.target.value)" class="text-sm">
+                      <option value="for">for</option><option value="against">against</option><option value="abstain">abstain</option>
+                    </select>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button @click="oligDecide()" class="px-3 py-1 border-2 border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold text-sm">⚖ Resolve decision</button>
+          <template x-if="oligModal.lastDecision">
+            <div class="text-sm p-2 rounded" :class="oligModal.lastDecision.outcome==='passed'?'bg-green-50 border border-green-300':(oligModal.lastDecision.outcome==='rejected'?'bg-red-50 border border-red-300':'bg-stone-100 border border-stone-300')">
+              <strong x-text="oligModal.lastDecision.outcome.toUpperCase()"></strong>
+              <span x-text="' — '+oligModal.lastDecision.forVotes+' for / '+oligModal.lastDecision.againstVotes+' against / '+oligModal.lastDecision.abstainVotes+' abstain'"></span>
+              <span x-show="oligModal.lastDecision.outcome==='deadlock'" x-text="' · last period’s policy persists'+(oligModal.lastDecision.persistedPolicy?' ('+oligModal.lastDecision.persistedPolicy+')':'')"></span>
+            </div>
+          </template>
+        </div>
+
+        <div class="flex justify-end">
+          <button @click="oligDissolve()" class="text-xs px-3 py-1 border border-ink rounded hover:bg-red-100" title="Revert the realm to feudal; clear the oligarchy">⚖ Dissolve the oligarchy</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
 <!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
 <!-- === @b10-sages      (team) — SG-5: read-a-treatise UI (folds into the Consult-a-Sage modal / item sheet) === -->
 <!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
@@ -18023,7 +18166,10 @@ return {
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
       // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
       // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
-      ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
+      // P-7 (burst10): the tab also appears for an oligarchy-capable realm when rule-of-the-few is ON
+      // (so a GM can reach the ⚖ Governance card to establish/manage one even with no senate). Label
+      // adapts — 🏛 Senate when a senate exists, else ⚖ Governance. Hidden entirely when rule OFF + no senate.
+      ...((this.campaignHasSenate() || this.governanceTabAvailable()) ? [{ id:'senate', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
@@ -18821,6 +18967,82 @@ return {
   // ─── burst10 (team session 2026-06-20) — per-agent state + methods. Each builder appends its Alpine
   //     state + methods ONLY after its own @b10-<lane> marker below; the Lead reconciles at integration. ───
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
+  // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
+  // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +
+  // oligarchyDerivedStats). ALL gated on rule-of-the-few — hidden + non-functional when OFF (principle 8).
+  oligModal: { open:false, apexId:null, draftMembers:[], draftRule:'majority', addPick:'', policy:'', votes:{}, lastDecision:null, lastSecede:null },
+  ruleOfFewOn(){ return !!(this.currentCampaign && window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'rule-of-the-few')); },
+  // Eldermoot scaffolding: the senate-kind display label ('Senate' | 'Eldermoot' | 'Council'). An
+  // eldermoot IS a senate (shared entities + voting); the Dwarven plan supplies dwarven flavor.
+  senateKindLabel(s){ return (window.ACKS.senateKindLabel ? window.ACKS.senateKindLabel(s) : (((s && s.kind) || 'senate'))); },
+  // the realm apexes (no liege) — the realms governance lives on
+  governanceApexRows(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
+    return c.domains.filter(d => d && !d.liegeId).map(d => ({
+      id: d.id, name: d.name || d.id, mode: (window.ACKS.governanceFor(c, d) || {}).mode || 'feudal' }));
+  },
+  governanceTabAvailable(){ return this.ruleOfFewOn() && this.governanceApexRows().length > 0; },
+  // a derived oligarchy stat block for an apex id (null when it isn't oligarchic)
+  oligSummaryFor(apexId){
+    const c = this.currentCampaign; const d = (c.domains || []).find(x => x && x.id === apexId); if(!d) return null;
+    if((window.ACKS.governanceFor(c, d) || {}).mode !== 'oligarchic') return null;
+    return window.ACKS.oligarchyDerivedStats(c, d);
+  },
+  charName(id){ const ch = ((this.currentCampaign || {}).characters || []).find(c => c && c.id === id); return (ch && ch.name) || id; },
+  // — the modal —
+  openOligModal(apexId){
+    const rows = this.governanceApexRows();
+    this.oligModal.apexId = apexId || (rows[0] && rows[0].id) || null;
+    this._syncOligDraft();
+    this.oligModal.addPick = ''; this.oligModal.policy = ''; this.oligModal.votes = {};
+    this.oligModal.lastDecision = null; this.oligModal.lastSecede = null;
+    this.oligModal.open = true;
+  },
+  closeOligModal(){ this.oligModal.open = false; },
+  _oligApex(){ return ((this.currentCampaign || {}).domains || []).find(d => d && d.id === this.oligModal.apexId) || null; },
+  _oligGov(){ const d = this._oligApex(); return d ? (window.ACKS.governanceFor(this.currentCampaign, d) || {}) : {}; },
+  oligApexName(){ const d = this._oligApex(); return (d && (d.name || d.id)) || '(realm)'; },
+  oligMode(){ return this._oligGov().mode || 'feudal'; },
+  oligIsOligarchic(){ return this.oligMode() === 'oligarchic'; },
+  oligMembers(){ return (this._oligGov().oligarchCharacterIds || []).map(id => ({ id, name: this.charName(id) })); },
+  oligStats(){ const d = this._oligApex(); return d ? window.ACKS.oligarchyDerivedStats(this.currentCampaign, d) : null; },
+  oligDecisionRule(){ return this._oligGov().oligarchyDecisionRule || 'majority'; },
+  _syncOligDraft(){ const g = this._oligGov(); this.oligModal.draftMembers = (g.oligarchCharacterIds || []).slice(); this.oligModal.draftRule = g.oligarchyDecisionRule || 'majority'; },
+  oligCandidateChars(){ const have = new Set(this.oligModal.draftMembers); return ((this.currentCampaign || {}).characters || []).filter(c => c && !have.has(c.id)); },
+  oligAddDraftMember(){ const id = this.oligModal.addPick; if(id && this.oligModal.draftMembers.indexOf(id) < 0) this.oligModal.draftMembers.push(id); this.oligModal.addPick = ''; },
+  oligRemoveDraftMember(id){ const i = this.oligModal.draftMembers.indexOf(id); if(i >= 0) this.oligModal.draftMembers.splice(i, 1); },
+  oligEstablish(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.establishOligarchy(c, { domainId: this.oligModal.apexId, oligarchCharacterIds: this.oligModal.draftMembers.slice(), decisionRule: this.oligModal.draftRule, rulerCharacterId: (this._oligApex() || {}).rulerCharacterId });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft(); this.showToast('⚖ Oligarchy established — ' + r.memberCount + ' oligarchs rule ' + this.oligApexName() + '.', 5000); }
+    else this.showToast('Could not establish the oligarchy: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligDissolve(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.dissolveOligarchy(c, { domainId: this.oligModal.apexId, into: 'feudal', rulerCharacterId: (this.oligMembers()[0] || {}).id });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft(); this.oligModal.lastDecision = null; this.oligModal.lastSecede = null; this.showToast('⚖ The oligarchy is dissolved — ' + this.oligApexName() + ' becomes ' + r.into + '.', 5000); }
+    else this.showToast('Could not dissolve: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligSecede(id){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.secedeFromOligarchy(c, { domainId: this.oligModal.apexId, oligarchCharacterId: id });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft();
+      this.oligModal.lastSecede = { name: this.charName(id), collapsed: r.collapsed, into: r.into || null, henchmen: (r.henchmanVassals || []).map(h => this.charName(h)) };
+      this.showToast('⚖ ' + this.charName(id) + ' secedes' + (r.collapsed ? ' — the oligarchy collapses to ' + r.into + '.' : '.'), 5000); }
+    else this.showToast('Could not secede: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligSetVote(id, v){ this.oligModal.votes[id] = v; },
+  oligDecide(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const votes = this.oligMembers().map(m => ({ characterId: m.id, vote: this.oligModal.votes[m.id] || 'abstain' }));
+    const r = A.resolveOligarchyDecision(c, { domainId: this.oligModal.apexId, policy: this.oligModal.policy, votes, decisionRule: this.oligDecisionRule() });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this.oligModal.lastDecision = r; this.showToast('⚖ Decision: ' + r.outcome + ' (' + r.forVotes + ' for / ' + r.againstVotes + ' against).', 5000); }
+    else this.showToast('Could not resolve the decision: ' + ((r && r.reason) || 'error'), 5000);
+  },
   // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
   // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
