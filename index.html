@@ -90,7 +90,7 @@
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-treasure.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-treasure.js?v=2026-06-20-b10treasure"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-sages.js?v=2026-06-20-burst9"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
@@ -14829,9 +14829,15 @@ document.addEventListener('alpine:init', () => {
             <span class="opacity-60" x-show="treasureWizard.targetGp" x-text="'→ nearest type ' + nearestTreasureTypeLabel(treasureWizard.targetGp)"></span>
           </label>
         </template>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 flex-wrap">
           <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.withSpecial" @change="treasureWizard.hoard=null"> Special treasures <span class="opacity-60">(substitute trade goods + captives)</span></label>
-          <span class="opacity-60 text-xs">Mode: <span class="font-semibold" x-text="treasureModeLabel()"></span></span>
+          <label class="flex items-center gap-2 text-sm" title="Treasure mode — a campaign setting (TT p.19). Classic = RAW. Heroic/Gritty push coin value into heavier denominations (≈×6 weight, same gp) and roll magic by rarity; Gritty makes Legendary much rarer.">Mode
+            <select @change="treasureSetMode($event.target.value)" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="classic" :selected="treasureModeLabel()==='classic'">Classic (RAW)</option>
+              <option value="heroic"  :selected="treasureModeLabel()==='heroic'">Heroic — heavier · by rarity</option>
+              <option value="gritty"  :selected="treasureModeLabel()==='gritty'">Gritty — heavier · Legendary rare</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -14857,8 +14863,14 @@ document.addEventListener('alpine:init', () => {
             <template x-for="(s,i) in treasureWizard.hoard.specialTreasures" :key="'s-'+i">
               <li>📦 <span x-text="(s.qty>1 ? (s.qty + '× ') : '') + s.name + ' — ' + (s.valueGp*(s.qty||1)).toLocaleString() + ' gp'"></span></li>
             </template>
-            <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
-              <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+            <!-- T4: resolved magic items (real #143 catalog) when present, else GM-fill slot placeholders. -->
+            <template x-for="(m,i) in (treasureWizard.hoard.magicItems && treasureWizard.hoard.magicItems.length ? treasureWizard.hoard.magicItems : [])" :key="'mi-'+i">
+              <li>✨ <span x-text="m.name"></span> <span class="opacity-60" x-text="'(' + (m.rarity||'item') + ' · ' + (m.apparentValue||0).toLocaleString() + ' gp)'"></span></li>
+            </template>
+            <template x-if="!(treasureWizard.hoard.magicItems && treasureWizard.hoard.magicItems.length)">
+              <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
+                <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+              </template>
             </template>
             <template x-for="(cap,i) in treasureWizard.hoard.captives" :key="'cap-'+i">
               <li>⛓ <span x-text="cap.description + ' — base ' + cap.valueGp.toLocaleString() + ' gp'"></span></li>
@@ -18825,6 +18837,20 @@ return {
   // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
   // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
+  // treasureSetMode — write the campaign's treasure MODE (a campaign setting, NOT a house
+  // rule; TT p.19). Classic = RAW; Heroic/Gritty push coin value into heavier denominations
+  // + roll magic by rarity (engine: generateHoard reads the mode). Clears the stale rolled
+  // hoard so the next roll uses the new mode. The wizard's treasureRoll already passes
+  // ACKS.treasureModeFor(campaign) into generateHoard/planHoard.
+  treasureSetMode(m){
+    if(!this.currentCampaign) return;
+    const A = window.ACKS;
+    const modes = (A && A.TREASURE_MODES) || ['classic','heroic','gritty'];
+    this.currentCampaign.treasureMode = (modes.indexOf(m) >= 0) ? m : 'classic';
+    this.treasureWizard.hoard = null;       // mode changes the roll → drop the stale result
+    this.markDirty && this.markDirty();
+    this.schedulePersist && this.schedulePersist();
+  },
   // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
