@@ -17102,6 +17102,17 @@ document.addEventListener('alpine:init', () => {
      No separate modal: HW-5 local authoring reuses the shipped hex card (openHexDetail) for editing a
      sub-hex + the in-toolbar Local breadcrumb (map-control:scale-local) for the drill/back nav. -->
 
+<!-- ════ TEAM SESSION (burst10 2026-06-20) — per-agent NEW modal/overlay tail. Append your modal/overlay
+     markup ONLY after your own @b10-<lane> marker below. None of the 6 lanes adds a top-level tab; each
+     extends an existing view (Senate / Gladiators / Religion / Activities▸Hijinks) or is a wizard/modal.
+     The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
+<!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
+<!-- === @b10-sages      (team) — SG-5: read-a-treatise UI (folds into the Consult-a-Sage modal / item sheet) === -->
+<!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
+<!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
+<!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -18807,6 +18818,14 @@ return {
   //     mapLocalView / mapLocalMarkup / mapLocalAddHex / mapLocalBackToRegional) live WITH the HW-4
   //     map-scale methods (the "agent-6 (Hex Scales HW-5)" section just after mapContinentalMarkup),
   //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
+  // ─── burst10 (team session 2026-06-20) — per-agent state + methods. Each builder appends its Alpine
+  //     state + methods ONLY after its own @b10-<lane> marker below; the Lead reconciles at integration. ───
+  // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
+  // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
+  // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
+  // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
+  // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
+  // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
