@@ -179,7 +179,7 @@
     const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
     const subject = opts.subject;
     const query = String(opts.query || '').trim();
-    const feeGp = Math.max(0, Math.round(Number(opts.feeGp) || 0));
+    let feeGp = Math.max(0, Math.round(Number(opts.feeGp) || 0));
     const secret = !!opts.secret;
 
     const r = sageConsultResolve(campaign, sage, {
@@ -187,6 +187,22 @@
       preferProficiency: opts.preferProficiency, preferTask: opts.preferTask
     });
     if(!r.available) return { ok:false, error: r.reason || 'not-a-sage' };
+
+    // SG-3: an active RETAINER waives (or discounts) the per-query fee — the client already pays
+    // the sage a monthly fee (retainSage), so ordinary queries are covered (consultDiscount default
+    // 1 = free; 🔧 RR p.171 gives only the 500gp/mo wage). No-op when no retainer exists (the
+    // shipped SG-1 path is unchanged). opts.ignoreRetainer forces the per-query fee anyway.
+    const baseFeeGp = feeGp;
+    let coveredByRetainer = false, retainerId = null;
+    if(!opts.ignoreRetainer){
+      const _ret = sageRetainerFor(campaign, client.id, sage.id);
+      if(_ret){
+        retainerId = _ret.id;
+        const disc = Math.max(0, Math.min(1, Number(_ret.consultDiscount != null ? _ret.consultDiscount : 1)));
+        feeGp = Math.max(0, Math.round(baseFeeGp * (1 - disc)));
+        coveredByRetainer = true;
+      }
+    }
 
     // Resolve the throw on the shipped Layer-1 die (RR pp.9–10).
     let result;
@@ -220,7 +236,8 @@
         target: (result.target != null) ? result.target : r.target,
         success, margin: (result.margin != null) ? result.margin : null, secret
       },
-      feeGp, answerText,
+      feeGp, baseFeeGp, coveredByRetainer, retainerId,   // SG-3: a retainer waives/discounts the fee
+      answerText,
       loreId: null,   // SG-4 (Knowledge Layer emit) reserved — set iff knowledge-tracking is on
       // #346: a consultation is an ancillary errand for the asker (the sage is busy too — both
       // participants are in relatedEntities, so the budget charges each 1 ancillary; a per-role
@@ -488,10 +505,12 @@
         label: ((sage && sage.name) || 'A sage') + ' completes the research on ' + (com.subject ? ('“' + com.subject + '”') : 'the question') + (success ? ' — and has an answer.' : ' — but found nothing.'),
         payload: { sageCommissionId: com.id, success } });
     }
+    _proposeRetainerBills(campaign, dayInMonth, out);   // SG-3: monthly retainer billing rides the same slot-64 consumer
     return out;
   }
 
   function commitSageCommissionRecord(campaign, record){
+    if(record && record.kind === 'sage-retainer-bill') return _commitRetainerBill(campaign, record);   // SG-3
     if(!record || record.kind !== 'sage-commission-complete') return;
     const com = findSageCommission(campaign, record.commissionId);
     if(!com || com.status !== 'in-progress') return;   // idempotent guard
@@ -527,13 +546,273 @@
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SG-3 (burst9 b9-sages, #147) — the PERIODIC-FEE RETAINER (Phase_4_Sages_Plan.md §7 row SG-3;
+  // RR Adventures — a standing arrangement, distinct from SG-2's one-off multi-week commission).
+  // A patron RETAINS a sage on an ongoing monthly fee (default the RR p.171 specialist wage,
+  // 500 gp/mo) for ongoing lore/identify service at PRIORITY (the sage is on call — no availability
+  // roll) + DISCOUNT (ordinary consultations are covered — consultDiscount default 1 = free).
+  //
+  // Footprint — deliberately MINIMAL (manifest: NO new prefix/entity; reuse sag-):
+  //   - A retainer is a record on the CLIENT character (client.sageRetainers[]) — a field on an
+  //     existing entity (rides campaign.characters[] → NO new collection, NO importer change, NO
+  //     entity-registry kind, NO field schema, NO blankCampaign seed, NO migrateCampaign inject,
+  //     NO save migration; defensive read + init-on-write — the sageSpecialty / SG-2 precedent).
+  //     A retainer is a client↔sage RELATION; the relation-entity home (Architecture §3.1) is a
+  //     future registered sageRetainers[] collection — a field is the in-lane v1 (no new prefix).
+  //   - It reuses the sag- id mint (_newSagId) — a stable id, no new prefix registered.
+  //   - 3 record-only event kinds (sage-retainer-started/-ended/-fee-paid — the SG-1 direct-push
+  //     pattern). NO new day-tick slot: billing rides the SHIPPED slot-64 consumer (above) — the
+  //     ordinal nextBillOrd schedule (startedAtOrd + 30, the SG-2 completion pattern) bills every
+  //     30 days (= an ACKS month), driven both by manual Day-Clock ticks AND by commitTurn's
+  //     runDayTickToMonthEnd (so Advance-Month collects the rent). NO house rule (core RAW, the
+  //     specialist wage; the 🔧 defaults are the monthly fee number + free-consults reading).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const RETAINER_FEE_DEFAULT = 500;   // RR p.171 specialist monthly wage (the retainer fee; 🔧 GM-overridable)
+
+  function _retainerArr(c){ return (c && Array.isArray(c.sageRetainers)) ? c.sageRetainers : []; }
+
+  // Find the retainer record (+ its owning client character) anywhere in the campaign.
+  function _findRetainerOwner(campaign, retainerId){
+    if(!retainerId) return null;
+    for(const c of _chars(campaign)){
+      const ret = _retainerArr(c).find(r => r && r.id === retainerId);
+      if(ret) return { owner: c, retainer: ret };
+    }
+    return null;
+  }
+
+  // ── Lookups ──────────────────────────────────────────────────────────────────
+  // The active retainer for a (client, sage) pair, or null.
+  function sageRetainerFor(campaign, clientId, sageId){
+    if(!clientId || !sageId) return null;
+    const client = _findChar(campaign, clientId);
+    if(!client) return null;
+    return _retainerArr(client).find(r => r && r.status === 'active' && r.sageCharacterId === sageId) || null;
+  }
+  // Every active retainer the character is party to (as client OR as the retained sage).
+  function sageRetainersForCharacter(campaign, characterId){
+    if(!characterId) return [];
+    const out = [];
+    for(const c of _chars(campaign)){
+      for(const r of _retainerArr(c)){
+        if(!r || r.status !== 'active') continue;
+        if(r.clientCharacterId === characterId || r.sageCharacterId === characterId) out.push(r);
+      }
+    }
+    return out;
+  }
+  // Is this sage retained by anyone (the priority flag — a retained sage is on call)?
+  function isSageRetained(campaign, sageId){
+    if(!sageId) return false;
+    for(const c of _chars(campaign)){
+      if(_retainerArr(c).some(r => r && r.status === 'active' && r.sageCharacterId === sageId)) return true;
+    }
+    return false;
+  }
+  // The effective per-consultation fee after the retainer discount (the modal preview helper).
+  function retainerConsultFee(campaign, clientId, sageId, baseFeeGp){
+    const base = Math.max(0, Math.round(Number(baseFeeGp) || 0));
+    const ret = sageRetainerFor(campaign, clientId, sageId);
+    if(!ret) return { covered:false, feeGp: base, baseFeeGp: base, discount: 0, retainerId: null };
+    const disc = Math.max(0, Math.min(1, Number(ret.consultDiscount != null ? ret.consultDiscount : 1)));
+    return { covered:true, feeGp: Math.max(0, Math.round(base * (1 - disc))), baseFeeGp: base, discount: disc, retainerId: ret.id };
+  }
+
+  // ── Retainer events (record-only; the §528 envelope — sage source, client beneficiary) ──
+  function _emitSageRetainerEvent(campaign, kind, payload, ctx){
+    ctx = ctx || {};
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    const A = _sACKS();
+    const turn = campaign.currentTurn || 1;
+    const day  = (ctx.dayInMonth != null) ? ctx.dayInMonth : (campaign.currentDayInMonth || 1);
+    const context = {
+      primaryHexId: ctx.hexId || null,
+      involvedHexIds: ctx.hexId ? [ctx.hexId] : [],
+      settlementId: payload.settlementId || null,
+      domainId: null,
+      relatedEntities: [
+        { kind:'character', id: payload.sageCharacterId,   role:'source' },
+        { kind:'character', id: payload.clientCharacterId, role:'beneficiary' }
+      ]
+    };
+    let ev;
+    if(typeof A.newEvent === 'function' && typeof A.isEventKindKnown === 'function' && A.isEventKindKnown(kind)){
+      ev = A.newEvent(kind, { submittedBy: ctx.submittedBy || 'engine', status:'applied',
+        cadence: ctx.cadence || 'monthly-turn', targetTurn: turn, context, payload });
+    } else {
+      ev = { id:'evt-sageret-' + ((campaign.eventLog.length || 0) + 1), kind, status:'applied',
+        submittedBy: ctx.submittedBy || 'engine', context, payload };
+    }
+    ev.appliedAtTurn = turn; ev.appliedAtDay = day;
+    if(ctx.campaignLogHidden) ev.campaignLogHidden = true;   // routine monthly bill — Event Log only
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: ctx.narrative || '' },
+      appliedAtTurn: turn, appliedAtDay: day, appliedAt: (typeof Date !== 'undefined' ? new Date().toISOString() : '') });
+    return ev;
+  }
+
+  // ── retainSage — start a standing retainer ───────────────────────────────────
+  // opts: { sageId, clientId?, feeGpPerMonth?, consultDiscount?, settlementId?, specialty?,
+  //         submittedBy?, id? }. Debits the FIRST month upfront (GP Wave B; insufficient aborts —
+  //         nothing created), records it on the client, emits sage-retainer-started. The day-tick
+  //         then bills each subsequent month (nextBillOrd = startedAtOrd + 30).
+  function retainSage(campaign, opts){
+    opts = opts || {};
+    const A = _sACKS();
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const sage = _findChar(campaign, opts.sageId);
+    if(!sage) return { ok:false, error:'unknown-sage' };
+    if(!isSage(sage)) return { ok:false, error:'not-a-sage' };
+    const client = _findChar(campaign, opts.clientId) || sage;
+    if(client.id === sage.id) return { ok:false, error:'self-retain' };          // a retainer is a client↔sage arrangement
+    if(sageRetainerFor(campaign, client.id, sage.id)) return { ok:false, error:'already-retained' };
+    const feeGpPerMonth = (opts.feeGpPerMonth != null) ? Math.max(0, Math.round(Number(opts.feeGpPerMonth) || 0)) : RETAINER_FEE_DEFAULT;
+    const consultDiscount = (opts.consultDiscount != null) ? Math.max(0, Math.min(1, Number(opts.consultDiscount))) : 1;
+    const turn = campaign.currentTurn || 1, day = campaign.currentDayInMonth || 1;
+    const startedAtOrd = _sageDayOrd(campaign, day);
+
+    // The first month, upfront (GP Wave B). Validate-then-create: an unaffordable first month aborts.
+    let feeSpec = null;
+    if(feeGpPerMonth > 0 && A.applyWealthTransfer){
+      feeSpec = { amount: feeGpPerMonth, source:{ kind:'character', id: client.id, label: client.name || client.id },
+                  destination:{ kind:'external', label:'the sage' }, bucket:'service', reason:'sage-retainer' };
+      try { A.applyWealthTransfer(campaign, feeSpec); }
+      catch(e){ return { ok:false, error:'insufficient-funds', detail: String((e && e.message) || e) }; }
+    }
+
+    const retainer = {
+      id: opts.id || _newSagId(),
+      sageCharacterId: sage.id, clientCharacterId: client.id,
+      settlementId: opts.settlementId || null,
+      specialty: String(opts.specialty || sage.sageSpecialty || ''),
+      feeGpPerMonth, consultDiscount,
+      startedAtTurn: turn, startedAtOrd,
+      nextBillOrd: startedAtOrd + 30,                 // month 1 paid now; the day-tick bills month 2 at +30 days
+      lastBilledTurn: turn, monthsPaid: 1,
+      status: 'active', endedAtTurn: null, endedReason: '',
+      history: [{ turn, dayInMonth: day, type:'retained',
+        text: (client.name || 'A patron') + ' retains ' + (sage.name || 'a sage') + ' at ' + feeGpPerMonth + ' gp/month.' }]
+    };
+    if(!Array.isArray(client.sageRetainers)) client.sageRetainers = [];   // init-on-write (defensive; migrate never injects it)
+    client.sageRetainers.push(retainer);
+
+    const hexId = client.currentHexId || sage.currentHexId || null;
+    const ev = _emitSageRetainerEvent(campaign, 'sage-retainer-started', {
+      sageRetainerId: retainer.id, sageCharacterId: sage.id, clientCharacterId: client.id,
+      settlementId: retainer.settlementId, feeGpPerMonth, consultDiscount, specialty: retainer.specialty
+    }, { hexId, cadence:'monthly-turn', submittedBy: opts.submittedBy,
+         narrative: (client.name || 'A patron') + ' retains ' + (sage.name || 'a sage') +
+           (retainer.specialty ? (', a scholar of ' + retainer.specialty + ',') : '') + ' at ' + feeGpPerMonth + ' gp/month.' });
+    if(feeSpec && A.recordWealthTransfer) A.recordWealthTransfer(campaign, feeSpec, { parentEvent: ev });
+    return { ok:true, retainer, feeGp: feeGpPerMonth, startedAtOrd, event: ev };
+  }
+
+  // ── endSageRetainer — end a standing retainer (GM-voluntary, or 'unpaid' lapse) ──
+  // sel: a retainer id (string) OR { clientId, sageId }. opts: { reason?: 'unpaid', submittedBy? }.
+  function endSageRetainer(campaign, sel, opts){
+    opts = opts || {};
+    let found = null;
+    if(typeof sel === 'string'){ found = _findRetainerOwner(campaign, sel); }
+    else if(sel && typeof sel === 'object'){
+      const ret = sageRetainerFor(campaign, sel.clientId, sel.sageId);
+      if(ret) found = _findRetainerOwner(campaign, ret.id);
+    }
+    if(!found) return { ok:false, error:'unknown-retainer' };
+    const ret = found.retainer;
+    if(ret.status !== 'active') return { ok:false, error:'not-active' };
+    const reason = (opts.reason === 'unpaid') ? 'unpaid' : 'ended';
+    const turn = campaign.currentTurn || 1, day = campaign.currentDayInMonth || 1;
+    ret.status = (reason === 'unpaid') ? 'lapsed' : 'ended';
+    ret.endedAtTurn = turn; ret.endedReason = reason;
+    ret.history.push({ turn, dayInMonth: day, type:(reason === 'unpaid' ? 'lapsed' : 'ended'),
+      text: (reason === 'unpaid' ? 'The retainer lapsed (unpaid).' : 'The retainer was ended.') });
+    const sage = _findChar(campaign, ret.sageCharacterId);
+    const client = _findChar(campaign, ret.clientCharacterId) || found.owner;
+    const hexId = (client && client.currentHexId) || (sage && sage.currentHexId) || null;
+    const ev = _emitSageRetainerEvent(campaign, 'sage-retainer-ended', {
+      sageRetainerId: ret.id, sageCharacterId: ret.sageCharacterId, clientCharacterId: ret.clientCharacterId,
+      settlementId: ret.settlementId, feeGpPerMonth: ret.feeGpPerMonth, monthsPaid: ret.monthsPaid, reason
+    }, { hexId, cadence:'monthly-turn', submittedBy: opts.submittedBy,
+         narrative: ((client && client.name) || 'A patron') + ' ends the retainer with ' + ((sage && sage.name) || 'the sage') + '.' });
+    return { ok:true, retainer: ret, event: ev };
+  }
+
+  // ── Monthly billing — rides the slot-64 consumer (no new slot). _proposeRetainerBills surfaces
+  // a TRANSIENT review notable + a pending record for each retainer whose 30-day mark has come;
+  // _commitRetainerBill debits the month (GP Wave B) + advances the schedule, or LAPSES the
+  // retainer if the client can no longer pay (the F&D/scutage consequence). forOrd makes the
+  // commit idempotent (a re-commit finds nextBillOrd already advanced past it → no-op). ──
+  function _proposeRetainerBills(campaign, dayInMonth, out){
+    const nowOrd = _sageDayOrd(campaign, dayInMonth);
+    for(const c of _chars(campaign)){
+      for(const ret of _retainerArr(c)){
+        if(!ret || ret.status !== 'active') continue;
+        if(typeof ret.nextBillOrd !== 'number') continue;
+        if(nowOrd < ret.nextBillOrd) continue;   // not due yet
+        const sage = _findChar(campaign, ret.sageCharacterId);
+        const hexId = c.currentHexId || (sage && sage.currentHexId) || null;
+        out.pendingRecords.push({ kind:'sage-retainer-bill', retainerId: ret.id, clientId: ret.clientCharacterId, forOrd: ret.nextBillOrd });
+        out.notableEvents.push({ kind:'gm-narrative', type:'sage-retainer', transient:true, primaryHexId: hexId,
+          label: (c.name || 'A patron') + '’s retainer with ' + ((sage && sage.name) || 'a sage') + ' is due — ' + (ret.feeGpPerMonth || 0) + ' gp.',
+          payload: { sageRetainerId: ret.id, feeGp: ret.feeGpPerMonth || 0 } });
+      }
+    }
+  }
+
+  function _commitRetainerBill(campaign, record){
+    const found = _findRetainerOwner(campaign, record.retainerId);
+    if(!found) return;
+    const ret = found.retainer;
+    if(ret.status !== 'active') return;                                            // idempotent: only an active retainer bills
+    if(typeof record.forOrd === 'number' && ret.nextBillOrd !== record.forOrd) return;   // already billed this period
+    const A = _sACKS();
+    const sage = _findChar(campaign, ret.sageCharacterId);
+    const client = _findChar(campaign, ret.clientCharacterId) || found.owner;
+    const turn = campaign.currentTurn || 1;
+    const day = (typeof record.dayInMonth === 'number') ? record.dayInMonth : (campaign.currentDayInMonth || 1);
+    const fee = Math.max(0, Math.round(Number(ret.feeGpPerMonth) || 0));
+    const hexId = (client && client.currentHexId) || (sage && sage.currentHexId) || null;
+    const sName = (sage && sage.name) || 'the sage';
+
+    // Bill the month (GP Wave B). A client who can no longer pay → the retainer LAPSES (RR-style).
+    let feeSpec = null;
+    if(fee > 0 && A.applyWealthTransfer){
+      feeSpec = { amount: fee, source:{ kind:'character', id: client.id, label: client.name || client.id },
+                  destination:{ kind:'external', label:'the sage' }, bucket:'service', reason:'sage-retainer' };
+      try { A.applyWealthTransfer(campaign, feeSpec); }
+      catch(e){
+        ret.status = 'lapsed'; ret.endedAtTurn = turn; ret.endedReason = 'unpaid';
+        ret.history.push({ turn, dayInMonth: day, type:'lapsed', text:'The retainer lapsed — the monthly fee could not be paid.' });
+        _emitSageRetainerEvent(campaign, 'sage-retainer-ended', {
+          sageRetainerId: ret.id, sageCharacterId: ret.sageCharacterId, clientCharacterId: ret.clientCharacterId,
+          settlementId: ret.settlementId, feeGpPerMonth: fee, monthsPaid: ret.monthsPaid, reason:'unpaid'
+        }, { hexId, cadence:'daily', dayInMonth: day, submittedBy:'engine',
+             narrative: ((client && client.name) || 'The patron') + ' can no longer pay ' + sName + ' — the retainer lapses.' });
+        return;
+      }
+    }
+    ret.nextBillOrd = (typeof ret.nextBillOrd === 'number' ? ret.nextBillOrd : _sageDayOrd(campaign, day)) + 30;
+    ret.monthsPaid = (ret.monthsPaid || 0) + 1;
+    ret.lastBilledTurn = turn;
+    ret.history.push({ turn, dayInMonth: day, type:'fee-paid', text:'Monthly retainer paid — ' + fee + ' gp (month ' + ret.monthsPaid + ').' });
+    const ev = _emitSageRetainerEvent(campaign, 'sage-retainer-fee-paid', {
+      sageRetainerId: ret.id, sageCharacterId: ret.sageCharacterId, clientCharacterId: ret.clientCharacterId,
+      settlementId: ret.settlementId, feeGp: fee, monthsPaid: ret.monthsPaid
+    }, { hexId, cadence:'daily', dayInMonth: day, submittedBy:'engine', campaignLogHidden: true,
+         narrative: ((client && client.name) || 'The patron') + ' pays ' + sName + '’s monthly retainer (' + fee + ' gp).' });
+    if(feeSpec && A.recordWealthTransfer) A.recordWealthTransfer(campaign, feeSpec, { parentEvent: ev });
+  }
+
   // ── Export ──────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     isSage, subjectInSpecialty, sageConsultResolve, sageConsultForecast, consultSage,
     // SG-2 — the multi-week SageCommission
     blankSageCommission, sageCommissions, findSageCommission, sageCommissionsForCharacter,
     sageCommissionProgress, commissionSage, abandonSageCommission,
-    proposeSageCommissionDay, commitSageCommissionRecord
+    proposeSageCommissionDay, commitSageCommissionRecord,
+    // SG-3 — the periodic-fee retainer
+    retainSage, endSageRetainer, sageRetainerFor, sageRetainersForCharacter, isSageRetained, retainerConsultFee
   });
 
   // Self-register the slot-64 day-tick consumer (Calendar §14; registerDayConsumer ships from

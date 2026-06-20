@@ -269,6 +269,12 @@ const EVENT_KINDS = Object.freeze([
   // day-tick commit already applied the state): -started at commissioning, -resolved when the
   // research completes. The §528 envelope (sage = source, client = beneficiary, the commission = subject).
   'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — the periodic-fee retainer (retainSage / endSageRetainer + the slot-64
+  // monthly billing; acks-engine-sages.js). All record-only (the verb / the day-tick commit already
+  // moved the gp via GP Wave B): -started at retainer, -fee-paid each month (campaignLogHidden — the
+  // routine bill, off the Campaign Log), -ended on a voluntary end or an unpaid lapse. §528 envelope
+  // (sage = source, client = beneficiary).
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
@@ -980,6 +986,20 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
     O: { settlementId: 'string', subject: 'string', success: 'boolean', throw: 'object',
          answerText: 'string', daysRequired: 'number' }
+  },
+  // === Sages SG-3 (team) === — the periodic-fee retainer (record-only). started: the standing
+  // arrangement; fee-paid: a monthly bill; ended: a voluntary end or an unpaid lapse (reason).
+  'sage-retainer-started': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', consultDiscount: 'number', specialty: 'string' }
+  },
+  'sage-retainer-fee-paid': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGp: 'number', monthsPaid: 'number' }
+  },
+  'sage-retainer-ended': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', monthsPaid: 'number', reason: 'string' }
   },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
@@ -6081,6 +6101,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // consumer (the 📜 Commission modal + the Day Clock); a raw emit would record a commission the
   // sageCommissions[] state doesn't show. The GM commissions a sage via the modal, not the Wizard.
   'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — owned by retainSage / endSageRetainer / the slot-64 monthly billing
+  // (the Consult-a-Sage modal's retainer section + the Day Clock); a raw emit would record a retainer
+  // the client.sageRetainers[] state doesn't show.
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
