@@ -847,6 +847,57 @@ function collectSyndicateTribute(campaign, synId, opts){
 }
 
 // =============================================================================
+// processSyndicateTributeForTurn — the monthly auto-take (HJ-2 follow-on, 2026-06-20).
+// RAW tribute is MONTHLY (RR p.362, "Monthly Member Tribute"), so a boss "sitting back to
+// collect his ill-gotten gains" IS the RAW default — gated on the syndicate-auto-tribute rule
+// (default ON via the registry default, the favor-duty-auto-roll precedent). When OFF the GM
+// drives the take by hand (the manual Collect button) — useful for a Judge running the detailed
+// per-member hijink assignments (HJ-3) who doesn't want the passive whole-roster take on top.
+// REUSES collectSyndicateTribute, which is already idempotent within a turn (the lastTributeTurn
+// guard) — so a manual collection earlier in the month BLOCKS the auto one (no double-dip) and
+// the take routes through the same GP Wave B grammar + 'hijink-tribute' event. dryRun: sum the
+// would-be take over the eligible syndicates WITHOUT mutating (the proposeMonthlyTurn preview, the
+// livingExpenses precedent). Late-bound into commitTurn (this module loads after acks-engine.js) +
+// try-guarded there so a tribute error never fails the monthly commit.
+// Returns { ran, ruleOn, totalGp, collections[], logEntries[] }.
+// =============================================================================
+function processSyndicateTributeForTurn(campaign, opts){
+  opts = opts || {};
+  const out = { ran: false, ruleOn: false, totalGp: 0, collections: [], logEntries: [] };
+  if(!campaign) return out;
+  const A = global.ACKS;
+  // Absent rule ⇒ ON (the registry default). Only an explicit { enabled:false } turns it off.
+  const ruleOn = !(A && typeof A.isHouseRuleEnabled === 'function') || A.isHouseRuleEnabled(campaign, 'syndicate-auto-tribute');
+  out.ruleOn = !!ruleOn;
+  if(!ruleOn) return out;
+  const turn = (opts.atTurn != null) ? opts.atTurn : (campaign.currentTurn || 1);
+  for(const syn of activeSyndicates(campaign)){
+    if(!syn || !syn.bossCharacterId) continue;
+    if(syn.lastTributeTurn === turn) continue;                 // a manual collection already took it this month
+    const total = syndicateMonthlyTribute(campaign, syn).totalGp;
+    if(total <= 0) continue;                                    // no paying members
+    if(opts.dryRun){
+      out.collections.push({ syndicateId: syn.id, name: syn.name, bossCharacterId: syn.bossCharacterId, bossName: _tributeBossName(campaign, syn), totalGp: total, memberCount: syndicateMemberCount(syn) });
+      out.totalGp += total;
+      continue;
+    }
+    const res = collectSyndicateTribute(campaign, syn.id, { atTurn: turn });
+    if(res && res.ok){
+      out.ran = true;
+      out.totalGp += res.totalGp || 0;
+      out.collections.push({ syndicateId: syn.id, name: syn.name, bossCharacterId: syn.bossCharacterId, totalGp: res.totalGp || 0 });
+      out.logEntries.push('💰 ' + _tributeBossName(campaign, syn) + ' collects ' + (res.totalGp || 0).toLocaleString() + 'gp in monthly tribute from ' + (syn.name || 'the syndicate') + '.');
+    }
+  }
+  if(opts.dryRun) out.ran = out.collections.length > 0;
+  return out;
+}
+function _tributeBossName(campaign, syn){
+  const boss = ((campaign && campaign.characters) || []).find(c => c && c.id === syn.bossCharacterId);
+  return (boss && boss.name) ? boss.name : 'The boss';
+}
+
+// =============================================================================
 // Trials & sentencing (RR pp.367–368). A caught hijink (HJ-1 set h.outcome='caught' and
 // rolled h.charge) leads to await-trial languishing, then the 2d6 Crime & Punishment roll
 // (or an auto plead-guilty for the first/second offence). The boss pays the fine (RAW:
@@ -1029,7 +1080,7 @@ Object.assign(ACKS, {
   addSyndicateMembers, removeSyndicateMembers,
   syndicateMaxEffectiveLevel, syndicateEffectiveHideoutGp, syndicateMaxMembers, syndicateMemberCount,
   syndicateBossEligible, syndicateBossIneligibleReason,
-  memberMonthlyTribute, syndicateMonthlyTribute, collectSyndicateTribute,
+  memberMonthlyTribute, syndicateMonthlyTribute, collectSyndicateTribute, processSyndicateTributeForTurn,
   crimeProfile, awaitTrialDays, crimePunishmentBand, hijinkTrialModifiers, resolveHijinkTrial
 });
 

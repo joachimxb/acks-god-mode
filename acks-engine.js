@@ -9354,6 +9354,16 @@ function proposeMonthlyTurn(campaign, options){
     }
   } catch(e){ /* never let the banking preview fail the turn proposal */ }
 
+  // HJ-2 (2026-06-20) — preview the end-of-month syndicate tribute auto-take (read-only; dryRun sums the
+  // would-be take + moves no gp, mutates nothing). Late-bound (the hijinks module loads after this file); the
+  // registry-default-ON gate lives inside the helper. The propose half of the propose-ratify gate.
+  let syndicateTributeProposal = { ran: false };
+  try {
+    if(typeof global.ACKS.processSyndicateTributeForTurn === 'function'){
+      syndicateTributeProposal = global.ACKS.processSyndicateTributeForTurn(campaign, { dryRun: true }) || syndicateTributeProposal;
+    }
+  } catch(e){ /* never let the syndicate-tribute preview fail the turn proposal */ }
+
   return {
     error: null,
     turnEventProposals,
@@ -9361,7 +9371,8 @@ function proposeMonthlyTurn(campaign, options){
     turnProposal,
     livingExpenseProposal,
     agingProposal,
-    bankingProposal
+    bankingProposal,
+    syndicateTributeProposal
   };
 }
 
@@ -10066,6 +10077,22 @@ function commitTurn(campaign, proposal, options){
         (agingResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let aging fail the monthly commit */ }
+  }
+
+  // === HIJINKS HJ-2 — SYNDICATE MONTHLY TRIBUTE (RR p.362 — 2026-06-20) ===
+  // Auto-collect each active syndicate's monthly tribute into its boss's purse (the boss "sits back and
+  // collects his ill-gotten gains"). Gated on the syndicate-auto-tribute rule (default ON) inside the helper;
+  // idempotent (a manual collection earlier in the month is honored, never double-taken). Late-bound
+  // (acks-engine-hijinks.js loads after this file) + try-guarded (the F&D / banditry / aging precedent) so a
+  // tribute error can never fail the core monthly commit.
+  let syndicateTributeResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processSyndicateTributeForTurn === 'function'){
+        syndicateTributeResult = global.ACKS.processSyndicateTributeForTurn(campaign, { rng }) || syndicateTributeResult;
+        (syndicateTributeResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let syndicate tribute fail the monthly commit */ }
   }
 
   // === CONSCRIPT/MILITIA REPLENISHMENT (RR p.430 designer's note) ===

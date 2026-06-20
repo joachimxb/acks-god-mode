@@ -152,6 +152,54 @@ ok('memberMonthlyTribute clamps above-8 to the table ceiling', ACKS.memberMonthl
 }
 
 // =============================================================================
+section('auto-monthly tribute (HJ-2 follow-on — processSyndicateTributeForTurn)');
+ok('syndicate-auto-tribute rule registered + default ON + category hijinks', (() => { const r = ACKS.lookupHouseRule('syndicate-auto-tribute'); return !!r && r.default === true && r.category === 'hijinks'; })());
+ok('processSyndicateTributeForTurn exported', typeof ACKS.processSyndicateTributeForTurn === 'function');
+ok('absent rule ⇒ ON via the registry default', ACKS.isHouseRuleEnabled(mkCampaign(), 'syndicate-auto-tribute') === true);
+{
+  // Viktir's Class IV roster (1,650gp/mo) — boss starts at 1,000gp.
+  function mkSyn(opts) {
+    const c = mkCampaign({ turn: (opts && opts.turn) || 5 });
+    if (opts && opts.houseRules) c.houseRules = opts.houseRules;
+    const boss = mkBoss(c, { gp: 1000 });
+    const syn = ACKS.formSyndicate(c, { bossCharacterId: boss.id, marketClass: 'IV', hideoutValueGp: 20000 }).syndicate;
+    syn.members = [{ level: 0, count: 50 }, { level: 1, count: 30 }, { level: 2, count: 15 }, { level: 3, count: 5 }];
+    return { c, boss, syn };
+  }
+  // 1) rule ON (absent ⇒ default ON) → auto-collects into the boss's purse
+  let { c, boss, syn } = mkSyn({});
+  const r1 = ACKS.processSyndicateTributeForTurn(c, {});
+  ok('ON: ran + ruleOn + totalGp 1,650', r1.ran && r1.ruleOn && r1.totalGp === 1650, JSON.stringify({ ran: r1.ran, total: r1.totalGp }));
+  ok('ON: boss purse credited (1,000 → 2,650)', boss.coins.gp === 2650);
+  ok('ON: lastTributeTurn stamped + one collection + one logEntry', syn.lastTributeTurn === 5 && r1.collections.length === 1 && r1.logEntries.length === 1);
+  ok("ON: emits a 'hijink-tribute' event", c.eventLog.some(e => e.event && e.event.kind === 'hijink-tribute'));
+  // 2) idempotent within the turn — a second pass takes nothing
+  const r2 = ACKS.processSyndicateTributeForTurn(c, {});
+  ok('idempotent within the turn (re-run = 0, purse unchanged)', r2.totalGp === 0 && boss.coins.gp === 2650);
+  // 3) a manual collection earlier in the month blocks the auto take (no double-dip)
+  let m = mkSyn({});
+  ACKS.collectSyndicateTribute(m.c, m.syn.id);
+  const mg = m.boss.coins.gp;
+  const r3 = ACKS.processSyndicateTributeForTurn(m.c, {});
+  ok('manual-first blocks the auto take (no double-dip)', r3.totalGp === 0 && m.boss.coins.gp === mg);
+  // 4) rule explicitly OFF → no-op (the GM drives the take by hand)
+  let o = mkSyn({ houseRules: { 'syndicate-auto-tribute': { enabled: false } } });
+  const r4 = ACKS.processSyndicateTributeForTurn(o.c, {});
+  ok('OFF: ruleOn false, no collection, purse unchanged', !r4.ruleOn && r4.totalGp === 0 && o.boss.coins.gp === 1000);
+  // 5) dry-run → previews (with a named collection), mutates nothing
+  let d = mkSyn({});
+  const r5 = ACKS.processSyndicateTributeForTurn(d.c, { dryRun: true });
+  ok('dryRun: previews 1,650 + a named collection, purse + lastTributeTurn untouched',
+    r5.totalGp === 1650 && r5.collections.length === 1 && r5.collections[0].bossName === 'Viktir' && d.boss.coins.gp === 1000 && d.syn.lastTributeTurn === null,
+    JSON.stringify({ total: r5.totalGp, boss: r5.collections[0] && r5.collections[0].bossName }));
+  // 6) a bossless / member-less syndicate is skipped
+  let b = mkCampaign({ turn: 3 });
+  ACKS.formSyndicate(b, { marketClass: 'VI' });   // no boss, no members
+  const rb = ACKS.processSyndicateTributeForTurn(b, {});
+  ok('a bossless / member-less syndicate is skipped', rb.totalGp === 0 && rb.collections.length === 0);
+}
+
+// =============================================================================
 section('crime profiles + aliases (RR pp.366–368)');
 ok('crimeProfile(theft): severity −2, fines 150/300/450', (() => { const p = ACKS.crimeProfile('theft'); return p.severity === -2 && p.fine.lesser === 150 && p.fine.standard === 300 && p.fine.punitive === 450; })());
 ok('crimeProfile(robbery): severity −4, fines 750/900/1200', (() => { const p = ACKS.crimeProfile('robbery'); return p.severity === -4 && p.fine.lesser === 750 && p.fine.punitive === 1200; })());
