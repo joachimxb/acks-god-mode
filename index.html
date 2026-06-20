@@ -14976,6 +14976,11 @@ document.addEventListener('alpine:init', () => {
         <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
       </label>
 
+      <!-- === @b10-sages (SG-4): the optional Knowledge-Layer emit — on success, deposit the answer as a Lore fact the inquirer knows (read-only consume of the shipped Knowledge layer; off when knowledge.js isn't loaded) === -->
+      <template x-if="knowledgeEmitAvailable()">
+        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="sageConsult.recordToKnowledge"> 📚 Record to Knowledge <span class="opacity-50">— on success, deposit the answer as a Lore fact the inquirer learns (source: sage; certainty from the throw margin)</span></label>
+      </template>
+
       <!-- === @b9-sages (team) — SG-3: the periodic-fee retainer (a standing arrangement: priority + covered consults) === -->
       <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef3e3">
         <div class="font-semibold">🤝 Retainer <span class="text-xs font-normal opacity-60">· a standing arrangement — the sage is on call &amp; ordinary consults are covered (RR p.171; 500 gp/mo)</span></div>
@@ -15016,6 +15021,74 @@ document.addEventListener('alpine:init', () => {
           <div class="mt-1 text-xs text-red-800" x-text="retainerResult.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + retainerResult.error)"></div>
         </template>
       </div>
+
+      <!-- === @b10-sages (SG-5): the 📖 Treatise re-roll book — folds into the consult (RR p.146). The
+           scholar reads a treatise (6 days dedicated) then references it to re-roll a matching throw at
+           the WORSE of his / the book's rank. State + methods live at the @b10-sages domainApp marker. === -->
+      <template x-if="sageTreatiseRows().length || sageTreatiseCandidates().length">
+        <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef0f8">
+          <div class="font-semibold">📖 Treatise <span class="text-xs font-normal opacity-60">· a book the scholar studies (6 days) then references to re-roll a throw — at the worse of his / the book's rank (RR p.146)</span></div>
+          <!-- pick an existing treatise (when any exist) -->
+          <template x-if="sageTreatiseRows().length">
+            <div class="mt-1 flex items-center gap-2 flex-wrap text-xs">
+              <label>Book
+                <select class="text-sm ml-1" x-model="sageTreatise.itemId" @change="sageTreatise.refResult=null">
+                  <option value="">— pick a treatise —</option>
+                  <template x-for="t in sageTreatiseRows()" :key="t.id"><option :value="t.id" :selected="t.id===sageTreatise.itemId" x-text="t.label"></option></template>
+                </select>
+              </label>
+              <span class="opacity-60" x-text="'Reader: ' + sageTreatiseReaderName()"></span>
+            </div>
+          </template>
+          <!-- author a treatise from any Notable Item (the GM step — RR p.146 tiers 1–4) -->
+          <div class="mt-1 flex items-center gap-1 flex-wrap text-xs opacity-90">
+            <span class="opacity-60">✚ Mark</span>
+            <select class="text-xs" x-model="sageTreatiseNew.itemId">
+              <option value="">— a Notable Item —</option>
+              <template x-for="it in sageTreatiseCandidates()" :key="it.id"><option :value="it.id" x-text="it.label"></option></template>
+            </select>
+            <span class="opacity-60">as a</span>
+            <select class="text-xs" x-model.number="sageTreatiseNew.ranks">
+              <option :value="1">Apprentice (r1)</option><option :value="2">Journeyman (r2)</option><option :value="3">Master (r3)</option><option :value="4">Grandmaster (r4)</option>
+            </select>
+            <span class="opacity-60">treatise on</span>
+            <input type="text" class="text-xs w-28" x-model="sageTreatiseNew.proficiency" placeholder="knowledge / loremastery …" list="treatiseProfList">
+            <datalist id="treatiseProfList"><option value="knowledge"></option><option value="loremastery"></option><option value="healing"></option><option value="naturalism"></option><option value="theology"></option><option value="alchemy"></option><option value="engineering"></option></datalist>
+            <button @click="sageTreatiseMarkUi()" :disabled="!sageTreatiseNew.itemId" :class="sageTreatiseNew.itemId ? 'bg-indigo-100 hover:bg-indigo-200' : 'opacity-40 cursor-not-allowed'" class="px-1.5 border border-ink rounded">Mark</button>
+          </div>
+          <template x-if="sageTreatiseSelected() && sageTreatiseInfoUI()">
+            <div class="mt-1 text-xs space-y-1">
+              <div class="opacity-70" x-text="sageTreatiseInfoUI().tier + ' treatise on ' + sageTreatiseInfoUI().profLabel + (sageTreatiseInfoUI().spec ? (' (' + sageTreatiseInfoUI().spec + ')') : '') + ' — rank ' + sageTreatiseInfoUI().ranks"></div>
+              <template x-if="!sageTreatiseComprehensionUI().ok">
+                <div class="text-red-800" x-text="'✗ ' + sageTreatiseReaderName() + ' cannot comprehend it — a treatise must be ≤ one rank above the reader (his rank ' + sageTreatiseComprehensionUI().readerRanks + ', book rank ' + sageTreatiseComprehensionUI().treatiseRanks + ').'"></div>
+              </template>
+              <template x-if="sageTreatiseComprehensionUI().ok">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <template x-if="!sageTreatiseHasReadUI()">
+                    <button @click="sageTreatiseReadUi()" class="px-2 py-0.5 border border-ink rounded bg-indigo-100 hover:bg-indigo-200" title="Read the treatise — 6 days of dedicated study (RR p.146). Thereafter the reader can reference it to re-roll a matching throw.">📖 Read (6 days)</button>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI()">
+                    <span class="text-green-800">✓ <span x-text="sageTreatiseReaderName()"></span> has read it.</span>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI() && sageTreatiseForecastUI() && sageTreatiseForecastUI().available">
+                    <span class="flex items-center gap-1 flex-wrap">
+                      <button @click="sageTreatiseReferenceUi()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Reference the treatise — re-roll the throw at the worse of the reader's / the book's rank (RR p.146). A 1-hour ancillary activity.">🔁 Reference — re-roll</button>
+                      <span class="opacity-70" x-text="'(' + sageTreatiseForecastUI().taskLabel + ' · rank ' + sageTreatiseForecastUI().effectiveRanks + ' · ' + sageTreatiseForecastUI().target + '+ · ' + Math.round((sageTreatiseForecastUI().successChance||0)*100) + '%)'"></span>
+                    </span>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI() && sageTreatiseForecastUI() && !sageTreatiseForecastUI().available">
+                    <span class="opacity-60 italic" x-text="sageTreatiseForecastUI().reason === 'rank-too-low' ? '— the reader needs at least 1 rank to re-roll' : (sageTreatiseForecastUI().reason === 'no-throw-task' ? '— this proficiency has no re-rollable throw' : '— unavailable')"></span>
+                  </template>
+                </div>
+              </template>
+              <template x-if="sageTreatise.refResult && sageTreatise.refResult.ok && sageTreatise.refResult.throw && sageTreatise.refResult.throw.natural != null">
+                <div class="font-mono" :class="sageTreatise.refResult.success ? 'text-green-800' : 'text-red-800'"
+                     x-text="'🔁 1d20 ' + sageTreatise.refResult.throw.natural + ' = ' + sageTreatise.refResult.throw.total + ' vs ' + sageTreatise.refResult.target + '+ → ' + (sageTreatise.refResult.success ? 'success' : 'failure') + ' (rank ' + sageTreatise.refResult.effectiveRanks + ')'"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
 
       <!-- Forecast -->
       <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
@@ -17108,7 +17181,7 @@ document.addEventListener('alpine:init', () => {
      The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
 <!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
 <!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
-<!-- === @b10-sages      (team) — SG-5: read-a-treatise UI (folds into the Consult-a-Sage modal / item sheet) === -->
+<!-- === @b10-sages      (team) — SG-5: read-a-treatise UI — DONE: folded into the Consult-a-Sage modal (search "📖 Treatise" / "📚 Record to Knowledge"); state + methods at the @b10-sages domainApp marker === -->
 <!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
 <!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
 <!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
@@ -18823,6 +18896,57 @@ return {
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
   // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
+  // SG-5: the 📖 Treatise re-roll book (RR p.146) — folds into the Consult-a-Sage modal. The reader
+  // is the consult's sage (sageConsult.sageId). SG-4: knowledgeEmitAvailable() gates the "📚 Record
+  // to Knowledge" tick. Thin Alpine layer over acks-engine-sages.js (markTreatise / readTreatise /
+  // referenceTreatise / treatiseReferenceForecast) — engine call → markDirty / schedulePersist / toast.
+  sageTreatise: { itemId: '', refResult: null },
+  sageTreatiseNew: { itemId: '', proficiency: 'knowledge', ranks: 1 },
+  knowledgeEmitAvailable(){ return typeof (window.ACKS && window.ACKS.recordLore) === 'function' && typeof window.ACKS.learnLore === 'function'; },
+  // Notable Items not yet marked as treatises (the authoring picker source).
+  sageTreatiseCandidates(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !Array.isArray(c.notableItems)) return [];
+    return c.notableItems.filter(it => it && !A.isTreatise(it)).map(it => ({ id: it.id, label: it.name || ('(' + (it.kind || 'item') + ' ' + it.id + ')') }));
+  },
+  // Mark a Notable Item as a treatise (the GM authoring step — RR p.146 tiers 1–4).
+  sageTreatiseMarkUi(){
+    const A = window.ACKS, n = this.sageTreatiseNew;
+    if(!n.itemId || !String(n.proficiency || '').trim()){ if(this.showToast) this.showToast('Pick a Notable Item and a proficiency.'); return; }
+    const res = A.markTreatise(this.currentCampaign, n.itemId, { proficiency: n.proficiency, ranks: Number(n.ranks) || 1 });
+    if(res && res.ok){ this.sageTreatise.itemId = res.item.id; this.sageTreatise.refResult = null; this.sageTreatiseNew = { itemId: '', proficiency: 'knowledge', ranks: 1 }; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Marked as a ' + (res.info ? res.info.tier : '') + ' treatise on ' + (res.info ? res.info.profLabel : '') + '.'); }
+    else if(res && this.showToast){ this.showToast('Cannot mark: ' + (res && res.error)); }
+  },
+  sageTreatiseRows(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || typeof A.treatisesInCampaign !== 'function') return [];
+    return A.treatisesInCampaign(c).map(it => { const i = A.treatiseInfo(it); return { id: it.id, label: (it.name || 'Treatise') + (i ? (' · ' + i.tier + ' ' + i.profLabel) : '') }; });
+  },
+  sageTreatiseReaderChar(){ const id = this.sageConsult && this.sageConsult.sageId; return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null; },
+  sageTreatiseReaderName(){ const c = this.sageTreatiseReaderChar(); return (c && c.name) || 'The scholar'; },
+  sageTreatiseSelected(){
+    const A = window.ACKS, id = this.sageTreatise.itemId;
+    if(!A || !id) return null;
+    return (typeof A.findNotableItem === 'function' ? A.findNotableItem(this.currentCampaign, id) : null)
+      || (((this.currentCampaign && this.currentCampaign.notableItems) || []).find(n => n && n.id === id)) || null;
+  },
+  sageTreatiseInfoUI(){ const it = this.sageTreatiseSelected(); return it ? window.ACKS.treatiseInfo(it) : null; },
+  sageTreatiseComprehensionUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return { ok: false }; return window.ACKS.treatiseComprehension(this.currentCampaign, r, it); },
+  sageTreatiseHasReadUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); return !!(it && r && window.ACKS.hasReadTreatise(it, r.id)); },
+  sageTreatiseForecastUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return null; return window.ACKS.treatiseReferenceForecast(this.currentCampaign, r, it); },
+  sageTreatiseReadUi(){
+    const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return;
+    const res = window.ACKS.readTreatise(this.currentCampaign, { readerId: r.id, itemId: it.id });
+    if(res && res.ok){ this.sageTreatise.refResult = null; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(res.alreadyRead ? (r.name + ' has already read this treatise.') : (r.name + ' reads the treatise (6 days).')); }
+    else if(res && this.showToast){ this.showToast(res.error === 'too-advanced' ? 'Too advanced — a treatise must be ≤ one rank above the reader.' : ('Cannot read: ' + (res && res.error))); }
+  },
+  sageTreatiseReferenceUi(){
+    const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return;
+    const res = window.ACKS.referenceTreatise(this.currentCampaign, { readerId: r.id, itemId: it.id, query: this.sageConsult.query || this.sageConsult.subject || '', secret: this.sageConsult.secret });
+    this.sageTreatise.refResult = res;
+    if(res && res.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(res.success ? 'The treatise yields an answer.' : 'The treatise does not help.'); }
+    else if(res && this.showToast){ this.showToast('Cannot reference: ' + (res && res.error)); }
+  },
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
   // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
   // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
@@ -32152,7 +32276,10 @@ return {
       sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId || this.sageConsult.sageId,
       subject: this.sageConsult.subject, query: this.sageConsult.query, specialty: this.sageConsult.specialty,
       inSpecialty: this.sageConsult.inSpecialtyOverride, feeGp: Number(this.sageConsult.feeGp) || 0,
-      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret
+      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret,
+      // SG-4: the "📚 Record to Knowledge" tick forces the Lore emit; unticked → undefined (the engine
+      // falls back to the campaign's knowledge-tracking house rule). Knowledge layer off → no-op.
+      emitLore: this.sageConsult.recordToKnowledge ? true : undefined
     });
     this.sageConsult.result = r;
     if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(r.success ? 'The sage answers.' : 'The sage cannot answer.'); }

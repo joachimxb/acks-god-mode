@@ -275,6 +275,11 @@ const EVENT_KINDS = Object.freeze([
   // routine bill, off the Campaign Log), -ended on a voluntary end or an unpaid lapse. §528 envelope
   // (sage = source, client = beneficiary).
   'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (readTreatise /
+  // referenceTreatise; acks-engine-sages.js; RR p.146). Record-only (the verb already rolled);
+  // two phases on one kind — phase:'read' (the 6-day study, narrates) + phase:'reference' (the
+  // 1-hour ancillary re-roll, campaignLogHidden). §528 envelope (reader subject, treatise source).
+  'treatise-read',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
@@ -1029,6 +1034,13 @@ const EVENT_SCHEMAS = Object.freeze({
   'sage-retainer-ended': {
     R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
     O: { settlementId: 'string', feeGpPerMonth: 'number', monthsPaid: 'number', reason: 'string' }
+  },
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (RR p.146;
+  // readTreatise / referenceTreatise). phase = 'read' (the 6-day study) | 'reference' (the re-roll).
+  'treatise-read': {
+    R: { readerCharacterId: 'string', itemId: 'string', phase: 'string' },
+    O: { proficiency: 'string', treatiseRanks: 'number', effectiveRanks: 'number', taskKey: 'string',
+         query: 'string', settlementId: 'string', target: 'number', throw: 'object', activityCost: 'object' }
   },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
@@ -6231,6 +6243,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (the Consult-a-Sage modal's retainer section + the Day Clock); a raw emit would record a retainer
   // the client.sageRetainers[] state doesn't show.
   'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — owned by readTreatise / referenceTreatise (the
+  // 📖 Treatise panel in the Consult-a-Sage modal); a raw emit would carry no real re-roll breakdown.
+  'treatise-read',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
