@@ -251,5 +251,249 @@ ok('a conflicting category re-register keeps the original', (ACKS.HOUSERULE_CATE
 ok('registerHouseRuleCategory() with no arg is a safe no-op', (function(){ try { const n = ACKS.HOUSERULE_CATEGORIES.length; ACKS.registerHouseRuleCategory(); return ACKS.HOUSERULE_CATEGORIES.length === n; } catch(e){ return false; } })());
 
 // =============================================================================
+// SLICE 4 — the load-migration registry (registerLoadMigration).
+// =============================================================================
+// migrateCampaign()'s per-load pass list — the idempotent normalize / backfill / lift / reconcile
+// passes that run on EVERY load (distinct from the versioned MIGRATIONS schema-bump array) — is now
+// an accumulating, ORDER-CARRYING store a module extends from its own file via
+// ACKS.registerLoadMigration(name, fn, {order}). Unlike the prefix / collection / house-rule
+// families (SETS), the passes are an ORDERED PIPELINE, so each carries an explicit `order` and the
+// runner sorts by (order, registration-seq). The 19-pass contract below is node-captured from the
+// pre-refactor inline block (orders 10..190). A dropped / added / reordered pass fails here.
+const EXP_LOAD_MIGRATIONS = [
+  [10,'drop-legacy-log'],[20,'reconcile-rural-population'],[30,'strip-unused-mining'],
+  [40,'remove-tribute-pct'],[50,'character-classification'],[60,'character-proficiencies'],
+  [70,'character-coins'],[80,'wave-a-relations'],[90,'domain-treasuries'],[100,'stash-item-shapes'],
+  [110,'reconcile-stashes'],[120,'reconcile-treasury-scalars'],[130,'lazy-default-v1-reservations'],
+  [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[160,'agricultural-to-projects'],
+  [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes']
+];
+
+section('the seeded load-migration pipeline is byte-identical to the pre-refactor inline block');
+const lm = ACKS.registeredLoadMigrations();
+ok('exactly 19 passes seeded', lm.length === 19, 'got ' + lm.length);
+ok('passes in the exact pre-refactor order with the exact order numbers',
+  JSON.stringify(lm.map(p => [p.order, p.name])) === JSON.stringify(EXP_LOAD_MIGRATIONS),
+  'got ' + JSON.stringify(lm.map(p => [p.order, p.name])));
+ok('every pass has a function', lm.every(p => typeof p.fn === 'function'));
+ok('registeredLoadMigrations() returns a fresh array (mutating it cannot corrupt the store)',
+  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 19; })());
+
+section('registerLoadMigration — the kernel (explicit-order pipeline)');
+ok('registerLoadMigration exported', typeof ACKS.registerLoadMigration === 'function');
+ok('runLoadMigrations exported', typeof ACKS.runLoadMigrations === 'function');
+
+// a module self-registering a pass from its own file at load, with an order that slots between two
+// seeded passes — proving order placement AND that the pass actually RUNS via runLoadMigrations.
+ACKS.registerLoadMigration('__smoke-pass-a', function(c){ c.__a = true; }, { order: 55 });
+ACKS.registerLoadMigration('__smoke-pass-z', function(c){ c.__lastPass = 'z'; }, { order: 1e6 });
+const lm2 = ACKS.registeredLoadMigrations();
+ok('a fresh pass lands at its order slot (55 sits between classification@50 and proficiencies@60)',
+  lm2.findIndex(p => p.name === '__smoke-pass-a') === lm2.findIndex(p => p.name === 'character-classification') + 1);
+ok('an order-1e6 pass sorts to the very end', lm2[lm2.length - 1].name === '__smoke-pass-z');
+// the runner executes them in order, in place
+const lmProbe = { schemaVersion: 2, kind: 'campaign', id: 'cmp-lm', name: 'lm' };
+ACKS.runLoadMigrations(lmProbe);
+ok('runLoadMigrations fires a self-registered pass', lmProbe.__a === true && lmProbe.__lastPass === 'z');
+ok('migrateCampaign runs the registered passes (the freshly-registered one fired)',
+  ACKS.migrateCampaign({ schemaVersion:2, kind:'campaign', id:'cmp-lm2', name:'lm2' }).__lastPass === 'z');
+
+// a pass with no explicit order defaults toward the end (order 1000)
+ACKS.registerLoadMigration('__smoke-pass-default', function(){});
+ok('a pass with no order defaults to order 1000',
+  (ACKS.registeredLoadMigrations().find(p => p.name === '__smoke-pass-default') || {}).order === 1000);
+
+// idempotent: same name + same fn = silent no-op
+const lmFnX = function(){};
+ACKS.registerLoadMigration('__smoke-pass-idem', lmFnX, { order: 42 });
+const cntLM = ACKS.registeredLoadMigrations().length;
+ACKS.registerLoadMigration('__smoke-pass-idem', lmFnX, { order: 42 });
+ok('re-registering the same name + fn is idempotent (count unchanged)', ACKS.registeredLoadMigrations().length === cntLM);
+// conflict: same name + a DIFFERENT fn keeps the original (warns) and never reorders
+ACKS.registerLoadMigration('__smoke-pass-idem', function(c){ c.__clobbered = true; }, { order: 99 });
+const lmIdem = ACKS.registeredLoadMigrations().find(p => p.name === '__smoke-pass-idem');
+ok('a conflicting re-register keeps the original fn', lmIdem.fn === lmFnX);
+ok('a conflicting re-register keeps the original order (no silent reorder)', lmIdem.order === 42);
+// guards: missing args are safe no-ops, never throw
+ok('registerLoadMigration() with no args is a safe no-op', (function(){ try { const n = ACKS.registeredLoadMigrations().length; ACKS.registerLoadMigration(); return ACKS.registeredLoadMigrations().length === n; } catch(e){ return false; } })());
+ok('registerLoadMigration(name) with no fn does not register', (function(){ const n = ACKS.registeredLoadMigrations().length; ACKS.registerLoadMigration('__noFn'); return ACKS.registeredLoadMigrations().length === n; })());
+
+// =============================================================================
+// SLICE 5 — the typed-event-kind registry (registerEventKind). THE LAST FAMILY.
+// =============================================================================
+// EVENT_KINDS / EVENT_SCHEMAS / EVENT_WIZARD_OPTOUT were three frozen literals in acks-engine-events.js
+// that every event-shipping subsystem had to edit (with the already-decentralized EVENT_HANDLERS, the
+// "4 parallel registries" — the BIGGEST team-session merge-conflict surface, "the Lead unions the
+// events.js registries by hand", §15.4). They are now accumulating stores a module extends from its
+// own file via ACKS.registerEventKind('foo', { schema, wizardOptOut, handler }) (the unified one-call
+// entry; the handler forwards to the existing registerEventHandler). The kernel lives in events.js
+// (where the data is). Unlike the prior families this is NOT pinned as the full set: event kinds are a
+// large, fast-growing APPEND-set (~10 per burst, 171 today), so a full ordered literal here would churn
+// + merge-conflict on every event-adding branch — re-creating the surface this slice removes. The
+// exact ORDER+content byte-identity of the conversion is proven by the one-shot node diff vs the
+// pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
+// schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
+// optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
+const EV_KINDS_COUNT = 171, EV_SCHEMAS_COUNT = 171, EV_OPTOUT_COUNT = 145;
+const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
+  'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
+  'domain-banditry','proficiency-throw','domain-advanced','bout-round'];
+
+section('the seeded event-kind registries reproduce the pre-refactor frozen-literal counts + invariants');
+const evKinds = ACKS.EVENT_KINDS, evSchemas = ACKS.EVENT_SCHEMAS, evOptout = ACKS.EVENT_WIZARD_OPTOUT;
+const evKindSet = new Set(evKinds);
+ok('exactly ' + EV_KINDS_COUNT + ' event kinds seeded', evKinds.length === EV_KINDS_COUNT, 'got ' + evKinds.length);
+ok('no duplicate event kinds', evKindSet.size === evKinds.length);
+ok('exactly ' + EV_SCHEMAS_COUNT + ' schemas seeded (1:1 with kinds)', Object.keys(evSchemas).length === EV_SCHEMAS_COUNT, 'got ' + Object.keys(evSchemas).length);
+ok('every schema key is a registered kind', Object.keys(evSchemas).every(k => evKindSet.has(k)),
+  Object.keys(evSchemas).filter(k => !evKindSet.has(k)).join(', '));
+ok('every kind has a schema (the 1:1 invariant)', evKinds.every(k => k in evSchemas),
+  evKinds.filter(k => !(k in evSchemas)).join(', '));
+ok('exactly ' + EV_OPTOUT_COUNT + ' wizard opt-outs seeded', evOptout.size === EV_OPTOUT_COUNT, 'got ' + evOptout.size);
+ok('every opt-out is a registered kind', [...evOptout].every(k => evKindSet.has(k)),
+  [...evOptout].filter(k => !evKindSet.has(k)).join(', '));
+ok('representative kinds all present (catches a catastrophic seed failure)', EV_REPRESENTATIVES.every(k => evKindSet.has(k)),
+  EV_REPRESENTATIVES.filter(k => !evKindSet.has(k)).join(', '));
+ok('player-plan is first, bout-round is last (append order preserved)', evKinds[0] === 'player-plan' && evKinds[evKinds.length - 1] === 'bout-round');
+
+section('registerEventKind — the kernel (the last self-registration family)');
+ok('registerEventKind exported', typeof ACKS.registerEventKind === 'function');
+ok('registeredEventKinds exported', typeof ACKS.registeredEventKinds === 'function');
+ok('the kind store is mutable (no longer Object.freeze-d)', !Object.isFrozen(ACKS.EVENT_KINDS));
+ok('the schema store is mutable', !Object.isFrozen(ACKS.EVENT_SCHEMAS));
+
+// a module self-registering a fresh kind from its own file at load — the unified one-call entry
+// (kind string + schema + wizard opt-out + handler), the §15.5 ergonomic.
+let evDispatched = false;
+ACKS.registerEventKind('__smoke-evt', {
+  schema: { R: { x: 'string' }, O: {} },
+  wizardOptOut: true,
+  handler: function(c, e){ evDispatched = true; return { result: { narrativeSummary: 'ok' } }; }
+});
+ok('a fresh kind lands in EVENT_KINDS', ACKS.EVENT_KINDS.includes('__smoke-evt'));
+ok('its schema lands in EVENT_SCHEMAS', !!ACKS.EVENT_SCHEMAS['__smoke-evt']);
+ok('its wizard opt-out lands in EVENT_WIZARD_OPTOUT', ACKS.EVENT_WIZARD_OPTOUT.has('__smoke-evt'));
+ok('isEventKindKnown sees it', ACKS.isEventKindKnown('__smoke-evt'));
+ok('wizardEmittableKinds hides it (opted out)', !ACKS.wizardEmittableKinds().includes('__smoke-evt'));
+ok('and is visible via the shared namespace (the read path other modules + index.html use)',
+  global.ACKS.EVENT_KINDS.includes('__smoke-evt'));
+// the new capability: the handler forwards to registerEventHandler + applyEvent dispatches it
+ACKS.applyEvent(ACKS.blankCampaign({ name: 't' }), ACKS.newEvent('__smoke-evt', { submittedBy: 'gm', payload: { x: 'y' } }));
+ok('the handler forwarded via registerEventKind fires through applyEvent', evDispatched);
+// validateEvent enforces the self-registered schema (proves registerEventSchema is live end-to-end)
+ok('validateEvent enforces the self-registered schema', (function(){
+  try { ACKS.applyEvent(ACKS.blankCampaign({ name: 't' }), ACKS.newEvent('__smoke-evt', { submittedBy: 'gm', payload: {} })); return false; }
+  catch(e){ return /missing required payload field "x"/.test(e.message); }
+})());
+// registeredEventKinds returns a fresh array (mutating it cannot corrupt the store)
+ok('registeredEventKinds() returns a fresh array', (function(){ const a = ACKS.registeredEventKinds(); const n = a.length; a.push('zz'); return ACKS.registeredEventKinds().length === n; })());
+
+// idempotent: re-registering the same kind does not re-push
+const evCnt = ACKS.EVENT_KINDS.length;
+ACKS.registerEventKind('__smoke-evt');
+ok('re-registering the same kind is idempotent (no re-push)', ACKS.EVENT_KINDS.length === evCnt);
+// schema conflict: a different schema for a registered kind keeps the original (and warns)
+ACKS.registerEventKind('__smoke-evt', { schema: { R: { DIFFERENT: 'string' }, O: {} } });
+ok('a conflicting schema keeps the original', JSON.stringify(ACKS.EVENT_SCHEMAS['__smoke-evt'].R) === JSON.stringify({ x: 'string' }));
+// a bare kind (no opts) registers only the string — no schema
+ACKS.registerEventKind('__smoke-bare');
+ok('a bare registerEventKind(kind) registers only the string', ACKS.EVENT_KINDS.includes('__smoke-bare') && !('__smoke-bare' in ACKS.EVENT_SCHEMAS));
+// guards: missing/falsy args are safe no-ops, never throw
+ok('registerEventKind() with no args is a safe no-op', (function(){ try { const n = ACKS.EVENT_KINDS.length; ACKS.registerEventKind(); ACKS.registerEventKind(''); return ACKS.EVENT_KINDS.length === n; } catch(e){ return false; } })());
+
+// =============================================================================
+// SLICE 6 — the entity registry + field-schemas (registerEntityKind + registerFieldSchema).
+// =============================================================================
+// ENTITY_KINDS_LIST (+ the ENTITY_KINDS index) in acks-engine-entity-registry.js and FIELD_SCHEMAS
+// in acks-engine-field-schemas.js were the two remaining central append-targets named in Architecture
+// §9.4's intro — hardcoded literals every entity-adding subsystem edited (with the five converted
+// families, the full §9.4 core-lists merge surface). They are now accumulating stores a module extends
+// from its own file via ACKS.registerEntityKind(entry) / ACKS.registerFieldSchema(kind, schema). Each
+// kernel lives where its data is (entity-registry.js / field-schemas.js), seeded byte-identical at the
+// literal site. The exact order+content byte-identity of the conversion is proven by the one-shot node
+// diff vs the pre-slice-6 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's
+// entity-kind count + the global schema⊆factory invariant in tests/smoke.js. Here we pin the COUNTS +
+// the structural invariants (no dups, 1:1 list↔index, schema-keys ⊆ entity-kinds) + representatives,
+// and exercise both registrars end-to-end.
+const ENTITY_KINDS_COUNT = 56, FIELD_SCHEMAS_COUNT = 40;
+const ENTITY_REPRESENTATIVES = ['character','party','group','hex','domain','unit','army','lair','encounter',
+  'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore'];
+const SCHEMA_REPRESENTATIVES = ['outpost','stash','magistracy','unit','army','journey','group','dungeon',
+  'senate','loan','lore'];
+
+section('the seeded entity registry reproduces the pre-refactor frozen-literal counts + invariants');
+const ekList = ACKS.ENTITY_KINDS_LIST, ekIndex = ACKS.ENTITY_KINDS;
+const ekKinds = ekList.map(e => e.kind), ekSet = new Set(ekKinds);
+ok('exactly ' + ENTITY_KINDS_COUNT + ' entity kinds seeded', ekList.length === ENTITY_KINDS_COUNT, 'got ' + ekList.length);
+ok('no duplicate entity kinds', ekSet.size === ekKinds.length);
+ok('the ENTITY_KINDS index has the same key set as the list (the 1:1 invariant)',
+  sortedEq(Object.keys(ekIndex), ekKinds), 'index ' + Object.keys(ekIndex).length + ' vs list ' + ekKinds.length);
+ok('every list entry is indexed to itself', ekList.every(e => ekIndex[e.kind] === e));
+ok('representative kinds all present (catches a catastrophic seed failure)', ENTITY_REPRESENTATIVES.every(k => ekSet.has(k)),
+  ENTITY_REPRESENTATIVES.filter(k => !ekSet.has(k)).join(', '));
+ok('character is first, lore is last (append order preserved)', ekKinds[0] === 'character' && ekKinds[ekKinds.length - 1] === 'lore');
+
+section('the seeded field-schemas reproduce the pre-refactor frozen-literal count + the schema⊆entity-kind invariant');
+const fsKeys = Object.keys(ACKS.FIELD_SCHEMAS);
+ok('exactly ' + FIELD_SCHEMAS_COUNT + ' field schemas seeded', fsKeys.length === FIELD_SCHEMAS_COUNT, 'got ' + fsKeys.length);
+// schemas ⊆ entity kinds, with ONE pre-existing documented exception: itemCustody (the cus- custody
+// relation) was field-schema-authored (Inspector Wave C) but never given a registry list/find entry,
+// so it's editable-by-schema but not registry-browsed. The byte-identity baseline shows this predates
+// this slice. The assertion still catches any NEW schema key that is neither a kind nor this exception.
+const SCHEMA_KEY_EXCEPTIONS = new Set(['itemCustody']);
+ok('every field-schema key is a registered entity kind (1 documented exception: itemCustody)',
+  fsKeys.every(k => ekSet.has(k) || SCHEMA_KEY_EXCEPTIONS.has(k)),
+  fsKeys.filter(k => !ekSet.has(k) && !SCHEMA_KEY_EXCEPTIONS.has(k)).join(', '));
+ok('representative schemas all present', SCHEMA_REPRESENTATIVES.every(k => k in ACKS.FIELD_SCHEMAS),
+  SCHEMA_REPRESENTATIVES.filter(k => !(k in ACKS.FIELD_SCHEMAS)).join(', '));
+ok('outpost is first, lore is last (insertion order preserved)', fsKeys[0] === 'outpost' && fsKeys[fsKeys.length - 1] === 'lore');
+ok('every seeded schema is well-formed (validateAllSchemas clean)', ACKS.validateAllSchemas().length === 0,
+  ACKS.validateAllSchemas().slice(0, 3).join(' | '));
+
+section('registerEntityKind — the kernel (entity-registry.js)');
+ok('registerEntityKind exported', typeof ACKS.registerEntityKind === 'function');
+ok('registeredEntityKinds exported', typeof ACKS.registeredEntityKinds === 'function');
+ok('registeredEntityKinds() returns a fresh array', (function(){ const a = ACKS.registeredEntityKinds(); const n = a.length; a.push({}); return ACKS.registeredEntityKinds().length === n; })());
+// a module self-registering a fresh kind from its own file at load
+ACKS.registerEntityKind({ kind: '__smoke-ek', label: 'Smk', pluralLabel: 'Smks', icon: '🔬', addressable: true, chronicleable: true,
+  list: (c) => (c && c.__smks) || [], find: (c, id) => ((c && c.__smks) || []).find(x => x && x.id === id), displayName: (c, o) => (o && o.id) });
+ok('a fresh kind lands in ENTITY_KINDS_LIST', ACKS.ENTITY_KINDS_LIST.some(e => e.kind === '__smoke-ek'));
+ok('a fresh kind lands in the ENTITY_KINDS index', !!ACKS.ENTITY_KINDS['__smoke-ek']);
+ok('entityKind() sees it', (ACKS.entityKind('__smoke-ek') || {}).label === 'Smk');
+ok('entityIcon() / entityLabel() see it', ACKS.entityIcon('__smoke-ek') === '🔬' && ACKS.entityLabel('__smoke-ek') === 'Smk');
+ok('and is visible via the shared namespace (the read path index.html uses)', global.ACKS.ENTITY_KINDS_LIST.some(e => e.kind === '__smoke-ek'));
+// idempotent: re-registering the same kind does not re-push
+const ekCnt = ACKS.ENTITY_KINDS_LIST.length;
+ACKS.registerEntityKind({ kind: '__smoke-ek', label: 'Smk', pluralLabel: 'Smks', icon: '🔬', addressable: true, chronicleable: true });
+ok('re-registering the same kind is idempotent (no re-push)', ACKS.ENTITY_KINDS_LIST.length === ekCnt);
+// conflict: different metadata for a registered kind keeps the original (and warns)
+ACKS.registerEntityKind({ kind: '__smoke-ek', label: 'CHANGED', pluralLabel: 'X', icon: '✖', addressable: false, chronicleable: false });
+ok('a conflicting re-register keeps the original metadata', (ACKS.entityKind('__smoke-ek') || {}).label === 'Smk');
+ok('a conflicting re-register does not duplicate', ACKS.ENTITY_KINDS_LIST.filter(e => e.kind === '__smoke-ek').length === 1);
+// guards: missing/falsy args are safe no-ops, never throw
+ok('registerEntityKind() with no args is a safe no-op', (function(){ try { const n = ACKS.ENTITY_KINDS_LIST.length; ACKS.registerEntityKind(); ACKS.registerEntityKind({}); return ACKS.ENTITY_KINDS_LIST.length === n; } catch(e){ return false; } })());
+
+section('registerFieldSchema — the kernel (field-schemas.js)');
+ok('registerFieldSchema exported', typeof ACKS.registerFieldSchema === 'function');
+ok('registeredFieldSchemas exported', typeof ACKS.registeredFieldSchemas === 'function');
+ok('registeredFieldSchemas() returns a fresh array', (function(){ const a = ACKS.registeredFieldSchemas(); const n = a.length; a.push('zz'); return ACKS.registeredFieldSchemas().length === n; })());
+// a module self-registering a fresh schema from its own file at load
+ACKS.registerFieldSchema('__smoke-ek', { factory: 'blankSmk', groups: ['Identity'], fields: [{ name: 'id', type: 'string', readonly: true, group: 'Identity' }] });
+ok('a fresh schema lands in FIELD_SCHEMAS', !!ACKS.FIELD_SCHEMAS['__smoke-ek']);
+ok('fieldSchemaFor() sees it', (ACKS.fieldSchemaFor('__smoke-ek') || {}).factory === 'blankSmk');
+ok('kindsWithSchema() sees it', ACKS.kindsWithSchema().includes('__smoke-ek'));
+ok('entityFieldGroups() reads the registered schema', ACKS.entityFieldGroups('__smoke-ek').join(',') === 'Identity');
+ok('and is visible via the shared namespace', '__smoke-ek' in global.ACKS.FIELD_SCHEMAS);
+// idempotent: same kind + identical schema is a no-op
+const fsCnt = Object.keys(ACKS.FIELD_SCHEMAS).length;
+ACKS.registerFieldSchema('__smoke-ek', { factory: 'blankSmk', groups: ['Identity'], fields: [{ name: 'id', type: 'string', readonly: true, group: 'Identity' }] });
+ok('re-registering an identical schema is idempotent (count unchanged)', Object.keys(ACKS.FIELD_SCHEMAS).length === fsCnt);
+// conflict: a different schema for a registered kind keeps the original (and warns)
+ACKS.registerFieldSchema('__smoke-ek', { factory: 'OTHER', fields: [{ name: 'z', type: 'string' }] });
+ok('a conflicting schema keeps the original', ACKS.FIELD_SCHEMAS['__smoke-ek'].factory === 'blankSmk');
+// guards: missing/falsy args are safe no-ops, never throw
+ok('registerFieldSchema() guards are safe no-ops', (function(){ try { const n = Object.keys(ACKS.FIELD_SCHEMAS).length; ACKS.registerFieldSchema(); ACKS.registerFieldSchema('x'); ACKS.registerFieldSchema('y', 'notObj'); return Object.keys(ACKS.FIELD_SCHEMAS).length === n; } catch(e){ return false; } })());
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — self-registration.smoke.js: ' + pass + ' passed, ' + fail + ' failed.');
 if (fail) { console.log('  failing: ' + failures.join(' · ')); process.exit(1); }

@@ -123,9 +123,28 @@
     return { ok: errors.length === 0, errors };
   }
 
-  // ─── 3. FIELD_SCHEMAS map — the 3 Wave A worked examples (plan §4) ───
+  // ─── 3. FIELD_SCHEMAS — the per-entity Inspector schemas ───
+  // §15.5 self-registration kernel (Architecture §9.4) — FIELD_SCHEMAS is an accumulating store
+  // seeded with the legacy map. A new module self-registers its entity's schema from its own file
+  // via ACKS.registerFieldSchema(kind, schema) instead of editing this central literal (the
+  // team-session append-target this slice removes). The seed below carries the EXACT pre-refactor map.
+  const FIELD_SCHEMAS = {};   // accumulating store (mutable; grows via registerFieldSchema)
 
-  const FIELD_SCHEMAS = {
+  function _fieldSchemaSig(s){ try { return JSON.stringify(s); } catch(_e){ return String(s); } }
+  function registerFieldSchema(kind, schema){
+    if(!kind || !schema || typeof schema !== 'object') return;   // falsy-safe no-op
+    const existing = FIELD_SCHEMAS[kind];
+    if(existing){                                                 // idempotent / conflict-keeps-original
+      if(_fieldSchemaSig(existing) !== _fieldSchemaSig(schema)){
+        try { console.warn('registerFieldSchema: "' + kind + '" already registered with a different schema; keeping the original'); } catch(_e){}
+      }
+      return;
+    }
+    FIELD_SCHEMAS[kind] = schema;
+  }
+
+  // The legacy seed — the EXACT pre-refactor map, in insertion order.
+  const FIELD_SCHEMAS_SEED = {
 
     // Worked example 4.1 — simple primitive-only entity
     'outpost': {
@@ -1356,11 +1375,13 @@
       ]
     }
   };
+  Object.entries(FIELD_SCHEMAS_SEED).forEach(([kind, schema]) => registerFieldSchema(kind, schema));   // seed byte-identically (insertion order preserved)
 
   // ─── 4. Public API ───
 
   function fieldSchemaFor(kind){ return FIELD_SCHEMAS[kind] || null; }
   function kindsWithSchema(){ return Object.keys(FIELD_SCHEMAS); }
+  function registeredFieldSchemas(){ return Object.keys(FIELD_SCHEMAS); }   // §15.5 kernel-convention accessor
 
   function entityFieldGroups(kind){
     const schema = FIELD_SCHEMAS[kind];
@@ -1397,6 +1418,8 @@
   Object.assign(ACKS, {
     FIELD_TYPES,
     FIELD_SCHEMAS,
+    registerFieldSchema,
+    registeredFieldSchemas,
     isValidFieldType,
     validateFieldEntry,
     validateFieldSchema,

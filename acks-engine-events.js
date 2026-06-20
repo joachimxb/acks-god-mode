@@ -55,9 +55,55 @@ const ID_PREFIXES = new Proxy({}, { get(_, key){ return (global.ACKS.ID_PREFIXES
 //   3. Add a handler function and register it in EVENT_HANDLERS.
 //   4. Document in Data_Dictionary.md and Integration_Guide.md.
 
-// 9.5.1 — Kind catalog. Frozen. Adding a kind is non-breaking; removing one is
-// a major schema bump.
-const EVENT_KINDS = Object.freeze([
+// 9.5.1 — Kind catalog + the typed-event self-registration kernel (the CLAUDE §15.5 family, slice 5
+// — the LAST, after prefixes + collections + house rules + migrations). EVENT_KINDS / EVENT_SCHEMAS /
+// EVENT_WIZARD_OPTOUT were three frozen literals that every event-shipping subsystem had to edit
+// (together with the already-decentralized EVENT_HANDLERS, the "4 parallel registries" — the BIGGEST
+// team-session merge-conflict surface; "the Lead unions the events.js registries by hand", §15.4).
+// They are now accumulating stores: a subsystem self-registers its kind from its OWN module at load
+// via ACKS.registerEventKind('foo', { schema, wizardOptOut, handler }) instead of editing these
+// central literals (the §15.5 north star — the registerDayConsumer idiom). The core + legacy set is
+// seeded below, byte-identical to the old freezes — the kind STRINGS here (this seed MUST run first:
+// the scattered registerEventHandler calls below throw on an unknown kind), the SCHEMAS at their
+// literal (§9.5.3), the wizard opt-outs at theirs (below). EVENT_HANDLERS has had its own registrar
+// since Foundation #178 (registerEventHandler, §9.5.9) — this slice converts only the remaining three.
+// Readers (validateEvent, isWizardEmittable, wizardEmittableKinds, the schema generator, drift-lint,
+// the ACKS export) read the live stores, so they observe every registration regardless of load order.
+// Adding a kind is non-breaking; removing one is a major schema bump.
+const EVENT_KINDS = [];                 // accumulating store (was Object.freeze([...]))
+const EVENT_SCHEMAS = {};               // accumulating store (was Object.freeze({...}))
+const EVENT_WIZARD_OPTOUT = new Set();  // accumulating store (was Object.freeze(new Set([...])))
+function _eventSchemaSig(s){ return JSON.stringify([(s && s.R) || null, (s && s.O) || null]); }
+function registerEventSchema(kind, schema){
+  if(!kind || !schema) return EVENT_SCHEMAS;
+  const ex = EVENT_SCHEMAS[kind];
+  if(!ex){ EVENT_SCHEMAS[kind] = schema; }
+  else if(_eventSchemaSig(ex) !== _eventSchemaSig(schema) && typeof console !== 'undefined' && console.warn){
+    console.warn('[ACKS] event-schema for "' + kind + '" re-registered with different content; keeping the original.');
+  }
+  return EVENT_SCHEMAS;
+}
+function registerEventWizardOptOut(kind){ if(kind) EVENT_WIZARD_OPTOUT.add(kind); return EVENT_WIZARD_OPTOUT; }
+function registerEventKind(kind, opts){
+  // The unified registrar — the §15.5 one-call entry for a subsystem. opts:
+  //   { schema?, wizardOptOut?, handler? }. Idempotent on the kind string (push only if new); a schema
+  //   conflict warns + keeps the original; a handler (if given) forwards to registerEventHandler (which
+  //   requires the kind registered first — done just above). Falsy-safe; mirrors registerPrefix /
+  //   registerCollection / registerHouseRule.
+  opts = opts || {};
+  if(!kind || typeof kind !== 'string') return EVENT_KINDS;
+  if(EVENT_KINDS.indexOf(kind) < 0) EVENT_KINDS.push(kind);
+  if(opts.schema) registerEventSchema(kind, opts.schema);
+  if(opts.wizardOptOut) registerEventWizardOptOut(kind);
+  if(opts.handler) registerEventHandler(kind, opts.handler);
+  return EVENT_KINDS;
+}
+function registeredEventKinds(){ return EVENT_KINDS.slice(); }
+
+// Seed the core + legacy kind STRINGS (byte-identical ORDER to the old freeze). New kinds do NOT
+// extend this literal — a subsystem calls ACKS.registerEventKind from its own module (the §15.5
+// convention). The schemas + wizard opt-outs are seeded at their own literals (below).
+[
   'player-plan',
   'gm-fiat',
   'treasury-grant',
@@ -490,7 +536,7 @@ const EVENT_KINDS = Object.freeze([
   // round-by-round tactical bout — resolveAndCommitBoutTactical with opts.logRounds). A record-only,
   // campaignLogHidden VERBOSE per-round audit; the bout's result still rides the shipped bout-resolved.
   'bout-round'              // a tactical-bout round's blow-by-blow (opt-in verbose log; RAW p.27)
-]);
+].forEach(k => registerEventKind(k));
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
 // "superseded" handles the conflict policy (Decision 6 in plan §12): later event overrides earlier.
@@ -504,8 +550,10 @@ const EVENT_STATUS = Object.freeze({
 
 // 9.5.3 — Payload schemas. Each entry lists required (R) and optional (O) fields with
 // a short type hint. validateEvent enforces the required set. Companion tools should
-// consult Integration_Guide.md for the canonical reference; this is engine-side.
-const EVENT_SCHEMAS = Object.freeze({
+// consult Integration_Guide.md for the canonical reference; this is engine-side. Seeded into
+// the EVENT_SCHEMAS accumulating store declared at §9.5.1 — a subsystem registers its schema via
+// ACKS.registerEventKind('foo', { schema }) from its own module (the §15.5 convention).
+Object.entries({
   'player-plan': {
     R: { domainId: 'string' },
     O: { intendedActions: 'array', freeformNotes: 'string', proposedBudget: 'object' }
@@ -1536,7 +1584,7 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { boutId: 'string', round: 'number' },
     O: { initiative: 'object', lines: 'array', hp: 'object', narrative: 'string' }
   }
-});
+}).forEach(([k, s]) => registerEventSchema(k, s));
 
 // 9.5.4 — Submitter string conventions. Documented here, enforced loosely.
 // Format: "<kind>:<id>" or bare "gm". Patterns:
@@ -6355,7 +6403,10 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
   return { ok: true, encounter: enc, event: ev };
 }
 
-const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
+// Wizard opt-outs — kinds the Event Wizard hides (owned by a dedicated flow; a raw emit would skip
+// the verb's own logic). Seeded into the EVENT_WIZARD_OPTOUT accumulating store declared at §9.5.1 —
+// a subsystem opts a kind out via ACKS.registerEventKind('foo', { wizardOptOut:true }).
+[
   'engine-standard-turn',  // engine internal flow — emitting raw would create chaos
   'recruit-hireling',      // owned by Recruiting Wizard — skips candidate individuation
   'venture-launch',        // owned by Launch Venture modal — skips investment validation
@@ -6582,7 +6633,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G5 (team burst11 2026-06-20) === — owned by acks-engine-gladiators.js (the tactical
   // resolver emits bout-round per round); a raw Event-Wizard emit would record arena chatter with no fight.
   'bout-round'
-]));
+].forEach(registerEventWizardOptOut);
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
 function wizardEmittableKinds(){ return EVENT_KINDS.filter(isWizardEmittable); }
@@ -6612,7 +6663,7 @@ function defaultPayloadFor(kind){
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
-  EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, migratePendingPlayerInputToEvents,
+  EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, registerEventKind, registeredEventKinds, migratePendingPlayerInputToEvents,
   // Safe dotted-path writer + its guard (prototype-pollution hardening, appsec C1).
   // Exposed so the safe-write contract is testable + reusable by integrators.
   _setByPath, assertSafeFieldPath, SAFE_FIELDPATH_RE, DANGEROUS_PATH_SEGMENTS,
