@@ -351,6 +351,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR p.362 (RAW core; this toggle is a UX preference, not a RAW divergence)',
     default:true,
     description:"DEFAULT ON. Tribute is a MONTHLY collection (RR p.362, \"Monthly Member Tribute\") — a boss \"sits back and collects his ill-gotten gains.\" With this ON, the monthly turn auto-collects each active syndicate's tribute into its boss's purse (the same per-member take as the Collect button; a manual collection earlier in the month is honored and never double-taken). When OFF, the engine never auto-collects — the GM drives the take by hand (the 💰 Collect button), useful for a Judge running the detailed per-member hijink assignments (Detailed hijink tracking) who doesn't want the passive whole-roster take on top." },
+  // === Hijinks HJ-3 (team 2026-06-20) — crews ===
+  { id:'crew-hijinks', category:'hijinks', name:'Hijinks — crews (multi-perpetrator coordination)',
+    source:'ACKS II RR pp.360–370 + Phase 2.7 Hijinks Plan §5 (a tooling extension, default OFF)',
+    description:"OFF by default. When ON, a hijink can be assigned a crew of co-perpetrators under a honcho: each eligible crew member grants +1 to the honcho's secret proficiency throw (capped at +3). When OFF, the crew picker is hidden and any crew passed to the engine is ignored." },
   // ----- Located inventory (Phase 2.95 Stash subsystem — 2026-05-29) -----
   // The Stash subsystem is always-on CORE as of v0.17.0 (2026-06-03): the master
   // `inventory-stash-system` toggle was removed (per Joachim — a located-inventory

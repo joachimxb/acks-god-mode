@@ -246,6 +246,9 @@ const EVENT_KINDS = Object.freeze([
   'hijink-syndicate-formed',
   'hijink-tribute',
   'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — crew assignment + change-in-management takeover. Record-only.
+  'hijink-crew-assigned',
+  'syndicate-takeover',
   // === Character Lifecycle CL-1 (burst4) === — aging (RR p.19). Record-only audit: the age/category
   // /attribute state is applied by ACKS.processAgingForTurn (acks-engine-lifecycle.js, the monthly pass
   // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
@@ -973,6 +976,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-trial': {
     R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
     O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
+  },
+  // === Hijinks HJ-3 (team 2026-06-20) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-crew-assigned': {
+    R: { hijinkId: 'string', crew: 'array' },
+    O: { crewBonus: 'number', narrative: 'string' }
+  },
+  'syndicate-takeover': {
+    R: { syndicateId: 'string', newBossCharacterId: 'string' },
+    O: { oldBossCharacterId: 'string', reason: 'string', narrative: 'string' }
   },
   // === Character Lifecycle CL-1 (burst4) === (RR p.19; engine-emitted by processAgingForTurn, record-only)
   // A character crosses into a new age category (the progressive attribute adjustment) — or, with
@@ -2978,6 +2990,9 @@ registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
 registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
 registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
 registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
+// === Hijinks HJ-3 (team 2026-06-20) === — crew/takeover share the record-only audit posture.
+registerEventHandler('hijink-crew-assigned', applyEvent_hijinkAudit);
+registerEventHandler('syndicate-takeover', applyEvent_hijinkAudit);
 // === Character Lifecycle CL-1 (burst4) === — aging events share the record-only audit posture:
 // ACKS.processAgingForTurn already advanced the age/category/attributes; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors mortal-wound / survival / banditry.
@@ -6190,6 +6205,8 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Hijinks HJ-2 (team 2026-06-13) === — owned by formSyndicate / collectSyndicateTribute /
   // resolveHijinkTrial (raw emit would record an enterprise change the syndicate/hijink doesn't show).
   'hijink-syndicate-formed', 'hijink-tribute', 'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — owned by startHijink / takeoverSyndicate.
+  'hijink-crew-assigned', 'syndicate-takeover',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
   'domain-incursion',

@@ -229,9 +229,11 @@ function hijinkThrowProfile(campaign, ch, type, opts){
   let victimPenalty = 0;
   const victimLevel = (typeof opts.victimLevel === 'number') ? opts.victimLevel : null;
   if(def.victimPenalty && victimLevel){ victimPenalty = -victimLevel; parts.push({ label: 'victim level ' + victimLevel, value: -victimLevel }); }
-  const bonus = levelBonus + specialBonus + victimPenalty + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
+  let crewBonus = 0;   // HJ-3 (gated crew-hijinks; computed in startHijink, passed in here)
+  if(typeof opts.crewBonus === 'number' && opts.crewBonus){ crewBonus = opts.crewBonus; parts.push({ label: 'crew', value: crewBonus }); }
+  const bonus = levelBonus + specialBonus + victimPenalty + crewBonus + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
   if(opts.gmModifier) parts.push({ label: 'GM', value: opts.gmModifier });
-  return { target, bonus, levelBonus, specialBonus, victimPenalty, throwType: def.throwType || 'proficiency', parts };
+  return { target, bonus, levelBonus, specialBonus, victimPenalty, crewBonus, throwType: def.throwType || 'proficiency', parts };
 }
 
 // Resolve a thrown d20 against a profile (RR p.360): success if total ≥ target;
@@ -308,6 +310,8 @@ function blankHijink(opts){
     revealed: !!opts.revealed,
     trial: opts.trial || null,                            // HJ-2: the trial result if caught + tried (resolveHijinkTrial)
     rumorEmitted: !!opts.rumorEmitted,
+    crew: Array.isArray(opts.crew) ? opts.crew.slice() : [],   // HJ-3: co-perpetrator charIds (gated crew-hijinks)
+    crewBonus: opts.crewBonus || 0,                            // HJ-3: the crew's throw bonus (stored with the throw)
     startedTurn: opts.startedTurn || 1,
     startedDayInMonth: opts.startedDayInMonth || 1,
     startedDayOrd: opts.startedDayOrd || 0,
@@ -363,8 +367,18 @@ function startHijink(campaign, opts){
     else victimLevel = Math.max(1, level + (Math.ceil(_d(rng, 10) / 2) - 3));   // 1d10/2 − 3 + level
   }
 
+  // HJ-3 — a lieutenant's hijink reports to his syndicate boss unless an explicit boss is given.
+  let bossCharacterId = opts.bossCharacterId || null;
+  if(!bossCharacterId){ const synOfPerp = _syndicateForLieutenant(campaign, perp.id); if(synOfPerp && synOfPerp.bossCharacterId) bossCharacterId = synOfPerp.bossCharacterId; }
+  // HJ-3 — crew (gated crew-hijinks). When OFF, opts.crew is IGNORED (non-functional + hidden, principle 8).
+  let crew = [], crewBonus = 0;
+  if(crewHijinksEnabled(campaign) && Array.isArray(opts.crew) && opts.crew.length){
+    crew = _validCrew(campaign, opts.crew, opts.type, perp.id);
+    crewBonus = crewThrowBonus(crew);
+  }
+
   // the throw — rolled now, outcome locked but hidden until the hijink completes.
-  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier });
+  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier, crewBonus });
   // PT-5 — the hijink d20 now comes from the canonical Layer-1 roller (ACKS.rollProficiencyThrow)
   // instead of a re-inlined _d(rng,20). Byte-identical: _d(rng,20) === 1+floor(rng()*20) === the
   // resolver's natural — one rng consumption at the same point in the stream, so every downstream
@@ -390,7 +404,8 @@ function startHijink(campaign, opts){
     id: opts.id, type: opts.type,
     label: opts.label || ((perp.name || 'A perpetrator') + ' — ' + def.label),
     perpetratorCharacterId: perp.id,
-    bossCharacterId: opts.bossCharacterId || null,
+    bossCharacterId: bossCharacterId,
+    crew, crewBonus,
     hexId: opts.hexId || perp.currentHexId || null,
     settlementId: opts.settlementId || null,
     domainId: opts.domainId || perp.currentDomainId || null,
@@ -411,6 +426,10 @@ function startHijink(campaign, opts){
 
   _emitHijinkEvent(campaign, h, 'hijink-attempted', { type: h.type, perpetratorCharacterId: h.perpetratorCharacterId },
     (perp.name || 'A perpetrator') + ' begins a ' + def.label.toLowerCase() + ' hijink' + (h.settlementId ? '' : '') + '.');
+  if(crew.length){
+    _emitHijinkEvent(campaign, h, 'hijink-crew-assigned', { hijinkId: h.id, crew: crew.slice(), crewBonus: h.crewBonus },
+      (perp.name || 'A perpetrator') + ' assembles a crew of ' + crew.length + ' for the ' + def.label.toLowerCase() + ' (+' + crewBonus + ' to the throw).');
+  }
   return { ok:true, hijink: h };
 }
 
@@ -542,8 +561,10 @@ function _applyHijinkResolution(campaign, h){
     narrative = who + ' fails the ' + def.label.toLowerCase() + ' hijink.';
     h.history.push({ turn: h.resolvedTurn, type: 'resolved', narrative });
   }
-  _emitHijinkEvent(campaign, h, 'hijink-resolved',
+  const _ev = _emitHijinkEvent(campaign, h, 'hijink-resolved',
     { hijinkId: h.id, outcome: h.outcome, type: h.type, rewardGp: h.rewardGp, charge: h.charge }, narrative);
+  // HJ-3 — the rumor-bearing hijinks push a rumor into pendingEvents on the RAW trigger (Plan §7).
+  _maybeAutoEmitHijinkRumor(campaign, h, def, _ev && _ev.id);
 }
 
 // Emit a hijink event into the eventLog (the record-only audit pattern, the banditry
@@ -715,7 +736,9 @@ function syndicateEffectiveHideoutGp(syn){ const v = (syn && syn.hideoutValueGp)
 function syndicateMaxMembers(syn){
   if(!syn) return 0;
   const classMax = (MARKET_SYNDICATE_CAPS[syn.marketClass] || MARKET_SYNDICATE_CAPS['VI']).maxMembers;
-  return Math.min(classMax, _membershipForHideoutValue(syndicateEffectiveHideoutGp(syn)));
+  const base = Math.min(classMax, _membershipForHideoutValue(syndicateEffectiveHideoutGp(syn)));
+  // HJ-3 🔧 — a chartered criminal guild's formal organization extends its recruiting reach.
+  return guildChartered(syn) ? Math.floor(base * GUILD_MEMBERSHIP_FACTOR) : base;
 }
 function syndicateMemberCount(syn){ return ((syn && syn.members) || []).reduce((n, m) => n + (Math.max(0, (m && m.count) || 0)), 0); }
 
@@ -1067,6 +1090,192 @@ if(typeof ACKS.registerDayConsumer === 'function'){
   });
 }
 
+// =============================================================================
+// === Hijinks HJ-3 (team 2026-06-20) — syndicate depth (RR pp.358–369) ===
+// The enterprise-depth layer atop HJ-2's syndicates:
+//   • NAMED LIEUTENANTS — a counted member individuated into a real socialTier:'lieutenant'
+//     Character bound to the boss (the gladiator/follower precedent — NO new entity). The
+//     roster lives on syn.lieutenantCharacterIds[] (the single source of truth; a scan finds
+//     the syndicate, so there is no back-pointer to keep in sync). A lieutenant is a normal
+//     Character → startHijink works on him, and his hijink reports to his boss automatically.
+//   • CREWS — multi-perpetrator coordination behind the default-OFF crew-hijinks rule. Each
+//     eligible co-perpetrator grants +1 to the honcho's throw (cap +3). When the rule is OFF,
+//     opts.crew is IGNORED (non-functional + hidden — principle 8).
+//   • CHANGE-IN-MANAGEMENT TAKEOVER — a rival/lieutenant seizes the syndicate; the boss flips,
+//     the lieutenants rebind to the new chain of command, and a 'syndicate-takeover' fires.
+//   • CRIMINAL GUILDS — an init-on-write syn.guild sub-record (the senate.motions precedent; NOT
+//     on blankSyndicate, so templates stay migrate-no-ops). A chartered guild's formal reach
+//     raises the membership cap ×1.5.
+//   • RUMOR AUTO-EMIT — the rumor-bearing hijinks (def.emitsRumor) push a rumor into
+//     pendingEvents on the RAW trigger via the shipped _autoEmitRumor (Plan §7).
+// OUT of scope: the bandit-captain rural syndicate (it collides with the shipped
+// processBanditryForTurn — E10 banditry owns that hex).
+// All additive: no new prefix/entity/collection/migration. 🔧 v1 simplifications (Mechanic
+// Extensions): the crew bonus is a flat +1/eligible-member (cap +3) — a specialist-weighted
+// model is a future refinement; the guild's deeper effects (turf, legal standing) are deferred.
+// =============================================================================
+
+const LIEUTENANT_SOCIAL_TIER = 'lieutenant';
+const CREW_BONUS_CAP = 3;                  // 🔧 flat +1 per eligible crew member, capped
+const GUILD_MIN_MARKET_INDEX = 3;          // SYNDICATE_MARKET_ORDER index of 'III' (a guild needs a substantial base)
+const GUILD_MEMBERSHIP_FACTOR = 1.5;       // 🔧 a chartered guild's formal reach
+
+function _hijinkCharActive(c){ const A = global.ACKS; return (A && typeof A.isActive === 'function') ? A.isActive(c) : !!(c && c.alive !== false); }
+
+// ── named lieutenants (individuation) ──
+function _syndicateForLieutenant(campaign, charId){
+  if(!charId) return null;
+  return ((campaign && campaign.syndicates) || []).find(s => s && Array.isArray(s.lieutenantCharacterIds) && s.lieutenantCharacterIds.indexOf(charId) >= 0) || null;
+}
+function syndicateForLieutenant(campaign, charId){ return _syndicateForLieutenant(campaign, charId); }
+function syndicateLieutenants(campaign, syn){
+  if(!syn || !Array.isArray(syn.lieutenantCharacterIds)) return [];
+  const chars = (campaign && campaign.characters) || [];
+  return syn.lieutenantCharacterIds.map(id => chars.find(c => c && c.id === id)).filter(Boolean);
+}
+function isSyndicateLieutenant(ch){ return !!(ch && ch.socialTier === LIEUTENANT_SOCIAL_TIER); }
+function _defaultLieutenantName(syn){
+  const n = ((syn && syn.lieutenantCharacterIds) || []).length + 1;
+  return 'Lieutenant ' + n + (syn && syn.name ? (' of ' + syn.name) : '');
+}
+// individuateLieutenant — promote a counted member into a NAMED lieutenant Character (a thieving
+// class so he can perpetrate), bound to the boss (liegeCharacterId) + added to the roster. Draws
+// from a counted bucket at his level when present (a ruffian rises through the ranks), unless told
+// not to. No event (a roster op, like addSyndicateMembers). Returns { ok, lieutenant, syndicate }.
+function individuateLieutenant(campaign, synId, opts){
+  opts = opts || {};
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok:false, error:'unknown-syndicate' };
+  const A = global.ACKS;
+  const level = Math.max(0, Math.min(14, Math.floor((opts.level != null) ? opts.level : 1)));
+  const charLevel = Math.max(1, level || 1);
+  const cls = opts.class || 'Thief';
+  if(opts.fromBucket !== false){
+    const bucket = (syn.members || []).find(m => m && (m.level || 0) === level && (m.count || 0) > 0);
+    if(bucket){ bucket.count -= 1; syn.members = (syn.members || []).filter(m => m && (m.count || 0) > 0); }
+  }
+  const name = opts.name || _defaultLieutenantName(syn);
+  let lt;
+  if(typeof A.blankCharacter === 'function'){
+    lt = A.blankCharacter({ name, class: cls, level: charLevel, socialTier: LIEUTENANT_SOCIAL_TIER,
+      controlledBy: 'gm', liegeCharacterId: syn.bossCharacterId || null, currentHexId: syn.hexId || null });
+  } else {
+    lt = { schemaVersion:2, id:'chr-'+Math.random().toString(36).slice(2,9), name, class: cls, level: charLevel,
+      socialTier: LIEUTENANT_SOCIAL_TIER, controlledBy:'gm', liegeCharacterId: syn.bossCharacterId || null, alive:true,
+      lifecycleState:'active', proficiencies:[], classPowers:[], abilities:{ STR:10,INT:10,WIL:10,DEX:10,CON:10,CHA:10 },
+      coins:{pp:0,gp:0,ep:0,sp:0,cp:0} };
+  }
+  campaign.characters = campaign.characters || [];
+  campaign.characters.push(lt);
+  syn.lieutenantCharacterIds = Array.isArray(syn.lieutenantCharacterIds) ? syn.lieutenantCharacterIds : [];   // init-on-write
+  syn.lieutenantCharacterIds.push(lt.id);
+  syn.history.push({ turn: campaign.currentTurn || 1, type:'lieutenant-individuated',
+    narrative: name + ' is named a lieutenant of ' + (syn.name || 'the syndicate') + '.' });
+  return { ok:true, lieutenant: lt, syndicate: syn };
+}
+
+// ── crews (gated crew-hijinks) ──
+function crewHijinksEnabled(campaign){
+  const A = global.ACKS;
+  return !!(A && typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'crew-hijinks'));
+}
+// The valid crew for a hijink: distinct, eligible co-perpetrators other than the honcho.
+function _validCrew(campaign, crewIds, type, honchoId){
+  const chars = (campaign && campaign.characters) || [];
+  const seen = {}, out = [];
+  (crewIds || []).forEach(id => {
+    if(!id || id === honchoId || seen[id]) return;
+    const c = chars.find(x => x && x.id === id);
+    if(c && hijinkPerpetratorEligible(c, type)){ seen[id] = true; out.push(id); }
+  });
+  return out;
+}
+function crewThrowBonus(crew){ return Math.min(CREW_BONUS_CAP, ((crew && crew.length) || 0)); }
+
+// ── change-in-management takeover ──
+// Eligible new bosses: any active eligible character other than the current boss (the syndicate's
+// own lieutenants qualify — a lieutenant who is a thief/assassin/nightblade/venturer can seize it).
+function syndicateTakeoverCandidates(campaign, syn){
+  if(!syn) return [];
+  const chars = (campaign && campaign.characters) || [];
+  return chars.filter(c => c && c.id !== syn.bossCharacterId && _hijinkCharActive(c) && syndicateBossEligible(c));
+}
+function takeoverSyndicate(campaign, synId, opts){
+  opts = opts || {};
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok:false, error:'unknown-syndicate' };
+  const newBossId = opts.newBossCharacterId;
+  const newBoss = newBossId ? ((campaign.characters) || []).find(c => c && c.id === newBossId) : null;
+  if(!newBoss) return { ok:false, error:'unknown-boss' };
+  if(!syndicateBossEligible(newBoss)) return { ok:false, error:'boss-ineligible', detail: syndicateBossIneligibleReason(newBoss) };
+  const oldBossId = syn.bossCharacterId || null;
+  if(oldBossId && oldBossId === newBossId) return { ok:false, error:'already-boss' };
+  syn.bossCharacterId = newBossId;
+  // the new boss, if a lieutenant of this syndicate, is the boss now → drop him from the roster.
+  if(Array.isArray(syn.lieutenantCharacterIds)) syn.lieutenantCharacterIds = syn.lieutenantCharacterIds.filter(id => id !== newBossId);
+  // rebind the remaining lieutenants to the new chain of command.
+  syndicateLieutenants(campaign, syn).forEach(lt => { if(lt) lt.liegeCharacterId = newBossId; });
+  const reason = opts.reason || 'change in management';
+  const oldName = (() => { const c = ((campaign.characters) || []).find(x => x && x.id === oldBossId); return (c && c.name) || (oldBossId ? 'the former boss' : 'no one'); })();
+  const narrative = (newBoss.name || 'A rival') + ' seizes control of ' + (syn.name || 'the syndicate') + ' from ' + oldName + ' (' + reason + ').';
+  syn.history.push({ turn: campaign.currentTurn || 1, type:'takeover', narrative, oldBossCharacterId: oldBossId, newBossCharacterId: newBossId });
+  _emitSyndicateEvent(campaign, syn, 'syndicate-takeover',
+    { syndicateId: syn.id, oldBossCharacterId: oldBossId, newBossCharacterId: newBossId, reason }, narrative);
+  return { ok:true, syndicate: syn, oldBossCharacterId: oldBossId, newBossCharacterId: newBossId };
+}
+
+// ── criminal guilds (init-on-write sub-record) ──
+function guildChartered(syn){ return !!(syn && syn.guild && syn.guild.chartered); }
+function canCharterGuildReason(campaign, syn){
+  if(!syn) return 'no syndicate';
+  if(!syn.bossCharacterId) return 'a guild needs a boss';
+  if(guildChartered(syn)) return 'already chartered as a guild';
+  if(SYNDICATE_MARKET_ORDER.indexOf(syn.marketClass) < GUILD_MIN_MARKET_INDEX) return 'a criminal guild needs a Class III or larger market (RR pp.358–360)';
+  return '';
+}
+function canCharterGuild(campaign, syn){ return canCharterGuildReason(campaign, syn) === ''; }
+function charterGuild(campaign, synId, opts){
+  opts = opts || {};
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok:false, error:'unknown-syndicate' };
+  const reason = canCharterGuildReason(campaign, syn);
+  if(reason) return { ok:false, error:'cannot-charter', detail: reason };
+  syn.guild = {   // init-on-write — NOT on blankSyndicate (the senate.motions precedent)
+    chartered: true,
+    name: opts.name || ((syn.name || 'The syndicate') + ' (chartered guild)'),
+    charteredTurn: campaign.currentTurn || 1,
+    specialties: Array.isArray(opts.specialties) ? opts.specialties.slice() : []
+  };
+  syn.history.push({ turn: syn.guild.charteredTurn, type:'guild-chartered',
+    narrative: (syn.name || 'The syndicate') + ' is chartered as the criminal guild "' + syn.guild.name + '".' });
+  return { ok:true, syndicate: syn, guild: syn.guild };
+}
+
+// ── rumor auto-emit (Plan §7) ──
+// The rumor-bearing hijinks push a rumor into pendingEvents on the RAW trigger (success for most,
+// CAUGHT for smuggling). Routes through the shipped _autoEmitRumor, which gates internally on the
+// rumors-auto-emit house rule (a no-op when off — so this never affects a campaign that hasn't
+// opted into auto-emitted rumors).
+const HIJINK_RUMOR_PROFILE = Object.freeze({
+  'carousing':        { trigger:'success', topic:'other',  apparentLevel:'uncommon', truthLevel:'mixed' },
+  'soliciting':       { trigger:'success', topic:'other',  apparentLevel:'uncommon', truthLevel:'mixed' },
+  'spying':           { trigger:'success', topic:'other',  apparentLevel:'rare',     truthLevel:'true'  },
+  'treasure-hunting': { trigger:'success', topic:'wealth', apparentLevel:'rare',     truthLevel:'mixed' },
+  'smuggling':        { trigger:'caught',  topic:'trade',  apparentLevel:'common',   truthLevel:'true'  }
+});
+function _maybeAutoEmitHijinkRumor(campaign, h, def, sourceEventId){
+  const A = global.ACKS;
+  if(!h || !def || !def.emitsRumor || typeof A._autoEmitRumor !== 'function') return;
+  const prof = HIJINK_RUMOR_PROFILE[h.type];
+  if(!prof || prof.trigger !== h.outcome) return;
+  const ev = A._autoEmitRumor(campaign, {
+    submittedBy:'engine', settlementId: h.settlementId || null, domainId: h.domainId || null,
+    topic: prof.topic, apparentLevel: prof.apparentLevel, truthLevel: prof.truthLevel,
+    rumorText:'', sourceCharacterId: h.perpetratorCharacterId || null, sourceEventId: sourceEventId || null
+  });
+  if(ev) h.rumorEmitted = true;
+}
+
 Object.assign(ACKS, {
   HIJINK_DEFINITIONS, HIJINK_TYPES, HIJINK_THIEF_CLASSES,
   blankHijink, hijinkDefinition, hijinkTypes,
@@ -1081,7 +1290,13 @@ Object.assign(ACKS, {
   syndicateMaxEffectiveLevel, syndicateEffectiveHideoutGp, syndicateMaxMembers, syndicateMemberCount,
   syndicateBossEligible, syndicateBossIneligibleReason,
   memberMonthlyTribute, syndicateMonthlyTribute, collectSyndicateTribute, processSyndicateTributeForTurn,
-  crimeProfile, awaitTrialDays, crimePunishmentBand, hijinkTrialModifiers, resolveHijinkTrial
+  crimeProfile, awaitTrialDays, crimePunishmentBand, hijinkTrialModifiers, resolveHijinkTrial,
+  // === Hijinks HJ-3 (team 2026-06-20) — syndicate depth (lieutenants / crews / takeover / guilds / rumor) ===
+  LIEUTENANT_SOCIAL_TIER, CREW_BONUS_CAP, HIJINK_RUMOR_PROFILE,
+  individuateLieutenant, syndicateLieutenants, syndicateForLieutenant, isSyndicateLieutenant,
+  crewHijinksEnabled, crewThrowBonus,
+  syndicateTakeoverCandidates, takeoverSyndicate,
+  guildChartered, canCharterGuild, canCharterGuildReason, charterGuild
 });
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
