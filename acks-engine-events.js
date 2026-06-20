@@ -482,7 +482,11 @@ const EVENT_KINDS = Object.freeze([
   // + the NotableItem custody; these are record-only audits). TT pp.26–28. Distinct from the W1
   // item-appraised (context-free spread) / item-transfer / market-transaction.
   'magic-item-appraised',   // a MARKET price estimate for a magic item (transactability + offered buy/sell + headroom)
-  'magic-item-sold'         // a magic item changed hands at a market (payload.direction ∈ 'buy'|'sell')
+  'magic-item-sold',        // a magic item changed hands at a market (payload.direction ∈ 'buy'|'sell')
+  // === Gladiators G5 (team burst11 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // round-by-round tactical bout — resolveAndCommitBoutTactical with opts.logRounds). A record-only,
+  // campaignLogHidden VERBOSE per-round audit; the bout's result still rides the shipped bout-resolved.
+  'bout-round'              // a tactical-bout round's blow-by-blow (opt-in verbose log; RAW p.27)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1517,6 +1521,12 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-item-sold': {
     R: { itemId: 'string', direction: 'string', settlementId: 'string' },
     O: { characterId: 'string', marketClass: 'string', rarity: 'string', created: 'boolean', priceGp: 'number', qty: 'number', narrative: 'string' }
+  },
+  // === Gladiators G5 (team burst11 2026-06-20) === — record-only verbose audit (see EVENT_KINDS); the
+  // tactical resolver applied the bout via the shipped bout-resolved — bout-round is the opt-in blow-by-blow.
+  'bout-round': {
+    R: { boutId: 'string', round: 'number' },
+    O: { initiative: 'object', lines: 'array', hp: 'object', narrative: 'string' }
   }
 });
 
@@ -3374,6 +3384,9 @@ registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
 registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
+// === Gladiators G5 (team burst11 2026-06-20) === — same record-only audit; the round-by-round tactical
+// resolver applied the bout via the shipped bout-resolved, and bout-round is its opt-in verbose per-round log.
+registerEventHandler('bout-round', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6545,7 +6558,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'gladiator-trained', 'gladiator-uprising', 'game-sponsored',
   // === Magic Items MI-3 (team burst11) === — owned by acks-engine-magic-items.js (the market verbs
   // move the gp + custody); a raw Event-Wizard emit would record a sale/appraisal nothing moved for.
-  'magic-item-appraised', 'magic-item-sold'
+  'magic-item-appraised', 'magic-item-sold',
+  // === Gladiators G5 (team burst11 2026-06-20) === — owned by acks-engine-gladiators.js (the tactical
+  // resolver emits bout-round per round); a raw Event-Wizard emit would record arena chatter with no fight.
+  'bout-round'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
