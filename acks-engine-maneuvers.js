@@ -950,9 +950,11 @@
   }
   function _reduceUrbanFamilies(campaign, domain, n){
     let remaining = n;
-    for(const h of ((domain.geography && domain.geography.hexes) || [])){
+    // T6 single-home — the domain's settlements are the canonical campaign.settlements[] on its hexes.
+    const Ax = A();
+    for(const h of (Ax.hexesForDomain ? Ax.hexesForDomain(campaign, domain.id) : [])){
       if(remaining <= 0) break;
-      const s = h && h.settlement;
+      const s = Ax.settlementForHex ? Ax.settlementForHex(campaign, h.id) : null;
       if(!s || !(s.families > 0)) continue;
       const cut = Math.min(s.families, remaining);
       s.families -= cut;
@@ -1124,7 +1126,9 @@
     if(dom){
       const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
       if(!domHexes.length) return null;
-      return domHexes.find(h => h.settlement && (h.settlement.families > 0)) || domHexes[0];
+      // T6 single-home — the seat is the hex with the largest canonical settlement.
+      const Ax = A();
+      return domHexes.find(h => { const s = Ax.settlementForHex ? Ax.settlementForHex(campaign, h.id) : null; return s && s.families > 0; }) || domHexes[0];
     }
     const cst = _constructible(campaign, baseId);
     if(cst) return _hex(campaign, cst.hexId) || null;

@@ -313,18 +313,10 @@ function __resolveLabel(category, typeId){
 }
 function __resolveSettlementName(campaign, settlementId){
   if(!campaign || !settlementId) return settlementId || '';
-  // Search top-level collection first.
+  // T6 single-home — the settlement lives in the canonical campaign.settlements[].
   if(Array.isArray(campaign.settlements)){
     const top = campaign.settlements.find(s => s && s.id === settlementId);
     if(top && top.name) return top.name;
-  }
-  // Fall back to per-hex embedded settlements.
-  for(const d of (campaign.domains||[])){
-    for(const h of (d.geography && d.geography.hexes || [])){
-      if(h && h.settlement && (h.settlement.id === settlementId || (d.id + ':' + (h.coord ? h.coord.q + ',' + h.coord.r : ''))  === settlementId)){
-        return h.settlement.name || settlementId;
-      }
-    }
   }
   return settlementId;
 }
@@ -342,22 +334,10 @@ function _autoEmitRecruitmentNotability(campaign, opts){
   // §310.3f-fix26 — route through ACKS.isHouseRuleEnabled so the
   // {enabled: bool} shape is honored.
   if(!global.ACKS || !global.ACKS.isHouseRuleEnabled || !global.ACKS.isHouseRuleEnabled(campaign, 'recruitment-notability')) return null;
-  // Find settlement — try top-level collection first, then per-hex.
+  // T6 single-home — the settlement lives in the canonical campaign.settlements[].
   let settlement = null;
   if(Array.isArray(campaign.settlements)){
     settlement = campaign.settlements.find(s => s && s.id === opts.settlementId);
-  }
-  if(!settlement){
-    for(const d of (campaign.domains||[])){
-      const hexes = (d.geography && d.geography.hexes) || [];
-      for(const h of hexes){
-        if(h && h.settlement && h.settlement.id === opts.settlementId){
-          settlement = h.settlement;
-          break;
-        }
-      }
-      if(settlement) break;
-    }
   }
   if(!settlement) return null;
   const ACKS = global.ACKS;
@@ -2153,7 +2133,11 @@ function hasFreshSource(campaign, hex){
   if(Array.isArray(hex.riverSides) && hex.riverSides.length > 0) return true;
   if(hex.hasLake === true) return true;
   if(hex.terrain === 'water' && hex.freshWater === true) return true;
-  if(hex.settlement) return true;                                   // a settlement guarantees water (🔧)
+  // a settlement guarantees water (🔧). T6 single-home — read the canonical campaign.settlements[];
+  // the embedded hex.settlement is a back-compat bridge for un-lifted inputs (dead post-strip), the
+  // sibling of voyageHexIsFreshFood.
+  if(hex.settlement) return true;
+  if(global.ACKS && global.ACKS.settlementForHex && global.ACKS.settlementForHex(campaign, hex.id)) return true;
   if(_journeyBordersFreshWater(campaign, hex)) return true;
   return false;
 }
@@ -4302,10 +4286,19 @@ function hexDisplayLabel(q, r){
 // <coords> is the RAW column-row label (hexDisplayLabel). This does NOT replace the bare
 // column-row number drawn at the top of each hex on the map. Terrain is Title-cased; the domain
 // is NOT part of the name (callers add "in <domain>" separately where useful).
-function hexName(hex){
+// hexName(hex, campaign?) — the canonical hex display label. A settlement's name takes precedence
+// over terrain. T6 single-home: the settlement now lives in campaign.settlements[] (keyed by hexId),
+// so pass `campaign` to resolve it (settlementForHex). The legacy embedded hex.settlement is still
+// read first for back-compat (transitional hexes + test literals that embed a settlement), so the
+// extra arg is optional — a caller without a campaign just gets the terrain label for a settled hex.
+function hexName(hex, campaign){
   if(!hex) return '';
   const coords = hex.coord ? hexDisplayLabel(hex.coord.q, hex.coord.r) : '';
-  const settlement = (hex.settlement && hex.settlement.name) ? String(hex.settlement.name).trim() : '';
+  let settlement = (hex.settlement && hex.settlement.name) ? String(hex.settlement.name).trim() : '';
+  if(!settlement && campaign && hex.id && global.ACKS && global.ACKS.settlementForHex){
+    const s = global.ACKS.settlementForHex(campaign, hex.id);
+    if(s && s.name) settlement = String(s.name).trim();
+  }
   let base = settlement;
   if(!base && hex.terrain){
     const t = String(hex.terrain).trim();
@@ -5789,7 +5782,8 @@ function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
   const domHexes = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id);
   let strongholdHex = null, best = -1;
   for(const h of domHexes){
-    const fam = (h.settlement && (h.settlement.families || 0)) || 0;
+    const s = A.settlementForHex ? A.settlementForHex(campaign, h.id) : null;   // T6 single-home
+    const fam = (s && s.families) || 0;
     if(fam > best){ best = fam; strongholdHex = h; }
   }
   const dist = (strongholdHex && strongholdHex.coord && entryHex && entryHex.coord && typeof A.hexAxialDistance === 'function')

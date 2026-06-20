@@ -2050,7 +2050,8 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     const hexLabel = function(id){
       if(!id) return null;
       const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
-      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      const st = (h && A && A.settlementForHex) ? A.settlementForHex(campaign, h.id) : null;   // T6 single-home
+      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (st && st.name ? ' · ' + st.name : '');
       return id;
     };
     if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
@@ -2120,15 +2121,8 @@ function applyEvent_gmFiat(campaign, event){
       }
       break;
     case 'settlement':
-      // Check top-level collection first (Foundation #14), then walk legacy nested storage.
+      // T6 single-home — the settlement lives in the canonical campaign.settlements[].
       entity = (campaign.settlements||[]).find(s => s.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          (d.geography?.hexes||[]).forEach(h => {
-            if(h.settlement && h.settlement.id === target.id) entity = h.settlement;
-          });
-        });
-      }
       break;
     case 'rumor':
       entity = (campaign.rumors||[]).find(r => r.id === target.id) || null;
@@ -4913,7 +4907,8 @@ function beginTracking(campaign, opts){
     // Folk head for the nearest settlement (dwellings, never dens — the E4 rule).
     let best = null, bestD = Infinity;
     for(const h of (campaign.hexes || [])){
-      if(!h || !h.coord || !h.settlement) continue;
+      if(!h || !h.coord) continue;
+      if(!(A.settlementForHex && A.settlementForHex(campaign, h.id))) continue;   // T6 single-home — settled hexes only
       const d = (typeof A.hexAxialDistance === 'function') ? A.hexAxialDistance(meetHex.coord, h.coord) : Infinity;
       if(d < bestD){ best = h; bestD = d; }
     }

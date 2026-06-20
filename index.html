@@ -108,6 +108,12 @@
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
+<!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
+     canonical campaign.settlements[] (the embedded hex.settlement mirror is gone). A plain global so
+     Alpine templates AND component methods call it uniformly (no this-vs-bare-scope issue); it reads
+     the app singleton (window.acksApp.currentCampaign). hexName's campaign arg is optional, so a hex
+     literal that still embeds a settlement (test fixtures) keeps working without one. -->
+<script>function hexLabelFor(hx){ try { var f = window.ACKS && window.ACKS.hexName; return f ? f(hx, window.acksApp && window.acksApp.currentCampaign) : ((hx && hx.id) || ''); } catch(e){ return (hx && hx.id) || ''; } }</script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -873,7 +879,7 @@ document.addEventListener('alpine:init', () => {
           <template x-for="entry in filteredHexes()" :key="entry.hex.id">
             <tr>
               <td>
-                <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
+                <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="hexLabelFor(entry.hex)"></button>
               </td>
               <td class="text-base">
                 <button @click="selectedDomainId=entry.domainId; currentView='world'; worldSubView='domains'" class="underline" x-text="entry.domainName"></button>
@@ -1696,7 +1702,7 @@ document.addEventListener('alpine:init', () => {
               <template x-if="!battleWizard.scoped">
                 <select x-model="battleWizard.hexId" class="w-full text-sm">
                   <option value="">— unmapped field —</option>
-                  <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'bwh-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+                  <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'bwh-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? hexLabelFor(h) : h.id"></option></template>
                 </select>
               </template></label>
             <label class="block">Scale (RR p.437)
@@ -2560,7 +2566,7 @@ document.addEventListener('alpine:init', () => {
         <label class="font-semibold w-24">Destination</label>
         <select x-model="marchModal.destHexId" class="border border-ink rounded px-2 py-0.5">
           <option value="">— pick a destination hex —</option>
-          <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'umd-'+h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+          <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'umd-'+h.id"><option :value="h.id" x-text="window.ACKS.hexName ? hexLabelFor(h) : h.id"></option></template>
         </select>
         <button @click="marchPickDest()" class="text-xs underline" title="Pick the destination on the map">🗺 choose from map</button>
       </div>
@@ -2600,7 +2606,7 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center gap-2 flex-wrap">Home (garrison hex):
             <select x-model="levyModal.homeHexId" class="border border-ink rounded px-1 py-0.5 text-sm">
               <option value="">— no home —</option>
-              <template x-for="h in domainHomeHexOptions(levyModalDomain())" :key="'lvh-'+h.id"><option :value="h.id" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+              <template x-for="h in domainHomeHexOptions(levyModalDomain())" :key="'lvh-'+h.id"><option :value="h.id" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
             </select>
           </label>
           <span x-show="!domainCanLevy(levyModalDomain())" class="text-xs accent-red block">The realm is too unhappy to levy (RR p.432).</span>
@@ -3031,7 +3037,7 @@ document.addEventListener('alpine:init', () => {
           <p class="text-xs flex items-center gap-1 flex-wrap"><span class="opacity-70">🏠 Home:</span>
             <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where it returns when its task ends">
               <option value="" :selected="!u.homeHexId">— no home —</option>
-              <template x-for="h in unitSheetHexOptions()" :key="'ush-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+              <template x-for="h in unitSheetHexOptions()" :key="'ush-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
             </select>
             <span class="opacity-50 italic" x-show="unitSheetHexOptions().length === 0">no domain hexes</span>
           </p>
@@ -4246,7 +4252,7 @@ document.addEventListener('alpine:init', () => {
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
-        <h3 class="font-bold text-lg">🔍 Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? window.ACKS.hexName(searchHexObj()) : ''"></span></span></h3>
+        <h3 class="font-bold text-lg">🔍 Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? hexLabelFor(searchHexObj()) : ''"></span></span></h3>
         <p class="text-sm opacity-70">One search-hour = one ancillary task; each hour also risks an encounter (RR pp.276–277). The Judge rolls secretly — a failure tells the players nothing.</p>
       </div>
       <button @click="closeSearchHex()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -4484,7 +4490,7 @@ document.addEventListener('alpine:init', () => {
         <button @click="mapLocalBackToRegional()" class="px-2 py-0.5 border border-ink rounded hover:bg-sky-100" title="Back to the 6-mile regional view, framed on this hex">⬢ ← Regional</button>
         <span class="font-semibold">⬡ Local view (1.5-mile)</span>
         <template x-if="mapLocalView()">
-          <span class="opacity-80" x-text="'in ' + (window.ACKS.hexName(mapLocalView().parent) || window.ACKS.hexDisplayLabel(mapLocalView().parentCoord.q, mapLocalView().parentCoord.r)) + ' · ' + mapLocalView().authoredCount + ' of ~' + mapLocalView().idealizedCount + ' sub-hexes authored'"></span>
+          <span class="opacity-80" x-text="'in ' + (hexLabelFor(mapLocalView().parent) || window.ACKS.hexDisplayLabel(mapLocalView().parentCoord.q, mapLocalView().parentCoord.r)) + ' · ' + mapLocalView().authoredCount + ' of ~' + mapLocalView().idealizedCount + ' sub-hexes authored'"></span>
         </template>
         <span class="italic opacity-60">— click an empty cell to add detail, an authored cell to edit it</span>
       </div>
@@ -5560,7 +5566,7 @@ document.addEventListener('alpine:init', () => {
                   <select class="ed-input text-sm" style="width:12rem" x-model="ruralAssignHex">
                     <option value="">— rural hex —</option>
                     <template x-for="h in ruralHexOptions()" :key="h.id">
-                      <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                      <option :value="h.id" x-text="hexLabelFor(h)"></option>
                     </template>
                   </select>
                   <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
@@ -5779,7 +5785,7 @@ document.addEventListener('alpine:init', () => {
                   <tr>
                     <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
                     <td class="whitespace-nowrap">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="window.ACKS.hexName(h)"></button>
+                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="hexLabelFor(h)"></button>
                     </td>
                     <!-- (2) Class: plain text. Derived from domain (or per-hex families when the house rule is on). -->
                     <td x-text="effectiveHexClassification(selectedDomain, h)"></td>
@@ -6161,7 +6167,7 @@ document.addEventListener('alpine:init', () => {
                     <td>
                       <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
                         <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
                       </select>
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
@@ -6202,7 +6208,7 @@ document.addEventListener('alpine:init', () => {
                     <td>
                       <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
                         <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
                       </select>
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
@@ -6251,7 +6257,7 @@ document.addEventListener('alpine:init', () => {
                     <td>
                       <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
                         <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
                       </select>
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
@@ -10545,10 +10551,10 @@ document.addEventListener('alpine:init', () => {
           <template x-if="!(armySelJourney() && armySelJourney().status === 'in-transit')">
             <div class="flex flex-wrap items-baseline gap-2">
               <span class="font-semibold">🚶 Send on a march to</span>
-              <span x-show="armyMarchDest" class="text-sm" x-text="'→ ' + (window.ACKS.hexName ? window.ACKS.hexName((currentCampaign.hexes||[]).find(h=>h&&h.id===armyMarchDest)||{id:armyMarchDest}) : armyMarchDest)"></span>
+              <span x-show="armyMarchDest" class="text-sm" x-text="'→ ' + (window.ACKS.hexName ? hexLabelFor((currentCampaign.hexes||[]).find(h=>h&&h.id===armyMarchDest)||{id:armyMarchDest}) : armyMarchDest)"></span>
               <select x-model="armyMarchDest" class="text-sm">
                 <option value="">— pick a destination hex —</option>
-                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'amd-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'amd-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? hexLabelFor(h) : h.id"></option></template>
               </select>
               <button @click="armyMarchPickDest()" class="text-xs underline" title="Pick the destination on the map">🗺 choose from map</button>
               <select x-model="armyMarchPace" class="text-sm">
@@ -10695,7 +10701,7 @@ document.addEventListener('alpine:init', () => {
               <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when its mission ends (a hex inside its domain)">
                 <option value="" :selected="!u.homeHexId">— no home —</option>
                 <template x-for="h in unitHomeHexOptions(u)" :key="h.id">
-                  <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option>
+                  <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option>
                 </template>
               </select>
               <span class="opacity-60" x-show="u.homeHexId">— returns here when its task ends</span>
@@ -12759,13 +12765,13 @@ document.addEventListener('alpine:init', () => {
         <template x-if="isHouseRuleEnabled('living-census')">
           <div class="text-sm flex items-center gap-2">
             <span class="w-32">Home hex</span>
-            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeHexId', label:'Home hex', kind:'select', formatter(v){ if(!v) return '— none —'; const h=(window.acksApp?.currentCampaign?.hexes||[]).find(hh => hh.id === v); return h ? window.ACKS.hexName(h) : v; }})">
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeHexId', label:'Home hex', kind:'select', formatter(v){ if(!v) return '— none —'; const h=(window.acksApp?.currentCampaign?.hexes||[]).find(hh => hh.id === v); return h ? hexLabelFor(h) : v; }})">
               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home hex (logged)'">✏</button></span></template>
               <template x-if="editing"><span class="ed-stat">
                 <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
                   <option :value="null">— none —</option>
                   <template x-for="h in (window.acksApp?.currentCampaign?.hexes||[])" :key="h.id">
-                    <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                    <option :value="h.id" x-text="hexLabelFor(h)"></option>
                   </template>
                 </select>
                 <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home hex'">✓</button>
@@ -13161,7 +13167,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">
-        🗺 <span x-text="worldHexEditingHex() ? window.ACKS.hexName(worldHexEditingHex()) : 'Hex'"></span>
+        🗺 <span x-text="worldHexEditingHex() ? hexLabelFor(worldHexEditingHex()) : 'Hex'"></span>
         <span class="text-sm opacity-70 font-normal" x-show="worldHexEditingDomain()"> · <span x-text="worldHexEditingDomain()?.name||''"></span></span>
       </h2>
       <button @click="closeHexDetail()" class="text-xl px-2">×</button>
@@ -20568,7 +20574,7 @@ return {
   lairHexLabel(l){
     if(!l || !l.hexId) return (l && l.status === 'dynamic') ? '(unplaced pool)' : '(no hex)';
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === l.hexId);
-    return h ? window.ACKS.hexName(h) : l.hexId;
+    return h ? hexLabelFor(h) : l.hexId;
   },
   lairStatusIcon(l){
     return { active:'🏚', unknown:'❓', dynamic:'🃏', cleared:'⚔', abandoned:'🍂', destroyed:'💥' }[l && l.status] || '🏚';
@@ -20606,7 +20612,7 @@ return {
     if(typeof A.looseMonsterBands !== 'function') return [];
     return A.looseMonsterBands(c).map(b => {
       const hex = b.hexId ? ((c.hexes || []).find(h => h && h.id === b.hexId) || null) : null;
-      const where = hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : null;
+      const where = hex ? ((typeof A.hexName === 'function' && hexLabelFor(hex)) || hex.id) : null;
       const monster = (b.monsterKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(b.monsterKey)) || b.monsterKey || null;
       if(b.kind === 'pursuer'){
         const enc = (typeof A.findEncounter === 'function') ? A.findEncounter(c, b.encounterId) : null;
@@ -20819,7 +20825,7 @@ return {
   openBuildDungeon(){ this.dungeonBuild = { open: true, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 }; },
   buildDungeonHexOptions(){
     return ((this.currentCampaign && this.currentCampaign.hexes) || []).map(h => ({
-      id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) + (h.domainId ? '' : ' · unclaimed') }));
+      id: h.id, label: (window.ACKS.hexName ? hexLabelFor(h) : h.id) + (h.domainId ? '' : ' · unclaimed') }));
   },
   buildDungeonSubmit(){
     const b = this.dungeonBuild; if(!b || !b.hexId) return;
@@ -20896,7 +20902,7 @@ return {
   sanctumCompanionCap(){ return window.ACKS.SANCTUM_COMPANION_CAP || 6; },
   sanctumApprenticeCap(){ return window.ACKS.SANCTUM_APPRENTICE_CAP || 12; },
   sanctumRosterFor(id){ return window.ACKS.sanctumRoster(this.currentCampaign, id) || { companions: [], apprentices: [], facilities: [] }; },
-  sanctumHexLabel(s){ const h = (this.currentCampaign && (this.currentCampaign.hexes||[]).find(x => x && x.id === s.hexId)); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : s.hexId; },
+  sanctumHexLabel(s){ const h = (this.currentCampaign && (this.currentCampaign.hexes||[]).find(x => x && x.id === s.hexId)); return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : s.hexId; },
   openCharacterById(id){ const c = (this.currentCampaign && (this.currentCampaign.characters||[]).find(x => x && x.id === id)); if(c) this.openCharacterEditor(c); },
   // The 4 research-facility rows for a sanctum, with the magic-research throw bonus each grants (RR p.391 —
   // +1 per 10,000 gp over the 4,000 gp minimum, max +3; mirrors acks-engine-magic-research.js _facilityBonus).
@@ -21263,7 +21269,7 @@ return {
   },
   encHexLabel(enc){
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === enc.hexId);
-    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : enc.hexId) : (enc.hexId || '');
+    return h ? (window.ACKS.hexName ? hexLabelFor(h) : enc.hexId) : (enc.hexId || '');
   },
   encCharName(cid){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === cid); return (c && c.name) || cid; },
   encChaModText(cid){
@@ -22142,7 +22148,7 @@ return {
       : ((this.currentCampaign && this.currentCampaign.hexes) || []);
     return hexes.filter(Boolean).map(h => {
       const e = A.isSiteEligibleForKind ? A.isSiteEligibleForKind(this.currentCampaign, h, cw.kind, cw.structureKey) : { eligible:true, reason:null };
-      return { id: h.id, label: (typeof this.hexName === 'function' ? this.hexName(h) : h.id),
+      return { id: h.id, label: hexLabelFor(h),
                eligible: e.eligible, reason: this.constructionWizardSiteReason(e.reason) };
     });
   },
@@ -23197,7 +23203,7 @@ return {
   garrisonDeployHexOptions(){
     const camp = this.currentCampaign, did = this.garrisonDeployForm.domainId;
     return ((camp && camp.hexes) || []).filter(h => h && h.domainId === did)
-      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : (h.name || h.id)) }));
+      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? hexLabelFor(h) : (h.name || h.id)) }));
   },
   // Free units the GM may field, each marked at-the-rally (falls in now) or marching-in (called up).
   garrisonDeployUnits(){
@@ -23351,7 +23357,7 @@ return {
   musterHexOptions(){
     return ((this.currentCampaign && this.currentCampaign.hexes) || [])
       .filter(h => h && h.id)
-      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : (h.name || h.id)) + (h.domainId ? '' : ' · unclaimed') }));
+      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? hexLabelFor(h) : (h.name || h.id)) + (h.domainId ? '' : ' · unclaimed') }));
   },
   // Free units the GM may pull under this commander: any first-class unit with living
   // troops not already in an army (and not already rallying elsewhere), labelled with its
@@ -23369,7 +23375,7 @@ return {
     if(!st) return 'unstationed';
     if(st.kind === 'domain-garrison'){ const d = (camp.domains||[]).find(x => x && x.id === st.id); return d ? ('garrison · ' + (d.name || d.id)) : 'a garrison'; }
     if(st.kind === 'character'){ const c = (camp.characters||[]).find(x => x && x.id === st.id); return c ? ('company · ' + (c.name || c.id)) : 'a company'; }
-    if(st.kind === 'hex'){ const h = (camp.hexes||[]).find(x => x && x.id === st.id); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : st.id) : st.id; }
+    if(st.kind === 'hex'){ const h = (camp.hexes||[]).find(x => x && x.id === st.id); return h ? (window.ACKS.hexName ? hexLabelFor(h) : st.id) : st.id; }
     return st.kind;
   },
   // Distance preview from a unit's hex to the muster point (no journey yet): at the muster
@@ -23518,7 +23524,7 @@ return {
         army: a, troops,
         br: A.armyBattleRating(camp, a),
         leaderName: leader ? leader.name : '—',
-        location: hex ? (A.hexName ? A.hexName(hex) : hex.id) : '—',
+        location: hex ? (A.hexName ? hexLabelFor(hex) : hex.id) : '—',
         speed: prof.milesPerDay,
         icon: a.pillage ? '🔥' : (marching ? '🧭' : (troops > 0 ? '🎖' : '🏚')),
         state: a.pillage ? 'pillaging' : (marching ? ('marching → ' + this.hexLabelById(j.destinationHexId)) : (troops > 0 ? 'in the field' : 'no troops')),
@@ -23572,7 +23578,7 @@ return {
   },
   hexLabelById(hexId){
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
-    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || '—');
+    return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : (hexId || '—');
   },
   // The unit's DEPLOYMENT — the read-only column (Domains ▸ Military). When NOT in a field army it
   // reads its garrison post (its home hex within the domain, else the domain seat); when IN an army
@@ -24038,7 +24044,7 @@ return {
     const prefill = { hexId, sourceA: 'army:' + a.id, stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual', scale: 'company', asymmetry: false, scoped: true };   // the army starts the fight → the aggressor seeks battle (the GM can change stances in the launcher); scoped: Side A + hex fixed, Side B = foes at this hex
     if(targets.length === 1){ prefill.sourceB = targets[0].key; if(String(targets[0].key).startsWith('group:')) prefill.asymmetry = true; }   // a lone band foe → asymmetry on (RR p.464)
     this.openBattleWizard(prefill);
-    if(targets.length === 0 && hexId){ const h = (this.currentCampaign.hexes||[]).find(x => x && x.id === hexId); this.showToast('No other force stands at ' + (window.ACKS.hexName ? window.ACKS.hexName(h||{id:hexId}) : hexId) + ' — pick a target in the launcher, or march the army to the enemy first.'); }
+    if(targets.length === 0 && hexId){ const h = (this.currentCampaign.hexes||[]).find(x => x && x.id === hexId); this.showToast('No other force stands at ' + (window.ACKS.hexName ? hexLabelFor(h||{id:hexId}) : hexId) + ' — pick a target in the launcher, or march the army to the enemy first.'); }
   },
 
   // ═══ Phase 3 Military W3 — Review ▸ 🎌 Battles (moved from World ▸ 2026-06-13) + the battle panel ═══════════
@@ -24065,7 +24071,7 @@ return {
   battleSituationLabel(b){ const s = b && window.ACKS.STRATEGIC_SITUATIONS[b.situation]; return s ? s.label : (b ? b.situation : ''); },
   battleHexLabel(b){
     const h = b && b.hexId ? ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === b.hexId) : null;
-    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (b && b.hexId) || '—';
+    return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : (b && b.hexId) || '—';
   },
   battleSummary(sk){ const b = this.battlePanel(); return b ? window.ACKS.battleSideSummary(b, sk) : { label:'', active:0, lost:0, br:0, breakPoint:0 }; },
   battleZoneUnits(sk, zone){
@@ -24124,7 +24130,7 @@ return {
     return out;
   },
   _battleSourceArmyId(key){ return (key && String(key).startsWith('army:')) ? String(key).split(':')[1] : null; },
-  battleHexNameFor(hexId){ const h = hexId && (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || 'the field'); },
+  battleHexNameFor(hexId){ const h = hexId && (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId); return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : (hexId || 'the field'); },
   // The fixed display label for a side source key (army:/garrison:/group:) — used by the
   // scoped launcher to show Side A as auto-populated text instead of a dropdown.
   battleSideLabel(key){
@@ -25008,7 +25014,7 @@ return {
       }
     }
     if(!h) return hexId;
-    return window.ACKS.hexName(h) || hexId;   // canonical hex name (Architecture §11.3)
+    return hexLabelFor(h) || hexId;   // canonical hex name (Architecture §11.3)
   },
 
   // ─── Activities dashboard (#346 AB-3) — the visible read surface for the day budget ─────
@@ -25162,7 +25168,7 @@ return {
   // (hexId null — a grid hex the GM hasn't placed) shows its column·row reference.
   journeyStepLabel(step){
     if(!step) return '?';
-    if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
+    if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return hexLabelFor(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
     return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
   },
   // The party's TRUE current position step (Travel pivot) — the last hex actually entered, including an
@@ -26339,10 +26345,10 @@ return {
     if(c.currentHexId){
       for(const d of (this.domains||[])){
         const hex = (d.geography?.hexes||[]).find(h => h.id === c.currentHexId);
-        if(hex){ return window.ACKS.hexName(hex) + ' in ' + d.name; }
+        if(hex){ return hexLabelFor(hex) + ' in ' + d.name; }
       }
       const wild = (this.currentCampaign?.hexes||[]).find(h => h.id === c.currentHexId);
-      if(wild) return window.ACKS.hexName(wild);
+      if(wild) return hexLabelFor(wild);
       return 'hex '+c.currentHexId;
     }
     return '—';
@@ -28193,7 +28199,7 @@ return {
   stashHexLabel(s){
     if(!s || !s.hexId) return '—';
     const h=(this.currentCampaign?.hexes||[]).find(x=>x.id===s.hexId);
-    return h ? window.ACKS.hexName(h) : s.hexId;
+    return h ? hexLabelFor(h) : s.hexId;
   },
   stashKindLabel(s){ return ({ 'domain-treasury':'Treasury','personal':'Personal','party':'Party loot','cache':'Cache' })[s&&s.kind] || (s&&s.kind) || '—'; },
   // The stash owner label is a clickable link to its entity's view, when there's a clean opener
@@ -28309,7 +28315,7 @@ return {
   characterTransferHexLabel(){
     const id = this.characterTransferHexId(); if(!id) return null;
     const h = (this.currentCampaign?.hexes||[]).find(x=>x.id===id);
-    return h ? window.ACKS.hexName(h) : id;
+    return h ? hexLabelFor(h) : id;
   },
   characterTransferStashes(){
     const hexId = this.characterTransferHexId(); if(!hexId) return [];
@@ -29270,7 +29276,7 @@ return {
   },
   mapHexTitle(entry){
     const h = entry.hex;
-    const bits = [window.ACKS.hexName(h) || entry.label];      // canonical hex name (Architecture §11.3)
+    const bits = [hexLabelFor(h) || entry.label];      // canonical hex name (Architecture §11.3)
     if(h.settlement && h.settlement.name && h.terrain) bits.push(h.terrain); // terrain isn't in the name → show it
     bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
     if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
@@ -30059,7 +30065,7 @@ return {
   // sidesteps the gm-fiat path (no hex-deleted event kind; gm-fiat is for field edits, not removals).
   deleteHex(entry){
     const hex = entry && entry.hex; if(!hex || !this.currentCampaign) return;
-    const A = window.ACKS, label = A.hexName(hex);
+    const A = window.ACKS, label = hexLabelFor(hex);
     const lost = [];
     const set = hex.settlement || (this.currentCampaign.settlements || []).find(s => s && s.hexId === hex.id);
     if(set) lost.push('the settlement "' + (set.name || 'unnamed') + '"');
@@ -31716,11 +31722,11 @@ return {
     // domained hex (nested geography) → "<hex name> · <domain>" (canonical hex name, Architecture §11.3)
     for(const d of (this.domains||[])){
       const h = (d.geography?.hexes||[]).find(x => x.id === hexId);
-      if(h) return window.ACKS.hexName(h) + ' · ' + d.name;
+      if(h) return hexLabelFor(h) + ' · ' + d.name;
     }
     // domainless wilderness hex (top-level only)
     const wild = (this.currentCampaign?.hexes||[]).find(x => x.id === hexId);
-    if(wild) return window.ACKS.hexName(wild);
+    if(wild) return hexLabelFor(wild);
     return '(unknown hex)';
   },
 
@@ -32015,7 +32021,7 @@ return {
     else who = (first && first.name) || 'A character';
     const hexId = first && first.currentHexId;
     const hex = hexId ? (camp.hexes||[]).find(h => h && h.id === hexId) : null;
-    const where = hex ? (' · ' + (window.ACKS.hexName ? window.ACKS.hexName(hex) : hexId)) : '';
+    const where = hex ? (' · ' + (window.ACKS.hexName ? hexLabelFor(hex) : hexId)) : '';
     return '🍖 ' + who + where;
   },
   // Per-member rows for a survival record's detail: name + conditions (hunger/thirst ladders + CON loss)
@@ -32693,7 +32699,7 @@ return {
   _hijinkCharName(id){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === id); return (c && c.name) || '—'; },
   _hijinkWhere(h){
     if(h.settlementId){ const s = (this.currentCampaign?.settlements||[]).find(x => x && x.id === h.settlementId); if(s) return s.name || s.id; }
-    if(h.hexId){ const hx = (this.currentCampaign?.hexes||[]).find(x => x && x.id === h.hexId); if(hx) return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(hx) : h.hexId; }
+    if(h.hexId){ const hx = (this.currentCampaign?.hexes||[]).find(x => x && x.id === h.hexId); if(hx) return (window.ACKS && window.ACKS.hexName) ? hexLabelFor(hx) : h.hexId; }
     return '—';
   },
   _hijinkRow(h){
@@ -32736,7 +32742,7 @@ return {
   },
   siegeBesiegerName(s){ const a = window.ACKS.siegeBesiegerArmy(this.currentCampaign, s); return a ? (a.name || a.id) : '—'; },
   siegeDefenderName(s){ const d = window.ACKS.siegeDefenderDomain(this.currentCampaign, s); return d ? (d.name || d.id) : (s && s.defenderArmyId ? 'a defending army' : '—'); },
-  siegeHexLabel(s){ const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === (s && s.hexId)); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : ((s && s.hexId) || '—'); },
+  siegeHexLabel(s){ const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === (s && s.hexId)); return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : ((s && s.hexId) || '—'); },
   // The bombarding / bonus-unit siege engines (RR pp.476 + 485) — the modal's compact siege-train editor.
   siegeArtilleryRows(){ return [
     { key:'light-ballista', label:'Light ballista' }, { key:'medium-ballista', label:'Medium ballista' }, { key:'heavy-ballista', label:'Heavy ballista' },
@@ -33022,7 +33028,7 @@ return {
       if(!h.coord) return;
       const pts = A.hexPolygonPoints(h.coord.q, h.coord.r, size);
       const pix = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
-      const title = (A.hexName(h) || A.hexDisplayLabel(h.coord.q, h.coord.r)) + ' · 1.5-mile detail'
+      const title = (hexLabelFor(h) || A.hexDisplayLabel(h.coord.q, h.coord.r)) + ' · 1.5-mile detail'
         + (h.terrain ? ' · ' + h.terrain : '') + (h.families ? ' · ' + h.families + ' families' : '') + ' — click to edit';
       parts.push('<polygon data-hex-id="' + esc(h.id) + '" points="' + pts + '" fill="' + A.hexFillColor(h, layer, ctx) + '" stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(title) + '</title></polygon>');
       parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.7" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(h.coord.q, h.coord.r)) + '</text>');
@@ -33414,7 +33420,7 @@ return {
     if(!d || !d.hexId) return '— unplaced';
     const h = this.currentCampaign && ((this.currentCampaign.hexes || []).find(x => x && x.id === d.hexId));
     if(!h) return d.hexId;
-    return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(h) : (h.coord ? ('(' + h.coord.q + ',' + h.coord.r + ')') : d.hexId);
+    return (window.ACKS && window.ACKS.hexName) ? hexLabelFor(h) : (h.coord ? ('(' + h.coord.q + ',' + h.coord.r + ')') : d.hexId);
   },
   dungeonSizeLevelLabel(d){
     const size = (d && d.size) || 'small';

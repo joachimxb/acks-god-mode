@@ -701,7 +701,13 @@
   // A port/landfall hex (fresh food) — a GM-set hex.freshFood flag OR an embedded hex.settlement.
   // At a fresh-food hex the crew eats ashore: the deficit clears, no ship-store is consumed, and
   // scurvy is cured (RR p.321 — fresh food cures scurvy). The sea analog of a settlement's provisioning.
-  function voyageHexIsFreshFood(hex){ return !!(hex && (hex.freshFood || hex.settlement)); }
+  // T6 single-home — the embedded hex.settlement is read for back-compat; pass `campaign` to resolve
+  // the settlement from the canonical campaign.settlements[] (settlementForHex).
+  function voyageHexIsFreshFood(hex, campaign){
+    if(!hex) return false;
+    if(hex.freshFood || hex.settlement) return true;
+    return !!(campaign && hex.id && global.ACKS && global.ACKS.settlementForHex && global.ACKS.settlementForHex(campaign, hex.id));
+  }
 
   // PURE — the day's provisioning result for a voyage day (no mutation). The deprivation governing
   // TODAY's speed reads the deficit ENTERING the day (RAW JJ p.70 sequence: starvation is checked
@@ -710,7 +716,7 @@
   function computeShipProvisionDay(campaign, vessel, opts){
     opts = opts || {};
     if(!shipStoresTracked(vessel)) return { tracked: false, deprivation: { level: 'fed', speedMult: 1, calamity: false } };
-    const freshFood = !!opts.freshFood || voyageHexIsFreshFood(opts.hex);
+    const freshFood = !!opts.freshFood || voyageHexIsFreshFood(opts.hex, campaign);
     const curStores = Number(vessel.shipStores) || 0;
     const enteringDeficit = Number(vessel.provisionDeficitDays) || 0;
     const curScurvyDays = Number(vessel.daysAtSeaWithoutFreshFood) || 0;

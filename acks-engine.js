@@ -2009,8 +2009,17 @@ function findRumor(campaign, rumorId){
 }
 
 function settlementForHex(campaign, hexId){
-  if(!campaign || !Array.isArray(campaign.settlements)) return null;
-  return campaign.settlements.find(s => s.hexId === hexId) || null;
+  if(!campaign) return null;
+  if(Array.isArray(campaign.settlements)){
+    const s = campaign.settlements.find(s => s.hexId === hexId);
+    if(s) return s;
+  }
+  // T6 single-home — back-compat bridge: an un-lifted input (an old save mid-migration, a test
+  // fixture that embeds a settlement on the hex but hasn't run the lift) may carry the settlement
+  // ONLY as hex.settlement. This is the SINGLE place that reads the embedded mirror; it's dead in
+  // production (the load strips hex.settlement after liftToTopLevelCollections promotes it here).
+  const h = findHex(campaign, hexId);
+  return (h && h.settlement) || null;
 }
 
 // ── Phase 2.5 Journeys (#475) — lookups + a pure hex-distance helper ──
@@ -4120,7 +4129,7 @@ function setUnitHome(campaign, unitOrId, hexId){
   const active = unit.rallyingToArmyId || (st && st.kind === 'army');
   if(!active) unit.stationedAtHexId = hexId;
   const d = (campaign.domains || []).find(x => x && x.id === hex.domainId);
-  const hexLabel = (global.ACKS && typeof global.ACKS.hexName === 'function') ? global.ACKS.hexName(hex) : hexId;
+  const hexLabel = (global.ACKS && typeof global.ACKS.hexName === 'function') ? global.ACKS.hexName(hex, campaign) : hexId;
   unit.history.push({ turn, type: 'home-set', text: 'Home garrison set to ' + hexLabel + (d ? (' (' + (d.name || d.id) + ')') : '') });
   return { ok: true, unit };
 }
@@ -4402,7 +4411,7 @@ function startUnitMarch(campaign, unitOrId, opts){
   if(!A || typeof A.blankJourney !== 'function') return { ok: false, reason: 'no-engine' };
   stationUnit(campaign, unit, null);   // the troops take the road (home captured for the return)
   const destName = ((campaign.hexes || []).find(h => h && h.id === dest) || {});
-  const destLabel = (A.hexName ? A.hexName(destName.id ? destName : { id: dest }) : dest);
+  const destLabel = (A.hexName ? A.hexName(destName.id ? destName : { id: dest }, campaign) : dest);
   const journey = A.blankJourney({
     unitId: unit.id, unitMarch: true,
     name: (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + destLabel,

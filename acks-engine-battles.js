@@ -1019,7 +1019,9 @@
 
     // Retreat (RR p.469)
     const hexObj = _hex(campaign, battle.hexId);
-    const hasStronghold = !!(hexObj && ((hexObj.settlement) || (hexObj.primaryStructure)));
+    // T6 single-home — a settlement at the hex (canonical campaign.settlements[]) or a primary structure.
+    const hexSettlement = (hexObj && global.ACKS && global.ACKS.settlementForHex) ? global.ACKS.settlementForHex(campaign, hexObj.id) : null;
+    const hasStronghold = !!(hexObj && (hexSettlement || (hexObj.primaryStructure)));
     let retreatNote = L.label + ' retreats one 6-mile hex along its line of supply (GM places the survivors).';
     if(hasStronghold) retreatNote += ' A friendly stronghold/settlement stands in this hex — it may retreat inside instead (a siege follows, W6).';
     retreatNote += ' Armies that fought move no further today.';

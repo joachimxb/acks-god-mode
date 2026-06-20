@@ -299,12 +299,11 @@
   // per-domain geography mirror against the top-level campaign.hexes (domainId match). Min 1 (the seat).
   function _domainTerritoryHexCount(campaign, domain){
     if(!domain) return 0;
-    const ids = new Set();
-    const geo = (domain.geography && Array.isArray(domain.geography.hexes)) ? domain.geography.hexes : [];
-    for(const h of geo){ if(h && h.id) ids.add(h.id); }
+    // T6 single-home — the domain's hexes are campaign.hexes filtered by domainId.
     const top = (campaign && Array.isArray(campaign.hexes)) ? campaign.hexes : [];
-    for(const h of top){ if(h && h.domainId === domain.id && h.id) ids.add(h.id); }
-    return ids.size;
+    let n = 0;
+    for(const h of top){ if(h && h.domainId === domain.id && h.id) n++; }
+    return n;
   }
 
   // Shared plan for the Families roll: { applicable, classification, spec, hexCount }. noDomain

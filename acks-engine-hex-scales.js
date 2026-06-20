@@ -131,7 +131,7 @@ function hexScaleChildCount(coord, fromScale){ const c = hexScaleChildCoords(coo
 function _allHexes(campaign){
   const out = [], seen = {};
   const push = arr => { if(Array.isArray(arr)) arr.forEach(h => { if(h && h.id && !seen[h.id]){ seen[h.id] = true; out.push(h); } }); };
-  if(campaign){ push(campaign.hexes); if(Array.isArray(campaign.domains)) campaign.domains.forEach(d => push(d && d.geography && d.geography.hexes)); }
+  if(campaign){ push(campaign.hexes); }   // T6 single-home — campaign.hexes is the complete hex set
   return out;
 }
 function _findHexById(campaign, hexId){
@@ -220,7 +220,7 @@ function aggregateContinentalCell(campaign, members, contHex){
   const parentKoppen = (contHex && String(contHex.koppen || '').trim()) || '';
   const families = members.reduce((s, h) => s + (Number(h.families) || 0), 0);
   const domainIds = Array.from(new Set(members.map(h => h.domainId).filter(Boolean)));
-  const settlementCount = members.filter(h => h && h.settlement).length;
+  const settlementCount = members.filter(h => h && global.ACKS.settlementForHex && global.ACKS.settlementForHex(campaign, h.id)).length;   // T6 single-home
   const A = global.ACKS || {};
   const koppen = parentKoppen || childKoppen.value || '';
   // biome derives from the resolved koppen (shipped biomeFromKoppen), for the Biome fill layer.
@@ -363,7 +363,7 @@ function aggregateRegionalCell(campaign, members, regionalHex){
   const parentKoppen = (regionalHex && String(regionalHex.koppen || '').trim()) || '';
   const families = members.reduce((s, h) => s + (Number(h.families) || 0), 0);
   const domainIds = Array.from(new Set(members.map(h => h.domainId).filter(Boolean)));
-  const settlementCount = members.filter(h => h && h.settlement).length;
+  const settlementCount = members.filter(h => h && global.ACKS.settlementForHex && global.ACKS.settlementForHex(campaign, h.id)).length;   // T6 single-home
   const A = global.ACKS || {};
   const koppen = childKoppen.value || parentKoppen || '';
   const biome = (koppen && typeof A.biomeFromKoppen === 'function') ? A.biomeFromKoppen(koppen) : '';

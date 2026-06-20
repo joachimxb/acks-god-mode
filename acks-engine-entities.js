@@ -283,6 +283,9 @@ function blankSettlement(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
     id: opts.id || newId(ID_PREFIXES.settlement),
+    // T6 single-home — the canonical hex link: campaign.settlements[].hexId is what settlementForHex
+    // keys on (the lift sets it when promoting an embedded settlement; foundSettlementOnHex sets it).
+    hexId: opts.hexId || null,
     name,
     families: opts.families || 75,
     totalInvestment: opts.totalInvestment || 10000,

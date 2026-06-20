@@ -76,7 +76,7 @@
       find: (c, id) => ((c && c.hexes) || []).find(x => x && x.id === id),
       // Canonical hex name (Architecture §11.3) — hexName ships from acks-engine-subsystems.js (loaded
       // after this module), so reference it at call time via global.ACKS, with a coord/id fallback.
-      displayName: (c, obj) => (global.ACKS && global.ACKS.hexName && global.ACKS.hexName(obj)) || (obj && obj.coord ? ('(' + obj.coord.q + ',' + obj.coord.r + ')') : (obj && obj.id)) || '(unknown)' },
+      displayName: (c, obj) => (global.ACKS && global.ACKS.hexName && global.ACKS.hexName(obj, c)) || (obj && obj.coord ? ('(' + obj.coord.q + ',' + obj.coord.r + ')') : (obj && obj.id)) || '(unknown)' },
 
     { kind: 'settlement', label: 'Settlement', pluralLabel: 'Settlements', icon: '🏘',
       addressable: true, chronicleable: true,

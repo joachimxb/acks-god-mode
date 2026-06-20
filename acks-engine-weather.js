@@ -354,18 +354,12 @@ function _resolveHex(campaign, hexId){
     if(h) return h;
   }
   if(Array.isArray(campaign.hexes)){ const h = campaign.hexes.find(x => x && x.id === hexId); if(h) return h; }
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      const gh = d && d.geography && d.geography.hexes;
-      if(Array.isArray(gh)){ const h = gh.find(x => x && x.id === hexId); if(h) return h; }
-    }
-  }
-  return null;
+  return null;   // T6 single-home — campaign.hexes is the canonical store
 }
 function _allHexes(campaign){
   const out = [], seen = {};
   const push = arr => { if(Array.isArray(arr)) arr.forEach(h => { if(h && h.id && !seen[h.id]){ seen[h.id] = true; out.push(h); } }); };
-  if(campaign){ push(campaign.hexes); if(Array.isArray(campaign.domains)) campaign.domains.forEach(d => push(d && d.geography && d.geography.hexes)); }
+  if(campaign){ push(campaign.hexes); }   // T6 single-home — campaign.hexes is the complete hex set
   return out;
 }
 function _journeyCurrentHex(campaign, journey){
