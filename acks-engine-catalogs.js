@@ -325,6 +325,14 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'rumors-proliferation', category:'rumors', name:'Rumors — proliferation drift',
     source:"What's the Word — proliferation tables (Phase 2.8)",
     description:"When on, each rumor has a monthly chance to spread to neighboring settlements and its apparent-level drifts up over time. Requires rumors-manual.", requires:["rumors-manual"] },
+  // === Knowledge Layer (Wave B, team burst11 2026-06-20) — the master gate for the generalized
+  // who-knows-what layer (Knowledge_Layer_Plan.md §3/§6). Default OFF, opt-in. Orthogonal to
+  // 'rumors-manual' (the plan's ⊥ requirement): turning on generalized knowledge must NOT force the
+  // rumor UI, and vice-versa. The data layer (campaign.lore[]/knowledge[]) is benign always-on core
+  // (the Group/Lair precedent); this rule gates the FEATURE — the 📚 Knowledge tab + its workflow. ===
+  { id:'knowledge-tracking', category:'knowledge', name:'Knowledge tracking — the Lore layer',
+    source:'Knowledge_Layer_Plan.md §3/§6 (the generalized who-knows-what layer; RAW-grounded in Knowledge (G)/Loremastery, RR p.112/p.110; a tooling layer, default OFF)',
+    description:"OFF by default. When ON, the 📚 Knowledge tab tracks generalized Lore — facts in the world, who holds each (confidence band + provenance), first-hand knowledge derived from the event log, and the manual record / learn / share / promote verbs. ORTHOGONAL to 'Rumors — manual panel': enabling generalized knowledge does not force the rumor UI, and vice-versa. A campaign rumor can be PROMOTED into a loreKind:'rumor' Lore item (carrying its reach + apparent level), so the rumor and knowledge layers bridge without merging. The opt-in lore-propagation diffusion tick (gossip spreading along social ties) is a later wave." },
   { id:'recruitment-notability', category:'mercantile', name:'Recruitment — Notability impact',
     source:'ACKS II + M&M (Phase 2.95 §4.2)',
     description:"When on, recruitment expenditures (monthly wages × hires, signing bonuses) above the settlement's transaction threshold trigger a civic rumor about the patron's hiring activity. Requires rumors-manual + rumors-auto-emit to actually surface the rumor.", requires:["rumors-manual","rumors-auto-emit"] },
@@ -489,6 +497,7 @@ const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'encounters',   label:'⚔ Encounters',       description:'Wilderness meetings — what survives them, settles as a lair, and takes up the hunt (Monster Persistence #476).' },
   { id:'military',     label:'🎖 Military',         description:'The warfare layer — armies, troops, battles (Phase 3 Military). RAW core is always on; these gate optional RAW.' },
   { id:'rumors',       label:'🗣 Rumors',          description:"Manual rumor tracking, engine auto-emission, proliferation (Phase 2.8 / What's the Word)." },
+  { id:'knowledge',    label:'📚 Knowledge',       description:'The generalized who-knows-what layer — Lore facts, confidence/provenance, rumor→lore promotion (Knowledge_Layer_Plan.md). Orthogonal to Rumors.' },
   { id:'hijinks',      label:'🗡 Hijinks',         description:'Criminal syndicates, hijink resolution detail (Phase 2.7 — placeholders).' },
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }
 ]);
