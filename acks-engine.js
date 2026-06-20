@@ -233,6 +233,130 @@ Object.entries({
   sageCommission:       'sag'
 }).forEach(function(pair){ registerPrefix(pair[0], pair[1]); });
 
+// =============================================================================
+// Collection self-registration — the §15.5 family, slice 2 (after ID prefixes).
+// =============================================================================
+// The top-level `campaign.<name>[]` array collections are the second central append-target
+// generalized off the registerDayConsumer pattern. Before this, a module adding a collection
+// had to edit THREE sites — blankCampaign() (seed), lazyDefaultV1ScopeReservations() (load-time
+// backfill), and index.html's SIMPLE_ID_COLLECTIONS (the Import-Domain walker) — the dominant
+// team-session merge-conflict surface. Now each collection is a descriptor in this accumulating
+// store, and a module self-registers from its own file via ACKS.registerCollection(name, opts);
+// the three sites DERIVE from the store. Each descriptor carries three INDEPENDENT flags observed
+// across the three sites (the pre-refactor truth table):
+//   seedInBlank — blankCampaign() seeds it as an empty array on a fresh campaign.
+//   lazyDefault — migrateCampaign() backfills it on load (an old save without it gains [] ).
+//   importable  — Import-Domain copies it (id-collision-skip per the §8.9 importer mandate).
+// registerCollection DEFAULTS to the DEFENSIVE-READ posture { seedInBlank:true, lazyDefault:false,
+// importable:true } (Joachim 2026-06-20): a new collection is NOT migrate-injected, so no template
+// regen is ever forced (the byte-level migrate-no-op test stays green) — the team-session enabler.
+// A collection that genuinely needs eager backfill opts in with { lazyDefault:true }.
+const CAMPAIGN_COLLECTIONS = [];
+const CAMPAIGN_COLLECTION_INDEX = {};
+function registerCollection(name, opts){
+  if(!name || typeof name !== 'string') return CAMPAIGN_COLLECTIONS;
+  opts = opts || {};
+  const desc = {
+    name: name,
+    seedInBlank: opts.seedInBlank !== false,   // default true
+    lazyDefault: !!opts.lazyDefault,           // default false (defensive-read)
+    importable:  opts.importable  !== false    // default true
+  };
+  const existing = CAMPAIGN_COLLECTION_INDEX[name];
+  if(existing){
+    // idempotent: identical flags = silent no-op; differing flags = warn + keep the original
+    // (mirrors registerPrefix's conflict rule — the seed wins over a late differing registration).
+    if(existing.seedInBlank !== desc.seedInBlank || existing.lazyDefault !== desc.lazyDefault || existing.importable !== desc.importable){
+      if(typeof console !== 'undefined' && console.warn){
+        console.warn('[ACKS] collection "' + name + '" re-registered with different flags; keeping the original.');
+      }
+    }
+    return CAMPAIGN_COLLECTIONS;
+  }
+  CAMPAIGN_COLLECTION_INDEX[name] = desc;
+  CAMPAIGN_COLLECTIONS.push(desc);
+  return CAMPAIGN_COLLECTIONS;
+}
+function registeredCollections(){ return CAMPAIGN_COLLECTIONS.slice(); }
+function seededCollections(){     return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.seedInBlank; }).map(function(c){ return c.name; }); }
+function lazyDefaultCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.lazyDefault; }).map(function(c){ return c.name; }); }
+function importableCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.importable; }).map(function(c){ return c.name; }); }
+
+// Seed the existing 58 collections with their EXACT pre-refactor flags (the truth table — captured
+// from main @ 8023191). New collections do NOT extend this literal; they call ACKS.registerCollection
+// from their own module (the §15.5 convention). Order = blankCampaign()'s collection order (so a fresh
+// campaign's array-key set is preserved), then the importer-only (seedInBlank:false) collections.
+// Provenance comments are grouped; per-collection detail lives in Data_Dictionary §1 + §13.2.
+[
+  // ── Core collections (predate the reservation system) ───────────────────────────────────────
+  ['domains',              { seedInBlank:true,  lazyDefault:false, importable:false }],  // special-cased in the importer (upsertDomain)
+  ['characters',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['parties',              { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['ventures',             { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['passiveInvestments',   { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['deities',              { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Religion R0 (the Deity reference entity)
+  ['banks',                { seedInBlank:true,  lazyDefault:false, importable:false }],  // legacy reserved; not walked by the importer
+  ['loans',                { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Banking B1 (the shared Loan relation)
+  ['hexes',                { seedInBlank:true,  lazyDefault:false, importable:false }],  // special-cased in the importer (id + (q,r) coord uniqueness)
+  ['settlements',          { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['rumors',               { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['stashes',              { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Stash A (always-on core)
+  // ── Wave A relation collections (Architecture §3.5) ─────────────────────────────────────────
+  ['henchmanships',        { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['specialistContracts',  { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['hirelingContracts',    { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['magistracies',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['vassalages',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['tributaryAgreements',  { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['favorDutyObligations', { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // F&D-1 (lazy-injected)
+  // ── Wave B.5 + Group ────────────────────────────────────────────────────────────────────────
+  ['notableItems',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['itemCustody',          { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['groups',               { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── 2026-05-30 post-survey reservations (lazy-injected) ─────────────────────────────────────
+  ['journeys',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['outposts',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['dungeons',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['congregations',        { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['divineFavors',         { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['attunements',          { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['settlementVisits',     { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['oaths',                { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['vagaryOfIncursionEvents', { seedInBlank:true, lazyDefault:true, importable:true }],
+  ['projects',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Construction Wave A
+  ['constructibles',       { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['lairs',                { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Monster Persistence M0
+  // ── Hijinks (defensive-read, seeded) ────────────────────────────────────────────────────────
+  ['hijinks',              { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['syndicates',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── Arcane Domain (lazy-injected) ───────────────────────────────────────────────────────────
+  ['researchProjects',     { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Magic Research AD-M1
+  ['apprenticeships',      { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Sanctums AD-B
+  // ── Banking / Knowledge / Sages (defensive-read, seeded) ────────────────────────────────────
+  ['bankAccounts',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['lettersOfCredit',      { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['lore',                 { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['knowledge',            { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['sageCommissions',      { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── Importer-only collections (NOT seeded in blankCampaign — historically materialized by
+  //    migrate or seed-on-write, never by the factory; preserved exactly) ──────────────────────
+  ['encounters',           { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Encounter layer E1 (migrate-injected, not seeded)
+  ['units',                { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Military W1
+  ['armies',               { seedInBlank:false, lazyDefault:true,  importable:true  }],
+  ['battles',              { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Military W3
+  ['sieges',               { seedInBlank:false, lazyDefault:false, importable:true  }],  // Military W6 (defensive-read)
+  ['vessels',              { seedInBlank:false, lazyDefault:false, importable:true  }],  // Voyages V1
+  ['delves',               { seedInBlank:false, lazyDefault:false, importable:true  }],  // Delves D2
+  ['senates',              { seedInBlank:false, lazyDefault:false, importable:true  }],  // Politics P-1
+  ['factions',             { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['senatorships',         { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['bouts',                { seedInBlank:false, lazyDefault:false, importable:true  }],  // Gladiators G1
+  ['gladiatorSchools',     { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['games',                { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['customClasses',        { seedInBlank:false, lazyDefault:false, importable:true  }],  // Custom Classes W1
+  ['customRaces',          { seedInBlank:false, lazyDefault:false, importable:true  }]
+].forEach(function(pair){ registerCollection(pair[0], pair[1]); });
+
 function newId(prefix){
   if(!prefix) throw new Error('newId requires a prefix');
   // 7-char random suffix gives ~78 billion combinations per prefix — collision-resistant.
@@ -1103,44 +1227,17 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!campaign || typeof campaign !== 'object') return campaign;
   // Campaign-level day-tick clock (Phase 2.95 Calendar #478)
   if(typeof campaign.currentDayInMonth !== 'number') campaign.currentDayInMonth = 1;
-  // Reserved top-level collections (Architecture.md §3.5 Waves E + F + Wave D oaths)
-  if(!Array.isArray(campaign.dungeons))           campaign.dungeons = [];
-  if(!Array.isArray(campaign.journeys))           campaign.journeys = [];
-  if(!Array.isArray(campaign.outposts))           campaign.outposts = [];
-  if(!Array.isArray(campaign.congregations))      campaign.congregations = [];
-  if(!Array.isArray(campaign.divineFavors))       campaign.divineFavors = [];
-  if(!Array.isArray(campaign.attunements))        campaign.attunements = [];
-  if(!Array.isArray(campaign.settlementVisits))   campaign.settlementVisits = [];
-  if(!Array.isArray(campaign.oaths))              campaign.oaths = [];
-  if(!Array.isArray(campaign.vagaryOfIncursionEvents)) campaign.vagaryOfIncursionEvents = [];
-  // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
-  if(!Array.isArray(campaign.projects))       campaign.projects       = [];
-  if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
-  // Favors & Duties (#230, F&D-1 — 2026-06-08) — the liege↔vassal obligation relation collection.
-  if(!Array.isArray(campaign.favorDutyObligations)) campaign.favorDutyObligations = [];
-  // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities.
-  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
-  // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions (D8).
-  if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
-  // Phase 3 Military W1 (2026-06-12) — Units (first-class; the nested garrison/company
-  // arrays stay reference-unified mirrors) + Armies.
-  if(!Array.isArray(campaign.units)) campaign.units = [];
-  if(!Array.isArray(campaign.armies)) campaign.armies = [];
-  // Phase 3 Military W3 (2026-06-12) — Battles (RR pp.461–472 engagement records).
-  if(!Array.isArray(campaign.battles)) campaign.battles = [];
-  // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer (RR pp.388–393). Research Projects.
-  if(!Array.isArray(campaign.researchProjects)) campaign.researchProjects = [];
-  // Sanctums AD-B (2026-06-15) — the apprenticeship relation (an L0 apprentice ↔ a sanctum master, RR p.386).
-  if(!Array.isArray(campaign.apprenticeships)) campaign.apprenticeships = [];
-  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148): campaign.loans[] (RR p.42) +
-  // campaign.bankAccounts[] (RR p.313). DELIBERATELY NOT lazy-injected here — the banking module
-  // (+ importer + UI) reads both arrays defensively (?? []) and seeds them on first write, so the
-  // 6 templates + demo stay TRUE migrate-no-ops with no template regen (the team-session enabler,
-  // burst4). blankCampaign seeds them for new campaigns.
-  // === Sages SG-2 (burst8 b8-sages 2026-06-19) — campaign.sageCommissions[] (the multi-week research-
-  // commission, sag-). DELIBERATELY NOT lazy-injected here (the banking precedent above): the sages
-  // module + importer + UI read it defensively + seed it on first write (commissionSage), so the 6
-  // templates + demo stay TRUE migrate-no-ops with no regen. blankCampaign seeds it for new campaigns.
+  // Reserved top-level collections — backfilled from the §15.5 collection registry (the
+  // lazyDefault:true set). This loop reproduces the old explicit `if(!Array.isArray) = []`
+  // block exactly (the 19 lazy-injected collections: the §3.5 Waves E/F/D reservations,
+  // Construction, Favors & Duties, Lairs, the Encounter/Military entities, the Arcane Domain).
+  // A NEW collection defaults to DEFENSIVE-READ (lazyDefault:false → NOT backfilled here): its
+  // module reads `campaign.foo ?? []` + seeds on first write, so the 6 templates + demo stay
+  // TRUE migrate-no-ops with no regen (the team-session enabler — the banking/sages/burst5+9
+  // convention). To opt a collection into eager backfill, register it with { lazyDefault:true }.
+  for(const name of lazyDefaultCollections()){
+    if(!Array.isArray(campaign[name])) campaign[name] = [];
+  }
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -11839,6 +11936,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,
   // Schema + identity
   SCHEMA_VERSION, ENGINE_VERSION, ID_PREFIXES, registerPrefix, newId, slugify,
+  // §15.5 collection self-registration (slice 2) — the campaign-collection registry + its derived sets.
+  registerCollection, registeredCollections, seededCollections, lazyDefaultCollections, importableCollections,
   // Save-time serializer — stamps engineVersion/savedAt (the data-layer contract; INTEGRATION.md).
   stampCampaignForSave,
   // T6 — project the dual-homed nested mirrors from the canonical top-level at save time (INTEGRATION.md §3).

@@ -247,11 +247,14 @@ section('Field schemas — schema ⊆ factory (local belt-and-suspenders; also g
 ok('validateAllSchemas() still reports no errors overall', ACKS.validateAllSchemas().length === 0, ACKS.validateAllSchemas().join(' | '));
 
 // =============================================================================
-section('Importer wiring (§8.9 mandate — customClasses + customRaces in index.html)');
+section('Importer wiring (§8.9 mandate — customClasses + customRaces are importable)');
 // =============================================================================
+// The importer's SIMPLE_ID_COLLECTIONS is now DERIVED from the §15.5 collection registry
+// (index.html: window.ACKS.importableCollections()), so the §8.9 mandate is satisfied by
+// registering the collection as importable — no edit to an index.html importer literal.
 const indexHtml = fs.readFileSync(path.join(REPO, 'index.html'), 'utf8');
-ok("index.html SIMPLE_ID_COLLECTIONS includes 'customClasses'", /'customClasses'/.test(indexHtml));
-ok("index.html SIMPLE_ID_COLLECTIONS includes 'customRaces'", /'customRaces'/.test(indexHtml));
+ok("'customClasses' is registered as an importable collection", ACKS.importableCollections().includes('customClasses'));
+ok("'customRaces' is registered as an importable collection", ACKS.importableCollections().includes('customRaces'));
 ok('index.html loads acks-engine-custom-classes.js', /acks-engine-custom-classes\.js/.test(indexHtml));
 
 // =============================================================================

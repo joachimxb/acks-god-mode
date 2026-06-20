@@ -30733,59 +30733,13 @@ return {
     // 'hexes' has an extra (q,r) coordinate uniqueness check.
     // Workflow state (pendingEvents) is excluded — those are destination-scoped.
     // eventLog is included so imported event history travels with the data.
-    const SIMPLE_ID_COLLECTIONS = [
-      'characters', 'parties', 'settlements', 'rumors',
-      'stashes', 'ventures', 'passiveInvestments',
-      'henchmanships', 'specialistContracts', 'hirelingContracts',
-      'magistracies', 'vassalages', 'tributaryAgreements',
-      'notableItems', 'itemCustody', 'groups',
-      // 2026-05-30 reservations (empty in v0.9 saves; cheap to include defensively)
-      'journeys', 'outposts', 'dungeons',
-      // Religion R0 (team 2026-06-13) — 'deities' added (congregations/divineFavors were reserved)
-      'deities', 'congregations', 'divineFavors', 'attunements',
-      'settlementVisits', 'oaths', 'vagaryOfIncursionEvents',
-      // Phase 4 Construction Wave A (2026-05-30) — Project + Constructible collections
-      'projects', 'constructibles',
-      // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation
-      'favorDutyObligations',
-      // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities
-      'lairs',
-      // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions
-      'encounters',
-      // === Hijinks HJ-1 (team 2026-06-13) — Phase 2.7 hijink attempts (§8.9 importer mandate)
-      'hijinks',
-      // === Hijinks HJ-2 (team 2026-06-13) — Phase 2.7 criminal syndicates (§8.9 importer mandate)
-      'syndicates',
-      // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
-      'units', 'armies',
-      // Phase 3 Military W3 (2026-06-12) — Battle engagement records
-      'battles',
-      // Phase 3 Military W6 (2026-06-13, burst3) — Siege records (RR pp.473–485)
-      'sieges',
-      // === Voyages V1 (burst4 — 2026-06-14) — Vessels (Phase 3 Voyages #145; §8.9 importer mandate) ===
-      'vessels',
-      // === Delves D2 (burst4) — Delve operations (dungeons already listed above) ===
-      'delves',
-      // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
-      'senates', 'factions', 'senatorships',
-      // ===== TEAM BURST5 — new collections · each builder appends its quoted strings after its own line (mind the trailing comma) =====
-      // b5-gladiators (#150): Gladiators G1 — Bouts + Schools + Games (§8.9 importer mandate)
-      'bouts', 'gladiatorSchools', 'games',
-      // b5-custom-classes (#154): 'customClasses', 'customRaces'
-      'customClasses', 'customRaces',
-      // ===== end TEAM BURST5 collections =====
-      // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer's Research Projects (§8.9 importer mandate)
-      'researchProjects',
-      // Sanctums AD-B (2026-06-15) — the apprenticeship relation (L0 apprentice ↔ sanctum master) (§8.9 importer mandate)
-      'apprenticeships',
-      // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
-      'loans', 'bankAccounts',
-      'lettersOfCredit',   // === Banking B4/B5 (team burst9 2026-06-20) — the letter-of-credit relation (loc-)
-      // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
-      'lore', 'knowledge',
-      // === Sages SG-2 (team burst8 2026-06-19) — the multi-week SageCommission research-commission (§8.9 importer mandate)
-      'sageCommissions',
-    ];
+    // Derived from the §15.5 collection registry (every descriptor with importable:true; see
+    // acks-engine.js registerCollection). 'domains' + 'hexes' are deliberately excluded (importable:
+    // false) — they are special-cased above with their own upsert / coordinate-uniqueness handling.
+    // The §8.9 importer mandate is now automatic: a module that registers an importable collection is
+    // walked here with no edit to this file. (Pre-refactor this was a hand-maintained literal — the
+    // dominant per-burst merge-conflict site.)
+    const SIMPLE_ID_COLLECTIONS = window.ACKS.importableCollections();
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
     // Prepare existing-ID sets for fast collision detection
