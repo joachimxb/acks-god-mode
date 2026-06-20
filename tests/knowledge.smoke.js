@@ -10,6 +10,13 @@
 // the lookups (loreOnSubject/loreKnowers/loreKnownBy/firstHandLore-DERIVED/loreKnownByCollective);
 // the event kinds + wizard-opt-out; and the WAVE A GUARD — templates + demo STAY migrate-no-ops
 // (lore/knowledge added to blankCampaign ONLY, NOT lazy-injected into migrateCampaign).
+//
+// WAVE B (team burst11, 2026-06-20 — Knowledge_Layer_Plan.md §6/§7): the knowledge-tracking MASTER
+// house rule (default OFF) + the 📚 knowledge category + the isKnowledgeTrackingOn gate (incl. the
+// rumors-manual ⊥ knowledge-tracking orthogonality); rumor→lore promotion (promoteRumorToLore →
+// loreKind:'rumor' + the sourceRumorId/apparentLevel/reach rumor-Lore extension + truth-level mapping
+// + idempotency + non-destructive/consume + the rumor-promoted event + guards); promotableRumors /
+// loreFromRumor; and loreProvenanceChain (the told-by gossip trace + the cycle/no-record guards).
 // =============================================================================
 const fs = require('fs');
 const path = require('path');
@@ -293,14 +300,129 @@ section('forgetLore — drop a stored record (forget, no archive)');
 })();
 
 // =============================================================================
+// WAVE B (team burst11, 2026-06-20) — Knowledge_Layer_Plan.md §6/§7.
+// =============================================================================
+
+// =============================================================================
+section('Wave B — knowledge-tracking master house rule (default OFF) + 📚 category + gate');
+// =============================================================================
+(function(){
+  const reg = ACKS.lookupHouseRule('knowledge-tracking');
+  ok('lookupHouseRule(knowledge-tracking) exists', !!reg);
+  ok('knowledge-tracking category is "knowledge"', reg && reg.category === 'knowledge');
+  ok('knowledge-tracking has NO default:true (default OFF)', reg && reg.default !== true);
+  ok('HOUSERULE_CATEGORIES has a knowledge category', ACKS.HOUSERULE_CATEGORIES.some(c => c.id === 'knowledge'));
+  // the gate helper
+  const c = ACKS.blankCampaign({ name: 'Gate' });
+  ok('isKnowledgeTrackingOn — absent rule → OFF (opt-in)', ACKS.isKnowledgeTrackingOn(c) === false);
+  c.houseRules = { 'knowledge-tracking': true };
+  ok('isKnowledgeTrackingOn — enabled → ON', ACKS.isKnowledgeTrackingOn(c) === true);
+  c.houseRules = { 'knowledge-tracking': { enabled: false } };
+  ok('isKnowledgeTrackingOn — explicit { enabled:false } → OFF', ACKS.isKnowledgeTrackingOn(c) === false);
+  // orthogonality (plan §3): rumors-manual ⊥ knowledge-tracking
+  const c2 = ACKS.blankCampaign({ name: 'Orth' }); c2.houseRules = { 'rumors-manual': true };
+  ok('rumors-manual ON does NOT enable knowledge-tracking (⊥)', ACKS.isKnowledgeTrackingOn(c2) === false);
+})();
+
+// =============================================================================
+section('Wave B — rumor → lore promotion (loreKind:rumor) + idempotency + rumor-Lore extension');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Promote' }); c.currentTurn = 5;
+  c.rumors = [ ACKS.blankRumor({ id: 'rum-1', text: 'The baron is secretly a wereboar', truthLevel: 'true', apparentLevel: 'rare', topic: 'scandal' }) ];
+  ok('promotableRumors lists the unpromoted rumor', ACKS.promotableRumors(c).length === 1 && ACKS.promotableRumors(c)[0].id === 'rum-1');
+  ok('loreFromRumor null before promotion', ACKS.loreFromRumor(c, 'rum-1') === null);
+
+  const r = ACKS.promoteRumorToLore(c, { rumorId: 'rum-1' });
+  ok('promote ok + created', r.ok === true && r.created === true);
+  ok('promoted lore is loreKind "rumor"', r.lore.loreKind === 'rumor');
+  ok('promoted truthValue mapped true→true', r.lore.truthValue === 'true');
+  ok('promoted lore carries sourceRumorId (rumor-Lore extension)', r.lore.sourceRumorId === 'rum-1');
+  ok('promoted lore carries apparentLevel (rare)', r.lore.apparentLevel === 'rare');
+  ok('promoted lore carries reach[] extension', Array.isArray(r.lore.reach));
+  ok('promoted lore pushed to campaign.lore', c.lore.length === 1 && c.lore[0] === r.lore);
+  ok('promoted lore stamps a promoted-from-rumor history entry', r.lore.history.some(h => h.type === 'promoted-from-rumor' && h.rumorId === 'rum-1'));
+  ok('promote emits a rumor-promoted event (applied)', (c.eventLog || []).some(e => e.event && e.event.kind === 'rumor-promoted' && e.event.status === 'applied'));
+  ok('rumor-promoted surfaces in loreHistory(lore)', ACKS.loreHistory(c, r.lore.id).some(e => e.event && e.event.kind === 'rumor-promoted'));
+
+  // idempotent — a rumor promotes once
+  const r2 = ACKS.promoteRumorToLore(c, { rumorId: 'rum-1' });
+  ok('promote idempotent (alreadyPromoted, same lore, not created)', r2.ok === true && r2.alreadyPromoted === true && r2.lore === r.lore && r2.created === false);
+  ok('idempotent — no 2nd lore', c.lore.length === 1);
+  ok('idempotent — no 2nd rumor-promoted event', (c.eventLog || []).filter(e => e.event && e.event.kind === 'rumor-promoted').length === 1);
+  ok('loreFromRumor resolves after promotion', ACKS.loreFromRumor(c, 'rum-1') === r.lore);
+  ok('promotableRumors empty after promotion; rumor KEPT (non-destructive)', ACKS.promotableRumors(c).length === 0 && c.rumors.length === 1);
+
+  // truth-level mapping mixed → partial
+  c.rumors.push(ACKS.blankRumor({ id: 'rum-2', text: 'a tangled tale', truthLevel: 'mixed' }));
+  ok('promote maps truthLevel mixed → partial', ACKS.promoteRumorToLore(c, { rumorId: 'rum-2' }).lore.truthValue === 'partial');
+
+  // reach-derived apparent level + settlement reach (the rumor-emit path, no top-level apparentLevel)
+  c.rumors.push({ id: 'rum-r', text: 'reach rumor', truthLevel: 'false', topic: 'war', reach: [{ settlementId: 'set-x', apparentLevel: 'obscure' }] });
+  const rr = ACKS.promoteRumorToLore(c, { rumorId: 'rum-r' });
+  ok('promote derives apparentLevel from reach[] when no top-level', rr.lore.apparentLevel === 'obscure');
+  ok('promote maps truthLevel false → false', rr.lore.truthValue === 'false');
+  ok('promote carries reach[] from the rumor', rr.lore.reach.length === 1 && rr.lore.reach[0].settlementId === 'set-x');
+  ok('rumor-promoted context tags the reached settlement', ACKS.loreHistory(c, rr.lore.id).some(e => (e.event.context.relatedEntities || []).some(x => x.kind === 'settlement' && x.id === 'set-x')));
+
+  // consume:true removes the source rumor (the eventual rumors-live-as-lore migration)
+  c.rumors.push(ACKS.blankRumor({ id: 'rum-3', text: 'consume me' }));
+  const r4 = ACKS.promoteRumorToLore(c, { rumorId: 'rum-3', consume: true });
+  ok('promote consume:true removes the source rumor', r4.consumed === true && !c.rumors.some(x => x.id === 'rum-3'));
+
+  // guards
+  ok('promote unknown rumor → no-rumor', ACKS.promoteRumorToLore(c, { rumorId: 'rum-nope' }).reason === 'no-rumor');
+  ok('promote missing rumorId → missing-args', ACKS.promoteRumorToLore(c, {}).reason === 'missing-args');
+  ok('promote no campaign → no-campaign', ACKS.promoteRumorToLore(null, { rumorId: 'rum-1' }).reason === 'no-campaign');
+})();
+
+// =============================================================================
+section('Wave B — loreProvenanceChain (the DF told-by gossip trace)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Chain' }); c.currentTurn = 4;
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-a', name: 'Aelric' }), ACKS.blankCharacter({ id: 'chr-b', name: 'Bryn' }), ACKS.blankCharacter({ id: 'chr-c', name: 'Cass' }));
+  const l = ACKS.recordLore(c, { text: 'the bandits camp at the old mill' });
+  // Aelric deduces it, tells Bryn, Bryn tells Cass
+  ACKS.learnLore(c, { knowerId: 'chr-a', loreId: l.id, certainty: 'certain', source: { kind: 'deduced', byId: 'chr-a' }, silent: true });
+  ACKS.shareLore(c, { fromKnowerId: 'chr-a', toKnowerId: 'chr-b', loreId: l.id });
+  ACKS.shareLore(c, { fromKnowerId: 'chr-b', toKnowerId: 'chr-c', loreId: l.id });
+
+  const chain = ACKS.loreProvenanceChain(c, 'character', 'chr-c', l.id);
+  ok('chain has 3 hops c → b → a', chain.length === 3 && chain[0].knowerId === 'chr-c' && chain[1].knowerId === 'chr-b' && chain[2].knowerId === 'chr-a');
+  ok('chain hop sources: told-by, told-by, deduced', chain[0].sourceKind === 'told-by' && chain[1].sourceKind === 'told-by' && chain[2].sourceKind === 'deduced');
+  ok('chain byId links each hop to the next teller', chain[0].sourceById === 'chr-b' && chain[1].sourceById === 'chr-a');
+  ok('chain terminal at the deduced origin', chain[2].terminal === true && chain[2].hasRecord === true);
+
+  const chainB = ACKS.loreProvenanceChain(c, 'character', 'chr-b', l.id);
+  ok('chain from b → 2 hops b → a, terminal deduced', chainB.length === 2 && chainB[1].knowerId === 'chr-a' && chainB[1].terminal === true);
+
+  // a knower who holds no stored record → single terminal hop, hasRecord false
+  const chainZ = ACKS.loreProvenanceChain(c, 'character', 'chr-z', l.id);
+  ok('chain for a non-knower → 1 terminal no-record hop', chainZ.length === 1 && chainZ[0].hasRecord === false && chainZ[0].terminal === true);
+  ok('chain guards — no loreId → []', ACKS.loreProvenanceChain(c, 'character', 'chr-c', null).length === 0);
+
+  // cycle guard — x told-by y, y told-by x → terminates, no infinite loop
+  const c2 = ACKS.blankCampaign({ name: 'Cycle' });
+  c2.characters.push(ACKS.blankCharacter({ id: 'chr-x' }), ACKS.blankCharacter({ id: 'chr-y' }));
+  const l2 = ACKS.recordLore(c2, { text: 'loop' });
+  ACKS.learnLore(c2, { knowerId: 'chr-x', loreId: l2.id, certainty: 'probable', source: { kind: 'told-by', byId: 'chr-y' }, silent: true });
+  ACKS.learnLore(c2, { knowerId: 'chr-y', loreId: l2.id, certainty: 'probable', source: { kind: 'told-by', byId: 'chr-x' }, silent: true });
+  ok('chain cycle-guarded (x ↔ y) — terminates at 2 hops', ACKS.loreProvenanceChain(c2, 'character', 'chr-x', l2.id).length === 2);
+})();
+
+// =============================================================================
 section('Event kinds registered + wizard-opt-out');
 // =============================================================================
 ok('EVENT_KINDS includes lore-learned', ACKS.EVENT_KINDS.includes('lore-learned'));
 ok('EVENT_KINDS includes lore-shared', ACKS.EVENT_KINDS.includes('lore-shared'));
+ok('EVENT_KINDS includes rumor-promoted (Wave B)', ACKS.EVENT_KINDS.includes('rumor-promoted'));
 ok('EVENT_SCHEMAS has lore-learned', !!ACKS.EVENT_SCHEMAS['lore-learned']);
 ok('EVENT_SCHEMAS has lore-shared', !!ACKS.EVENT_SCHEMAS['lore-shared']);
+ok('EVENT_SCHEMAS has rumor-promoted (Wave B)', !!ACKS.EVENT_SCHEMAS['rumor-promoted']);
 ok('lore-learned is wizard-opt-out (owned by learnLore)', ACKS.EVENT_WIZARD_OPTOUT.has('lore-learned'));
 ok('lore-shared is wizard-opt-out (owned by shareLore)', ACKS.EVENT_WIZARD_OPTOUT.has('lore-shared'));
+ok('rumor-promoted is wizard-opt-out (owned by promoteRumorToLore)', ACKS.EVENT_WIZARD_OPTOUT.has('rumor-promoted'));
 
 // =============================================================================
 section('WAVE A GUARD — templates + demo STAY migrate-no-ops (no lore/knowledge lazy-inject)');

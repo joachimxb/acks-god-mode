@@ -438,6 +438,10 @@ const EVENT_KINDS = Object.freeze([
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
   'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
   'lore-shared',                   // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (Knowledge_Layer_Plan.md §6.4).
+  // Record-only audit emitted by acks-engine-knowledge.js promoteRumorToLore (the loreKind:'rumor' Lore
+  // item was already authored). Bridges the shipped Rumors subsystem into the generalized Lore layer.
+  'rumor-promoted',                // a campaign rumor is promoted into a loreKind:'rumor' Lore item
   // === Magic Items (team) === — #143 W1; owned by acks-engine-magic-items.js (the identify / use /
   // appraise verbs apply the state — the identification write, the charge depletion, the appraisal
   // record). Distinct from magic-item-created (Magic Research mints) / magic-item-sale (M&M) /
@@ -1416,6 +1420,12 @@ const EVENT_SCHEMAS = Object.freeze({
   'lore-shared': {
     R: { loreId: 'string', toKnowerId: 'string' },
     O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (record-only; the
+  // loreKind:'rumor' Lore item was authored by acks-engine-knowledge.js promoteRumorToLore).
+  'rumor-promoted': {
+    R: { rumorId: 'string', loreId: 'string' },
+    O: { loreKind: 'string', truthValue: 'string', apparentLevel: 'string', consumed: 'boolean', narrative: 'string' }
   },
   // === Magic Items (team) === — #143 W1 (acks-engine-magic-items.js). knownProperties/learned/throw
   // are objects/arrays (typed 'object', the kindResult/throwResult convention). characterId is REQUIRED
@@ -3280,6 +3290,9 @@ function applyEvent_loreAudit(campaign, event){
 }
 registerEventHandler('lore-learned', applyEvent_loreAudit);
 registerEventHandler('lore-shared', applyEvent_loreAudit);
+// === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (acks-engine-knowledge.js
+// promoteRumorToLore already authored the Lore item); the same record-only audit handler keeps it replay-safe.
+registerEventHandler('rumor-promoted', applyEvent_loreAudit);
 
 // === Magic Items (team) === — #143 W1 record-only audits. acks-engine-magic-items.js owns the state
 // (the identifyMagicItem / useMagicItemCharge / appraiseMagicItem verbs already wrote the notableItem's
@@ -6465,6 +6478,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
   'lore-learned', 'lore-shared',
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — owned by acks-engine-knowledge.js
+  // (promoteRumorToLore); a raw emit would record a promotion the loreKind:'rumor' Lore item + its
+  // sourceRumorId link don't show. Promotion happens via the 📚 Knowledge tab's promote-rumor panel.
+  'rumor-promoted',
   // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
   // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
   // identification + intrinsic.charges don't show.

@@ -16118,8 +16118,9 @@ document.addEventListener('alpine:init', () => {
     </div>
   </div>
 </div>
-<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
-<div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
+<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably.
+     Wave B (team burst11) — gated on the knowledge-tracking master rule; + promote-rumor + provenance. -->
+<div x-show="currentView === 'knowledge' && isHouseRuleEnabled('knowledge-tracking')" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h2 class="font-bold text-xl">📚 Knowledge <span class="text-sm opacity-70 font-normal">· the Lore your campaign tracks — who knows what, how reliably</span></h2>
@@ -16148,6 +16149,24 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
 
+    <!-- Wave B (team burst11) — Promote a rumor → Lore. A campaign rumor becomes a loreKind:'rumor'
+         Lore item (carrying its reach + apparent level), bridging the Rumors subsystem into the
+         generalized Lore layer. Idempotent; non-destructive (the rumor stays in its settlement panel). -->
+    <div class="vellum border border-ink rounded p-4 space-y-2">
+      <h3 class="font-semibold">🗣 Promote a rumor → Lore</h3>
+      <p class="text-xs opacity-70">A campaign rumor becomes a tracked <span class="font-mono">rumor</span>-kind fact here — who believes it, and how reliably, is then tracked like any Lore. The rumor stays in its settlement panel.</p>
+      <template x-if="knowledgePromotableRumors().length === 0"><p class="text-sm italic opacity-60">No campaign rumors left to promote.</p></template>
+      <ul class="text-sm divide-y divide-ink/20" x-show="knowledgePromotableRumors().length">
+        <template x-for="r in knowledgePromotableRumors()" :key="r.id">
+          <li class="py-1.5 flex items-center gap-2 flex-wrap">
+            <span class="font-medium" x-text="r.text || r.topic || r.id"></span>
+            <span class="text-xs opacity-60" x-text="'· ' + (r.topic || 'other') + ' · truth ' + (r.truthLevel || 'unknown') + ' · ' + (r.apparentLevel || (r.reach && r.reach[0] && r.reach[0].apparentLevel) || 'uncommon')"></span>
+            <button @click="knowledgePromote(r.id)" class="ml-auto text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Author a loreKind:'rumor' Lore item from this rumor">→ Promote</button>
+          </li>
+        </template>
+      </ul>
+    </div>
+
     <!-- Lore facts + the selected-fact detail -->
     <div class="vellum border border-ink rounded p-4 space-y-3">
       <h3 class="font-semibold">Lore</h3>
@@ -16173,10 +16192,14 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="knowledgeKnowersOf(l.id).length === 0"><p class="text-xs italic opacity-60">Nobody holds this yet.</p></template>
                 <ul class="space-y-0.5">
                   <template x-for="k in knowledgeKnowersOf(l.id)" :key="k.knowledgeId">
-                    <li class="flex items-center gap-2 text-xs">
+                    <li class="flex items-center gap-2 text-xs flex-wrap">
                       <span class="font-semibold" x-text="k.knowerKind==='character' ? knowledgeCharName(k.knowerId) : (k.knowerKind+' '+k.knowerId)"></span>
                       <span class="px-1.5 rounded border" :class="knowledgeCertaintyClass(k.certainty)" x-text="k.certainty"></span>
                       <span class="opacity-60" x-text="'· ' + (k.source && k.source.kind || '?') + (k.source && k.source.byId ? (' ' + knowledgeCharName(k.source.byId)) : '')"></span>
+                      <!-- Wave B — provenance trail (the DF gossip trace): who told whom, back to the origin. -->
+                      <template x-if="(k.source && (k.source.kind==='told-by' || k.source.kind==='gossip')) && k.source.byId">
+                        <span class="opacity-60 italic" x-text="'⛓ ' + knowledgeChainText(k.knowerKind, k.knowerId, l.id)" title="Provenance trail — who told whom, back to the origin (Wave B)"></span>
+                      </template>
                       <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover:text-red-700" title="Forget (drop this record)">✕</button>
                     </li>
                   </template>
@@ -16222,11 +16245,15 @@ document.addEventListener('alpine:init', () => {
           <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
         </select>
         <template x-if="knowledgeViewCharId">
-          <span class="text-sm flex items-baseline gap-1 ml-auto">tell
+          <span class="text-sm flex items-baseline gap-2 ml-auto">tell
             <select x-model="knowledgeShareToId" class="border border-ink rounded px-1.5 py-0.5">
               <option value="">— someone —</option>
               <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option x-show="c.id !== knowledgeViewCharId" :value="c.id" x-text="c.name || c.id"></option></template>
             </select>
+            <!-- Wave B — share verbatim (don't degrade the certainty one band; the §5.5 provenance depth). -->
+            <label class="flex items-center gap-1 text-xs opacity-80" title="Off (default): gossip degrades the certainty one band. On: pass it along at full confidence (a trusted report).">
+              <input type="checkbox" x-model="knowledgeShareVerbatim"> verbatim
+            </label>
           </span>
         </template>
       </div>
@@ -18294,7 +18321,8 @@ return {
   },
   knowledgeShareFrom(loreId){
     if(!this.knowledgeViewCharId || !this.knowledgeShareToId){ this.showToast('Pick someone to tell.', 3000); return; }
-    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId });
+    // Wave B — the verbatim toggle: off (default) gossip degrades one band; on shares at full certainty.
+    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId, degrade: !this.knowledgeShareVerbatim });
     if(!r.ok){ this.showToast('Could not share: '+(r.reason==='teller-does-not-know'?'they don’t hold this as a tracked fact':(r.reason||'?')), 3500); return; }
     this.markDirty(); this.schedulePersist(); this.showToast('Told '+this.knowledgeCharName(this.knowledgeShareToId)+' ('+r.sharedCertainty+').', 3000);
   },
@@ -18582,7 +18610,10 @@ return {
       ...((this.campaignHasSenate() || this.governanceTabAvailable()) ? [{ id:'senate', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
-      { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
+      // Knowledge Layer (Wave B, team burst11 2026-06-20) — the 📚 Knowledge tab is now GATED on the
+      // knowledge-tracking master house rule (default OFF, opt-in). Hidden when off (principle 8 —
+      // non-functional AND hidden). The lore[]/knowledge[] data is benign core; the FEATURE gates here.
+      ...(this.isHouseRuleEnabled('knowledge-tracking') ? [{ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore||[]).length || null }] : []),
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
       // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
@@ -19398,6 +19429,28 @@ return {
   svtIncidents(){ const v = this.svtSelected(); return (v && Array.isArray(v.incidents)) ? v.incidents.slice().reverse() : []; },
   svtResolveCasualty(charId){ const c = this.currentCampaign; const v = this.svtSelected(); if(!v || !charId) return; const res = window.ACKS.resolveSettlementCasualty(c, v.id, charId); this.markDirty(); this.schedulePersist(); if(res) this.showToast('⚔ ' + this.svtCharName(charId) + ' — ' + (res.conditionLabel || 'wounded') + (res.outcome ? ' (' + res.outcome + ')' : '')); },
   // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
+  knowledgeShareVerbatim: false,   // the share "verbatim" toggle (off = gossip degrades the certainty one band)
+  knowledgePromotableRumors(){ return (window.ACKS && window.ACKS.promotableRumors) ? window.ACKS.promotableRumors(this.currentCampaign) : []; },
+  knowledgePromote(rumorId){
+    const r = window.ACKS.promoteRumorToLore(this.currentCampaign, { rumorId });
+    if(!r || !r.ok){ this.showToast('Could not promote: '+((r&&r.reason)||'?'), 3500); return; }
+    this.knowledgeSelectedLoreId = r.lore.id;
+    if(r.alreadyPromoted){ this.showToast('Already promoted — showing the Lore.', 3000); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast('Rumor promoted to Lore.', 2800);
+  },
+  // The provenance trail (Wave B §5.5) — "Cass ← Bryn ← Aelric (deduced)". Walks the told-by chain to
+  // the origin via the engine loreProvenanceChain. Shown on told-by/gossip knower rows.
+  knowledgeChainText(knowerKind, knowerId, loreId){
+    const A = window.ACKS;
+    if(!A || !A.loreProvenanceChain) return '';
+    const chain = A.loreProvenanceChain(this.currentCampaign, knowerKind, knowerId, loreId);
+    if(chain.length <= 1) return '';
+    const names = chain.map(h => h.knowerKind === 'character' ? this.knowledgeCharName(h.knowerId) : (h.knowerKind + ' ' + h.knowerId));
+    let s = names.join(' ← ');
+    const origin = chain[chain.length - 1];
+    if(origin && origin.hasRecord && origin.sourceKind && origin.sourceKind !== 'told-by' && origin.sourceKind !== 'gossip') s += ' (' + origin.sourceKind + ')';
+    return s;
+  },
   // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
   // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
   // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
