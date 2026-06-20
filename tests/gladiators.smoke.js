@@ -327,6 +327,164 @@ for(const k of ['bout-resolved', 'gladiator-game-held', 'gladiator-recruited']){
 }
 
 // =============================================================================
+// G3 — AMPHITHEATER SIZE (AXIOMS 4 p.21–22) + the de-drifted size table
+// =============================================================================
+section('G3 — AMPHITHEATER_SIZE (the de-drifted RAW table)');
+ok('AMPHITHEATER_SIZE is a frozen array of 6 (classes I–VI)', Array.isArray(ACKS.AMPHITHEATER_SIZE) && ACKS.AMPHITHEATER_SIZE.length === 6 && Object.isFrozen(ACKS.AMPHITHEATER_SIZE));
+// the load-bearing worked example: Arganos Class III, 4,000 families → 12,000 seats → 180,000gp (p.22)
+ok('Class III / 4,000 fam → 12,000 seats (Arganos, p.22)', ACKS.amphitheaterSeatsForClassFamilies('III', 4000) === 12000, String(ACKS.amphitheaterSeatsForClassFamilies('III', 4000)));
+ok('…→ 180,000gp build cost', ACKS.amphitheaterCostGp(ACKS.amphitheaterSeatsForClassFamilies('III', 4000)) === 180000);
+ok('Class II / 8,000 fam → 18,000 seats (15,000 + 1×3,000)', ACKS.amphitheaterSeatsForClassFamilies('II', 8000) === 18000, String(ACKS.amphitheaterSeatsForClassFamilies('II', 8000)));
+ok('Class I / 24,000 fam → 31,000 seats (30,000 + ⌊4,000/4⌋)', ACKS.amphitheaterSeatsForClassFamilies('I', 24000) === 31000, String(ACKS.amphitheaterSeatsForClassFamilies('I', 24000)));
+ok('Class IV / 1,000 fam → 5,000 seats (5/family)', ACKS.amphitheaterSeatsForClassFamilies('IV', 1000) === 5000);
+ok('Class V → None (0; below Class IV minimum)', ACKS.amphitheaterSeatsForClassFamilies('V', 400) === 0);
+ok('Class VI / VI* → None (0)', ACKS.amphitheaterSeatsForClassFamilies('VI', 200) === 0 && ACKS.amphitheaterSeatsForClassFamilies('VI*', 50) === 0);
+ok('amphitheaterSeatsForSettlement reads families → market class', ACKS.amphitheaterSeatsForSettlement(camp, { families: 4000 }) === 12000);
+ok('seats clamp ≤ 100,000 (RAW max)', ACKS.amphitheaterSeatsForClassFamilies('I', 1000000) === ACKS.AMPHITHEATER_MAX_SEATS);
+
+// =============================================================================
+section('G3 — training time + clock (AXIOMS 4 p.24–25)');
+// =============================================================================
+ok('GLADIATOR_TRAINING_BY_TYPE: 7 types', Object.keys(ACKS.GLADIATOR_TRAINING_BY_TYPE).length === 7);
+ok('training months by type: spearfighter 6 / striker 7.5 / netfighter 9 (lighter = longer)',
+   ACKS.gladiatorTrainingMonths('spearfighter') === 6 && ACKS.gladiatorTrainingMonths('striker') === 7.5 && ACKS.gladiatorTrainingMonths('netfighter') === 9);
+ok('typical training cost per type (spearfighter 192 / netfighter 200, p.25)',
+   ACKS.GLADIATOR_TRAINING_BY_TYPE.spearfighter.costGp === 192 && ACKS.GLADIATOR_TRAINING_BY_TYPE.netfighter.costGp === 200);
+const trC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[], settlements:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const trS = ACKS.createGladiatorSchool(trC, { name:'Training Ludus' });
+const cand = ACKS.recruitGladiator(trC, trS, { method:'buy-candidate', gladiatorType:'spearfighter' });
+ok('recruit buy-candidate → lifecycleState candidate', cand.character.lifecycleState === 'candidate');
+const tr = ACKS.trainGladiator(trC, trS, cand.character.id, { type:'netfighter' });
+ok('trainGladiator: 9 months → completesOrd 271 (turn1 day1 + 9×30)', tr.ok && tr.months === 9 && tr.completesOrd === 271, String(tr.completesOrd));
+ok('trainGladiator sets the type + the clock on the character', cand.character.gladiatorType === 'netfighter' && cand.character.trainingCompletesOrd === 271 && cand.character.trainingGraduated === false);
+const tinfo = ACKS.gladiatorTrainingInfo(trC, cand.character);
+ok('gladiatorTrainingInfo: inTraining + 270 days left', tinfo.inTraining && tinfo.daysLeft === 270, String(tinfo.daysLeft));
+ok('trainGladiator refuses a non-gladiator / no-school / rule-off',
+   ACKS.trainGladiator(trC, trS, { socialTier:'independent' }, {}).reason === 'not-a-gladiator' &&
+   ACKS.trainGladiator(trC, null, cand.character.id, {}).reason === 'no-school' &&
+   ACKS.trainGladiator({ houseRules:{} }, trS, cand.character.id, {}).reason === 'gladiator-games-off');
+
+// graduation throw (1d20; maim on 1, unworthy 1–10; else ordinary gladiator)
+const grad15 = ACKS.resolveGraduation(trC, cand.character.id, { roll:15 });
+ok('resolveGraduation roll 15 → graduates active (not maimed)', grad15.ok && grad15.maimed === false && cand.character.lifecycleState === 'active' && cand.character.trainingGraduated === true);
+ok('a graduated candidate refuses re-graduation', ACKS.resolveGraduation(trC, cand.character.id, { roll:15 }).reason === 'not-a-candidate');
+const cand2 = ACKS.recruitGladiator(trC, trS, { method:'buy-candidate', gladiatorType:'striker' });
+ACKS.trainGladiator(trC, trS, cand2.character.id, { type:'striker' });
+const grad1 = ACKS.resolveGraduation(trC, cand2.character.id, { roll:1 });
+ok('resolveGraduation roll 1 → maimed/killed (deceased, dead-to-the-games)', grad1.maimed === true && cand2.character.lifecycleState === 'deceased' && cand2.character.deadToTheGames === true);
+const cand3 = ACKS.recruitGladiator(trC, trS, { method:'impress-prisoner', gladiatorType:'striker' });
+ACKS.trainGladiator(trC, trS, cand3.character.id, { type:'striker', unworthy:true });
+ok('unworthy candidate: roll 8 → maimed (1–10 fail, p.25)', ACKS.resolveGraduation(trC, cand3.character.id, { roll:8 }).maimed === true);
+ok('gladiator-trained events emitted on graduation', trC.eventLog.filter(e => e.event && e.event.kind === 'gladiator-trained').length === 3);
+
+// =============================================================================
+section('G3 — the monthly business loop (Titus worked example, AXIOMS 4 p.25)');
+// =============================================================================
+// Titus's 9-gladiator school, lanista L5 (his own master trainer): staff 163, upkeep 18.
+const titC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[{ id:'titus', name:'Titus', socialTier:'independent', level:5 }], settlements:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const titS = ACKS.createGladiatorSchool(titC, { name:'Ludus Titi', lanistaCharacterId:'titus' });
+for(let i=0;i<9;i++){ const g={ id:'tg'+i, name:'TG'+i, socialTier:'gladiator', level:0, lifecycleState:'active', victoriesWon:0, boutsSurvived:0 }; titC.characters.push(g); titS.gladiatorCharacterIds.push(g.id); }
+ok('schoolRosterCount === 9', ACKS.schoolRosterCount(titC, titS) === 9);
+ok('schoolStaffWages === 163 (1 guard 25 + 2 trainers 120 + lanista-master 0 + chirugeon 18)', ACKS.schoolStaffWages(titC, titS) === 163, String(ACKS.schoolStaffWages(titC, titS)));
+ok('schoolUpkeepGp === 18 (2gp × 9)', ACKS.schoolUpkeepGp(titC, titS) === 18);
+const titPL = ACKS.schoolMonthlyPL(titC, titS, { rentIncomeGp:680, prizesGp:90, replacementsGp:250 });
+ok('schoolMonthlyPL: totalCost 521 (90+250+18+163)', titPL.totalCost === 521, String(titPL.totalCost));
+ok('schoolMonthlyPL: PROFIT 159 (680 − 521) — the Titus worked example', titPL.profit === 159, String(titPL.profit));
+ok('schoolMonthlyPL: upkeep + staff auto-computed', titPL.upkeep === 18 && titPL.staffWages === 163);
+// the loss variant (RAW p.25 note: a 4th-gladiator death-bout loss → −31gp)
+ok('schoolMonthlyPL: a loss yields a negative profit', ACKS.schoolMonthlyPL(titC, titS, { rentIncomeGp:680, prizesGp:60, replacementsGp:250+250 }).profit < 0);
+// without an L5 lanista, the master trainer must be hired (+250)
+const noMasterC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[], settlements:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const noMasterS = ACKS.createGladiatorSchool(noMasterC, { name:'L' });
+for(let i=0;i<9;i++){ const g={ id:'ng'+i, socialTier:'gladiator', level:0, lifecycleState:'active' }; noMasterC.characters.push(g); noMasterS.gladiatorCharacterIds.push(g.id); }
+ok('no L5 lanista → staff includes the hired master (163 + 250 = 413)', ACKS.schoolStaffWages(noMasterC, noMasterS) === 413, String(ACKS.schoolStaffWages(noMasterC, noMasterS)));
+// estimate + the auto month
+const estC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[{ id:'l', socialTier:'independent', level:5 }], settlements:[{ id:'set1', name:'Arganos', families:4000 }], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const estS = ACKS.createGladiatorSchool(estC, { name:'L', lanistaCharacterId:'l', settlementId:'set1' });
+for(let i=0;i<9;i++){ const g={ id:'eg'+i, socialTier:'gladiator', level:0, lifecycleState:'active' }; estC.characters.push(g); estS.gladiatorCharacterIds.push(g.id); }
+ok('estimateSchoolMonthlyRent: 4,000×0.5 × 9/9 = 2,000 (sole school)', ACKS.estimateSchoolMonthlyRent(estC, estS) === 2000, String(ACKS.estimateSchoolMonthlyRent(estC, estS)));
+const bizSeq = (() => { let i=0; const seq=[0.9,0.9,0.1]; return () => seq[i++ % seq.length]; })(); // win, win, slain (of 3 rented)
+const biz = ACKS.runSchoolBusinessMonth(estC, estS, { rentIncomeGp:680, rentCount:3, rng: bizSeq });
+ok('runSchoolBusinessMonth: rents 3, tallies wins/slain + the P&L', biz.ok && biz.tally.rentCount === 3 && (biz.tally.wins + biz.tally.losses + biz.tally.slain) === 3);
+ok('runSchoolBusinessMonth: winners gained a victory + a slain gladiator is deceased', estC.characters.find(c=>c.id==='eg0').victoriesWon === 1 && estC.characters.some(c=>/^eg/.test(c.id) && c.lifecycleState==='deceased'));
+ok('runSchoolBusinessMonth refuses when rule OFF', ACKS.runSchoolBusinessMonth({ houseRules:{}, gladiatorSchools:[estS] }, estS, {}).reason === 'gladiator-games-off');
+
+// =============================================================================
+section('G4 — uprisings (the Titus worked example, AXIOMS 4 p.26)');
+// =============================================================================
+const upC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[{ id:'titus', name:'Titus', socialTier:'independent', level:5 }], settlements:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const upS = ACKS.createGladiatorSchool(upC, { name:'Ludus Titi', lanistaCharacterId:'titus' });
+for(let i=0;i<6;i++){ const g={ id:'ug'+i, socialTier:'gladiator', level:0, lifecycleState:'active', lanistaMorale:-4 }; upC.characters.push(g); upS.gladiatorCharacterIds.push(g.id); }
+const upMod = ACKS.uprisingModifiers(upC, upS, { sparkNotFault:true });
+ok('uprisingModifiers: +4 (5th-level +1, master trainer +2, not-fault +1)', upMod.total === 4, String(upMod.total));
+const up = ACKS.checkUprising(upC, upS, { spark:'heavy-game-losses', sparkNotFault:true, rolls:[11,8,2,4,6,7] });
+ok('checkUprising: net mod 0 (−4 morale + 4 circumstance) → bands loyal/hesitate/lead/join/hesitate/hesitate',
+   up.per.map(p=>p.result).join(',') === 'loyal,hesitate,lead,join,hesitate,hesitate', up.per.map(p=>p.result).join(','));
+ok('checkUprising: 1 lead + 1 join = 33% support ≥ 25% → REVOLT (the Titus example)', up.leaders === 1 && up.supporters === 1 && up.supportPct === 33 && up.revolt === true);
+ok('checkUprising stamps the school uprisingState on a revolt', upS.uprisingState && upS.uprisingState.leaders === 1);
+ok('gladiator-uprising event emitted', upC.eventLog.some(e => e.event && e.event.kind === 'gladiator-uprising'));
+ok('checkUprising refuses rule-off / no-gladiators', ACKS.checkUprising({ houseRules:{} }, upS, {}).reason === 'gladiator-games-off' && ACKS.checkUprising(upC, ACKS.createGladiatorSchool(upC, {}), {}).reason === 'no-gladiators');
+// a lead-without-25%-support → no revolt + that gladiator loses 2 morale (p.26); the firmly-loyal gain +1
+const calmC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[], settlements:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+const calmS = ACKS.createGladiatorSchool(calmC, { name:'L' });   // no lanista → 0 circumstance modifier
+for(let i=0;i<5;i++){ const g={ id:'cg'+i, socialTier:'gladiator', level:0, lifecycleState:'active', lanistaMorale: (i===4 ? -8 : 2) }; calmC.characters.push(g); calmS.gladiatorCharacterIds.push(g.id); }
+// rolls [12,12,12,12,2]: cg0–3 → 14 (firmly-loyal), cg4 → −6 (lead). 1 lead / 5 = 20% < 25% → no revolt.
+const calm = ACKS.checkUprising(calmC, calmS, { spark:'unpaid-prize', rolls:[12,12,12,12,2] });
+ok('a lone Lead with <25% support → no revolt', calm.revolt === false && calm.leaders === 1 && calm.supportPct === 20);
+ok('the lone Lead loses 2 morale (−8 → −10); a Firmly Loyal gains +1 (2 → 3) (p.26)',
+   calmC.characters.find(c=>c.id==='cg4').lanistaMorale === -10 && calmC.characters.find(c=>c.id==='cg0').lanistaMorale === 3);
+
+// =============================================================================
+section('G4 — sponsoring a game (AXIOMS 4 p.22)');
+// =============================================================================
+const spC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[
+  { id:'sa', socialTier:'gladiator', level:0 }, { id:'sb', socialTier:'gladiator', level:0 },
+  { id:'sc', socialTier:'gladiator', level:2 }, { id:'sm', name:'Sirius', socialTier:'independent', level:6, coins:{ gp:5000 } }
+], settlements:[{ id:'set1', name:'Arganos', families:4000 }], games:[], bouts:[], eventLog:[], currentTurn:1, currentDayInMonth:1 };
+ok('sponsorGame: budget < 0.5gp/family refused (min 2,000gp for 4,000 families)',
+   (() => { const r = ACKS.sponsorGame(spC, { settlementId:'set1', budgetGp:100, bouts:[] }); return r.ok === false && r.reason === 'budget-too-low' && r.minBudget === 2000; })());
+const sp = ACKS.sponsorGame(spC, { settlementId:'set1', muneratorCharacterId:'sm', payFromMunerator:true, bouts:[
+  { sideA:{ combatantIds:['sa'], kind:'gladiator' }, sideB:{ combatantIds:['sb'], kind:'gladiator' }, kind:'to-incapacitation' },   // L0 vs L0 — balanced
+  { sideA:{ combatantIds:['sa'], kind:'gladiator' }, sideB:{ combatantIds:['sc'], kind:'gladiator' }, kind:'to-incapacitation' }    // L0(250) vs L2(900) — unequal → rejected
+]});
+ok('sponsorGame: default budget = 0.5gp/family = 2,000', sp.ok && sp.budgetGp === 2000);
+ok('sponsorGame: balanced sides scheduled, unequal (±10%) sides rejected', sp.scheduled.length === 1 && sp.rejected.length === 1 && sp.rejected[0].reason === 'sides-unequal');
+ok('sponsorGame: creates the Game + links its bouts', ACKS.findGame(spC, sp.game.id) && sp.game.boutIds.length === 1);
+ok('sponsorGame: ≤12 bouts/day → overflow to multiple days', (() => {
+  const bouts = []; for(let i=0;i<14;i++) bouts.push({ sideA:{ combatantIds:['sa'], kind:'gladiator' }, sideB:{ combatantIds:['sb'], kind:'gladiator' }, kind:'to-incapacitation' });
+  const r = ACKS.sponsorGame(spC, { settlementId:'set1', bouts }); return r.scheduled.length === 14 && r.days === 2;
+})());
+ok('sponsorGame: the munerator pays the liturgy expense (GP Wave B)', (spC.characters.find(c=>c.id==='sm').coins.gp) < 5000);
+ok('game-sponsored event emitted', spC.eventLog.some(e => e.event && e.event.kind === 'game-sponsored'));
+ok('sponsorGame refuses when rule OFF', ACKS.sponsorGame({ houseRules:{}, settlements:[], games:[], bouts:[] }, {}).reason === 'gladiator-games-off');
+
+// =============================================================================
+section('G3/G4 — the slot-62 day-tick consumer + the 3 new event kinds');
+// =============================================================================
+ok('slot-62 consumer "gladiators" registered (order 62)', ACKS.dayConsumersInOrder().some(c => c.name === 'gladiators' && c.order === 62));
+// propose at month-end (turn 7 day 30 → ord 210): a candidate whose training completed + the business month due
+const dtC = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[], settlements:[], eventLog:[], currentTurn:7, currentDayInMonth:30 };
+const dtS = ACKS.createGladiatorSchool(dtC, { name:'L' });
+const dtCand = ACKS.recruitGladiator(dtC, dtS, { method:'buy-candidate', gladiatorType:'spearfighter' });
+dtCand.character.trainingCompletesOrd = 181; dtCand.character.trainingGraduated = false; dtCand.character.lifecycleState = 'candidate'; // completed (ord 181 ≤ 210)
+const dtProp = ACKS.proposeGladiatorDay(dtC, { dayInMonth:30 });
+ok('proposeGladiatorDay surfaces a due graduation + the month-end business loop (day 30)', dtProp.pendingRecords.some(r => r.kind === 'gladiator-graduate') && dtProp.pendingRecords.some(r => r.kind === 'gladiator-school-month'));
+ok('proposeGladiatorDay returns nothing when the rule is OFF', ACKS.proposeGladiatorDay({ houseRules:{}, characters:[], gladiatorSchools:[] }, { dayInMonth:1 }).pendingRecords.length === 0);
+const bizRec = dtProp.pendingRecords.find(r => r.kind === 'gladiator-school-month');
+ACKS.commitGladiatorRecord(dtC, bizRec);
+ok('commitGladiatorRecord (business month) advances businessNextOrd by 30', dtS.businessNextOrd === bizRec.forOrd + 30);
+ACKS.commitGladiatorRecord(dtC, bizRec);   // idempotent re-commit
+ok('commitGladiatorRecord business month is idempotent (no double-advance)', dtS.businessNextOrd === bizRec.forOrd + 30);
+for(const k of ['gladiator-trained', 'gladiator-uprising', 'game-sponsored']){
+  ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
+  ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+  ok('EVENT_WIZARD_OPTOUT has ' + k, ACKS.EVENT_WIZARD_OPTOUT.has(k));
+}
+// the team-session no-blankX-inject discipline: the G3/G4 runtime fields are DEFENSIVE (not on the factories)
+ok('blankGladiatorSchool has NO businessNextOrd key (defensive runtime field — no field-schema/migration touch)',
+   ACKS.blankGladiatorSchool({}).businessNextOrd === undefined && ACKS.blankGladiatorSchool({}).uprisingState === null);
+
+// =============================================================================
 console.log('\n=============================================================');
 console.log('gladiators.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if(fail){ console.log('FAILURES:\n  ' + failures.join('\n  ')); process.exit(1); }

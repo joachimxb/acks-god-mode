@@ -237,7 +237,7 @@ ok('default mode = classic (no setting on the campaign)', ACKS.treasureModeFor(f
 ok('campaign.treasureMode = heroic is read', ACKS.treasureModeFor(freshCampaign({ treasureMode:'heroic' })) === 'heroic');
 ok('an invalid mode falls back to classic', ACKS.treasureModeFor(freshCampaign({ treasureMode:'bogus' })) === 'classic');
 ok('TREASURE_MODES = [classic, heroic, gritty]', ACKS.TREASURE_MODES.length === 3 && ACKS.TREASURE_MODES[0] === 'classic');
-ok('heroic/gritty reserved → fall back to the Classic table (v1)', ACKS.TREASURE_TYPE_TABLES.heroic === ACKS.TREASURE_TYPE_TABLE_CLASSIC);
+ok('heroic/gritty SHARE the Classic value table (equal value; mode = coin-weight + by-rarity transforms — T5)', ACKS.TREASURE_TYPE_TABLES.heroic === ACKS.TREASURE_TYPE_TABLE_CLASSIC && ACKS.TREASURE_TYPE_TABLES.gritty === ACKS.TREASURE_TYPE_TABLE_CLASSIC);
 
 // =============================================================================
 section('No new entity / prefix / collection (the §3.1 test fails a hrd- Hoard; survey Part 9)');
@@ -247,6 +247,81 @@ ok('NO trs- prefix registered (reserved on paper only)', !ACKS.ID_PREFIXES || !A
 ok('NO blankHoard factory (the generator writes shipped shapes)', typeof ACKS.blankHoard === 'undefined');
 ok('treasure-generated is a known event kind', typeof ACKS.isEventKindKnown === 'function' && ACKS.isEventKindKnown('treasure-generated'));
 ok('treasure-generated is NOT raw-wizard-emittable (owned by materializeHoard)', typeof ACKS.isWizardEmittable === 'function' && ACKS.isWizardEmittable('treasure-generated') === false);
+
+// =============================================================================
+section('T4 — magic slots resolve against the SHIPPED #143 catalog (real NotableItems)');
+// =============================================================================
+const t4 = ACKS.generateHoard({ treasureType:'R', mode:'classic', rng: mb(123) });
+ok('hoard.magicItems is a resolved item list (one per item)', Array.isArray(t4.magicItems) && t4.magicItems.length > 0);
+ok('magicItems count = Σ magicSlot counts', t4.magicItems.length === t4.magicSlots.reduce((s,x)=>s+(x.count||0),0));
+ok('each resolved item carries a catalog key + kind + rarity + apparentValue', t4.magicItems.every(m => m.key && m.kind && m.rarity && typeof m.apparentValue === 'number'));
+ok('every key resolves in the #143 catalog (read-only consume)', typeof ACKS.findMagicItemCatalog === 'function' && t4.magicItems.every(m => !!ACKS.findMagicItemCatalog(m.key)));
+ok('magicEstGp = Σ resolved apparent values (not the flat row avg)', t4.magicEstGp === t4.magicItems.reduce((s,m)=>s+(m.apparentValue||0),0));
+ok('cursed catalog entries are excluded from random rolls', t4.magicItems.every(m => { const e = ACKS.findMagicItemCatalog(m.key); return e && !e.cursed; }));
+// Classic resolves BY TYPE.
+const t4potSlots = t4.magicSlots.filter(s => s.category === 'potion').reduce((s,x)=>s+x.count,0);
+const t4potItems = t4.magicItems.filter(m => m.category === 'potion');
+ok('classic by-type: a potion slot yields kind:potion items', t4potItems.length === t4potSlots && t4potItems.every(m => m.kind === 'potion'));
+ok('classic by-type: weapon-or-armor slots yield magic-weapon/armor', t4.magicItems.filter(m => m.category === 'weapon-or-armor').every(m => m.kind === 'magic-weapon' || m.kind === 'magic-armor'));
+// Materialize → real NotableItems with the catalog intrinsic shape.
+const t4camp = freshCampaign();
+const t4res = ACKS.materializeHoard(t4camp, t4, { hexId:'hex-t4' });
+ok('materialized notables = resolved item count', t4res.notables.length === t4.magicItems.length && t4camp.notableItems.length === t4.magicItems.length);
+const t4ni = t4res.notables[0];
+ok('a notable carries the #143 intrinsic shape (rarity + baseCost + pageRef)', !!t4ni && !!t4ni.intrinsic && !!t4ni.intrinsic.rarity && typeof t4ni.intrinsic.baseCost === 'number' && !!t4ni.intrinsic.pageRef);
+ok('a notable is tagged treasure-generated + filledFromCatalog', t4ni.intrinsic.source === 'treasure-generated' && t4ni.intrinsic.filledFromCatalog === true);
+ok('a notable points back at a real catalog key (baseCatalogKey)', !!t4ni.baseCatalogKey && !!ACKS.findMagicItemCatalog(t4ni.baseCatalogKey));
+ok('the magical stash line points at its notable (notableItemId)', t4res.stash.items.some(it => ACKS.itemHasFacet(it,'magical') && it.notableItemId));
+ok('the audit event reports magicItemCount', t4res.event && typeof t4res.event.payload.magicItemCount === 'number' && t4res.event.payload.magicItemCount === t4.magicItems.length);
+// Determinism — the catalog fill is reproducible with a fixed rng.
+ok('magic fill is deterministic (same seed → identical keys)', JSON.stringify(ACKS.generateHoard({treasureType:'R',mode:'classic',rng:mb(123)}).magicItems.map(m=>m.key)) === JSON.stringify(t4.magicItems.map(m=>m.key)));
+
+// =============================================================================
+section('T5 — Heroic / Gritty modes: heavier coin (same value) + by-rarity magic');
+// =============================================================================
+// Same seed → coin VALUE preserved across modes; Heroic/Gritty markedly heavier.
+const t5cR = ACKS.generateHoard({ treasureType:'R', mode:'classic', rng: mb(1) });
+const t5hR = ACKS.generateHoard({ treasureType:'R', mode:'heroic',  rng: mb(1) });
+const t5gR = ACKS.generateHoard({ treasureType:'R', mode:'gritty',  rng: mb(1) });
+ok('same seed → gems identical across modes (only coin/magic transform differs)', JSON.stringify(t5cR.gems) === JSON.stringify(t5hR.gems) && JSON.stringify(t5cR.gems) === JSON.stringify(t5gR.gems));
+ok('Heroic preserves the gp total (RAW: equal value per type)', Math.abs(ACKS.hoardTotalGp(t5hR) - ACKS.hoardTotalGp(t5cR)) <= 5);
+ok('Gritty preserves the gp total', Math.abs(ACKS.hoardTotalGp(t5gR) - ACKS.hoardTotalGp(t5cR)) <= 5);
+ok('Heroic coin is markedly heavier than Classic at equal value (≥3× st)', ACKS.hoardTotalStone(t5hR) >= ACKS.hoardTotalStone(t5cR) * 3);
+function meanStone(mode){ let st=0; const N=2000; for(let i=0;i<N;i++) st += ACKS.hoardTotalStone(ACKS.generateHoard({treasureType:'R',mode,rng:mb(7000+i)})); return st/N; }
+const t5mc = meanStone('classic'), t5mh = meanStone('heroic');
+ok('Heroic mean weight ≈ 3–8× Classic (got ' + (t5mh/t5mc).toFixed(1) + '×)', (t5mh/t5mc) >= 3 && (t5mh/t5mc) <= 8);
+// By-rarity magic: Heroic spans a spread of rarities; Gritty makes Legendary much rarer.
+function rarities(mode, n){ const c={}; for(let i=0;i<n;i++){ const h=ACKS.generateHoard({treasureType:'R',mode,rng:mb(40000+i)}); for(const m of h.magicItems) c[m.rarity]=(c[m.rarity]||0)+1; } return c; }
+const heroR = rarities('heroic', 3000), gritR = rarities('gritty', 3000);
+ok('Heroic magic spans ≥3 rarity tiers (by rarity, not type-locked)', Object.keys(heroR).length >= 3);
+ok('Heroic produces Legendary items on the tail', (heroR.legendary||0) > 0);
+ok('Gritty makes Legendary much rarer than Heroic (<1/5)', (gritR.legendary||0) * 5 < (heroR.legendary||0));
+ok('Gritty skews to lower rarities (common+uncommon > Heroic)', ((gritR.common||0)+(gritR.uncommon||0)) > ((heroR.common||0)+(heroR.uncommon||0)));
+ok('Heroic determinism: same seed → identical hoard', JSON.stringify(ACKS.generateHoard({treasureType:'R',mode:'heroic',rng:mb(5)})) === JSON.stringify(ACKS.generateHoard({treasureType:'R',mode:'heroic',rng:mb(5)})));
+// The campaign setting drives the mode (what the wizard reads).
+const t5camp = freshCampaign({ treasureMode:'heroic' });
+ok('treasureModeFor(campaign) drives generateHoard mode (heroic)', ACKS.generateHoard({ treasureType:'M', mode: ACKS.treasureModeFor(t5camp) }).mode === 'heroic');
+ok('Classic (the default) is unchanged — by type, light coin', t5cR.mode === 'classic' && t4.magicItems.some(m => m.category === 'potion'));
+
+// =============================================================================
+section('T3 — the TT p.23 Type-L special-treasure example (4 cp + 3 sp + 4 jewelry lots) reproduces');
+// =============================================================================
+function buildTypeL(){ return { treasureType:'L', mode:'classic', accumulation:'Raider',
+  coins:{ cp:4000, sp:3000, ep:0, gp:0, pp:0 }, gems:[],
+  jewelry:[0,0,0,0].map(()=>({ tier:'jewelry', valueGp:1000 })),
+  magicSlots:[], magicItems:[], magicEstGp:0, specialTreasures:[], captives:[], totals:null }; }
+const tlA = buildTypeL(); const tlBefore = ACKS.hoardTotalGp(tlA);
+ACKS.applySpecialTreasures(tlA, { rng: mb(2026) });
+const tlAfter = ACKS.hoardTotalGp(tlA);
+ok('4 cp + 3 sp + 4 jewelry lots → some substituted goods', tlA.specialTreasures.length > 0);
+ok('substituted coin lots removed in 1,000-coin increments', (tlA.coins.cp % 1000 === 0) && (tlA.coins.sp % 1000 === 0) && tlA.coins.cp <= 4000 && tlA.coins.sp <= 3000);
+ok('value ≈ preserved across the substitution (within band)', tlBefore > 0 && (tlAfter/tlBefore) > 0.5 && (tlAfter/tlBefore) < 1.8);
+ok('a substituted good carries name + qty + per-piece valueGp + weightSt (RR-Ch.8-congruent)', tlA.specialTreasures.every(s => s.name && s.qty >= 1 && s.valueGp > 0 && typeof s.weightSt === 'number'));
+const tlB = buildTypeL(); ACKS.applySpecialTreasures(tlB, { rng: mb(2026) });
+ok('reproduces with fixed rng (deterministic specialTreasures + coins)', JSON.stringify(tlA.specialTreasures) === JSON.stringify(tlB.specialTreasures) && JSON.stringify(tlA.coins) === JSON.stringify(tlB.coins));
+// A different seed substitutes a different set (the lot rolls are real, not constant).
+const tlC = buildTypeL(); ACKS.applySpecialTreasures(tlC, { rng: mb(99) });
+ok('a different rng → a different substitution set (real d20 lot rolls)', JSON.stringify(tlA.specialTreasures) !== JSON.stringify(tlC.specialTreasures) || JSON.stringify(tlA.coins) !== JSON.stringify(tlC.coins));
 
 // =============================================================================
 section('Summary');

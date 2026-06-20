@@ -8523,7 +8523,15 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, 
   const ch = (campaign.characters || []).find(c => c.id === vassalRulerCharacterId) || null;
   const loyaltyScore = ch ? (ch.loyalty || 0) : 0;
   const officeBonus = officeLoyaltyBonusFor(campaign, vassalRulerCharacterId);   // RR p.348 Office favor (F&D-8)
-  const effMod = (Number(modifier) || 0) + officeBonus;
+  // === @b10-religion (team) — Religion R3 consecrate-ruler (RR p.422): a vassal of a consecrated ruler
+  // gets +1 to their loyalty rolls (−1 if the rite went awry). The POSITIVE bonus is non-stacking with the
+  // Office favor's +1 (OQ5 — take the max); an awry −1 is a curse that still applies. Late-bound (religion.js
+  // loads after this module); absent / no live buff ⇒ 0 ⇒ effMod identical to the shipped behavior.
+  const consecrationBonus = (global.ACKS && typeof global.ACKS.domainConsecrationVassalLoyaltyBonus === 'function')
+    ? (global.ACKS.domainConsecrationVassalLoyaltyBonus(campaign, vassalRulerCharacterId) || 0) : 0;
+  const religiousBonus = consecrationBonus < 0 ? (officeBonus + consecrationBonus) : Math.max(officeBonus, consecrationBonus);
+  // === end @b10-religion ===
+  const effMod = (Number(modifier) || 0) + religiousBonus;
   const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
   const rr = global.ACKS.rollLoyalty(loyaltyScore, effMod, { d1, d2 });
   if(ch){
@@ -8533,7 +8541,8 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, 
     if(!Array.isArray(ch.loyaltyHistory)) ch.loyaltyHistory = [];
     ch.loyaltyHistory.push({
       turn: campaign.currentTurn || 1, delta: after - before, reason: opts.reason || 'favor-duty-excess',
-      reasonNote: (opts.reasonNote || 'over-demanded duties (RR p.347)') + (officeBonus ? ' [+1 office, RR p.348]' : ''),
+      reasonNote: (opts.reasonNote || 'over-demanded duties (RR p.347)') + (officeBonus ? ' [+1 office, RR p.348]' : '')
+        + (consecrationBonus ? (' [' + (consecrationBonus > 0 ? '+1 consecrated ruler' : '−1 consecration awry') + ', RR p.422]') : ''),
       rollResult: rr, outcome: rr.bandKey, newValue: after
     });
   }

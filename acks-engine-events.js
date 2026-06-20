@@ -228,6 +228,14 @@ const EVENT_KINDS = Object.freeze([
   'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
   // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
   'divine-wrath',           // the gods confront an arcane usurper of a settlement (Religion-emitted; GM-resolved)
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + divine transgression (JJ p.400) ===
+  // Record-only, engine-emitted (consecrateAltar / consecrateRuler / applyDivineTransgression already
+  // applied the state). consecrate-FIELDS + the generic DP spend stay under the shipped 'consecration'
+  // kind (kind-discriminated payload); the manifest's reserved consecrate-fields/divine-power-spend names
+  // are folded there. Carry the Event.context envelope.
+  'consecrate-altar',       // DP spent to consecrate an altar → a Place of Power (pinnacle/sinkhole)
+  'consecrate-ruler',       // a 9th+ chaplain blesses a ruler → a 12-month domain buff (morale/loyalty/vagary)
+  'divine-transgression',   // a divine caster offends his deity → the JJ p.400 table outcome (standing/death)
   // === Hijinks HJ-1 (team) ===
   // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
@@ -246,6 +254,9 @@ const EVENT_KINDS = Object.freeze([
   'hijink-syndicate-formed',
   'hijink-tribute',
   'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — crew assignment + change-in-management takeover. Record-only.
+  'hijink-crew-assigned',
+  'syndicate-takeover',
   // === Character Lifecycle CL-1 (burst4) === — aging (RR p.19). Record-only audit: the age/category
   // /attribute state is applied by ACKS.processAgingForTurn (acks-engine-lifecycle.js, the monthly pass
   // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
@@ -275,6 +286,11 @@ const EVENT_KINDS = Object.freeze([
   // routine bill, off the Campaign Log), -ended on a voluntary end or an unpaid lapse. §528 envelope
   // (sage = source, client = beneficiary).
   'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (readTreatise /
+  // referenceTreatise; acks-engine-sages.js; RR p.146). Record-only (the verb already rolled);
+  // two phases on one kind — phase:'read' (the 6-day study, narrates) + phase:'reference' (the
+  // 1-hour ancillary re-roll, campaignLogHidden). §528 envelope (reader subject, treatise source).
+  'treatise-read',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
@@ -293,6 +309,14 @@ const EVENT_KINDS = Object.freeze([
   // voting senators). Wizard opt-out below.
   'senate-motion-opened',
   'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — the rule-of-the-few OLIGARCHY governance mode
+  // (JJ pp.402–404). Engine-emitted by acks-engine-politics.js (establishOligarchy /
+  // dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision), record-only: the verb
+  // already applied state (the apex governance sub-tree; decisions by MAJORITY, NOT the 2d6 senate
+  // vote). Carries the Event.context envelope (apex hex + ruler + the oligarchs). Wizard opt-out below.
+  'oligarchy-established',
+  'oligarchy-dissolved',
+  'oligarchy-decision',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -429,7 +453,13 @@ const EVENT_KINDS = Object.freeze([
   // behind the default-OFF gladiator-games rule. Carry the Event.context envelope (settlement/school/combatants).
   'bout-resolved',          // an abstract bout is resolved → winner/casualties/XP/crowd reaction (RAW p.25/27/28)
   'gladiator-game-held',    // a Game/Munus is staged → all its scheduled bouts resolved (RAW p.22)
-  'gladiator-recruited'     // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
+  'gladiator-recruited',    // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // slot-62 day-tick consumer + checkUprising + sponsorGame apply the state). Record-only audits; behind
+  // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
+  'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
+  'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
+  'game-sponsored'          // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -938,6 +968,19 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { settlementId: 'string', usurperCharacterId: 'string', level: 'number', severity: 'string' },
     O: { familiesXp: 'number', forceXp: 'number' }
   },
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + transgression (JJ p.400) ===
+  'consecrate-altar': {
+    R: { casterCharacterId: 'string', settlementId: 'string', divinePowerSpentGp: 'number' },
+    O: { altarValueGp: 'number', placeOfPowerKind: 'string', placeOfPowerId: 'string' }
+  },
+  'consecrate-ruler': {
+    R: { casterCharacterId: 'string', domainId: 'string', divinePowerSpentGp: 'number' },
+    O: { rulerCharacterId: 'string', throwResult: 'object', buff: 'object' }
+  },
+  'divine-transgression': {
+    R: { characterId: 'string', tableRoll: 'number', transgression: 'string' },
+    O: { deityId: 'string', severity: 'string', standingEffect: 'string', died: 'boolean', narrativeNote: 'string' }
+  },
   // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
   'hijink-attempted': {
     R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
@@ -973,6 +1016,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-trial': {
     R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
     O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
+  },
+  // === Hijinks HJ-3 (team 2026-06-20) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-crew-assigned': {
+    R: { hijinkId: 'string', crew: 'array' },
+    O: { crewBonus: 'number', narrative: 'string' }
+  },
+  'syndicate-takeover': {
+    R: { syndicateId: 'string', newBossCharacterId: 'string' },
+    O: { oldBossCharacterId: 'string', reason: 'string', narrative: 'string' }
   },
   // === Character Lifecycle CL-1 (burst4) === (RR p.19; engine-emitted by processAgingForTurn, record-only)
   // A character crosses into a new age category (the progressive attribute adjustment) — or, with
@@ -1030,6 +1082,13 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
     O: { settlementId: 'string', feeGpPerMonth: 'number', monthsPaid: 'number', reason: 'string' }
   },
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (RR p.146;
+  // readTreatise / referenceTreatise). phase = 'read' (the 6-day study) | 'reference' (the re-roll).
+  'treatise-read': {
+    R: { readerCharacterId: 'string', itemId: 'string', phase: 'string' },
+    O: { proficiency: 'string', treatiseRanks: 'number', effectiveRanks: 'number', taskKey: 'string',
+         query: 'string', settlementId: 'string', target: 'number', throw: 'object', activityCost: 'object' }
+  },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
   'senate-vote': {
@@ -1075,6 +1134,23 @@ const EVENT_SCHEMAS = Object.freeze({
          outcome: 'string', approved: 'boolean', status: 'string',
          forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
          totalVotes: 'number', majorityThreshold: 'number', revealedCount: 'number', narrative: 'string' }
+  },
+  // === Politics P-7 (burst10 2026-06-20) === (JJ pp.402–404; engine-emitted by acks-engine-politics.js, record-only)
+  // The apex realm adopts the oligarchy governance mode (fromMode = the prior mode).
+  'oligarchy-established': {
+    R: { apexDomainId: 'string' },
+    O: { fromMode: 'string', memberCount: 'number', decisionRule: 'string', narrative: 'string' }
+  },
+  // The oligarchy is dissolved → the realm becomes feudal|senatorial. action ∈ dissolved|secession|conquered.
+  'oligarchy-dissolved': {
+    R: { apexDomainId: 'string' },
+    O: { into: 'string', action: 'string', narrative: 'string' }
+  },
+  // A majority decision by the oligarchs (NOT 2d6 voting). outcome ∈ passed|rejected|deadlock.
+  'oligarchy-decision': {
+    R: { apexDomainId: 'string' },
+    O: { policy: 'string', decisionRule: 'string', outcome: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -1364,6 +1440,21 @@ const EVENT_SCHEMAS = Object.freeze({
   'gladiator-recruited': {
     R: { characterId: 'string', schoolId: 'string' },
     O: { method: 'string', gladiatorType: 'string', level: 'number', costGp: 'number', narrative: 'string' }
+  },
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — record-only audit (see EVENT_KINDS).
+  'gladiator-trained': {
+    R: { characterId: 'string' },
+    O: { schoolId: 'string', gladiatorType: 'string', graduationRoll: 'number', maimed: 'boolean', narrative: 'string' }
+  },
+  'gladiator-uprising': {
+    R: { schoolId: 'string' },
+    O: { spark: 'string', modifier: 'number', gladiatorCount: 'number', leaders: 'number', supporters: 'number',
+         supportPct: 'number', revolt: 'boolean', narrative: 'string' }
+  },
+  'game-sponsored': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
+         boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
   }
 });
 
@@ -2953,6 +3044,11 @@ registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
 // === Religion Wave E (2026-06-19) — divine-wrath shares the record-only audit posture (the monthly
 // processDivineWrathForTurn already escalated/faded the wrath; the handler keeps the event well-formed). ===
 registerEventHandler('divine-wrath', applyEvent_religionAudit);
+// === Religion R3/R5 (team burst10 2026-06-20) — consecration + transgression share the audit posture
+// (consecrateAltar / consecrateRuler / applyDivineTransgression already applied the state). ===
+registerEventHandler('consecrate-altar', applyEvent_religionAudit);
+registerEventHandler('consecrate-ruler', applyEvent_religionAudit);
+registerEventHandler('divine-transgression', applyEvent_religionAudit);
 // === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
 // startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
 // handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
@@ -2978,6 +3074,9 @@ registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
 registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
 registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
 registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
+// === Hijinks HJ-3 (team 2026-06-20) === — crew/takeover share the record-only audit posture.
+registerEventHandler('hijink-crew-assigned', applyEvent_hijinkAudit);
+registerEventHandler('syndicate-takeover', applyEvent_hijinkAudit);
 // === Character Lifecycle CL-1 (burst4) === — aging events share the record-only audit posture:
 // ACKS.processAgingForTurn already advanced the age/category/attributes; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors mortal-wound / survival / banditry.
@@ -3017,6 +3116,13 @@ registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
 // the event well-formed on replay (records the narrative only).
 registerEventHandler('senate-motion-opened', applyEvent_senateAudit);
 registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
+// === Politics P-7 (burst10 2026-06-20) === — the oligarchy events share the same record-only audit:
+// ACKS.establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision
+// (acks-engine-politics.js) already applied the state (the apex governance sub-tree + the decision);
+// the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('oligarchy-established', applyEvent_senateAudit);
+registerEventHandler('oligarchy-dissolved', applyEvent_senateAudit);
+registerEventHandler('oligarchy-decision', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -3183,6 +3289,11 @@ function applyEvent_gladiatorAudit(campaign, event){
 registerEventHandler('bout-resolved', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-game-held', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
+// === Gladiators G3/G4 (team burst10 2026-06-20) === — same record-only audit; the slot-62 consumer +
+// checkUprising + sponsorGame already applied the state (graduation / morale cascade / scheduled bouts).
+registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
+registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6184,12 +6295,18 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Religion Wave E (2026-06-19) — owned by the monthly processDivineWrathForTurn (raw emit would
   // record a divine-wrath the settlement.divineWrath state + usurpation don't show). ===
   'divine-wrath',
+  // === Religion R3/R5 (team burst10 2026-06-20) — owned by the consecration + transgression verbs (raw
+  // emit would record an act the placesOfPower / consecrationBuff / favor standing state don't show; the
+  // GM performs them from the ⛪ Religion view / the character Faith tab). ===
+  'consecrate-altar', 'consecrate-ruler', 'divine-transgression',
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',
   // === Hijinks HJ-2 (team 2026-06-13) === — owned by formSyndicate / collectSyndicateTribute /
   // resolveHijinkTrial (raw emit would record an enterprise change the syndicate/hijink doesn't show).
   'hijink-syndicate-formed', 'hijink-tribute', 'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — owned by startHijink / takeoverSyndicate.
+  'hijink-crew-assigned', 'syndicate-takeover',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
   'domain-incursion',
@@ -6231,6 +6348,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (the Consult-a-Sage modal's retainer section + the Day Clock); a raw emit would record a retainer
   // the client.sageRetainers[] state doesn't show.
   'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — owned by readTreatise / referenceTreatise (the
+  // 📖 Treatise panel in the Consult-a-Sage modal); a raw emit would carry no real re-roll breakdown.
+  'treatise-read',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
@@ -6241,6 +6361,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // politics.js openSenateMotion / resolveSenateMotion); a raw Wizard emit would record a motion the
   // senate.motions[] state doesn't show.
   'senate-motion-opened', 'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — owned by the Senate tab's ⚖ Governance card
+  // (acks-engine-politics.js establish/dissolve/secede/decide); a raw Wizard emit would record an
+  // oligarchy transition the apex governance state doesn't show.
+  'oligarchy-established', 'oligarchy-dissolved', 'oligarchy-decision',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
@@ -6322,7 +6446,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G2 (team burst9 2026-06-20) === — owned by acks-engine-gladiators.js (resolveAndCommit
   // Bout / holdGame / recruitGladiator, driven by the ⚔ Gladiators tab); a raw Event-Wizard emit would
   // record a bout/game/recruit the bout/game/character state doesn't show.
-  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited'
+  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited',
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
+  // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
+  // character/school/game state doesn't show.
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

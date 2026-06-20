@@ -259,6 +259,15 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'demographics-auto-generate', category:'domain', name:'Auto-generate demographic residents',
     source:'JJ Ch.8 Step 3 pp.214–217 + Ch.9 (the NPC generator filling the Step-3 roster; default OFF, CLAUDE §6)',
     description:"OFF by default. Requires the Living census (and the NPC generator). When ON, a settlement's Demographics roster, a realm's command structure, and a domain's countryside census gain ✨ auto-fill controls that MINT the notable NPCs an open slot expects — high-level casters, captains, guild leaders, court officials — as real generated characters, auto-homed + bucketed so they reconcile straight back into the roster. The rank-and-file stay counts (the tool fills only the notable tier — level-floored + capped). Each minted NPC is a normal generated Character (a `generation` event records it); un-home or delete any you don't want. Pure convenience layered on the census — the roster itself is unaffected when this is off." },
+  // === Politics P-7 (burst10 team 2026-06-20) === — the ONE Politics opt-in. The senate (P-1…P-5)
+  // is RAW core, ungated (RR Ch.8). This gates the *Rule of the Few* extensions that go BEYOND
+  // RR Ch.8 — the OLIGARCHY governance mode (+ later: Separating Land and Lordship + multiracial
+  // oligarchies), JJ "Rule of the Few" pp.402–407, which RAW explicitly flags optional (plan §8 /
+  // survey §11; CLAUDE §6). Default OFF (no `default` field): a realm stays feudal/senatorial and
+  // the oligarchy UI is hidden + non-functional until a GM enables this.
+  { id:'rule-of-the-few', category:'domain', name:'Rule of the Few (oligarchies)',
+    source:'ACKS II JJ "Rule of the Few" pp.402–407 (explicitly optional)',
+    description:"OFF by default. When ON, a realm's apex domain can be governed by an OLIGARCHY — a collective of oligarchs who ARE the ruler (with a derived Charisma, level → Personal Authority, and alignment, JJ p.402), deciding by MAJORITY rather than the senate's 2d6 voting (a deadlock keeps last period's policy). The 🏛 Senate tab gains a ⚖ Governance card to establish / dissolve an oligarchy, manage its members, run majority decisions, and let an oligarch secede. (Separating Land and Lordship and the multiracial-oligarchy overlays also sit behind this rule — later slices.) The feudal + senatorial shapes are unaffected; the senate machinery is always RAW-core and independent of this toggle." },
   // ----- Construction & improvement -----
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
@@ -351,6 +360,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR p.362 (RAW core; this toggle is a UX preference, not a RAW divergence)',
     default:true,
     description:"DEFAULT ON. Tribute is a MONTHLY collection (RR p.362, \"Monthly Member Tribute\") — a boss \"sits back and collects his ill-gotten gains.\" With this ON, the monthly turn auto-collects each active syndicate's tribute into its boss's purse (the same per-member take as the Collect button; a manual collection earlier in the month is honored and never double-taken). When OFF, the engine never auto-collects — the GM drives the take by hand (the 💰 Collect button), useful for a Judge running the detailed per-member hijink assignments (Detailed hijink tracking) who doesn't want the passive whole-roster take on top." },
+  // === Hijinks HJ-3 (team 2026-06-20) — crews ===
+  { id:'crew-hijinks', category:'hijinks', name:'Hijinks — crews (multi-perpetrator coordination)',
+    source:'ACKS II RR pp.360–370 + Phase 2.7 Hijinks Plan §5 (a tooling extension, default OFF)',
+    description:"OFF by default. When ON, a hijink can be assigned a crew of co-perpetrators under a honcho: each eligible crew member grants +1 to the honcho's secret proficiency throw (capped at +3). When OFF, the crew picker is hidden and any crew passed to the engine is ignored." },
   // ----- Located inventory (Phase 2.95 Stash subsystem — 2026-05-29) -----
   // The Stash subsystem is always-on CORE as of v0.17.0 (2026-06-03): the master
   // `inventory-stash-system` toggle was removed (per Joachim — a located-inventory

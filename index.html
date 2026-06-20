@@ -39,27 +39,27 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-20-syntribute"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-20-burst10"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-20-syntribute"></script>
+<script src="acks-engine.js?v=2026-06-20-burst10"></script>
 <script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
-<script src="acks-engine-economy.js?v=2026-06-19-banditchallenger"></script>
+<script src="acks-engine-economy.js?v=2026-06-20-burst10"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-events.js?v=2026-06-20-burst10"></script>
 <script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
-<script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-religion.js?v=2026-06-20-burst10"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
 <script src="acks-engine-proficiencies.js?v=2026-06-14-pt5"></script>
-<script src="acks-engine-hijinks.js?v=2026-06-20-syntribute"></script>
+<script src="acks-engine-hijinks.js?v=2026-06-20-burst10"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
 <script src="acks-engine-sieges.js?v=2026-06-19-siegeprofile"></script>
@@ -70,7 +70,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-politics.js?v=2026-06-20-burst10"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
@@ -86,13 +86,13 @@
 <script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-burst10"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-treasure.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-treasure.js?v=2026-06-20-burst10"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-sages.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
 <script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
@@ -9120,6 +9120,23 @@ document.addEventListener('alpine:init', () => {
             </label>
           </div>
 
+          <!-- HJ-3 crew (gated crew-hijinks; hidden when the rule is OFF) -->
+          <template x-if="crewHijinksOn() && hijinkLaunch.perpetratorCharacterId">
+            <div class="text-sm border border-ink/40 rounded bg-yellow-50/30 px-3 py-2">
+              <div class="font-semibold mb-1">🤝 Crew <span class="opacity-60 font-normal text-xs">(each eligible member +1 to the secret throw, cap +3)</span></div>
+              <div class="flex flex-wrap gap-x-4 gap-y-1">
+                <template x-for="c in hijinkCrewCandidates()" :key="c.id">
+                  <label class="inline-flex items-center gap-1 text-xs">
+                    <input type="checkbox" :value="c.id" :checked="hj3CrewIds.includes(c.id)" @change="hj3ToggleCrew(c.id)">
+                    <span x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></span>
+                  </label>
+                </template>
+              </div>
+              <p x-show="hijinkCrewCandidates().length === 0" class="text-xs italic opacity-60">No other eligible co-perpetrators.</p>
+              <p x-show="hj3CrewIds.length" class="text-xs opacity-70 mt-1" x-text="'Crew of ' + hj3CrewIds.length + ' → +' + Math.min(3, hj3CrewIds.length) + ' to the secret throw.'"></p>
+            </div>
+          </template>
+
           <!-- live forecast of the throw + timing -->
           <template x-if="hijinkLaunchForecast()">
             <div class="text-xs border border-ink/40 rounded bg-yellow-50/40 px-3 py-2 space-y-0.5">
@@ -9243,6 +9260,36 @@ document.addEventListener('alpine:init', () => {
                 <label class="block">Level <input type="number" min="0" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).level" @input="_synDraft(syn.id).level = $event.target.value"></label>
                 <label class="block">Count <input type="number" min="1" class="w-16 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).count" @input="_synDraft(syn.id).count = $event.target.value"></label>
                 <button @click="synAddMembers(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200">＋ Add members</button>
+              </div>
+              <!-- HJ-3 — lieutenants / criminal guild / change-in-management takeover -->
+              <div class="border-t border-dashed border-ink/20 pt-2 text-xs space-y-1.5">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <span class="font-semibold opacity-80">Lieutenants <span class="opacity-60 font-normal" x-text="'(' + synHj3(syn.id).lieutenants.length + ')'"></span></span>
+                  <div class="flex items-center gap-2">
+                    <button @click="openTakeover(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-amber-100 hover:bg-amber-200" title="A rival or lieutenant seizes control of the syndicate">⚔ Takeover</button>
+                    <template x-if="synHj3(syn.id).guildChartered">
+                      <span class="px-2 py-0.5 rounded bg-purple-100 border border-purple-300 font-semibold" x-text="'🏷 ' + synHj3(syn.id).guildName"></span>
+                    </template>
+                    <template x-if="!synHj3(syn.id).guildChartered">
+                      <button @click="synCharterGuild(syn.id)" :disabled="!synHj3(syn.id).canCharter"
+                              class="px-2 py-0.5 border border-ink rounded font-semibold"
+                              :class="synHj3(syn.id).canCharter ? 'bg-purple-100 hover:bg-purple-200' : 'opacity-40 cursor-not-allowed'"
+                              :title="synHj3(syn.id).canCharter ? 'Charter this syndicate as a criminal guild (formal organization, +50% membership cap)' : synHj3(syn.id).canCharterReason">🏷 Charter guild</button>
+                    </template>
+                  </div>
+                </div>
+                <template x-if="synHj3(syn.id).lieutenants.length">
+                  <div class="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <template x-for="lt in synHj3(syn.id).lieutenants" :key="lt.id">
+                      <span class="opacity-80 cursor-pointer hover:underline" @click="openCharacterEditor(lt.id)" x-text="'🎖 ' + lt.name + ' · ' + lt.class + ' L' + lt.level"></span>
+                    </template>
+                  </div>
+                </template>
+                <div class="flex items-end gap-2">
+                  <label class="block">Level <input type="number" min="1" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synLtDraft(syn.id).level" @input="_synLtDraft(syn.id).level = $event.target.value"></label>
+                  <label class="block">Name <input type="text" placeholder="(auto)" class="w-32 border border-ink rounded px-1 py-0.5 ml-1" :value="_synLtDraft(syn.id).name" @input="_synLtDraft(syn.id).name = $event.target.value"></label>
+                  <button @click="synIndividuate(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200" title="Individuate a member into a named lieutenant (draws from the counted roster at that level)">🎖 Name a lieutenant</button>
+                </div>
               </div>
             </div>
           </template>
@@ -14194,13 +14241,42 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
                 </select>
               </label>
-              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value (pending the R3 economy read)">Consecrate</button>
+              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value at the next Revenue Collection (cumulative; may exceed the RR p.341 cap)">Consecrate</button>
             </div>
             <div class="flex items-end gap-1">
               <label class="flex flex-col text-xs">Pray &amp; sacrifice gp<input type="number" min="0" x-model.number="religionPrayGp[row.ch.id]" class="w-24"></label>
               <button @click="religionPray(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Return divine power to the deity → campaign XP above your monthly threshold, settled on Advance Month">Pray</button>
             </div>
           </div>
+          <!-- === @b10-religion (team) — R3 consecrate altar/ruler + R5 transgression/atonement (RR p.422 / JJ p.400) === -->
+          <div class="flex flex-wrap items-end gap-3 mt-2 text-sm border-t border-ink/20 pt-2">
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate altar
+                <select x-model="religionAltarSettlement[row.ch.id]" class="w-32">
+                  <option value="">— settlement —</option>
+                  <template x-for="s in religionSettlementOptions()" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                </select>
+              </label>
+              <label class="flex flex-col text-xs">value gp<input type="number" min="0" x-model.number="religionAltarValue[row.ch.id]" class="w-24"></label>
+              <button @click="religionConsecrateAltar(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionAltarSettlement[row.ch.id] || !(religionAltarValue[row.ch.id] > 0)" title="Spend DP = altar value → a Place of Power (pinnacle of good / sinkhole of evil), 100 sq ft per 100gp (RR p.422)">Consecrate altar</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate ruler (9th+ chaplain)
+                <select x-model="religionRulerDomain[row.ch.id]" class="w-36">
+                  <option value="">— domain —</option>
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+                </select>
+              </label>
+              <button @click="religionConsecrateRuler(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionRulerDomain[row.ch.id]" title="Once per year: spend DP = the ruler's monthly revenue + a throw → 12 months of +1 base morale, +1 vassal loyalty, vagary advantage (RR p.422)">Consecrate ruler</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <button @click="religionRollTransgression(row.ch.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="Roll on the Divine Transgression table (JJ p.400) — the caster has offended his deity (the manual GM trigger)">⚖ Transgression</button>
+              <button x-show="row.favor && row.favor.standing && row.favor.standing !== 'good-standing'" @click="religionAtone(row.ch.id)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200" title="Atonement restores good standing — re-enables divine-power accrual (RR p.422)">🕊 Atone</button>
+            </div>
+          </div>
+          <template x-if="religionTransgressionResult[row.ch.id]">
+            <p class="text-xs mt-1" :class="religionTransgressionResult[row.ch.id].died ? 'text-red-700 font-semibold' : (religionTransgressionResult[row.ch.id].standingChanged ? 'text-amber-700' : 'opacity-70')" x-text="'⚖ ' + religionTransgressionResult[row.ch.id].text"></p>
+          </template>
         </div>
       </template>
     </div>
@@ -14829,9 +14905,15 @@ document.addEventListener('alpine:init', () => {
             <span class="opacity-60" x-show="treasureWizard.targetGp" x-text="'→ nearest type ' + nearestTreasureTypeLabel(treasureWizard.targetGp)"></span>
           </label>
         </template>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 flex-wrap">
           <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.withSpecial" @change="treasureWizard.hoard=null"> Special treasures <span class="opacity-60">(substitute trade goods + captives)</span></label>
-          <span class="opacity-60 text-xs">Mode: <span class="font-semibold" x-text="treasureModeLabel()"></span></span>
+          <label class="flex items-center gap-2 text-sm" title="Treasure mode — a campaign setting (TT p.19). Classic = RAW. Heroic/Gritty push coin value into heavier denominations (≈×6 weight, same gp) and roll magic by rarity; Gritty makes Legendary much rarer.">Mode
+            <select @change="treasureSetMode($event.target.value)" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="classic" :selected="treasureModeLabel()==='classic'">Classic (RAW)</option>
+              <option value="heroic"  :selected="treasureModeLabel()==='heroic'">Heroic — heavier · by rarity</option>
+              <option value="gritty"  :selected="treasureModeLabel()==='gritty'">Gritty — heavier · Legendary rare</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -14857,8 +14939,14 @@ document.addEventListener('alpine:init', () => {
             <template x-for="(s,i) in treasureWizard.hoard.specialTreasures" :key="'s-'+i">
               <li>📦 <span x-text="(s.qty>1 ? (s.qty + '× ') : '') + s.name + ' — ' + (s.valueGp*(s.qty||1)).toLocaleString() + ' gp'"></span></li>
             </template>
-            <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
-              <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+            <!-- T4: resolved magic items (real #143 catalog) when present, else GM-fill slot placeholders. -->
+            <template x-for="(m,i) in (treasureWizard.hoard.magicItems && treasureWizard.hoard.magicItems.length ? treasureWizard.hoard.magicItems : [])" :key="'mi-'+i">
+              <li>✨ <span x-text="m.name"></span> <span class="opacity-60" x-text="'(' + (m.rarity||'item') + ' · ' + (m.apparentValue||0).toLocaleString() + ' gp)'"></span></li>
+            </template>
+            <template x-if="!(treasureWizard.hoard.magicItems && treasureWizard.hoard.magicItems.length)">
+              <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
+                <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+              </template>
             </template>
             <template x-for="(cap,i) in treasureWizard.hoard.captives" :key="'cap-'+i">
               <li>⛓ <span x-text="cap.description + ' — base ' + cap.valueGp.toLocaleString() + ' gp'"></span></li>
@@ -14976,6 +15064,11 @@ document.addEventListener('alpine:init', () => {
         <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
       </label>
 
+      <!-- === @b10-sages (SG-4): the optional Knowledge-Layer emit — on success, deposit the answer as a Lore fact the inquirer knows (read-only consume of the shipped Knowledge layer; off when knowledge.js isn't loaded) === -->
+      <template x-if="knowledgeEmitAvailable()">
+        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="sageConsult.recordToKnowledge"> 📚 Record to Knowledge <span class="opacity-50">— on success, deposit the answer as a Lore fact the inquirer learns (source: sage; certainty from the throw margin)</span></label>
+      </template>
+
       <!-- === @b9-sages (team) — SG-3: the periodic-fee retainer (a standing arrangement: priority + covered consults) === -->
       <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef3e3">
         <div class="font-semibold">🤝 Retainer <span class="text-xs font-normal opacity-60">· a standing arrangement — the sage is on call &amp; ordinary consults are covered (RR p.171; 500 gp/mo)</span></div>
@@ -15016,6 +15109,74 @@ document.addEventListener('alpine:init', () => {
           <div class="mt-1 text-xs text-red-800" x-text="retainerResult.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + retainerResult.error)"></div>
         </template>
       </div>
+
+      <!-- === @b10-sages (SG-5): the 📖 Treatise re-roll book — folds into the consult (RR p.146). The
+           scholar reads a treatise (6 days dedicated) then references it to re-roll a matching throw at
+           the WORSE of his / the book's rank. State + methods live at the @b10-sages domainApp marker. === -->
+      <template x-if="sageTreatiseRows().length || sageTreatiseCandidates().length">
+        <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef0f8">
+          <div class="font-semibold">📖 Treatise <span class="text-xs font-normal opacity-60">· a book the scholar studies (6 days) then references to re-roll a throw — at the worse of his / the book's rank (RR p.146)</span></div>
+          <!-- pick an existing treatise (when any exist) -->
+          <template x-if="sageTreatiseRows().length">
+            <div class="mt-1 flex items-center gap-2 flex-wrap text-xs">
+              <label>Book
+                <select class="text-sm ml-1" x-model="sageTreatise.itemId" @change="sageTreatise.refResult=null">
+                  <option value="">— pick a treatise —</option>
+                  <template x-for="t in sageTreatiseRows()" :key="t.id"><option :value="t.id" :selected="t.id===sageTreatise.itemId" x-text="t.label"></option></template>
+                </select>
+              </label>
+              <span class="opacity-60" x-text="'Reader: ' + sageTreatiseReaderName()"></span>
+            </div>
+          </template>
+          <!-- author a treatise from any Notable Item (the GM step — RR p.146 tiers 1–4) -->
+          <div class="mt-1 flex items-center gap-1 flex-wrap text-xs opacity-90">
+            <span class="opacity-60">✚ Mark</span>
+            <select class="text-xs" x-model="sageTreatiseNew.itemId">
+              <option value="">— a Notable Item —</option>
+              <template x-for="it in sageTreatiseCandidates()" :key="it.id"><option :value="it.id" x-text="it.label"></option></template>
+            </select>
+            <span class="opacity-60">as a</span>
+            <select class="text-xs" x-model.number="sageTreatiseNew.ranks">
+              <option :value="1">Apprentice (r1)</option><option :value="2">Journeyman (r2)</option><option :value="3">Master (r3)</option><option :value="4">Grandmaster (r4)</option>
+            </select>
+            <span class="opacity-60">treatise on</span>
+            <input type="text" class="text-xs w-28" x-model="sageTreatiseNew.proficiency" placeholder="knowledge / loremastery …" list="treatiseProfList">
+            <datalist id="treatiseProfList"><option value="knowledge"></option><option value="loremastery"></option><option value="healing"></option><option value="naturalism"></option><option value="theology"></option><option value="alchemy"></option><option value="engineering"></option></datalist>
+            <button @click="sageTreatiseMarkUi()" :disabled="!sageTreatiseNew.itemId" :class="sageTreatiseNew.itemId ? 'bg-indigo-100 hover:bg-indigo-200' : 'opacity-40 cursor-not-allowed'" class="px-1.5 border border-ink rounded">Mark</button>
+          </div>
+          <template x-if="sageTreatiseSelected() && sageTreatiseInfoUI()">
+            <div class="mt-1 text-xs space-y-1">
+              <div class="opacity-70" x-text="sageTreatiseInfoUI().tier + ' treatise on ' + sageTreatiseInfoUI().profLabel + (sageTreatiseInfoUI().spec ? (' (' + sageTreatiseInfoUI().spec + ')') : '') + ' — rank ' + sageTreatiseInfoUI().ranks"></div>
+              <template x-if="!sageTreatiseComprehensionUI().ok">
+                <div class="text-red-800" x-text="'✗ ' + sageTreatiseReaderName() + ' cannot comprehend it — a treatise must be ≤ one rank above the reader (his rank ' + sageTreatiseComprehensionUI().readerRanks + ', book rank ' + sageTreatiseComprehensionUI().treatiseRanks + ').'"></div>
+              </template>
+              <template x-if="sageTreatiseComprehensionUI().ok">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <template x-if="!sageTreatiseHasReadUI()">
+                    <button @click="sageTreatiseReadUi()" class="px-2 py-0.5 border border-ink rounded bg-indigo-100 hover:bg-indigo-200" title="Read the treatise — 6 days of dedicated study (RR p.146). Thereafter the reader can reference it to re-roll a matching throw.">📖 Read (6 days)</button>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI()">
+                    <span class="text-green-800">✓ <span x-text="sageTreatiseReaderName()"></span> has read it.</span>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI() && sageTreatiseForecastUI() && sageTreatiseForecastUI().available">
+                    <span class="flex items-center gap-1 flex-wrap">
+                      <button @click="sageTreatiseReferenceUi()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Reference the treatise — re-roll the throw at the worse of the reader's / the book's rank (RR p.146). A 1-hour ancillary activity.">🔁 Reference — re-roll</button>
+                      <span class="opacity-70" x-text="'(' + sageTreatiseForecastUI().taskLabel + ' · rank ' + sageTreatiseForecastUI().effectiveRanks + ' · ' + sageTreatiseForecastUI().target + '+ · ' + Math.round((sageTreatiseForecastUI().successChance||0)*100) + '%)'"></span>
+                    </span>
+                  </template>
+                  <template x-if="sageTreatiseHasReadUI() && sageTreatiseForecastUI() && !sageTreatiseForecastUI().available">
+                    <span class="opacity-60 italic" x-text="sageTreatiseForecastUI().reason === 'rank-too-low' ? '— the reader needs at least 1 rank to re-roll' : (sageTreatiseForecastUI().reason === 'no-throw-task' ? '— this proficiency has no re-rollable throw' : '— unavailable')"></span>
+                  </template>
+                </div>
+              </template>
+              <template x-if="sageTreatise.refResult && sageTreatise.refResult.ok && sageTreatise.refResult.throw && sageTreatise.refResult.throw.natural != null">
+                <div class="font-mono" :class="sageTreatise.refResult.success ? 'text-green-800' : 'text-red-800'"
+                     x-text="'🔁 1d20 ' + sageTreatise.refResult.throw.natural + ' = ' + sageTreatise.refResult.throw.total + ' vs ' + sageTreatise.refResult.target + '+ → ' + (sageTreatise.refResult.success ? 'success' : 'failure') + ' (rank ' + sageTreatise.refResult.effectiveRanks + ')'"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
 
       <!-- Forecast -->
       <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
@@ -15088,6 +15249,37 @@ document.addEventListener('alpine:init', () => {
     </div>
   </template>
 
+  <!-- @b10-politics P-7 (burst10): the ⚖ Governance card — the rule-of-the-few OLIGARCHY mode.
+       Gated on rule-of-the-few (hidden + non-functional when OFF — principle 8). Rendered at the view
+       top level (not under senateSelected) so an oligarchy-only realm with no senate is reachable. The
+       senate machinery above is RAW-core + independent of this card. -->
+  <template x-if="ruleOfFewOn()">
+    <div class="vellum border border-ink rounded p-4">
+      <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+        <h3 class="font-bold text-lg">⚖ Governance <span class="text-sm opacity-70 font-normal">· Rule of the Few (oligarchies)</span></h3>
+        <button @click="openOligModal(null)" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm">⚖ Manage governance</button>
+      </div>
+      <p class="text-sm opacity-70 mb-2">An <strong>oligarchy</strong> is a collective of oligarchs who <em>are</em> the ruler — its Charisma, level (→ Personal Authority), and alignment derive from them (JJ p.402), and it decides by <strong>majority</strong> rather than the senate's 2d6 vote (a deadlock keeps last period's policy). Establish or dissolve one, run its decisions, and let an oligarch secede.</p>
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Realm (apex)</th><th>Mode</th><th>Oligarchy (derived)</th></tr></thead>
+        <tbody>
+          <template x-for="r in governanceApexRows()" :key="r.id">
+            <tr>
+              <td class="font-semibold" x-text="r.name"></td>
+              <td><span class="text-xs px-1 rounded" :class="r.mode==='oligarchic' ? 'bg-purple-200' : (r.mode==='senatorial' ? 'bg-blue-100' : 'bg-stone-100')" x-text="r.mode"></span></td>
+              <td class="text-xs opacity-80">
+                <template x-if="oligSummaryFor(r.id)">
+                  <span x-text="'CHA '+(oligSummaryFor(r.id).cha>=0?'+':'')+oligSummaryFor(r.id).cha+' · level '+oligSummaryFor(r.id).level+' · PA '+(oligSummaryFor(r.id).personalAuthority>=0?'+':'')+oligSummaryFor(r.id).personalAuthority+' · '+oligSummaryFor(r.id).alignment+' · '+oligSummaryFor(r.id).memberCount+' oligarchs'"></span>
+                </template>
+                <template x-if="!oligSummaryFor(r.id)"><span class="opacity-50">—</span></template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </template>
+
   <template x-if="senateSelected()">
     <div class="space-y-4">
 
@@ -15133,7 +15325,7 @@ document.addEventListener('alpine:init', () => {
       <div class="vellum border border-ink rounded p-4">
         <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
           <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
-            <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateSelected().kind || 'senate') + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
+            <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateKindLabel(senateSelected()) + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
           <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
         </div>
         <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -16927,7 +17119,41 @@ document.addEventListener('alpine:init', () => {
           <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🪖 Recruit gladiator</button>
           <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Schedule bout</button>
           <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+          <!-- === @b10-gladiators (team) — G3/G4 actions === -->
+          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-emerald-200 hover:bg-emerald-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)">💰 Run business month</button>
+          <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
+          <button @click="gladOpenSponsor()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A munerator sponsors a Munus — budget ≥0.5gp/family, ≤12 bouts/day, ≈equal sides (RAW p.22)">🎪 Sponsor a game</button>
         </div>
+
+        <!-- === @b10-gladiators (team) — G3 school accounts (the monthly P&L preview) === -->
+        <template x-if="gladSchoolAccounts()">
+          <div class="vellum border border-ink/30 rounded p-2 text-sm flex flex-wrap gap-x-5 gap-y-1" x-data="{ get a(){ return gladSchoolAccounts(); } }">
+            <span class="font-semibold">📋 Monthly accounts</span>
+            <span title="2gp / gladiator (incl. candidates)">Upkeep: <b x-text="a.upkeep + 'gp'"></b></span>
+            <span title="trainers / guards / chirugeon (RAW p.24)">Staff wages: <b x-text="a.staffWages + 'gp'"></b></span>
+            <span x-show="a.estRent > 0" title="(0.5gp/family × families) × your share of the settlement’s gladiators">Est. rent: <b x-text="a.estRent + 'gp'"></b></span>
+            <span x-show="a.estRent > 0" :class="a.estProfit >= 0 ? 'text-emerald-700' : 'text-red-700'">Est. profit: <b x-text="(a.estProfit >= 0 ? '+' : '') + a.estProfit + 'gp'"></b></span>
+            <span class="opacity-60" x-text="'Roster ' + a.roster + ' · amphitheater ' + (a.amphitheaterSeats ? a.amphitheaterSeats.toLocaleString() + ' seats' : '—')"></span>
+          </div>
+        </template>
+
+        <!-- === @b10-gladiators (team) — G3/G4 result cards (business month / uprising) === -->
+        <template x-if="gladG3.business.result">
+          <div class="vellum border-2 border-emerald-600 bg-emerald-50 rounded p-3 text-sm space-y-1" x-data="{ get r(){ return gladG3.business.result; } }">
+            <div class="font-bold flex items-center justify-between"><span>💰 Business month</span><button @click="gladG3.business.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
+            <div>Rented <b x-text="r.tally.rentCount"></b> gladiator(s): <span class="text-emerald-700" x-text="r.tally.wins + ' won'"></span> · <span x-text="r.tally.losses + ' lost'"></span> · <span class="text-red-700" x-text="r.tally.slain + ' slain'"></span></div>
+            <div>Rent <b x-text="r.pl.rentIncome + 'gp'"></b> − prizes <span x-text="r.pl.prizes"></span> − replacements <span x-text="r.pl.replacements"></span> − upkeep <span x-text="r.pl.upkeep"></span> − wages <span x-text="r.pl.staffWages"></span> = <b :class="r.pl.profit >= 0 ? 'text-emerald-700' : 'text-red-700'" x-text="(r.pl.profit >= 0 ? 'profit +' : 'loss ') + r.pl.profit + 'gp'"></b></div>
+            <div class="text-xs opacity-60" x-show="r.banked && r.banked.banked">Banked to the school treasury.</div>
+            <div class="text-xs text-red-700" x-show="r.banked && r.banked.deficit">⚠ The treasury can’t cover the loss — the school runs a deficit.</div>
+          </div>
+        </template>
+        <template x-if="gladG3.uprising.result">
+          <div class="vellum border-2 rounded p-3 text-sm space-y-1" :class="gladG3.uprising.result.revolt ? 'border-red-600 bg-red-50' : 'border-ink/40'" x-data="{ get r(){ return gladG3.uprising.result; } }">
+            <div class="font-bold flex items-center justify-between"><span x-text="r.revolt ? '🔥 UPRISING!' : '🔥 Uprising check — held'"></span><button @click="gladG3.uprising.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
+            <div x-text="'Net circumstance modifier ' + (r.modifier >= 0 ? '+' : '') + r.modifier + ' · ' + r.leaders + ' lead, ' + r.supporters + ' support → ' + r.supportPct + '% would rise'"></div>
+            <div x-text="r.revolt ? 'A leader has 25%+ support — the school revolts.' : 'No leader gathered the 25% support needed to revolt.'"></div>
+          </div>
+        </template>
 
         <!-- roster -->
         <template x-if="gladRoster(gladSelectedSchool()).length">
@@ -16950,10 +17176,15 @@ document.addEventListener('alpine:init', () => {
                     <td class="pr-2">
                       <span x-show="g.lifecycleState==='deceased'" class="text-red-700">☠ slain</span>
                       <span x-show="g.lifecycleState==='incapacitated'" class="text-amber-700">🩹 wounded</span>
-                      <span x-show="g.lifecycleState==='candidate'" class="opacity-60">🎓 candidate</span>
+                      <span x-show="g.lifecycleState==='candidate' && !gladTrainInfo(g).inTraining" class="opacity-60">🎓 candidate</span>
+                      <span x-show="g.lifecycleState==='candidate' && gladTrainInfo(g).inTraining" class="text-amber-700" x-text="'🎓 training (' + gladTrainInfo(g).daysLeft + 'd)'"></span>
                       <span x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" class="text-green-700">🏅 freedom earned</span>
                     </td>
-                    <td><button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button></td>
+                    <td class="whitespace-nowrap">
+                      <button x-show="g.lifecycleState==='candidate' && !gladTrainInfo(g).inTraining" @click="gladBeginTraining(g)" :disabled="!gladRuleOn()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-100" title="Begin the 6–9-month training (the slot-62 Day-Clock consumer graduates them; 1d20 on completion)">Train</button>
+                      <button x-show="g.lifecycleState==='candidate' && gladTrainInfo(g).inTraining && gladTrainInfo(g).daysLeft===0" @click="gladGraduate(g)" :disabled="!gladRuleOn()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Roll the graduation 1d20 now">Graduate</button>
+                      <button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button>
+                    </td>
                   </tr>
                 </template>
               </tbody>
@@ -17101,6 +17332,214 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) ===
      No separate modal: HW-5 local authoring reuses the shipped hex card (openHexDetail) for editing a
      sub-hex + the in-toolbar Local breadcrumb (map-control:scale-local) for the drill/back nav. -->
+
+<!-- ════ TEAM SESSION (burst10 2026-06-20) — per-agent NEW modal/overlay tail. Append your modal/overlay
+     markup ONLY after your own @b10-<lane> marker below. None of the 6 lanes adds a top-level tab; each
+     extends an existing view (Senate / Gladiators / Religion / Activities▸Hijinks) or is a wizard/modal.
+     The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
+<!-- The ⚖ oligarchy governance modal (rule-of-the-few). Launched from the 🏛 Senate tab's ⚖ Governance
+     card: establish/dissolve an oligarchy, manage members, run a majority decision, let an oligarch
+     secede. Gated on rule-of-the-few (the launcher is hidden when OFF; the engine verbs refuse rule-off
+     too). State + methods at the @b10-politics domainApp marker. -->
+<div x-show="oligModal.open" @keydown.escape.window="if(oligModal.open && !$event.defaultPrevented){ closeOligModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeOligModal()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full my-6 p-5 space-y-3" @click.stop>
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
+      <button @click="closeOligModal()" class="text-xl px-2">×</button>
+    </div>
+
+    <label class="text-sm" x-show="governanceApexRows().length>1">Realm
+      <select x-model="oligModal.apexId" @change="_syncOligDraft(); oligModal.votes={}; oligModal.lastDecision=null; oligModal.lastSecede=null" class="ml-1">
+        <template x-for="r in governanceApexRows()" :key="r.id"><option :value="r.id" x-text="r.name+' ('+r.mode+')'"></option></template>
+      </select>
+    </label>
+
+    <!-- NOT oligarchic → establish -->
+    <template x-if="!oligIsOligarchic()">
+      <div class="border border-ink rounded p-3 space-y-2">
+        <h3 class="font-semibold text-sm">Establish an oligarchy</h3>
+        <p class="text-xs opacity-70">Pick the oligarchs (the collective ruler) + how they decide. The realm's Charisma, level → Personal Authority, and alignment derive from them (JJ p.402); they decide by majority, not the senate's 2d6 vote.</p>
+        <div>
+          <div class="text-xs font-semibold mb-1">Oligarchs (<span x-text="oligModal.draftMembers.length"></span>)</div>
+          <template x-if="oligModal.draftMembers.length===0"><div class="text-xs italic opacity-50">none yet — add at least one</div></template>
+          <template x-for="id in oligModal.draftMembers" :key="id">
+            <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 mr-1 mb-1">
+              <span x-text="charName(id)"></span>
+              <button @click="oligRemoveDraftMember(id)" class="opacity-60 hover:opacity-100" title="remove">×</button>
+            </span>
+          </template>
+        </div>
+        <div class="flex flex-wrap items-center gap-1">
+          <select x-model="oligModal.addPick" class="text-sm">
+            <option value="">+ add an oligarch…</option>
+            <template x-for="ch in oligCandidateChars()" :key="ch.id"><option :value="ch.id" x-text="ch.name||ch.id"></option></template>
+          </select>
+          <button @click="oligAddDraftMember()" :disabled="!oligModal.addPick" class="text-xs px-2 py-1 border border-ink rounded hover:bg-green-100 disabled:opacity-40">add</button>
+          <label class="text-sm ml-2">Decisions
+            <select x-model="oligModal.draftRule" class="ml-1">
+              <option value="majority">majority</option><option value="unanimous">unanimous</option><option value="weighted">weighted</option>
+            </select>
+          </label>
+        </div>
+        <button @click="oligEstablish()" :disabled="oligModal.draftMembers.length===0" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40">⚖ Establish oligarchy</button>
+      </div>
+    </template>
+
+    <!-- oligarchic → derived ruler + members + decision + dissolve -->
+    <template x-if="oligIsOligarchic()">
+      <div class="space-y-3">
+        <template x-if="oligStats()">
+          <div class="border border-ink rounded p-3 text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+            <div class="sm:col-span-2 font-semibold">The collective ruler <span class="opacity-60 font-normal">(derived — JJ p.402)</span></div>
+            <div>Charisma modifier: <strong x-text="(oligStats().cha>=0?'+':'')+oligStats().cha"></strong></div>
+            <div>Average level: <strong x-text="oligStats().level"></strong></div>
+            <div>Personal Authority: <strong x-text="(oligStats().personalAuthority>=0?'+':'')+oligStats().personalAuthority"></strong></div>
+            <div>Alignment: <strong x-text="oligStats().alignment"></strong></div>
+            <div>Decisions by: <strong x-text="oligDecisionRule()"></strong></div>
+            <div>Oligarchs: <strong x-text="oligStats().memberCount"></strong></div>
+          </div>
+        </template>
+
+        <div class="border border-ink rounded p-3">
+          <div class="text-xs font-semibold mb-1">Oligarchs</div>
+          <template x-for="m in oligMembers()" :key="m.id">
+            <div class="flex justify-between items-center text-sm py-0.5">
+              <span x-text="m.name"></span>
+              <button @click="oligSecede(m.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="This oligarch leaves with his stronghold; his henchman-vassals roll Loyalty to follow (RR). Collapses the oligarchy when fewer than 2 remain.">secede</button>
+            </div>
+          </template>
+          <template x-if="oligModal.lastSecede">
+            <div class="text-xs mt-2 p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="oligModal.lastSecede.name+' seceded'+(oligModal.lastSecede.collapsed?' — the oligarchy collapsed to '+oligModal.lastSecede.into+'.':'.')+(oligModal.lastSecede.henchmen.length?' Henchman-vassals roll Loyalty to follow: '+oligModal.lastSecede.henchmen.join(', ')+'.':'')"></div>
+          </template>
+        </div>
+
+        <div class="border border-ink rounded p-3 space-y-2">
+          <h3 class="font-semibold text-sm">Resolve a decision <span class="opacity-60 font-normal" x-text="'· by '+oligDecisionRule()"></span></h3>
+          <input x-model="oligModal.policy" placeholder="the policy / matter (e.g. raise the army)" class="w-full text-sm border border-ink rounded px-2 py-1">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Oligarch</th><th>Vote</th></tr></thead>
+            <tbody>
+              <template x-for="m in oligMembers()" :key="m.id">
+                <tr>
+                  <td x-text="m.name"></td>
+                  <td>
+                    <select :value="oligModal.votes[m.id]||'abstain'" @change="oligSetVote(m.id, $event.target.value)" class="text-sm">
+                      <option value="for">for</option><option value="against">against</option><option value="abstain">abstain</option>
+                    </select>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button @click="oligDecide()" class="px-3 py-1 border-2 border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold text-sm">⚖ Resolve decision</button>
+          <template x-if="oligModal.lastDecision">
+            <div class="text-sm p-2 rounded" :class="oligModal.lastDecision.outcome==='passed'?'bg-green-50 border border-green-300':(oligModal.lastDecision.outcome==='rejected'?'bg-red-50 border border-red-300':'bg-stone-100 border border-stone-300')">
+              <strong x-text="oligModal.lastDecision.outcome.toUpperCase()"></strong>
+              <span x-text="' — '+oligModal.lastDecision.forVotes+' for / '+oligModal.lastDecision.againstVotes+' against / '+oligModal.lastDecision.abstainVotes+' abstain'"></span>
+              <span x-show="oligModal.lastDecision.outcome==='deadlock'" x-text="' · last period’s policy persists'+(oligModal.lastDecision.persistedPolicy?' ('+oligModal.lastDecision.persistedPolicy+')':'')"></span>
+            </div>
+          </template>
+        </div>
+
+        <div class="flex justify-end">
+          <button @click="oligDissolve()" class="text-xs px-3 py-1 border border-ink rounded hover:bg-red-100" title="Revert the realm to feudal; clear the oligarchy">⚖ Dissolve the oligarchy</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+<!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
+<!-- Gladiators G4 — sponsor-a-game modal (z-70) -->
+<template x-if="gladG3.sponsor.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladG3.sponsor.open=false" @keydown.escape.window="gladG3.sponsor.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🎪 Sponsor a game <span class="text-sm font-normal opacity-60">· AXIOMS 4 p.22</span></h3>
+      <label class="block text-sm">Settlement
+        <select x-model="gladG3.sponsor.settlementId" @change="gladSponsorRecalc()" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="">(none)</option>
+          <template x-for="st in gladSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Munerator (sponsor)
+        <select x-model="gladG3.sponsor.muneratorId" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="">(the realm / abstract)</option>
+          <template x-for="ch in gladLanistaOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Budget (gp)
+        <input type="number" min="0" x-model.number="gladG3.sponsor.budgetGp" class="w-full border border-ink rounded px-1 py-0.5">
+        <span class="block text-xs opacity-60 mt-0.5" x-text="'A munerator spends ≥ 0.5gp/urban-family — minimum ' + gladG3.sponsor.minBudget.toLocaleString() + 'gp here.'"></span>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladG3.sponsor.payFromMunerator"> The munerator pays it from their purse (the liturgy expense)</label>
+      <p class="text-xs opacity-70">Schedules a single one-on-one bout from the school’s two ablest gladiators (≈equal sides). Add more in ⚔ Schedule bout, then 🏛 Hold the games.</p>
+      <div class="flex justify-end gap-2">
+        <button @click="gladG3.sponsor.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitSponsor()" :disabled="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget" :class="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget ? 'opacity-50 cursor-not-allowed' : 'bg-amber-300 hover:bg-amber-400'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🎪 Sponsor</button>
+      </div>
+    </div>
+  </div>
+</template>
+<!-- Gladiators G4 — uprising-check modal (z-70) -->
+<template x-if="gladG3.uprising.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladG3.uprising.open=false" @keydown.escape.window="gladG3.uprising.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🔥 Check for an uprising <span class="text-sm font-normal opacity-60">· AXIOMS 4 p.26</span></h3>
+      <p class="text-sm opacity-70">A spark rolls the 2d6 uprising table for every active gladiator (2d6 + their lanista morale + the school’s circumstance modifier). A leader with 25%+ support revolts.</p>
+      <label class="block text-sm">The spark
+        <select x-model="gladG3.uprising.spark" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="heavy-game-losses">Lost ≥33% of the school in a game</option>
+          <option value="unpaid-prize">A victor’s prize went unpaid</option>
+          <option value="underpaid-upkeep">Upkeep under 2gp/gladiator</option>
+          <option value="too-few-guards">Fewer than 1 guard per 20</option>
+          <option value="over-rented">A gladiator rented &gt; 3×/year</option>
+          <option value="kill-or-injure-for-no-reason">A gladiator killed/injured for no reason</option>
+        </select>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladG3.uprising.sparkNotFault"> The spark was not the lanista’s fault (+1)</label>
+      <div class="text-sm opacity-70" x-text="'Circumstance modifier: ' + (gladUprisingMod() >= 0 ? '+' : '') + gladUprisingMod()"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="gladG3.uprising.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitUprising()" class="px-3 py-1 border border-ink rounded text-sm bg-red-300 hover:bg-red-400 font-semibold">🔥 Roll the table</button>
+      </div>
+    </div>
+  </div>
+</template>
+<!-- === @b10-sages      (team) — SG-5: read-a-treatise UI — DONE: folded into the Consult-a-Sage modal (search "📖 Treatise" / "📚 Record to Knowledge"); state + methods at the @b10-sages domainApp marker === -->
+<!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
+<div x-show="takeoverModal.open" x-cloak class="fixed inset-0 z-[76] flex items-center justify-center bg-black/40 p-4"
+     @keydown.escape.window="takeoverModal.open=false" @click.self="takeoverModal.open=false">
+  <div class="vellum border border-ink rounded shadow-xl w-full max-w-md p-4 space-y-3" @click.stop>
+    <div class="flex items-baseline justify-between">
+      <h3 class="font-bold text-lg">⚔ Change in management</h3>
+      <button @click="takeoverModal.open=false" class="text-ink/60 hover:text-ink">✕</button>
+    </div>
+    <p class="text-xs opacity-70" x-text="'A rival or lieutenant seizes ' + takeoverSynName() + '. The boss flips, his lieutenants rebind to the new chain of command, and a takeover is recorded.'"></p>
+    <label class="block text-sm">
+      <span class="font-semibold">New boss</span>
+      <select x-model="takeoverModal.newBossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+        <option value="" :selected="!takeoverModal.newBossCharacterId">— pick the new boss —</option>
+        <template x-for="c in takeoverCandidateRows()" :key="c.id">
+          <option :value="c.id" :selected="takeoverModal.newBossCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1) + (c.isLieutenant ? ' · lieutenant' : '')"></option>
+        </template>
+      </select>
+      <span x-show="takeoverCandidateRows().length === 0" class="block text-xs text-red-700 mt-1">No eligible new boss — only a Thief / Assassin / Nightblade / Venturer may take over (RR p.358).</span>
+    </label>
+    <label class="block text-sm">
+      <span class="font-semibold">Reason <span class="opacity-60 font-normal">(optional)</span></span>
+      <input x-model="takeoverModal.reason" type="text" placeholder="a coup, the old boss's death…" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+    </label>
+    <div class="flex items-center justify-end gap-2">
+      <button @click="takeoverModal.open=false" class="px-3 py-1 border border-ink rounded text-sm">Cancel</button>
+      <button @click="submitTakeover()" :disabled="!takeoverModal.newBossCharacterId"
+              class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+              :class="takeoverModal.newBossCharacterId ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-40 cursor-not-allowed'">⚔ Seize control</button>
+    </div>
+  </div>
+</div>
+<!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
+<!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -18012,7 +18451,10 @@ return {
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
       // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
       // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
-      ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
+      // P-7 (burst10): the tab also appears for an oligarchy-capable realm when rule-of-the-few is ON
+      // (so a GM can reach the ⚖ Governance card to establish/manage one even with no senate). Label
+      // adapts — 🏛 Senate when a senate exists, else ⚖ Governance. Hidden entirely when rule OFF + no senate.
+      ...((this.campaignHasSenate() || this.governanceTabAvailable()) ? [{ id:'senate', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
@@ -18807,6 +19249,334 @@ return {
   //     mapLocalView / mapLocalMarkup / mapLocalAddHex / mapLocalBackToRegional) live WITH the HW-4
   //     map-scale methods (the "agent-6 (Hex Scales HW-5)" section just after mapContinentalMarkup),
   //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
+  // ─── burst10 (team session 2026-06-20) — per-agent state + methods. Each builder appends its Alpine
+  //     state + methods ONLY after its own @b10-<lane> marker below; the Lead reconciles at integration. ───
+  // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
+  // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
+  // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +
+  // oligarchyDerivedStats). ALL gated on rule-of-the-few — hidden + non-functional when OFF (principle 8).
+  oligModal: { open:false, apexId:null, draftMembers:[], draftRule:'majority', addPick:'', policy:'', votes:{}, lastDecision:null, lastSecede:null },
+  ruleOfFewOn(){ return !!(this.currentCampaign && window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'rule-of-the-few')); },
+  // Eldermoot scaffolding: the senate-kind display label ('Senate' | 'Eldermoot' | 'Council'). An
+  // eldermoot IS a senate (shared entities + voting); the Dwarven plan supplies dwarven flavor.
+  senateKindLabel(s){ return (window.ACKS.senateKindLabel ? window.ACKS.senateKindLabel(s) : (((s && s.kind) || 'senate'))); },
+  // the realm apexes (no liege) — the realms governance lives on
+  governanceApexRows(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
+    return c.domains.filter(d => d && !d.liegeId).map(d => ({
+      id: d.id, name: d.name || d.id, mode: (window.ACKS.governanceFor(c, d) || {}).mode || 'feudal' }));
+  },
+  governanceTabAvailable(){ return this.ruleOfFewOn() && this.governanceApexRows().length > 0; },
+  // a derived oligarchy stat block for an apex id (null when it isn't oligarchic)
+  oligSummaryFor(apexId){
+    const c = this.currentCampaign; const d = (c.domains || []).find(x => x && x.id === apexId); if(!d) return null;
+    if((window.ACKS.governanceFor(c, d) || {}).mode !== 'oligarchic') return null;
+    return window.ACKS.oligarchyDerivedStats(c, d);
+  },
+  charName(id){ const ch = ((this.currentCampaign || {}).characters || []).find(c => c && c.id === id); return (ch && ch.name) || id; },
+  // — the modal —
+  openOligModal(apexId){
+    const rows = this.governanceApexRows();
+    this.oligModal.apexId = apexId || (rows[0] && rows[0].id) || null;
+    this._syncOligDraft();
+    this.oligModal.addPick = ''; this.oligModal.policy = ''; this.oligModal.votes = {};
+    this.oligModal.lastDecision = null; this.oligModal.lastSecede = null;
+    this.oligModal.open = true;
+  },
+  closeOligModal(){ this.oligModal.open = false; },
+  _oligApex(){ return ((this.currentCampaign || {}).domains || []).find(d => d && d.id === this.oligModal.apexId) || null; },
+  _oligGov(){ const d = this._oligApex(); return d ? (window.ACKS.governanceFor(this.currentCampaign, d) || {}) : {}; },
+  oligApexName(){ const d = this._oligApex(); return (d && (d.name || d.id)) || '(realm)'; },
+  oligMode(){ return this._oligGov().mode || 'feudal'; },
+  oligIsOligarchic(){ return this.oligMode() === 'oligarchic'; },
+  oligMembers(){ return (this._oligGov().oligarchCharacterIds || []).map(id => ({ id, name: this.charName(id) })); },
+  oligStats(){ const d = this._oligApex(); return d ? window.ACKS.oligarchyDerivedStats(this.currentCampaign, d) : null; },
+  oligDecisionRule(){ return this._oligGov().oligarchyDecisionRule || 'majority'; },
+  _syncOligDraft(){ const g = this._oligGov(); this.oligModal.draftMembers = (g.oligarchCharacterIds || []).slice(); this.oligModal.draftRule = g.oligarchyDecisionRule || 'majority'; },
+  oligCandidateChars(){ const have = new Set(this.oligModal.draftMembers); return ((this.currentCampaign || {}).characters || []).filter(c => c && !have.has(c.id)); },
+  oligAddDraftMember(){ const id = this.oligModal.addPick; if(id && this.oligModal.draftMembers.indexOf(id) < 0) this.oligModal.draftMembers.push(id); this.oligModal.addPick = ''; },
+  oligRemoveDraftMember(id){ const i = this.oligModal.draftMembers.indexOf(id); if(i >= 0) this.oligModal.draftMembers.splice(i, 1); },
+  oligEstablish(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.establishOligarchy(c, { domainId: this.oligModal.apexId, oligarchCharacterIds: this.oligModal.draftMembers.slice(), decisionRule: this.oligModal.draftRule, rulerCharacterId: (this._oligApex() || {}).rulerCharacterId });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft(); this.showToast('⚖ Oligarchy established — ' + r.memberCount + ' oligarchs rule ' + this.oligApexName() + '.', 5000); }
+    else this.showToast('Could not establish the oligarchy: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligDissolve(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.dissolveOligarchy(c, { domainId: this.oligModal.apexId, into: 'feudal', rulerCharacterId: (this.oligMembers()[0] || {}).id });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft(); this.oligModal.lastDecision = null; this.oligModal.lastSecede = null; this.showToast('⚖ The oligarchy is dissolved — ' + this.oligApexName() + ' becomes ' + r.into + '.', 5000); }
+    else this.showToast('Could not dissolve: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligSecede(id){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.secedeFromOligarchy(c, { domainId: this.oligModal.apexId, oligarchCharacterId: id });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this._syncOligDraft();
+      this.oligModal.lastSecede = { name: this.charName(id), collapsed: r.collapsed, into: r.into || null, henchmen: (r.henchmanVassals || []).map(h => this.charName(h)) };
+      this.showToast('⚖ ' + this.charName(id) + ' secedes' + (r.collapsed ? ' — the oligarchy collapses to ' + r.into + '.' : '.'), 5000); }
+    else this.showToast('Could not secede: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  oligSetVote(id, v){ this.oligModal.votes[id] = v; },
+  oligDecide(){
+    const A = window.ACKS, c = this.currentCampaign;
+    const votes = this.oligMembers().map(m => ({ characterId: m.id, vote: this.oligModal.votes[m.id] || 'abstain' }));
+    const r = A.resolveOligarchyDecision(c, { domainId: this.oligModal.apexId, policy: this.oligModal.policy, votes, decisionRule: this.oligDecisionRule() });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){ this.oligModal.lastDecision = r; this.showToast('⚖ Decision: ' + r.outcome + ' (' + r.forVotes + ' for / ' + r.againstVotes + ' against).', 5000); }
+    else this.showToast('Could not resolve the decision: ' + ((r && r.reason) || 'error'), 5000);
+  },
+  // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
+  // Over acks-engine-gladiators.js (trainGladiator / resolveGraduation / schoolMonthlyPL / runSchoolBusinessMonth /
+  // uprisingModifiers / checkUprising / sponsorGame; the slot-62 Day-Clock consumer graduates + runs the P&L
+  // automatically). Extends the ⚔ Gladiators tab (no new tab). All verbs gate on gladiator-games.
+  gladG3: {
+    business: { result:null },
+    uprising: { open:false, schoolId:null, spark:'heavy-game-losses', sparkNotFault:true, result:null },
+    sponsor:  { open:false, settlementId:'', muneratorId:'', budgetGp:0, minBudget:0, payFromMunerator:false }
+  },
+  gladTrainInfo(g){ const c=this.currentCampaign; return (c && window.ACKS.gladiatorTrainingInfo) ? window.ACKS.gladiatorTrainingInfo(c, g) : { inTraining:false }; },
+  gladBeginTraining(g){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s) return;
+    const r=window.ACKS.trainGladiator(c, s, g.id, { type: g.gladiatorType || (this.gladTypes()[0]||{}).key });
+    if(!r.ok){ this.showToast('Cannot train: '+r.reason, 3000, 'warn'); return; }
+    this._gladPersist(); this.showToast(g.name+' begins '+r.months+'-month training.', 2800);
+  },
+  gladGraduate(g){
+    const c=this.currentCampaign; const r=window.ACKS.resolveGraduation(c, g.id, {});
+    if(!r.ok){ this.showToast('Cannot graduate: '+r.reason, 3000, 'warn'); return; }
+    this._gladPersist();
+    this.showToast(r.maimed ? (g.name+' is maimed in training (1d20 '+r.roll+')') : (g.name+' graduates (1d20 '+r.roll+')'), 3200, r.maimed ? 'warn' : 'info');
+  },
+  // The monthly accounts preview (staff/upkeep/est-rent/est-profit + the settlement amphitheater size).
+  gladSchoolAccounts(){
+    const c=this.currentCampaign; const A=window.ACKS; const s=this.gladSelectedSchool();
+    if(!c || !s || !A.schoolStaffWages) return null;
+    const upkeep=A.schoolUpkeepGp(c,s), staffWages=A.schoolStaffWages(c,s), estRent=A.estimateSchoolMonthlyRent(c,s);
+    const set=s.settlementId ? (c.settlements||[]).find(x=>x&&x.id===s.settlementId) : null;
+    return { roster:A.schoolRosterCount(c,s), upkeep, staffWages, estRent,
+             estProfit: estRent - upkeep - staffWages,
+             amphitheaterSeats: set ? A.amphitheaterSeatsForSettlement(c, set) : 0 };
+  },
+  gladRunBusinessMonth(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    const r=window.ACKS.runSchoolBusinessMonth(c, s, {});
+    if(!r.ok){ this.showToast('Business month failed: '+r.reason, 3500, 'error'); return; }
+    this.gladG3.business.result=r; this._gladPersist();
+    this.showToast('Business month — '+(r.pl.profit>=0?('profit +'+r.pl.profit):('loss '+r.pl.profit))+'gp', 3200);
+  },
+  gladOpenUprising(){
+    const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    this.gladG3.uprising={ open:true, schoolId:s.id, spark:'heavy-game-losses', sparkNotFault:true, result:this.gladG3.uprising.result };
+  },
+  gladUprisingMod(){ const c=this.currentCampaign; const s=this.gladSelectedSchool(); const A=window.ACKS; return (c&&s&&A.uprisingModifiers) ? A.uprisingModifiers(c, s, { sparkNotFault:this.gladG3.uprising.sparkNotFault }).total : 0; },
+  gladSubmitUprising(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); const u=this.gladG3.uprising;
+    const r=window.ACKS.checkUprising(c, s, { spark:u.spark, sparkNotFault:u.sparkNotFault });
+    if(!r.ok){ this.showToast('Uprising check failed: '+r.reason, 3500, 'warn'); return; }
+    this.gladG3.uprising.open=false; this.gladG3.uprising.result=r; this._gladPersist();
+    this.showToast(r.revolt ? '🔥 An uprising breaks out!' : 'The spark passes — no uprising.', 3200, r.revolt ? 'error' : 'info');
+  },
+  gladOpenSponsor(){
+    const s=this.gladSelectedSchool();
+    const settlementId = (s && s.settlementId) || (this.gladSettlementOptions()[0]||{}).id || '';
+    this.gladG3.sponsor={ open:true, settlementId, muneratorId:'', budgetGp:0, minBudget:0, payFromMunerator:false };
+    this.gladSponsorRecalc();
+  },
+  gladSponsorRecalc(){
+    const c=this.currentCampaign; const sp=this.gladG3.sponsor;
+    const set=sp.settlementId ? (c.settlements||[]).find(x=>x&&x.id===sp.settlementId) : null;
+    const fam=set ? (Number(set.families)||0) : 0;
+    sp.minBudget=Math.ceil(fam*0.5);
+    if(!sp.budgetGp || sp.budgetGp < sp.minBudget) sp.budgetGp=sp.minBudget;
+  },
+  gladSubmitSponsor(){
+    const c=this.currentCampaign; const sp=this.gladG3.sponsor; const s=this.gladSelectedSchool();
+    // schedule one balanced one-on-one from the school's two ablest ready gladiators (if available)
+    const roster=this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate').sort((a,b)=>(b.level||0)-(a.level||0));
+    const bouts=[]; if(roster.length>=2) bouts.push({ sideA:{ combatantIds:[roster[0].id], kind:'gladiator' }, sideB:{ combatantIds:[roster[1].id], kind:'gladiator' }, kind:'to-incapacitation' });
+    const r=window.ACKS.sponsorGame(c, { settlementId:sp.settlementId||null, muneratorCharacterId:sp.muneratorId||null,
+      budgetGp:sp.budgetGp, payFromMunerator:sp.payFromMunerator, name:(s&&s.name?s.name+' ':'')+'Games', bouts });
+    if(!r.ok){ this.showToast('Sponsor failed: '+(r.reason==='budget-too-low'?('budget must be ≥'+r.minBudget+'gp'):r.reason), 3800, 'error'); return; }
+    this.gladG3.sponsor.open=false; this._gladPersist();
+    this.showToast('Games sponsored ('+r.budgetGp+'gp, '+r.scheduled.length+' bout'+(r.scheduled.length===1?'':'s')+').', 3000);
+  },
+  // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
+  // SG-5: the 📖 Treatise re-roll book (RR p.146) — folds into the Consult-a-Sage modal. The reader
+  // is the consult's sage (sageConsult.sageId). SG-4: knowledgeEmitAvailable() gates the "📚 Record
+  // to Knowledge" tick. Thin Alpine layer over acks-engine-sages.js (markTreatise / readTreatise /
+  // referenceTreatise / treatiseReferenceForecast) — engine call → markDirty / schedulePersist / toast.
+  sageTreatise: { itemId: '', refResult: null },
+  sageTreatiseNew: { itemId: '', proficiency: 'knowledge', ranks: 1 },
+  knowledgeEmitAvailable(){ return typeof (window.ACKS && window.ACKS.recordLore) === 'function' && typeof window.ACKS.learnLore === 'function'; },
+  // Notable Items not yet marked as treatises (the authoring picker source).
+  sageTreatiseCandidates(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !Array.isArray(c.notableItems)) return [];
+    return c.notableItems.filter(it => it && !A.isTreatise(it)).map(it => ({ id: it.id, label: it.name || ('(' + (it.kind || 'item') + ' ' + it.id + ')') }));
+  },
+  // Mark a Notable Item as a treatise (the GM authoring step — RR p.146 tiers 1–4).
+  sageTreatiseMarkUi(){
+    const A = window.ACKS, n = this.sageTreatiseNew;
+    if(!n.itemId || !String(n.proficiency || '').trim()){ if(this.showToast) this.showToast('Pick a Notable Item and a proficiency.'); return; }
+    const res = A.markTreatise(this.currentCampaign, n.itemId, { proficiency: n.proficiency, ranks: Number(n.ranks) || 1 });
+    if(res && res.ok){ this.sageTreatise.itemId = res.item.id; this.sageTreatise.refResult = null; this.sageTreatiseNew = { itemId: '', proficiency: 'knowledge', ranks: 1 }; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Marked as a ' + (res.info ? res.info.tier : '') + ' treatise on ' + (res.info ? res.info.profLabel : '') + '.'); }
+    else if(res && this.showToast){ this.showToast('Cannot mark: ' + (res && res.error)); }
+  },
+  sageTreatiseRows(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || typeof A.treatisesInCampaign !== 'function') return [];
+    return A.treatisesInCampaign(c).map(it => { const i = A.treatiseInfo(it); return { id: it.id, label: (it.name || 'Treatise') + (i ? (' · ' + i.tier + ' ' + i.profLabel) : '') }; });
+  },
+  sageTreatiseReaderChar(){ const id = this.sageConsult && this.sageConsult.sageId; return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null; },
+  sageTreatiseReaderName(){ const c = this.sageTreatiseReaderChar(); return (c && c.name) || 'The scholar'; },
+  sageTreatiseSelected(){
+    const A = window.ACKS, id = this.sageTreatise.itemId;
+    if(!A || !id) return null;
+    return (typeof A.findNotableItem === 'function' ? A.findNotableItem(this.currentCampaign, id) : null)
+      || (((this.currentCampaign && this.currentCampaign.notableItems) || []).find(n => n && n.id === id)) || null;
+  },
+  sageTreatiseInfoUI(){ const it = this.sageTreatiseSelected(); return it ? window.ACKS.treatiseInfo(it) : null; },
+  sageTreatiseComprehensionUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return { ok: false }; return window.ACKS.treatiseComprehension(this.currentCampaign, r, it); },
+  sageTreatiseHasReadUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); return !!(it && r && window.ACKS.hasReadTreatise(it, r.id)); },
+  sageTreatiseForecastUI(){ const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return null; return window.ACKS.treatiseReferenceForecast(this.currentCampaign, r, it); },
+  sageTreatiseReadUi(){
+    const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return;
+    const res = window.ACKS.readTreatise(this.currentCampaign, { readerId: r.id, itemId: it.id });
+    if(res && res.ok){ this.sageTreatise.refResult = null; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(res.alreadyRead ? (r.name + ' has already read this treatise.') : (r.name + ' reads the treatise (6 days).')); }
+    else if(res && this.showToast){ this.showToast(res.error === 'too-advanced' ? 'Too advanced — a treatise must be ≤ one rank above the reader.' : ('Cannot read: ' + (res && res.error))); }
+  },
+  sageTreatiseReferenceUi(){
+    const it = this.sageTreatiseSelected(), r = this.sageTreatiseReaderChar(); if(!it || !r) return;
+    const res = window.ACKS.referenceTreatise(this.currentCampaign, { readerId: r.id, itemId: it.id, query: this.sageConsult.query || this.sageConsult.subject || '', secret: this.sageConsult.secret });
+    this.sageTreatise.refResult = res;
+    if(res && res.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(res.success ? 'The treatise yields an answer.' : 'The treatise does not help.'); }
+    else if(res && this.showToast){ this.showToast('Cannot reference: ' + (res && res.error)); }
+  },
+  // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
+  hj3CrewIds: [],                                            // selected crew charIds in the launch form (gated crew-hijinks)
+  synLtDraft: {},                                            // { [synId]: { level, name } } — the individuate-a-lieutenant draft
+  takeoverModal: { open: false, synId: null, newBossCharacterId: '', reason: '' },
+  // crews (gated crew-hijinks) — when OFF, the picker is hidden + the engine ignores any crew.
+  crewHijinksOn() { const A = window.ACKS; return !!(A && A.crewHijinksEnabled && A.crewHijinksEnabled(this.currentCampaign)); },
+  hijinkCrewCandidates() {
+    const A = window.ACKS, c = this.currentCampaign; if (!A || !c) return [];
+    const perpId = this.hijinkLaunch && this.hijinkLaunch.perpetratorCharacterId;
+    const type = this.hijinkLaunch && this.hijinkLaunch.type;
+    return (c.characters || []).filter(ch => ch && ch.id !== perpId
+      && (A.isActive ? A.isActive(ch) : (ch.alive !== false))
+      && A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(ch, type));
+  },
+  hj3ToggleCrew(id) { const i = this.hj3CrewIds.indexOf(id); if (i >= 0) this.hj3CrewIds.splice(i, 1); else this.hj3CrewIds.push(id); },
+  // named lieutenants + criminal guild (per syndicate card)
+  synHj3(synId) {
+    const A = window.ACKS, c = this.currentCampaign;
+    const syn = (c && c.syndicates || []).find(s => s && s.id === synId);
+    if (!A || !syn) return { lieutenants: [], guildChartered: false, guildName: '', canCharter: false, canCharterReason: '' };
+    const lts = (A.syndicateLieutenants ? A.syndicateLieutenants(c, syn) : []).map(lt => ({ id: lt.id, name: lt.name || '(unnamed)', class: lt.class || '?', level: lt.level || 1 }));
+    const reason = A.canCharterGuildReason ? A.canCharterGuildReason(c, syn) : '';
+    return { lieutenants: lts, guildChartered: !!(A.guildChartered && A.guildChartered(syn)), guildName: (syn.guild && syn.guild.name) || '', canCharter: reason === '', canCharterReason: reason };
+  },
+  _synLtDraft(synId) { if (!this.synLtDraft[synId]) this.synLtDraft[synId] = { level: 1, name: '' }; return this.synLtDraft[synId]; },
+  synIndividuate(synId) {
+    const A = window.ACKS, d = this._synLtDraft(synId);
+    const res = A.individuateLieutenant(this.currentCampaign, synId, { level: Number(d.level) || 1, name: (d.name || '').trim() || undefined });
+    if (!res || !res.ok) { this.showToast('Could not name a lieutenant: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.showToast('🎖 ' + res.lieutenant.name + ' is named a lieutenant of the syndicate.', 3500);
+    d.name = '';
+    this.markDirty(); this.schedulePersist();
+  },
+  synCharterGuild(synId) {
+    const A = window.ACKS;
+    const res = A.charterGuild(this.currentCampaign, synId, {});
+    if (!res || !res.ok) { this.showToast('Could not charter a guild: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('🏷 Chartered as ' + res.guild.name + ' (its formal reach raises the membership cap).', 4500);
+    this.markDirty(); this.schedulePersist();
+  },
+  // change-in-management takeover
+  openTakeover(synId) { this.takeoverModal = { open: true, synId, newBossCharacterId: '', reason: '' }; },
+  takeoverSynName() { const c = this.currentCampaign; const syn = (c && c.syndicates || []).find(s => s && s.id === this.takeoverModal.synId); return (syn && syn.name) || 'the syndicate'; },
+  takeoverCandidateRows() {
+    const A = window.ACKS, c = this.currentCampaign;
+    const syn = (c && c.syndicates || []).find(s => s && s.id === this.takeoverModal.synId);
+    if (!A || !syn) return [];
+    const ltSet = new Set(syn.lieutenantCharacterIds || []);
+    return (A.syndicateTakeoverCandidates ? A.syndicateTakeoverCandidates(c, syn) : []).map(x => ({ id: x.id, name: x.name, class: x.class, level: x.level, isLieutenant: ltSet.has(x.id) }));
+  },
+  submitTakeover() {
+    const A = window.ACKS, m = this.takeoverModal;
+    const res = A.takeoverSyndicate(this.currentCampaign, m.synId, { newBossCharacterId: m.newBossCharacterId, reason: (m.reason || '').trim() || undefined });
+    if (!res || !res.ok) { this.showToast('Takeover failed: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.takeoverModal.open = false;
+    this.showToast('⚔ Control of the syndicate has changed hands.', 4000);
+    this.markDirty(); this.schedulePersist();
+  },
+  // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
+  // treasureSetMode — write the campaign's treasure MODE (a campaign setting, NOT a house
+  // rule; TT p.19). Classic = RAW; Heroic/Gritty push coin value into heavier denominations
+  // + roll magic by rarity (engine: generateHoard reads the mode). Clears the stale rolled
+  // hoard so the next roll uses the new mode. The wizard's treasureRoll already passes
+  // ACKS.treasureModeFor(campaign) into generateHoard/planHoard.
+  treasureSetMode(m){
+    if(!this.currentCampaign) return;
+    const A = window.ACKS;
+    const modes = (A && A.TREASURE_MODES) || ['classic','heroic','gritty'];
+    this.currentCampaign.treasureMode = (modes.indexOf(m) >= 0) ? m : 'classic';
+    this.treasureWizard.hoard = null;       // mode changes the roll → drop the stale result
+    this.markDirty && this.markDirty();
+    this.schedulePersist && this.schedulePersist();
+  },
+  // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
+  // Thin Alpine layer over the acks-engine-religion.js R3/R5 verbs (consecrateAltar / consecrateRuler /
+  // applyDivineTransgression / atone). Surfaced as a second action row + a result line per divine caster
+  // in the ⛪ Religion view's 📿 Divine-power panel. Each action mutates currentCampaign through the engine
+  // (which emits the typed events) then markDirty + schedulePersist + a toast. (consecrate-fields shipped R1.)
+  religionAltarSettlement: {},     // per-caster consecrate-altar target settlement (keyed by charId)
+  religionAltarValue: {},          // per-caster altar value gp
+  religionRulerDomain: {},         // per-caster consecrate-ruler target domain
+  religionTransgressionResult: {}, // per-caster last divine-transgression result (drives the result line)
+  religionSettlementOptions(){ return ((this.currentCampaign && this.currentCampaign.settlements) || []).map(s => ({ id: s.id, name: s.name || s.id })); },
+  religionConsecrateAltar(charId){
+    const sid = this.religionAltarSettlement[charId]; const val = Number(this.religionAltarValue[charId]) || 0;
+    if(!sid || val <= 0) return;
+    const r = window.ACKS.consecrateAltar(this.currentCampaign, { casterId: charId, settlementId: sid, altarValueGp: val });
+    if(!r || !r.ok){ this.showToast('Cannot consecrate altar: ' + (r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP') : (r && r.reason) || 'failed')); return; }
+    this.religionAltarValue[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Consecrated ' + (r.placeOfPower && r.placeOfPower.kind === 'sinkhole' ? 'a sinkhole of evil' : 'a pinnacle of good') + ' — ' + (r.cost || 0).toLocaleString() + ' gp DP');
+  },
+  religionConsecrateRuler(charId){
+    const domId = this.religionRulerDomain[charId]; if(!domId) return;
+    const r = window.ACKS.consecrateRuler(this.currentCampaign, { casterId: charId, domainId: domId });
+    if(!r || !r.ok){
+      const why = r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP')
+        : r && r.reason === 'caster-below-9th' ? 'caster must be 9th level or higher'
+        : r && r.reason === 'not-divine-caster' ? 'not a divine caster'
+        : r && r.reason === 'already-consecrated-this-year' ? ('already consecrated this year (next turn ' + (r.nextTurn || '?') + ')')
+        : (r && r.reason) || 'failed';
+      this.showToast('Cannot consecrate ruler: ' + why); return;
+    }
+    this.markDirty(); this.schedulePersist();
+    const t = r.throwResult || {};
+    this.showToast('Consecrated the ruler — ' + (r.cost || 0).toLocaleString() + ' gp DP, ' + (t.success ? 'blessed (12 mo: +1 morale, +1 vassal loyalty)' : t.natural1 ? 'AWRY (12 mo: −1 morale, −1 loyalty)' : 'throw failed (no buff)'));
+  },
+  religionRollTransgression(charId){
+    const r = window.ACKS.applyDivineTransgression(this.currentCampaign, charId, {});
+    if(!r || !r.ok){ this.showToast('Cannot roll transgression: ' + ((r && r.reason) || 'failed')); return; }
+    const row = r.row || {};
+    this.religionTransgressionResult[charId] = { text: row.label + ' (d% ' + (r.roll && r.roll.total) + '): ' + (row.gloss || ''), died: !!r.died, standingChanged: r.standingChanged };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('⚖ ' + row.label + ' (d% ' + (r.roll && r.roll.total) + ')' + (r.died ? ' — slain!' : r.standingChanged ? ' — disfavored (lapsed)' : ''));
+  },
+  religionAtone(charId){
+    const r = window.ACKS.atone(this.currentCampaign, charId, {});
+    if(!r || !r.ok){ this.showToast('Cannot atone: ' + ((r && r.reason) || 'failed')); return; }
+    this.religionTransgressionResult[charId] = null;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🕊 Atoned — restored to good standing');
+  },
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
@@ -23290,6 +24060,22 @@ return {
       }
     }
 
+    // ── Contributor: Gladiator (🏟 training / ⚔ a scheduled bout) — Gladiators G3/G4 (team b10) ──
+    if(c.socialTier === 'gladiator' && c.lifecycleState !== 'deceased'){
+      const A = window.ACKS;
+      const tInfo = (A && A.gladiatorTrainingInfo) ? A.gladiatorTrainingInfo(this.currentCampaign, c) : { inTraining:false };
+      const inBout = (this.currentCampaign?.bouts||[]).some(b => b && b.status === 'scheduled' &&
+        [].concat(b.sideA?.combatantIds||[], b.sideB?.combatantIds||[]).includes(c.id));
+      if(tInfo.inTraining){
+        acts.push({kind:'gladiator-training', icon:'🏟', label:'in gladiatorial training (' + tInfo.daysLeft + 'd left)', priority:2});
+      } else if(inBout){
+        acts.push({kind:'gladiator-bout', icon:'⚔', label:'fighting in the arena', priority:1, deepLinkTo:{view:'gladiators'}});
+      } else if(c.lifecycleState === 'active'){
+        const sch = c.contractSchoolId ? (this.currentCampaign?.gladiatorSchools||[]).find(s => s && s.id === c.contractSchoolId) : null;
+        acts.push({kind:'gladiator', icon:'🏟', label:'a gladiator' + (sch ? ' of ' + (sch.name || 'the school') : ''), priority:2, deepLinkTo:{view:'gladiators'}});
+      }
+    }
+
     // ── Contributor 4: Journeys (Priority 1) — Phase 2.5 #475 ───────────────
     // An in-flight (or resting) Journey the character is participating in, OR one that TRAVELLED on the
     // current world day even if it has since ARRIVED / been stopped (Joachim 2026-06-08 — keep the
@@ -24889,11 +25675,17 @@ return {
     }
     // RR p.348 Office favor (F&D-8) — +1 to this character's loyalty rolls when his LIEGE holds an
     // active ceremonial office (the office raises the holder's prestige → his vassals are more loyal).
+    // === @b10-religion (team) — Religion R3 consecrate-ruler (RR p.422) gives the same +1 (or −1 if the
+    // rite went awry). The two POSITIVE prestige bonuses are non-stacking (OQ5 — take the max); an awry
+    // −1 still applies. Mirrors _favorDutyLoyaltyRoll's religiousBonus. ===
     let officeNote = '';
-    if(window.ACKS && window.ACKS.officeLoyaltyBonusFor){
-      const ob = window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id);
-      if(ob){ mod += ob; officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348)."; }
-    }
+    const _ob = (window.ACKS && window.ACKS.officeLoyaltyBonusFor) ? (window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id) || 0) : 0;
+    const _cb = (window.ACKS && window.ACKS.domainConsecrationVassalLoyaltyBonus) ? (window.ACKS.domainConsecrationVassalLoyaltyBonus(this.currentCampaign, ch.id) || 0) : 0;
+    const _religiousBonus = _cb < 0 ? (_ob + _cb) : Math.max(_ob, _cb);
+    if(_religiousBonus){ mod += _religiousBonus; }
+    if(_ob > 0) officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348).";
+    if(_cb > 0) officeNote += (officeNote ? ' ' : '') + (_ob > 0 ? '(also consecrated — non-stacking)' : ('+1 — ' + (ch.name || 'this vassal') + "'s ruler is consecrated by the gods (RR p.422)."));
+    else if(_cb < 0) officeNote += (officeNote ? ' ' : '') + "−1 — the ruler's consecration went awry (RR p.422).";
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
@@ -31216,12 +32008,14 @@ return {
       perpetratorCharacterId: this.hijinkLaunch.perpetratorCharacterId,
       type: this.hijinkLaunch.type,
       bossCharacterId: this.hijinkLaunch.bossCharacterId || null,
-      settlementId: this.hijinkLaunch.settlementId || null
+      settlementId: this.hijinkLaunch.settlementId || null,
+      crew: this.crewHijinksOn() ? (this.hj3CrewIds || []).slice() : []   // HJ-3 — gated crew-hijinks
     });
     if(!res || !res.ok){ this.showToast('Could not assign hijink: ' + ((res && (res.detail||res.error)) || 'unknown'), 4000); return; }
     const def = window.ACKS.hijinkDefinition(res.hijink.type) || {};
     this.showToast('🗡 ' + (this._hijinkPerp()?.name || 'Perpetrator') + ' begins a ' + (def.label||res.hijink.type).toLowerCase() + ' hijink — advance the Day Clock to resolve it.', 4500);
     this.hijinkLaunch.perpetratorCharacterId = '';     // keep type/boss/settlement for a quick repeat
+    this.hj3CrewIds = [];                              // HJ-3 — reset the crew selection
     this.markDirty(); this.schedulePersist();
     if(this.dayTickProposal) this._refreshPendingDayTick();
   },
@@ -32133,7 +32927,10 @@ return {
       sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId || this.sageConsult.sageId,
       subject: this.sageConsult.subject, query: this.sageConsult.query, specialty: this.sageConsult.specialty,
       inSpecialty: this.sageConsult.inSpecialtyOverride, feeGp: Number(this.sageConsult.feeGp) || 0,
-      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret
+      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret,
+      // SG-4: the "📚 Record to Knowledge" tick forces the Lore emit; unticked → undefined (the engine
+      // falls back to the campaign's knowledge-tracking house rule). Knowledge layer off → no-op.
+      emitLore: this.sageConsult.recordToKnowledge ? true : undefined
     });
     this.sageConsult.result = r;
     if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(r.success ? 'The sage answers.' : 'The sage cannot answer.'); }

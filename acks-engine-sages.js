@@ -225,6 +225,39 @@
 
     const answerText = String(opts.answerText || '').trim();
     const clientHex = client.currentHexId || sage.currentHexId || null;
+
+    // SG-4 (Knowledge-Layer emit; Phase_4_Sages_Plan.md §10) — on a SUCCESSFUL consult, when the
+    // Knowledge layer is active, deposit the answer as a Lore FACT + record the client's KNOWLEDGE
+    // of it (source 'sage', certainty from the throw margin). READ-ONLY consume of the shipped
+    // acks-engine-knowledge.js API (recordLore → learnLore → the shipped `lore-learned` event; the
+    // plan's aspirational `knowledge-gained` name is superseded by the shipped one). Gated by
+    // _knowledgeActive (the `knowledge-tracking` house rule — UNREGISTERED → isHouseRuleEnabled OFF
+    // by default), so the sage works FULLY (just the answer) when Knowledge is off. opts.emitLore
+    // explicitly forces on(true)/off(false) (the modal's "📚 Record to Knowledge" tick). Computed
+    // BEFORE the payload so payload.loreId carries the deposited fact's id (the §241 reservation).
+    let loreId = null;
+    const wantLore = (opts.emitLore != null) ? !!opts.emitLore : _knowledgeActive(campaign);
+    if(success && wantLore && typeof A.recordLore === 'function' && typeof A.learnLore === 'function'){
+      const factText = answerText || String(opts.subject || '').trim() || query;
+      if(factText){
+        const lore = A.recordLore(campaign, {
+          text: factText, loreKind:'fact', truthValue:'true',
+          topic: String(opts.subject || query || '').slice(0, 120),
+          subjectIds: Array.isArray(opts.subjectIds) ? opts.subjectIds : [],
+          createdByCharacterId: sage.id, notes:'Learned from a sage consultation (RR p.171).'
+        });
+        if(lore && lore.id){
+          loreId = lore.id;
+          const certainty = (typeof A.certaintyFromThrow === 'function') ? A.certaintyFromThrow(result) : 'probable';
+          A.learnLore(campaign, {
+            loreId: lore.id, knowerId: client.id, knowerKind:'character', certainty,
+            source: { kind:'sage', byId: sage.id }, learnedAtHexId: clientHex,
+            atTurn: campaign.currentTurn || 1, campaignLogHidden:true   // the consult narrates the Q&A; the learn meta-event stays off the Campaign Log
+          });
+        }
+      }
+    }
+
     const payload = {
       sageCharacterId: sage.id, clientCharacterId: client.id,
       settlementId: opts.settlementId || null, query, subject: opts.subject || '',
@@ -238,7 +271,7 @@
       },
       feeGp, baseFeeGp, coveredByRetainer, retainerId,   // SG-3: a retainer waives/discounts the fee
       answerText,
-      loreId: null,   // SG-4 (Knowledge Layer emit) reserved — set iff knowledge-tracking is on
+      loreId: loreId,   // SG-4 (Knowledge Layer emit) — the deposited Lore fact's id, or null (knowledge-tracking off / failed / no content)
       // #346: a consultation is an ancillary errand for the asker (the sage is busy too — both
       // participants are in relatedEntities, so the budget charges each 1 ancillary; a per-role
       // dedicated/ancillary split is a SG-2 refinement, 🔧).
@@ -804,6 +837,286 @@
     if(feeSpec && A.recordWealthTransfer) A.recordWealthTransfer(campaign, feeSpec, { parentEvent: ev });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SG-4 support — _knowledgeActive (the gate for the consultSage Lore-emit above). The Knowledge
+  // layer is "active" iff (a) the shipped acks-engine-knowledge.js API is present AND (b) the
+  // `knowledge-tracking` house rule is on. That rule is UNREGISTERED (its catalogs.js registration
+  // is the Knowledge lane's follow-up), so isHouseRuleEnabled returns false by default → SG-4 is
+  // OFF until a GM opts in (the modal's per-consult "📚 Record to Knowledge" tick is the other
+  // lever). A function DECLARATION → hoisted, so consultSage (defined earlier) can call it.
+  // ═══════════════════════════════════════════════════════════════════════════
+  function _knowledgeActive(campaign){
+    const A = _sACKS();
+    if(typeof A.recordLore !== 'function' || typeof A.learnLore !== 'function') return false;
+    if(typeof A.isHouseRuleEnabled === 'function') return !!A.isHouseRuleEnabled(campaign, 'knowledge-tracking');
+    const hr = (campaign && campaign.houseRules) ? campaign.houseRules['knowledge-tracking'] : null;   // defensive fallback
+    return hr === true || !!(hr && hr.enabled === true);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SG-5 (burst10 b10-sages, #147) — the TREATISE primitive (Phase_4_Sages_Plan.md §3.4/§7).
+  // RAW: RR p.146 (the RR + JJ campaign-activity lists both cite "Read a treatise (6 days; p. 146)" /
+  // "Reference a treatise (p. 146)"; the plan/task's "p.143" is an earlier-printing page → corrected
+  // to p.146 here, cartography-before-mechanics).
+  //
+  // A treatise is a BOOK (a Notable Item, kind:'book') on ONE proficiency, in four tiers = ranks 1–4
+  // (Apprentice/Journeyman/Master/Grandmaster — RR p.146 equipment table, 400/800/1200/1600 gp, 5 st
+  // each). RAW, verbatim: an adventurer can only comprehend/benefit from a treatise ≤ ONE rank above
+  // his own; READING it = 6 days of DEDICATED activity; thereafter he can REFERENCE it to RE-ROLL a
+  // proficiency throw for a query, at the rank of the adventurer OR the treatise, WHICHEVER IS WORSE
+  // (= min); referencing is an ANCILLARY activity, 6 turns (one hour).
+  //
+  // Footprint — MINIMAL (manifest: NO new prefix/entity/collection):
+  //   • Treatise fields live on the Notable Item's intrinsic{} (the factory's designated book-metadata
+  //     home) — set by markTreatise, read defensively by isTreatise/treatiseInfo. NO blankNotableItem
+  //     edit, NO migrateCampaign inject → templates stay migrate-no-ops (the sageSpecialty / SG-3
+  //     sageRetainers precedent).
+  //   • Read-state lives on the item (intrinsic.readByCharacterIds[]) — the book knows its students;
+  //     no reader-character edit.
+  //   • 1 record-only event kind (treatise-read; the SG-1 direct-push pattern), two phases:
+  //     phase:'read' (the 6-day study — narrates) + phase:'reference' (the re-roll — campaignLogHidden,
+  //     a die re-roll is table chatter, the recordProficiencyThrow precedent). NO day-tick slot (the
+  //     read is an instant verb; its 6-day cost rides the event's activityCost).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // The four RAW tiers (RR p.146 equipment table). ranks 1–4; gp from the table; all 5 st.
+  const TREATISE_TIERS = Object.freeze([
+    { ranks:1, label:'Apprentice',  gp:400  },
+    { ranks:2, label:'Journeyman',  gp:800  },
+    { ranks:3, label:'Master',      gp:1200 },
+    { ranks:4, label:'Grandmaster', gp:1600 }
+  ]);
+  function treatiseTier(ranks){ const r = Math.max(1, Math.min(4, Math.round(Number(ranks) || 1))); return TREATISE_TIERS[r - 1]; }
+  function treatiseTierLabel(ranks){ return treatiseTier(ranks).label; }
+
+  function _notableItems(campaign){ return (campaign && Array.isArray(campaign.notableItems)) ? campaign.notableItems : []; }
+  function _findNotable(campaign, id){
+    if(!id) return null;
+    const A = _sACKS();
+    if(typeof A.findNotableItem === 'function'){ const r = A.findNotableItem(campaign, id); if(r) return r; }
+    return _notableItems(campaign).find(n => n && n.id === id) || null;
+  }
+  function _intrinsicOf(item){ if(!item.intrinsic || typeof item.intrinsic !== 'object') item.intrinsic = {}; return item.intrinsic; }
+
+  // The first PROFICIENCY_TASK whose proficiency is profKey (the reference re-roll's default throw).
+  function _defaultTaskForProficiency(profKey){
+    const A = _sACKS();
+    const tasks = A.PROFICIENCY_TASKS || {};
+    for(const tk of Object.keys(tasks)){ if(tasks[tk] && tasks[tk].proficiency === profKey) return tk; }
+    return null;
+  }
+
+  // The target for a catalog task at a GIVEN rank (mirror of proficiencies' _resolveBaseTarget —
+  // tierTargets clamp / baseTarget + perRank + perLevel). Returns null when the task can't be
+  // attempted at that rank (rank < its minTier) or has a class-derived base (no number yet).
+  function _taskTargetAtRank(task, ranks, level){
+    if(!task || task.baseTargetSource) return null;
+    if(task.tierTargets){
+      const tiers = Object.keys(task.tierTargets).map(Number).sort((a, b) => a - b);
+      const minTier = task.minTier || tiers[0];
+      if((ranks || 0) < minTier) return null;
+      const maxTier = tiers[tiers.length - 1];
+      const useTier = Math.min(Math.max(ranks || minTier, minTier), maxTier);
+      return task.tierTargets[useTier];
+    }
+    let t = Number(task.baseTarget);
+    if(task.perRankTargetDelta && (ranks || 0) > 1) t += task.perRankTargetDelta * ((ranks || 1) - 1);
+    if(task.perLevelTargetDelta && (level || 1) > 1) t += task.perLevelTargetDelta * ((level || 1) - 1);
+    return Number.isFinite(t) ? t : null;
+  }
+
+  // ── Predicates + reads ────────────────────────────────────────────────────────
+  // A treatise carries a treatiseProficiency on its intrinsic{} (read defensively).
+  function isTreatise(item){ return !!(item && item.intrinsic && item.intrinsic.treatiseProficiency); }
+
+  // treatiseInfo — the treatise's resolved descriptor (or null): the proficiency (canonical key +
+  // label), rank/tier, spec, the default reference task, and the tier gp. Pure read.
+  function treatiseInfo(item){
+    if(!isTreatise(item)) return null;
+    const A = _sACKS();
+    const intr = item.intrinsic;
+    const prof = String(intr.treatiseProficiency || '');
+    const key = (typeof A.canonicalProficiencyKey === 'function') ? A.canonicalProficiencyKey(prof) : prof;
+    const ranks = Math.max(1, Math.min(4, Math.round(Number(intr.treatiseRanks) || 1)));
+    const cat = (A.PROFICIENCY_CATALOG && A.PROFICIENCY_CATALOG[key]) || null;
+    return {
+      proficiency: key, ranks, tier: treatiseTier(ranks).label, gp: treatiseTier(ranks).gp,
+      spec: String(intr.treatiseSpec || ''),
+      profLabel: cat ? cat.label : (typeof A.proficiencyLabel === 'function' ? A.proficiencyLabel(key) : prof),
+      defaultTaskKey: _defaultTaskForProficiency(key)
+    };
+  }
+
+  // The treatises in a campaign (the modal picker source).
+  function treatisesInCampaign(campaign){ return _notableItems(campaign).filter(isTreatise); }
+
+  // Comprehension gate (RR p.146): a reader can read/benefit from a treatise ≤ ONE rank above his own
+  // rank in the proficiency. { ok, readerRanks, treatiseRanks, ceiling, proficiency } / error 'too-advanced'.
+  function treatiseComprehension(campaign, reader, item){
+    const A = _sACKS();
+    const info = treatiseInfo(item);
+    if(!info) return { ok:false, error:'not-a-treatise' };
+    const readerRanks = (typeof A.proficiencyRanks === 'function') ? A.proficiencyRanks(reader, info.proficiency) : 0;
+    const ceiling = readerRanks + 1;
+    const ok = info.ranks <= ceiling;
+    return { ok, error: ok ? null : 'too-advanced', readerRanks, treatiseRanks: info.ranks, ceiling, proficiency: info.proficiency };
+  }
+
+  function hasReadTreatise(item, readerId){
+    return !!(item && item.intrinsic && Array.isArray(item.intrinsic.readByCharacterIds) && item.intrinsic.readByCharacterIds.indexOf(readerId) >= 0);
+  }
+
+  // ── The treatise-read event (record-only; §528 envelope — reader subject, treatise source) ──
+  function _emitTreatiseRead(campaign, payload, ctx){
+    ctx = ctx || {};
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    const A = _sACKS();
+    const turn = campaign.currentTurn || 1, day = campaign.currentDayInMonth || 1;
+    const context = {
+      primaryHexId: ctx.hexId || null,
+      involvedHexIds: ctx.hexId ? [ctx.hexId] : [],
+      settlementId: payload.settlementId || null, domainId: null,
+      relatedEntities: [
+        { kind:'character',     id: payload.readerCharacterId, role:'subject' },
+        { kind:'notable-item',  id: payload.itemId,            role:'source'  }   // 'notable-item' = the notableItemHistory filter kind
+      ]
+    };
+    let ev;
+    if(typeof A.newEvent === 'function' && typeof A.isEventKindKnown === 'function' && A.isEventKindKnown('treatise-read')){
+      ev = A.newEvent('treatise-read', { submittedBy: ctx.submittedBy || 'gm', status:'applied',
+        cadence: ctx.cadence || 'monthly-turn', targetTurn: turn, context, payload });
+    } else {
+      ev = { id:'evt-treatise-' + ((campaign.eventLog.length || 0) + 1), kind:'treatise-read', status:'applied',
+        submittedBy: ctx.submittedBy || 'gm', context, payload };
+    }
+    ev.appliedAtTurn = turn; ev.appliedAtDay = day;
+    if(ctx.campaignLogHidden) ev.campaignLogHidden = true;
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: ctx.narrative || '' },
+      appliedAtTurn: turn, appliedAtDay: day, appliedAt: (typeof Date !== 'undefined' ? new Date().toISOString() : '') });
+    return ev;
+  }
+
+  // ── Verbs ──────────────────────────────────────────────────────────────────────
+  // markTreatise(campaign, itemOrId, opts) — stamp the treatise fields onto a Notable Item (and
+  // make it kind:'book' if generic). opts: { proficiency, ranks (1–4), spec?, name? }. Additive
+  // intrinsic{} fields — no factory/migration. Returns { ok, item, info } / { ok:false, error }.
+  function markTreatise(campaign, itemOrId, opts){
+    opts = opts || {};
+    const item = (typeof itemOrId === 'string') ? _findNotable(campaign, itemOrId) : itemOrId;
+    if(!item) return { ok:false, error:'unknown-item' };
+    const A = _sACKS();
+    const prof = String(opts.proficiency || '').trim();
+    if(!prof) return { ok:false, error:'no-proficiency' };
+    const key = (typeof A.canonicalProficiencyKey === 'function') ? A.canonicalProficiencyKey(prof) : prof;
+    const ranks = Math.max(1, Math.min(4, Math.round(Number(opts.ranks) || 1)));
+    if(item.kind == null || item.kind === 'misc-magic') item.kind = 'book';   // a treatise IS a book (RR p.146)
+    const intr = _intrinsicOf(item);
+    intr.treatiseProficiency = key;
+    intr.treatiseRanks = ranks;
+    if(opts.spec != null) intr.treatiseSpec = String(opts.spec);
+    if(!Array.isArray(intr.readByCharacterIds)) intr.readByCharacterIds = [];
+    if(opts.name && !item.name) item.name = String(opts.name);
+    return { ok:true, item, info: treatiseInfo(item) };
+  }
+
+  // readTreatise(campaign, opts) — the 6-day DEDICATED read (RR p.146). Validates comprehension,
+  // records the reader on the book, emits treatise-read phase:'read' (narrates). opts: { readerId,
+  // itemId, settlementId?, submittedBy? }. Returns { ok, item, comprehension, alreadyRead, event }.
+  function readTreatise(campaign, opts){
+    opts = opts || {};
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const reader = _findChar(campaign, opts.readerId);
+    if(!reader) return { ok:false, error:'unknown-reader' };
+    const item = _findNotable(campaign, opts.itemId);
+    if(!item) return { ok:false, error:'unknown-item' };
+    const info = treatiseInfo(item);
+    if(!info) return { ok:false, error:'not-a-treatise' };
+    const comp = treatiseComprehension(campaign, reader, item);
+    if(!comp.ok) return { ok:false, error: comp.error, comprehension: comp };   // 'too-advanced'
+    const intr = _intrinsicOf(item);
+    if(!Array.isArray(intr.readByCharacterIds)) intr.readByCharacterIds = [];
+    const already = intr.readByCharacterIds.indexOf(reader.id) >= 0;
+    if(!already) intr.readByCharacterIds.push(reader.id);
+    const hexId = reader.currentHexId || null;
+    const ev = _emitTreatiseRead(campaign, {
+      readerCharacterId: reader.id, itemId: item.id, phase:'read',
+      proficiency: info.proficiency, treatiseRanks: info.ranks, effectiveRanks: Math.min(comp.readerRanks, info.ranks),
+      settlementId: opts.settlementId || null,
+      activityCost: { slot:'dedicated', units:1, days:6, kind:'read-treatise', label:'Read a treatise (6 days)' }
+    }, { hexId, submittedBy: opts.submittedBy, cadence:'monthly-turn',
+         narrative: (reader.name || 'A reader') + (already ? ' re-reads ' : ' reads ') +
+           (item.name || ('the ' + info.tier + ' treatise on ' + info.profLabel)) + (already ? ' — already studied.' : ' — 6 days of study.') });
+    return { ok:true, item, reader: reader.id, comprehension: comp, alreadyRead: already, event: ev };
+  }
+
+  // treatiseReferenceResolve(campaign, reader, item, opts) — the reference re-roll PARAMETERS (no
+  // roll). Effective rank = min(reader, treatise) (RR p.146 "whichever is worse"). The throw is the
+  // supplied opts.taskKey, else the proficiency's default task. opts: { taskKey?, assumeRead? }.
+  function treatiseReferenceResolve(campaign, reader, item, opts){
+    opts = opts || {};
+    const A = _sACKS();
+    const info = treatiseInfo(item);
+    if(!info) return { available:false, reason:'not-a-treatise' };
+    if(!opts.assumeRead && !hasReadTreatise(item, reader && reader.id)) return { available:false, reason:'not-read', treatiseRanks: info.ranks, profLabel: info.profLabel };
+    const readerRanks = (typeof A.proficiencyRanks === 'function') ? A.proficiencyRanks(reader, info.proficiency) : 0;
+    const effRanks = Math.min(readerRanks, info.ranks);
+    const taskKey = opts.taskKey || info.defaultTaskKey;
+    const task = taskKey ? ((A.PROFICIENCY_TASKS || {})[taskKey]) : null;
+    if(!task) return { available:false, reason:'no-throw-task', effectiveRanks: effRanks, readerRanks, treatiseRanks: info.ranks, profLabel: info.profLabel };
+    const level = (reader && typeof reader.level === 'number') ? reader.level : 1;
+    const target = _taskTargetAtRank(task, effRanks, level);
+    if(target == null) return { available:false, reason: (effRanks < 1 ? 'rank-too-low' : 'no-target'), effectiveRanks: effRanks, readerRanks, treatiseRanks: info.ranks, taskKey, profLabel: info.profLabel };
+    return {
+      available:true, effectiveRanks: effRanks, readerRanks, treatiseRanks: info.ranks,
+      taskKey, taskLabel: task.label, target,
+      proficient: effRanks >= 1, autoFailBand: (typeof task.autoFailBand === 'number') ? task.autoFailBand : 1,
+      proficiency: info.proficiency, profLabel: info.profLabel, tier: info.tier, spec: info.spec
+    };
+  }
+
+  // The modal forecast (the resolved params + the success chance; no roll).
+  function treatiseReferenceForecast(campaign, reader, item, opts){
+    const r = treatiseReferenceResolve(campaign, reader, item, opts);
+    if(!r.available) return r;
+    const A = _sACKS();
+    r.successChance = (typeof A.throwSuccessChance === 'function') ? A.throwSuccessChance(r.target, 0, r.autoFailBand, r.proficient) : null;
+    return r;
+  }
+
+  // referenceTreatise(campaign, opts) — the 1-hour ANCILLARY re-roll (RR p.146). Resolves the
+  // proficiency throw at min(reader, treatise) rank on the SHIPPED Layer-1 die, emits treatise-read
+  // phase:'reference' (campaignLogHidden — a die re-roll is table chatter). opts: { readerId, itemId,
+  // taskKey?, query?, secret?, rng?, assumeRead?, settlementId?, submittedBy? }.
+  function referenceTreatise(campaign, opts){
+    opts = opts || {};
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const A = _sACKS();
+    const reader = _findChar(campaign, opts.readerId);
+    if(!reader) return { ok:false, error:'unknown-reader' };
+    const item = _findNotable(campaign, opts.itemId);
+    if(!item) return { ok:false, error:'unknown-item' };
+    const r = treatiseReferenceResolve(campaign, reader, item, { taskKey: opts.taskKey, assumeRead: opts.assumeRead });
+    if(!r.available) return { ok:false, error: r.reason, resolve: r };
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const secret = !!opts.secret;
+    const result = A.rollProficiencyThrow({ target: r.target, modifiers: [], proficient: r.proficient, autoFailBand: r.autoFailBand, secret, rng });
+    const info = treatiseInfo(item);
+    const hexId = reader.currentHexId || null;
+    const ev = _emitTreatiseRead(campaign, {
+      readerCharacterId: reader.id, itemId: item.id, phase:'reference',
+      proficiency: info.proficiency, treatiseRanks: r.treatiseRanks, effectiveRanks: r.effectiveRanks,
+      taskKey: r.taskKey, query: String(opts.query || ''), settlementId: opts.settlementId || null,
+      target: result.target,
+      throw: { natural: result.natural, total: result.total, target: result.target, success: !!result.success, margin: result.margin, secret },
+      activityCost: { slot:'ancillary', units:1, kind:'reference-treatise', label:'Reference a treatise (1 hour)' }
+    }, { hexId, submittedBy: opts.submittedBy, cadence:'monthly-turn', campaignLogHidden:true,
+         narrative: (reader.name || 'A reader') + ' references ' + (item.name || ('the treatise on ' + info.profLabel)) +
+           (opts.query ? (' on “' + opts.query + '”') : '') + ' — re-rolls at rank ' + r.effectiveRanks +
+           (secret ? '' : (' (' + result.total + ' vs ' + result.target + '+ → ' + (result.success ? 'success' : 'failure') + ')')) + '.' });
+    return { ok:true, available:true, reader: reader.id, itemId: item.id, taskKey: r.taskKey,
+             effectiveRanks: r.effectiveRanks, target: result.target, success: !!result.success, throw: result, event: ev };
+  }
+
   // ── Export ──────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     isSage, subjectInSpecialty, sageConsultResolve, sageConsultForecast, consultSage,
@@ -812,7 +1125,11 @@
     sageCommissionProgress, commissionSage, abandonSageCommission,
     proposeSageCommissionDay, commitSageCommissionRecord,
     // SG-3 — the periodic-fee retainer
-    retainSage, endSageRetainer, sageRetainerFor, sageRetainersForCharacter, isSageRetained, retainerConsultFee
+    retainSage, endSageRetainer, sageRetainerFor, sageRetainersForCharacter, isSageRetained, retainerConsultFee,
+    // SG-5 — the treatise primitive (a re-roll book, RR p.146) + SG-4 support
+    TREATISE_TIERS, treatiseTier, treatiseTierLabel, isTreatise, treatiseInfo, treatisesInCampaign,
+    treatiseComprehension, hasReadTreatise, markTreatise, readTreatise,
+    treatiseReferenceResolve, treatiseReferenceForecast, referenceTreatise
   });
 
   // Self-register the slot-64 day-tick consumer (Calendar §14; registerDayConsumer ships from

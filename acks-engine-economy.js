@@ -331,6 +331,18 @@ function incomeBreakdown(campaign, d){
   } else {
     landRow = { label: 'Land revenue (' + (d.income.landRevenuePerFamily||6) + ' × ' + fam + ')', gp: (d.income.landRevenuePerFamily||0) * fam };
   }
+  // === @b10-religion (team) — Religion R3 consecrate-fields (RR p.422): +1 Land Value per success
+  // (−1 on a nat-1), recorded cumulatively on domain.consecrationLandValueBonus by ACKS.consecrateFields.
+  // Added per-family AFTER effectiveHexValue's RR p.341 cap so a "garden-like realm blessed by the gods"
+  // can exceed the cap. Defensive read (absent ⇒ 0 ⇒ no change) → templates stay migrate-no-ops.
+  const consBonus = Number(d.consecrationLandValueBonus) || 0;
+  if(consBonus !== 0){
+    const consFam = (isHouseRuleEnabled(campaign, 'families-per-hex-tracking') && hexes.length > 0)
+      ? hexes.reduce((s, h) => s + (h.families||0), 0) : fam;
+    landRow = { label: landRow.label + (consBonus > 0 ? ' [+' + consBonus + ' consecrated]' : ' [' + consBonus + ' Land Value, awry]'),
+                gp: bankersRound((landRow.gp || 0) + consBonus * consFam) };
+  }
+  // === end @b10-religion ===
   const rows = [
     landRow,
     { label: 'Service revenue (' + (d.income.serviceRevenuePerFamily||4) + ' × ' + (fam+urb) + ')', gp: (d.income.serviceRevenuePerFamily||0)*(fam+urb) },
@@ -531,6 +543,14 @@ function moraleModifiersFor(campaign, d){
       : 'Administered by ' + adminList.map(a => a.who).join('; ');
     mods.push({ label, value: 1 });
   }
+  // === @b10-religion (team) — Religion R3 consecrate-ruler (RR p.422): a live 12-month consecration buff
+  // gives the ruler's domain +1 base morale (−1 if the rite went awry). Late-bound — religion.js loads
+  // after economy.js; dormant when no buff (no row). Liveness + GC live in acks-engine-religion.js.
+  if(global.ACKS && typeof global.ACKS.domainConsecrationMoraleRow === 'function'){
+    const consRow = global.ACKS.domainConsecrationMoraleRow(campaign, d);
+    if(consRow && consRow.value) mods.push(consRow);
+  }
+  // === end @b10-religion ===
   return mods;
 }
 

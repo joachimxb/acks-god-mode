@@ -960,11 +960,212 @@ section('Wave E GUARD — the divine-wrath event kind + no factory/migrate drift
 })();
 
 // =============================================================================
+// R3 — Using divine power: consecration + the buff effects (Phase_4_Religion_Plan.md §3.4/§5.3).
+// =============================================================================
+
+// =============================================================================
+section('R3 — consecrate-fields Land-Value bonus is READ by the economy at Revenue Collection (§9.1)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'LandRead' }); c.currentTurn = 5;
+  const d = ACKS.blankDomain({ id: 'dom-1', name: 'Realm' }); d.demographics.peasantFamilies = 100; c.domains.push(d);
+  const before = ACKS.monthlyGrossIncome(c, d);
+  d.consecrationLandValueBonus = 2;                       // as consecrateFields records it (2 successes)
+  ok('a +2 consecration bonus raises gross income by 2 × families (200)', ACKS.monthlyGrossIncome(c, d) - before === 200);
+  d.consecrationLandValueBonus = 5;                       // cumulative — may exceed the RR p.341 cap
+  ok('cumulative — a +5 bonus raises it by 500', ACKS.monthlyGrossIncome(c, d) - before === 500);
+  d.consecrationLandValueBonus = -1;                      // a nat-1 awry result
+  ok('a −1 (awry) bonus lowers it by 100', ACKS.monthlyGrossIncome(c, d) - before === -100);
+})();
+
+// =============================================================================
+section('R3 — consecrate altar → a Place of Power stub (RR p.422, §5.3)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Altar' }); c.currentTurn = 5;
+  const god = ACKS.blankDeity({ id: 'dei-l', name: 'the Lawgiver', alignment: 'Lawful' }); c.deities.push(god);
+  const ch = ACKS.blankCharacter({ id: 'chr-c', name: 'Priest', class: 'Crusader', level: 9 }); c.characters.push(ch);
+  ACKS.ensureDivineFavor(c, 'chr-c', 'dei-l');
+  const s = (typeof ACKS.blankSettlement === 'function') ? ACKS.blankSettlement({ id: 'set-1', name: 'Saltspur' }) : { id: 'set-1', name: 'Saltspur', placesOfPower: [] };
+  if(!Array.isArray(c.settlements)) c.settlements = []; c.settlements.push(s);
+  ACKS.grantDivinePower(c, 'chr-c', 200);
+  const ins = ACKS.consecrateAltar(c, { casterId: 'chr-c', settlementId: 'set-1', altarValueGp: 1000 });
+  ok('insufficient DP → ok:false, no place of power', ins.ok === false && ins.reason === 'insufficient-divine-power' && (s.placesOfPower || []).length === 0);
+  ACKS.grantDivinePower(c, 'chr-c', 1000);               // 1200 available
+  const r = ACKS.consecrateAltar(c, { casterId: 'chr-c', settlementId: 'set-1', altarValueGp: 1000 });
+  ok('consecrate altar ok, cost 1000', r.ok === true && r.cost === 1000);
+  ok('a Lawful caster makes a pinnacle of good, 1000 sq ft', r.placeOfPower.kind === 'pinnacle' && r.placeOfPower.sizeSqFt === 1000);
+  ok('place of power recorded on the settlement', (s.placesOfPower || []).length === 1 && s.placesOfPower[0].id === r.placeOfPower.id);
+  ok('DP debited (1200 − 1000 = 200)', ACKS.divinePowerAvailable(c, 'chr-c') === 200);
+  ok('consecrate-altar event logged', (c.eventLog || []).some(x => x.event && x.event.kind === 'consecrate-altar'));
+  const cd = ACKS.blankDeity({ id: 'dei-d', name: 'the Devourer', alignment: 'Chaotic' }); c.deities.push(cd);
+  const chaos = ACKS.blankCharacter({ id: 'chr-x', class: 'Priestess', level: 9 }); c.characters.push(chaos);
+  ACKS.ensureDivineFavor(c, 'chr-x', 'dei-d'); ACKS.grantDivinePower(c, 'chr-x', 500);
+  const r2 = ACKS.consecrateAltar(c, { casterId: 'chr-x', settlementId: 'set-1', altarValueGp: 500 });
+  ok('a Chaotic caster makes a sinkhole of evil', r2.ok === true && r2.placeOfPower.kind === 'sinkhole');
+})();
+
+// =============================================================================
+section('R3 — consecrate ruler → a 12-month buff + gates (RR p.422, §5.3)');
+// =============================================================================
+(function(){
+  function rig(level){
+    const c = ACKS.blankCampaign({ name: 'Ruler' }); c.currentTurn = 5;
+    const ch = ACKS.blankCharacter({ id: 'chr-c', name: 'Chaplain', class: 'Crusader', level }); c.characters.push(ch);
+    const d = ACKS.blankDomain({ id: 'dom-1', name: 'Realm' }); d.rulerCharacterId = 'chr-r'; d.demographics.peasantFamilies = 300; c.domains.push(d);
+    c.characters.push(ACKS.blankCharacter({ id: 'chr-r', name: 'Lord', class: 'Fighter', level: 9 }));
+    return { c, ch, d };
+  }
+  let { c, d } = rig(8);
+  ACKS.grantDivinePower(c, 'chr-c', 100000);
+  ok('caster below 9th → blocked', ACKS.consecrateRuler(c, { casterId: 'chr-c', domainId: 'dom-1' }).reason === 'caster-below-9th');
+  ({ c, d } = rig(9)); const ch9 = c.characters.find(x => x.id === 'chr-c'); ch9.class = 'Fighter'; ch9.classPowers = [];
+  ACKS.grantDivinePower(c, 'chr-c', 100000);
+  ok('non-divine caster → blocked', ACKS.consecrateRuler(c, { casterId: 'chr-c', domainId: 'dom-1' }).reason === 'not-divine-caster');
+  ({ c, d } = rig(9));
+  const cost = ACKS.monthlyGrossIncome(c, d);
+  ACKS.grantDivinePower(c, 'chr-c', cost + 50);
+  const r = ACKS.consecrateRuler(c, { casterId: 'chr-c', domainId: 'dom-1', rng: () => 0.99 });   // roll 20 → success
+  ok('consecrate ruler ok, cost = monthly revenue', r.ok === true && r.cost === cost);
+  ok('success → a 12-month buff (+1 morale, +1 loyalty, vagary advantage; expires turn 17)',
+     !!r.buff && r.buff.moraleBonus === 1 && r.buff.loyaltyBonus === 1 && r.buff.vagaryAdvantage === true && r.buff.expiresAtTurn === 17);
+  ok('buff recorded on the domain', d.consecrationBuff && d.consecrationBuff.expiresAtTurn === 17);
+  ok('DP debited (50 remains)', ACKS.divinePowerAvailable(c, 'chr-c') === 50);
+  ok('consecrate-ruler event logged', (c.eventLog || []).some(x => x.event && x.event.kind === 'consecrate-ruler'));
+  ok('lastRulerConsecrationTurn set', d.lastRulerConsecrationTurn === 5);
+  ACKS.grantDivinePower(c, 'chr-c', cost + 50);
+  ok('once per year → re-consecration blocked', ACKS.consecrateRuler(c, { casterId: 'chr-c', domainId: 'dom-1' }).reason === 'already-consecrated-this-year');
+  ok('domainConsecrationMoraleRow returns +1 while live', (ACKS.domainConsecrationMoraleRow(c, d) || {}).value === 1);
+  ok('domainConsecrationVagaryAdvantage = advantage while live', ACKS.domainConsecrationVagaryAdvantage(c, 'dom-1') === 'advantage');
+  c.currentTurn = 17;
+  ok('buff reads null once expired (turn 17)', ACKS.domainConsecrationBuff(c, d) === null && ACKS.domainConsecrationMoraleRow(c, d) === null);
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('the monthly consumer GCs the stale buff object', !d.consecrationBuff);
+  ({ c, d } = rig(9));
+  ACKS.grantDivinePower(c, 'chr-c', ACKS.monthlyGrossIncome(c, d) + 50);
+  const awry = ACKS.consecrateRuler(c, { casterId: 'chr-c', domainId: 'dom-1', rng: () => 0 });    // roll 1 → nat-1
+  ok('nat-1 → awry buff (−1 morale, −1 loyalty)', awry.buff && awry.buff.moraleBonus === -1 && awry.buff.loyaltyBonus === -1 && awry.buff.awry === true);
+  ok('awry → −1 morale row', (ACKS.domainConsecrationMoraleRow(c, d) || {}).value === -1);
+})();
+
+// =============================================================================
+section('R3 — consecrate-ruler +1 vassal loyalty (RR p.422), via domainConsecrationVassalLoyaltyBonus');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Loyalty' }); c.currentTurn = 5;
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-liege', name: 'Suzerain', class: 'Crusader', level: 9 }));
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-vassal', name: 'Vassal', class: 'Fighter', level: 6, loyalty: 0 }));
+  const ld = ACKS.blankDomain({ id: 'dom-liege', name: 'Suzerainty' }); ld.rulerCharacterId = 'chr-liege'; ld.demographics.peasantFamilies = 300; c.domains.push(ld);
+  if(!Array.isArray(c.vassalages)) c.vassalages = [];
+  c.vassalages.push({ id: 'vas-1', status: 'active', vassalRulerCharacterId: 'chr-vassal', suzerainCharacterId: 'chr-liege' });
+  ok('no buff → vassal loyalty bonus 0', ACKS.domainConsecrationVassalLoyaltyBonus(c, 'chr-vassal') === 0);
+  ld.consecrationBuff = { grantedAtTurn: 5, expiresAtTurn: 17, moraleBonus: 1, loyaltyBonus: 1, vagaryAdvantage: true };
+  ok('liege consecrated → vassal gets +1', ACKS.domainConsecrationVassalLoyaltyBonus(c, 'chr-vassal') === 1);
+  c.currentTurn = 17;
+  ok('expired buff → 0', ACKS.domainConsecrationVassalLoyaltyBonus(c, 'chr-vassal') === 0);
+  c.currentTurn = 5;
+  ld.consecrationBuff = { grantedAtTurn: 5, expiresAtTurn: 17, moraleBonus: -1, loyaltyBonus: -1, awry: true };
+  ok('awry consecration → vassal −1', ACKS.domainConsecrationVassalLoyaltyBonus(c, 'chr-vassal') === -1);
+})();
+
+// =============================================================================
+// R5 — Codes of Behavior + the Divine Transgression table (Phase_4_Religion_Plan.md §3.6, JJ p.400).
+// =============================================================================
+
+// =============================================================================
+section('R5 — the Divine Transgression table (JJ p.400): contiguous d% + lookups');
+// =============================================================================
+(function(){
+  ok('table present (16 rows)', Array.isArray(ACKS.DIVINE_TRANSGRESSION_TABLE) && ACKS.DIVINE_TRANSGRESSION_TABLE.length === 16);
+  let okContig = true, covered = 0;
+  for(let r = 1; r <= 100; r++){ const row = ACKS.lookupDivineTransgression(r); if(!row){ okContig = false; break; } covered++; }
+  ok('every d% 1..100 maps to a row (contiguous)', okContig && covered === 100);
+  ok('01-60 → Failure (no consequence)', ACKS.lookupDivineTransgression(1).key === 'failure' && ACKS.lookupDivineTransgression(60).standingEffect === 'none');
+  ok('87-89 → Severe Divine Disfavor (lapsed)', ACKS.lookupDivineTransgression(88).key === 'disfavor' && ACKS.lookupDivineTransgression(88).standingEffect === 'lapsed');
+  ok('92-93 → Divine Dislike (+1 overcast target)', (ACKS.lookupDivineTransgression(92).meta || {}).overcastTargetBonus === 1);
+  ok('96-97 → Mission from God', ACKS.lookupDivineTransgression(96).key === 'mission' && ACKS.lookupDivineTransgression(96).standingEffect === 'none');
+  ok('98-99 → Bolt from Heaven (dead)', ACKS.lookupDivineTransgression(98).key === 'bolt-from-heaven' && ACKS.lookupDivineTransgression(98).standingEffect === 'dead');
+  ok('100 → Death (dead)', ACKS.lookupDivineTransgression(100).key === 'death' && ACKS.lookupDivineTransgression(100).standingEffect === 'dead');
+})();
+
+// =============================================================================
+section('R5 — applyDivineTransgression: standing flip + DP suspend; atone restores (acceptance)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Transgress' }); c.currentTurn = 5;
+  c.deities.push(ACKS.blankDeity({ id: 'dei-l', name: 'the Lawgiver', alignment: 'Lawful' }));
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-c', name: 'Sinner', class: 'Crusader', level: 9 }));
+  ACKS.foundCongregation(c, { highPriestCharacterId: 'chr-c', deityId: 'dei-l', personalCongregants: 500 });
+  const r = ACKS.applyDivineTransgression(c, 'chr-c', { rng: () => 0.875 });   // floor(0.875×100)+1 = 88 → disfavor
+  ok('roll 88 → Severe Divine Disfavor', r.ok === true && r.row.key === 'disfavor');
+  const fav = ACKS.divineFavorOf(c, 'chr-c');
+  ok('standing flips to lapsed', fav.standing === 'lapsed' && r.standingChanged === 'lapsed');
+  ok('transgression logged on the favor (open)', (fav.transgressionsLog || []).some(t => t.kind === 'disfavor' && t.atonedAtTurn == null));
+  ok('divine-transgression event logged', (c.eventLog || []).some(x => x.event && x.event.kind === 'divine-transgression'));
+  const before = ACKS.divinePowerAvailable(c, 'chr-c');
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('lapsed standing suspends divine-power accrual', ACKS.divinePowerAvailable(c, 'chr-c') === before);
+  const a = ACKS.atone(c, 'chr-c', {});
+  ok('atone restores good standing', a.ok === true && fav.standing === 'good-standing' && a.clearedTransgressions >= 1);
+  ok('the transgression-log entry is stamped atonedAtTurn', (fav.transgressionsLog || []).every(t => t.kind !== 'disfavor' || t.atonedAtTurn != null));
+})();
+
+// =============================================================================
+section('R5 — the lethal high end + Divine Dislike (the table resolves)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Doom' }); c.currentTurn = 5;
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-c', name: 'Doomed', class: 'Crusader', level: 9 }));
+  const death = ACKS.applyDivineTransgression(c, 'chr-c', { rng: () => 0.999 });   // → 100 Death
+  ok('roll 100 → Death (caster slain)', death.row.key === 'death' && death.died === true);
+  const dead = c.characters.find(x => x.id === 'chr-c');
+  ok('character is recorded deceased (alive:false + lifecycleState deceased)', dead.alive === false && dead.lifecycleState === 'deceased');
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-d', class: 'Crusader', level: 9 }));
+  const dd = ACKS.applyDivineTransgression(c, 'chr-d', { rng: () => 0.915 });       // → 92 Divine Dislike
+  const ch2 = c.characters.find(x => x.id === 'chr-d');
+  ok('roll 92 → Divine Dislike → +1 overcast target, no death', dd.row.key === 'divine-dislike' && ch2.overcastTargetBonus === 1 && dd.died === false);
+})();
+
+// =============================================================================
+section('R3/R5 — the 3 new event kinds are registered + Wizard-opted-out + handler-dispatched');
+// =============================================================================
+(function(){
+  const REQ = {
+    'consecrate-altar':     { casterCharacterId: 'chr-x', settlementId: 'set-1', divinePowerSpentGp: 1 },
+    'consecrate-ruler':     { casterCharacterId: 'chr-x', domainId: 'dom-1', divinePowerSpentGp: 1 },
+    'divine-transgression': { characterId: 'chr-x', tableRoll: 88, transgression: 'disfavor' }
+  };
+  ['consecrate-altar', 'consecrate-ruler', 'divine-transgression'].forEach(k => {
+    ok('EVENT_KINDS includes ' + k, ACKS.EVENT_KINDS.includes(k));
+    ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+    ok('isEventKindKnown ' + k, ACKS.isEventKindKnown(k) === true);
+    ok(k + ' is Wizard-opted-out (engine-emitted)', ACKS.isWizardEmittable(k) === false && ACKS.EVENT_WIZARD_OPTOUT.has(k));
+    ok(k + ' dispatches through its registered handler (not the stub)', (function(){
+      try {
+        const ev = ACKS.newEvent(k, { submittedBy: 'engine', targetTurn: 1, payload: REQ[k] });
+        const out = ACKS.applyEvent(ACKS.blankCampaign({ name: 'd' }), ev);
+        return !!out && !!out.result && typeof out.result.narrativeSummary === 'string' && !/handler not yet implemented/.test(out.result.narrativeSummary);
+      } catch(e){ return false; }
+    })());
+  });
+})();
+
+// =============================================================================
+section('R3/R5 GUARD — the new fields are defensive (demo stays a migrate-no-op)');
+// =============================================================================
+(function(){
+  const migratedDemo = ACKS.migrateCampaign(clone(DEMO));
+  ok('migrate(demo) STILL a TRUE no-op after R3/R5', JSON.stringify(migratedDemo) === JSON.stringify(clone(DEMO)));
+  ok('no demo domain gained consecrationBuff', (migratedDemo.domains || []).every(d => !('consecrationBuff' in d)));
+  ok('no demo domain gained lastRulerConsecrationTurn', (migratedDemo.domains || []).every(d => !('lastRulerConsecrationTurn' in d)));
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Religion R0 + R1 + R1.5 + R2 + Wave E smoke checks passed.');
+  console.log('\nAll Religion R0 + R1 + R1.5 + R2 + R3 + R5 + Wave E smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
