@@ -985,6 +985,300 @@
     return { ok: ni.intrinsic.traits.length < before };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MI-3 — THE MAGIC-ITEM MARKET (Phase_3_Magic_Items_Plan.md §7 + TT pp.26–28). Buy / sell /
+  // appraise a magic item AT A SETTLEMENT, over the shipped Notable-Item model.
+  //
+  // Design (the manifest's lane): the item is a `notableItem` (the `magical` facet) — NO new
+  // entity/prefix. PRICING is the shipped TT p.28 spread (magicItemPriceSpread, above — buy ×2.25,
+  // sell-created ×2, sell-found ×1). The GP MOVE rides the shipped GP Wave B (applyWealthTransfer —
+  // the primitive the shipped market-transaction is itself built on; the W2 commission precedent
+  // calls it directly), so a sale keeps the canonical purse / stash / treasury invariants WITHOUT
+  // this module rebuilding the wealth machinery or editing acks-engine-events.js / -subsystems.js /
+  // -catalogs.js internals. AVAILABILITY is a magic-item gate kept in THIS module (the lane's explicit
+  // permission), since the licensed TT *Magic Item Transactions by Rarity* / *Availability by Type*
+  // per-Class cells are NOT transcribed (⚠ IP §13.6 + absent from Treasure_Tome_RAW_Survey.md §1.4):
+  // we ship the RAW *structure* — rarity-keyed, market-class-gated, per-party = 10% of per-market,
+  // per-month (TT pp.26–28) — grounded in the shipped equipmentAvailability count + a 🔧 rarity→
+  // max-class ladder (a tooling default, GM-overridable, like W1's RARITY_TARGET; the exact licensed
+  // cells are a content-pack deepening behind the §13.9 Autarch heads-up).
+  //
+  // Two record-only events (the appraise / sell / buy verbs OWN the gp + state; applyEvent_magicItem
+  // Audit keeps them well-formed on replay): magic-item-appraised (a MARKET price estimate — distinct
+  // from W1's appraiseMagicItem, the context-free spread, and from identify) + magic-item-sold (a
+  // market sale in EITHER direction; payload.direction ∈ 'buy'|'sell' — the kind name reads "a magic
+  // item changed hands at a market", whoever the seller).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // 🔧 rarity → the LARGEST market-class index (0 = Class I … 5 = Class VI) that can transact it. A
+  // tooling ladder (RAW gates by rarity but the per-Class cells are IP / not in the survey): a bigger
+  // market handles rarer goods (TT's table simply blanks the rarer rows for the smaller Classes).
+  const MAGIC_MARKET_MAX_CLASS_IDX = Object.freeze({ common:5, uncommon:4, rare:3, 'very-rare':1, legendary:0 });
+  const _MARKET_CLASS_LABEL = Object.freeze(['I','II','III','IV','V','VI']);
+
+  function _settlements(campaign){ return (campaign && Array.isArray(campaign.settlements)) ? campaign.settlements : []; }
+  function _settlementOf(campaign, settlementId){ if(!settlementId) return null; return _settlements(campaign).find(s => s && s.id === settlementId) || null; }
+
+  // Resolve a settlement's market-class index 0–5 (Class I … VI). Mirrors the events.js _marketClassIdx
+  // (not exported): prefers settlement.marketClass, else lookupSettlementBenchmark(families); default VI.
+  function magicMarketClassIdx(campaign, settlement){
+    const A = _miACKS();
+    const ROMAN = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
+    let roman = settlement && settlement.marketClass;
+    if(!roman && settlement && typeof A.lookupSettlementBenchmark === 'function'){
+      const b = A.lookupSettlementBenchmark(settlement.families || 0); roman = b ? b.marketClass : null;
+    }
+    if(typeof roman === 'string'){ const k = roman.replace('*',''); if(ROMAN[k] != null) return ROMAN[k]; }
+    return 5;
+  }
+
+  // Units of `rarity` transacted this turn (accounting month) in `direction` at `settlementId` — the
+  // TT per-market-per-month headroom, DERIVED from the eventLog (mirrors marketUnitsTransactedThisMonth).
+  function _magicMarketUnitsThisMonth(campaign, settlementId, rarity, direction){
+    const turn = (campaign && campaign.currentTurn) || 1;
+    const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+    let units = 0;
+    for(const entry of log){
+      const ev = entry && entry.event; if(!ev || ev.kind !== 'magic-item-sold') continue;
+      const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+      if(at != null && at !== turn) continue;
+      const p = ev.payload || {};
+      if(p.settlementId !== settlementId) continue;
+      if(direction && p.direction !== direction) continue;
+      if(rarity && p.rarity !== rarity) continue;
+      units += (Number(p.qty) || 1);
+    }
+    return units;
+  }
+
+  // magicItemMarketAvailability(campaign, ref, settlement, opts) — the gate. ref: NotableItem | catalog
+  // key | base-cost number. opts: { direction? ('buy'|'sell'), qty? }. Returns:
+  // { available, transactable, reason, rarity, rarityLabel, baseCost, marketClass, marketClassIdx,
+  //   maxClassIdx, perMarketMax, perPartyMax, transactedThisMonth, monthlyRemaining }.
+  function magicItemMarketAvailability(campaign, ref, settlement, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    const baseCost = _resolveBaseCost(campaign, ref);
+    if(baseCost == null) return { available:false, transactable:false, reason:'no-base-cost' };
+    const rarity = (ref && typeof ref === 'object' && ref.intrinsic && ref.intrinsic.rarity) || magicItemRarity(baseCost);
+    const mcIdx = magicMarketClassIdx(campaign, settlement);
+    const maxIdx = (MAGIC_MARKET_MAX_CLASS_IDX[rarity] != null) ? MAGIC_MARKET_MAX_CLASS_IDX[rarity] : 5;
+    const out = {
+      available:false, transactable:false, reason:null,
+      rarity, rarityLabel: rarityLabel(rarity), baseCost,
+      marketClass: _MARKET_CLASS_LABEL[mcIdx], marketClassIdx: mcIdx, maxClassIdx: maxIdx,
+      perMarketMax:0, perPartyMax:0, transactedThisMonth:0, monthlyRemaining:0
+    };
+    if(mcIdx > maxIdx){ out.reason = 'market-too-small-for-rarity'; return out; }
+    out.transactable = true;
+    // Per-market-per-month count — grounded in the shipped (RAW-verified) equipmentAvailability count;
+    // a chance/none cell floors at 1 since the rarity gate already passed. Per-party = 10% (TT pp.26–28).
+    let perMarket = 1;
+    if(typeof A.equipmentAvailability === 'function'){
+      const a = A.equipmentAvailability(baseCost, mcIdx, {});
+      perMarket = (a && a.kind === 'count' && Number.isFinite(a.count)) ? Math.max(1, a.count) : 1;
+    }
+    out.perMarketMax = perMarket;
+    out.perPartyMax = Math.max(1, Math.round(perMarket * 0.1));
+    const dir = (opts.direction === 'buy' || opts.direction === 'sell') ? opts.direction : null;
+    out.transactedThisMonth = settlement ? _magicMarketUnitsThisMonth(campaign, settlement.id, rarity, dir) : 0;
+    out.monthlyRemaining = Math.max(0, out.perPartyMax - out.transactedThisMonth);
+    const qty = Math.max(1, Math.round(Number(opts.qty) || 1));
+    out.available = out.monthlyRemaining >= qty;
+    if(!out.available) out.reason = 'monthly-ceiling';
+    return out;
+  }
+
+  // ── custody helpers (the shipped itemCustody model; merchant-stock = a market's shelf) ──
+  function itemCustodyOf(campaign, itemId){
+    if(!campaign || !Array.isArray(campaign.itemCustody)) return null;
+    return campaign.itemCustody.find(c => c && c.itemId === itemId && c.status !== 'ended') || null;
+  }
+  function _setItemCustody(campaign, itemId, custodianKind, custodianId){
+    if(!itemId) return null;
+    const A = _miACKS();
+    if(!Array.isArray(campaign.itemCustody)) campaign.itemCustody = [];
+    const rec = itemCustodyOf(campaign, itemId);
+    if(rec){ rec.custodianKind = custodianKind; rec.custodianId = custodianId; rec.sinceTurn = campaign.currentTurn || 1; return rec; }
+    if(typeof A.blankItemCustody === 'function'){ const r = A.blankItemCustody({ itemId, custodianKind, custodianId, sinceTurn: campaign.currentTurn || 1 }); campaign.itemCustody.push(r); return r; }
+    const r = { id:'cus-mi-' + (campaign.itemCustody.length + 1), itemId, custodianKind, custodianId, sinceTurn: campaign.currentTurn || 1, status:'active' };
+    campaign.itemCustody.push(r); return r;
+  }
+  function _carryLinksNotable(campaign, charId, itemId){
+    const ch = _findChar(campaign, charId);
+    return !!(ch && Array.isArray(ch.inventory) && ch.inventory.some(l => l && l.notableItemId === itemId));
+  }
+  function _dropCarryLinkForNotable(campaign, charId, itemId){
+    const ch = _findChar(campaign, charId);
+    if(!ch || !Array.isArray(ch.inventory)) return;
+    ch.inventory = ch.inventory.filter(line => !(line && line.notableItemId === itemId));
+  }
+  function _removeNotable(campaign, itemId){
+    if(!campaign || !Array.isArray(campaign.notableItems)) return;
+    const ix = campaign.notableItems.findIndex(n => n && n.id === itemId);
+    if(ix >= 0) campaign.notableItems.splice(ix, 1);
+    if(Array.isArray(campaign.itemCustody)) campaign.itemCustody = campaign.itemCustody.filter(c => c && c.itemId !== itemId);
+  }
+
+  // Magic items currently in merchant stock at a settlement (the buy picker).
+  function magicItemMarketListings(campaign, settlementId){
+    if(!campaign) return [];
+    const held = new Set();
+    for(const c of (Array.isArray(campaign.itemCustody) ? campaign.itemCustody : [])){
+      if(c && c.status !== 'ended' && c.custodianKind === 'merchant-stock' && c.custodianId === settlementId) held.add(c.itemId);
+    }
+    return _notables(campaign).filter(n => n && held.has(n.id) && n.status !== 'destroyed');
+  }
+  // The magic items a character currently holds + can sell (custody = this character, or — tolerant of
+  // a campaign with no custody records — a carry-line link to the Notable).
+  function sellableMagicItemsFor(campaign, characterId){
+    if(!campaign) return [];
+    const out = [];
+    for(const n of _notables(campaign)){
+      if(!n || n.status === 'destroyed' || n.status === 'lost') continue;
+      const cust = itemCustodyOf(campaign, n.id);
+      const held = cust ? (cust.custodianKind === 'character' && cust.custodianId === characterId)
+                        : _carryLinksNotable(campaign, characterId, n.id);
+      if(held) out.push(n);
+    }
+    return out;
+  }
+
+  function _marketAppraiseNarrative(ni, settlement, a){
+    const name = ni.name || (ni.kind || 'a magic item');
+    const where = (settlement.name || settlement.id) + ' (Class ' + a.marketClass + ')';
+    if(!a.transactable) return 'At ' + where + ', ' + name + ' (' + a.rarityLabel + ') is too rare for this market to deal in.';
+    return name + ' appraised at ' + where + ' — ' + a.rarityLabel + '; the market offers ~' + a.offeredBuyGp.toLocaleString() + 'gp to buy, ~' + a.offeredSellGp.toLocaleString() + 'gp to sell.';
+  }
+  function _marketSaleNarrative(ni, ch, settlement, dir, gp){
+    const who = (ch && ch.name) || 'The party';
+    const name = ni.name || (ni.kind || 'a magic item');
+    const where = settlement.name || settlement.id;
+    return dir === 'buy'
+      ? who + ' buys ' + name + ' at ' + where + ' for ' + gp.toLocaleString() + 'gp.'
+      : who + ' sells ' + name + ' at ' + where + ' for ' + gp.toLocaleString() + 'gp.';
+  }
+
+  // appraiseMagicItemAtMarket(campaign, opts) — the verb. opts: { itemId, settlementId, characterId?,
+  // qty?, secret?, submittedBy? }. A MARKET price estimate (≠ W1's appraiseMagicItem / identify): given
+  // THIS settlement, is the item transactable here, at what offered buy + sell, with what monthly
+  // headroom each way. Emits magic-item-appraised. Returns { ok, appraisal, event } | { ok:false, error }.
+  function appraiseMagicItemAtMarket(campaign, opts){
+    opts = opts || {};
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const ni = _findNotable(campaign, opts.itemId);
+    if(!ni) return { ok:false, error:'unknown-item' };
+    const settlement = _settlementOf(campaign, opts.settlementId);
+    if(!settlement) return { ok:false, error:'unknown-settlement' };
+    const spread = magicItemPriceSpread(campaign, ni);
+    if(!spread.available) return { ok:false, error: spread.reason || 'no-base-cost' };
+    const buyAvail  = magicItemMarketAvailability(campaign, ni, settlement, { direction:'buy',  qty: opts.qty });
+    const sellAvail = magicItemMarketAvailability(campaign, ni, settlement, { direction:'sell', qty: opts.qty });
+    const appraiser = _findChar(campaign, opts.characterId);
+    const appraisal = {
+      itemId: ni.id, settlementId: settlement.id, marketClass: buyAvail.marketClass, marketClassIdx: buyAvail.marketClassIdx,
+      rarity: spread.rarity, rarityLabel: spread.rarityLabel, baseCost: spread.baseCost, apparentValue: spread.apparentValue,
+      created: spread.created, offeredBuyGp: spread.buy, offeredSellGp: spread.sell,
+      transactable: buyAvail.transactable || sellAvail.transactable,
+      buy:  { transactable: buyAvail.transactable,  reason: buyAvail.reason,  perPartyMax: buyAvail.perPartyMax,  monthlyRemaining: buyAvail.monthlyRemaining,  priceGp: spread.buy  },
+      sell: { transactable: sellAvail.transactable, reason: sellAvail.reason, perPartyMax: sellAvail.perPartyMax, monthlyRemaining: sellAvail.monthlyRemaining, priceGp: spread.sell }
+    };
+    const payload = Object.assign({ characterId: appraiser ? appraiser.id : null, narrative: _marketAppraiseNarrative(ni, settlement, appraisal) }, appraisal);
+    const ev = _emitMagicItemEvent(campaign, 'magic-item-appraised', payload, { character: appraiser, item: ni, submittedBy: opts.submittedBy });
+    return { ok:true, appraisal, event: ev };
+  }
+
+  // sellMagicItem(campaign, opts) — the M&M sale flow over a NotableItem. opts: { itemId,
+  // sellerCharacterId, settlementId, proceedsHandle?, qty?, gmOverride?, submittedBy? }. Price = the TT
+  // spread (created ×2 / found ×1, from provenance). Gate = magicItemMarketAvailability (refuse market-
+  // too-small / monthly-ceiling unless gmOverride). GP rides GP Wave B (external → proceedsHandle,
+  // default the seller's purse). The item leaves the party → custody re-homes to merchant-stock(settlement),
+  // any seller carry-line link is dropped, provenance records the sale. Emits magic-item-sold (sell).
+  // Returns { ok, proceedsGp, item, event } | { ok:false, error }.
+  function sellMagicItem(campaign, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const ni = _findNotable(campaign, opts.itemId);
+    if(!ni) return { ok:false, error:'unknown-item' };
+    const settlement = _settlementOf(campaign, opts.settlementId);
+    if(!settlement) return { ok:false, error:'unknown-settlement' };
+    const seller = _findChar(campaign, opts.sellerCharacterId);
+    const spread = magicItemPriceSpread(campaign, ni);
+    if(!spread.available) return { ok:false, error: spread.reason || 'no-base-cost' };
+    const avail = magicItemMarketAvailability(campaign, ni, settlement, { direction:'sell', qty: opts.qty });
+    if(!opts.gmOverride && !avail.transactable) return { ok:false, error: avail.reason || 'not-transactable', avail };
+    if(!opts.gmOverride && !avail.available)    return { ok:false, error:'monthly-ceiling', avail };
+    const proceedsGp = spread.sell;
+    const dest = opts.proceedsHandle || (seller ? { kind:'character', id: seller.id } : null);
+    if(!dest) return { ok:false, error:'no-seller' };
+    if(typeof A.applyWealthTransfer === 'function' && proceedsGp > 0){
+      try { A.applyWealthTransfer(campaign, { amount: proceedsGp, source: { kind:'external' }, destination: dest, bucket:'magic-item-market', reason:'magic-item sale' }); }
+      catch(e){ return { ok:false, error:'payment-failed', detail: String(e && e.message || e) }; }
+    }
+    _setItemCustody(campaign, ni.id, 'merchant-stock', settlement.id);
+    if(seller) _dropCarryLinkForNotable(campaign, seller.id, ni.id);
+    ni.provenance = ni.provenance || {};
+    ni.provenance.disposition = 'sold';
+    ni.provenance.soldAtTurn = campaign.currentTurn || 1;
+    ni.provenance.soldToSettlementId = settlement.id;
+    if(!Array.isArray(ni.history)) ni.history = [];
+    ni.history.push({ turn: campaign.currentTurn || 1, type:'sold-at-market', reason: 'Sold at ' + (settlement.name || settlement.id) + ' for ' + proceedsGp.toLocaleString() + 'gp' });
+    const payload = {
+      itemId: ni.id, direction:'sell', characterId: seller ? seller.id : null, settlementId: settlement.id,
+      marketClass: avail.marketClass, rarity: spread.rarity, created: spread.created, priceGp: proceedsGp, qty:1,
+      narrative: _marketSaleNarrative(ni, seller, settlement, 'sell', proceedsGp)
+    };
+    const ev = _emitMagicItemEvent(campaign, 'magic-item-sold', payload, { character: seller, item: ni, submittedBy: opts.submittedBy });
+    return { ok:true, proceedsGp, item: ni, event: ev, avail };
+  }
+
+  // buyMagicItem(campaign, opts) — the verb. opts: { buyerCharacterId, settlementId, catalogKey | itemId,
+  // payHandle?, name?, qty?, gmOverride?, allowOverdraft?, submittedBy? }. The item: an itemId takes an
+  // existing merchant-stock listing; a catalogKey mints a fresh FOUND NotableItem (no maker → resells
+  // ×1). Price = the TT buy (×2.25). Gate = magicItemMarketAvailability (direction 'buy'). GP rides GP
+  // Wave B (payHandle → external, default the buyer's purse; atomic — affordability checked first).
+  // Custody re-homes to the buyer. Emits magic-item-sold (buy). Returns { ok, costGp, item, event } | { ok:false, error }.
+  function buyMagicItem(campaign, opts){
+    opts = opts || {};
+    const A = _miACKS();
+    if(!campaign) return { ok:false, error:'no-campaign' };
+    const settlement = _settlementOf(campaign, opts.settlementId);
+    if(!settlement) return { ok:false, error:'unknown-settlement' };
+    const buyer = _findChar(campaign, opts.buyerCharacterId);
+    if(!buyer) return { ok:false, error:'unknown-buyer' };
+    let ni = opts.itemId ? _findNotable(campaign, opts.itemId) : null;
+    let minted = false;
+    if(!ni && opts.catalogKey){ ni = createNotableFromCatalog(campaign, opts.catalogKey, { name: opts.name }); minted = !!ni; }
+    if(!ni) return { ok:false, error:'no-item' };
+    const fail = (err, extra) => { if(minted) _removeNotable(campaign, ni.id); return Object.assign({ ok:false, error: err }, extra || {}); };
+    const spread = magicItemPriceSpread(campaign, ni);
+    if(!spread.available) return fail(spread.reason || 'no-base-cost');
+    const avail = magicItemMarketAvailability(campaign, ni, settlement, { direction:'buy', qty: opts.qty });
+    if(!opts.gmOverride && !avail.transactable) return fail(avail.reason || 'not-transactable', { avail });
+    if(!opts.gmOverride && !avail.available)    return fail('monthly-ceiling', { avail });
+    const costGp = spread.buy;
+    const src = opts.payHandle || { kind:'character', id: buyer.id };
+    const have = _handleAvailableGp(campaign, src);
+    if(!opts.allowOverdraft && Number.isFinite(have) && have < costGp) return fail('insufficient-funds', { need: costGp, have });
+    if(typeof A.applyWealthTransfer === 'function' && costGp > 0){
+      try { A.applyWealthTransfer(campaign, { amount: costGp, source: src, destination: { kind:'external' }, bucket:'magic-item-market', reason:'magic-item purchase' }); }
+      catch(e){ return fail('payment-failed', { detail: String(e && e.message || e) }); }
+    }
+    _setItemCustody(campaign, ni.id, 'character', buyer.id);
+    ni.provenance = ni.provenance || {};
+    ni.provenance.disposition = 'owned';
+    if(!Array.isArray(ni.history)) ni.history = [];
+    ni.history.push({ turn: campaign.currentTurn || 1, type:'bought-at-market', reason: 'Bought at ' + (settlement.name || settlement.id) + ' for ' + costGp.toLocaleString() + 'gp' });
+    const payload = {
+      itemId: ni.id, direction:'buy', characterId: buyer.id, settlementId: settlement.id,
+      marketClass: avail.marketClass, rarity: spread.rarity, created: spread.created, priceGp: costGp, qty:1,
+      narrative: _marketSaleNarrative(ni, buyer, settlement, 'buy', costGp)
+    };
+    const ev = _emitMagicItemEvent(campaign, 'magic-item-sold', payload, { character: buyer, item: ni, submittedBy: opts.submittedBy });
+    return { ok:true, costGp, item: ni, minted, event: ev, avail };
+  }
+
   // ── Export ──────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // catalog + reference
@@ -1006,7 +1300,11 @@
     isCommission, findCommission, commissionProjects, activeCommissions, commissionsFor, commissionStatus,
     // W2 / MI-5 — Magic Item Traits (optional content pack)
     MAGIC_ITEM_TRAITS, magicItemTraitsCatalog, findMagicItemTrait, magicItemTraitKeys, magicItemTraitsByCategory,
-    magicItemTraitsEnabled, magicItemTraits, itemHasTrait, assignMagicItemTrait, rollMagicItemTrait, removeMagicItemTrait
+    magicItemTraitsEnabled, magicItemTraits, itemHasTrait, assignMagicItemTrait, rollMagicItemTrait, removeMagicItemTrait,
+    // MI-3 — the magic-item MARKET (buy / sell / appraise at a settlement; GP rides GP Wave B)
+    MAGIC_MARKET_MAX_CLASS_IDX, magicMarketClassIdx, magicItemMarketAvailability,
+    appraiseMagicItemAtMarket, sellMagicItem, buyMagicItem,
+    magicItemMarketListings, sellableMagicItemsFor, itemCustodyOf
   });
 
 })(typeof window !== 'undefined' ? window : global);
