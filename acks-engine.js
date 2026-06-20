@@ -91,7 +91,30 @@ const ENGINE_VERSION = '0.24.0';
 
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
 // When in doubt, look up via ID_PREFIXES rather than hardcoding.
-const ID_PREFIXES = Object.freeze({
+// Self-registration kernel — the registerDayConsumer pattern generalized to the central prefix
+// list (CLAUDE §15.5 north star). ID_PREFIXES is an accumulating store, not a frozen literal: a
+// module that introduces a new entity calls ACKS.registerPrefix('thing','xyz') at load (a
+// typeof-guarded call, the registerDayConsumer idiom) instead of editing this central list. The
+// core + legacy set is seeded just below (values byte-identical to the old freeze). The reverse-
+// lookup Proxy readers in the other modules read global.ACKS.ID_PREFIXES at runtime, so they
+// observe every registration regardless of module load order.
+const ID_PREFIXES = {};
+function registerPrefix(kind, prefix){
+  if(!kind || !prefix) return ID_PREFIXES;
+  const existing = ID_PREFIXES[kind];
+  if(existing && existing !== prefix){
+    if(typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] ID-prefix conflict for "' + kind + '": "' + existing + '" already registered; ignoring "' + prefix + '".');
+    }
+    return ID_PREFIXES;
+  }
+  ID_PREFIXES[kind] = prefix;
+  return ID_PREFIXES;
+}
+// Seed the core + legacy prefix set. New entities do NOT extend this literal — they call
+// ACKS.registerPrefix from their own module (the §15.5 convention). The comments below are the
+// per-entity provenance, preserved verbatim from the original frozen list.
+Object.entries({
   campaign:             'cmp',
   domain:               'dom',
   character:            'chr',
@@ -208,7 +231,7 @@ const ID_PREFIXES = Object.freeze({
   // (campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on
   // the slot-64 day-tick + resolved on the shipped Proficiency-Throws die. Resolved by acks-engine-sages.js. ===
   sageCommission:       'sag'
-});
+}).forEach(function(pair){ registerPrefix(pair[0], pair[1]); });
 
 function newId(prefix){
   if(!prefix) throw new Error('newId requires a prefix');
@@ -11815,7 +11838,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,
   // Schema + identity
-  SCHEMA_VERSION, ENGINE_VERSION, ID_PREFIXES, newId, slugify,
+  SCHEMA_VERSION, ENGINE_VERSION, ID_PREFIXES, registerPrefix, newId, slugify,
   // Save-time serializer — stamps engineVersion/savedAt (the data-layer contract; INTEGRATION.md).
   stampCampaignForSave,
   // T6 — project the dual-homed nested mirrors from the canonical top-level at save time (INTEGRATION.md §3).
