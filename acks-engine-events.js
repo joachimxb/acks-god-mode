@@ -317,6 +317,11 @@ const EVENT_KINDS = Object.freeze([
   'oligarchy-established',
   'oligarchy-dissolved',
   'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — the generative Senate-Materialization Wizard
+  // (RR pp.355–360). Engine-emitted by acks-engine-politics.js (materializeSenate), record-only: the
+  // verb already minted the senate/factions/senatorships + set the apex governance senatorial. Carries
+  // the Event.context envelope (apex hex + ruler + the seated senators). Wizard opt-out below.
+  'senate-materialized',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -1151,6 +1156,13 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { apexDomainId: 'string' },
     O: { policy: 'string', decisionRule: 'string', outcome: 'string',
          forVotes: 'number', againstVotes: 'number', abstainVotes: 'number', narrative: 'string' }
+  },
+  // === Politics P-7 wizard (burst11 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate is generatively convened over a realm's apex (the 7-step construction materialized).
+  'senate-materialized': {
+    R: { senateId: 'string' },
+    O: { apexDomainId: 'string', seats: 'number', leadingSenators: 'number', factions: 'number',
+         independentMinorVotes: 'number', realmFamilies: 'number', minSenatorLevel: 'number', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -3123,6 +3135,11 @@ registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
 registerEventHandler('oligarchy-established', applyEvent_senateAudit);
 registerEventHandler('oligarchy-dissolved', applyEvent_senateAudit);
 registerEventHandler('oligarchy-decision', applyEvent_senateAudit);
+// === Politics P-7 wizard (burst11 2026-06-20) === — the generative senate-materialization event shares
+// the same record-only audit: ACKS.materializeSenate (acks-engine-politics.js) already minted the
+// senate/factions/senatorships + set the apex governance senatorial; the handler keeps the event
+// well-formed on replay (records the narrative only).
+registerEventHandler('senate-materialized', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -6365,6 +6382,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (acks-engine-politics.js establish/dissolve/secede/decide); a raw Wizard emit would record an
   // oligarchy transition the apex governance state doesn't show.
   'oligarchy-established', 'oligarchy-dissolved', 'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — owned by the Senate tab's 🏛 Generate-a-Senate
+  // wizard (acks-engine-politics.js materializeSenate); a raw Wizard emit would record a convening the
+  // senate/faction/senatorship state doesn't show.
+  'senate-materialized',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
