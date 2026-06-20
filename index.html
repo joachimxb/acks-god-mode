@@ -86,7 +86,7 @@
 <script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-g2"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -16577,6 +16577,201 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- === @b9-sages      (team) — sage retainer / commission modal === -->
 <!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
+<!-- ═══════════ VIEW: GLADIATORS (G2 — the arena, AXIOMS 4 pp.20–31) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'gladiators'" class="p-4 space-y-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">⚔ Gladiators</h2>
+      <span class="text-sm italic opacity-70">Run a gladiatorial school (AXIOMS 4): recruit gladiators, schedule + resolve arena bouts, and stage games. Bouts resolve abstractly (1d10, RR p.25); casualties run through the Mortal-Wounds resolver and winners earn XP equal to the defeated's value.</span>
+    </div>
+
+    <!-- rule-off banner (a school exists but the rule is disabled — data-only) -->
+    <template x-if="!gladRuleOn()">
+      <div class="vellum border border-amber-500 bg-amber-50 rounded p-3 text-sm">⚠ The <code>gladiator-games</code> house rule is off — the school below is data-only; recruiting, scheduling, and resolving bouts are disabled. Enable it in ⚙ House Rules ▸ 🌍 Cultural.</div>
+    </template>
+
+    <!-- school picker + establish-a-school form -->
+    <div class="vellum border border-ink rounded p-3 space-y-3">
+      <div class="flex flex-wrap gap-3 items-end justify-between">
+        <label class="text-sm" x-show="gladSchools().length">School
+          <select x-model="gladState.schoolId" class="ml-1 border border-ink rounded px-1 py-0.5">
+            <template x-for="s in gladSchools()" :key="s.id"><option :value="s.id" :selected="s.id === gladState.schoolId" x-text="s.name || 'Ludus'"></option></template>
+          </select>
+        </label>
+        <button x-show="gladSchools().length" @click="gladState.showNewSchool=!gladState.showNewSchool" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">＋ New school</button>
+      </div>
+      <template x-if="gladState.showNewSchool || gladSchools().length===0">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm border-t border-ink/20 pt-3">
+          <label class="flex flex-col md:col-span-2">School name
+            <input x-model="gladState.newSchool.name" placeholder="Ludus Magnus" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Settlement
+            <select x-model="gladState.newSchool.settlementId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none)</option>
+              <template x-for="st in gladSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Lanista (owner)
+            <select x-model="gladState.newSchool.lanistaId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none)</option>
+              <template x-for="ch in gladLanistaOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name"></option></template>
+            </select>
+          </label>
+          <div class="md:col-span-4">
+            <button @click="gladEstablishSchool()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400">🏟 Establish school</button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- school detail -->
+    <template x-if="gladSelectedSchool()">
+      <div class="vellum border border-ink rounded p-4 space-y-3">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 class="font-bold text-lg" x-text="gladSelectedSchool().name || 'Ludus'"></h3>
+          <span class="text-sm opacity-70" x-text="'Roster: ' + gladRoster(gladSelectedSchool()).length + ' gladiator(s)'"></span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🪖 Recruit gladiator</button>
+          <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Schedule bout</button>
+          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+        </div>
+
+        <!-- roster -->
+        <template x-if="gladRoster(gladSelectedSchool()).length">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/30">
+                <th class="py-1 pr-2">Name</th><th class="pr-2">Style</th><th class="pr-2">Rank</th><th class="pr-2">Lvl</th>
+                <th class="pr-2">Wins</th><th class="pr-2">Bouts</th><th class="pr-2">Value</th><th class="pr-2">State</th><th></th>
+              </tr></thead>
+              <tbody>
+                <template x-for="g in gladRoster(gladSelectedSchool())" :key="g.id">
+                  <tr class="border-b border-ink/10" :class="g.lifecycleState==='deceased' ? 'opacity-40' : ''">
+                    <td class="py-1 pr-2"><button @click="openCharacterEditor(g.id)" class="underline" x-text="g.name"></button></td>
+                    <td class="pr-2" x-text="gladTypeLabel(g.gladiatorType)"></td>
+                    <td class="pr-2" x-text="gladRankLabel(g)"></td>
+                    <td class="pr-2" x-text="g.level"></td>
+                    <td class="pr-2" x-text="g.victoriesWon||0"></td>
+                    <td class="pr-2" x-text="g.boutsSurvived||0"></td>
+                    <td class="pr-2" x-text="(gladGpValue(g)||0).toLocaleString()+' gp'"></td>
+                    <td class="pr-2">
+                      <span x-show="g.lifecycleState==='deceased'" class="text-red-700">☠ slain</span>
+                      <span x-show="g.lifecycleState==='incapacitated'" class="text-amber-700">🩹 wounded</span>
+                      <span x-show="g.lifecycleState==='candidate'" class="opacity-60">🎓 candidate</span>
+                      <span x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" class="text-green-700">🏅 freedom earned</span>
+                    </td>
+                    <td><button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <template x-if="!gladRoster(gladSelectedSchool()).length">
+          <p class="text-sm italic opacity-60">No gladiators yet — 🪖 Recruit one to fill the school.</p>
+        </template>
+
+        <!-- scheduled bouts -->
+        <template x-if="gladScheduledBouts(gladSelectedSchool()).length">
+          <div class="border-t border-ink/20 pt-2">
+            <div class="font-semibold text-sm mb-1">Scheduled bouts</div>
+            <template x-for="b in gladScheduledBouts(gladSelectedSchool())" :key="b.id">
+              <div class="flex items-center justify-between text-sm py-0.5 gap-2">
+                <span x-text="b.sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + b.sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + b.kind"></span>
+                <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap">▶ Resolve</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- recent results -->
+        <template x-if="gladRecentBouts(gladSelectedSchool()).length">
+          <div class="border-t border-ink/20 pt-2">
+            <div class="font-semibold text-sm mb-1">Recent results</div>
+            <template x-for="b in gladRecentBouts(gladSelectedSchool())" :key="b.id">
+              <div class="text-sm opacity-80 py-0.5" x-text="gladBoutSummary(b)"></div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- last-bout aftermath card -->
+    <template x-if="gladState.lastBout && gladState.lastBout.result">
+      <div class="vellum border-2 border-ink rounded p-3 space-y-1" x-data="{ get r(){ return gladState.lastBout.result; } }">
+        <div class="font-bold">Last bout — Side <span x-text="r.winnerSide"></span> wins <span class="opacity-60" x-text="'(1d10 '+r.d10+(r.death?' · to the death':'')+')'"></span></div>
+        <div class="text-sm" x-show="r.crowdReaction">Crowd reaction: <span class="font-semibold" x-text="r.crowdReaction"></span></div>
+        <template x-for="(cas,i) in r.casualties" :key="'c'+i">
+          <div class="text-sm" x-text="gladCombatantName(cas.characterId) + ' — ' + (cas.outcome==='slain' ? '☠ slain' : 'survived') + (cas.mortalWound && cas.mortalWound.conditionLabel ? ' (' + cas.mortalWound.conditionLabel + (cas.mortalWound.permanentWound ? ': ' + cas.mortalWound.permanentWound : '') + ')' : '')"></div>
+        </template>
+        <template x-for="(aw,i) in r.xpAwarded" :key="'x'+i">
+          <div class="text-sm text-green-800" x-text="gladCombatantName(aw.characterId) + ' +' + aw.xp + ' XP'"></div>
+        </template>
+        <div class="text-sm text-green-700" x-show="r.freedomEarned && r.freedomEarned.length" x-text="r.freedomEarned.length + ' gladiator(s) earned freedom'"></div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Gladiators G2 — recruit modal (z-70) -->
+<template x-if="gladState.recruit.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladState.recruit.open=false" @keydown.escape.window="gladState.recruit.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🪖 Recruit a gladiator</h3>
+      <label class="block text-sm">Name <input x-model="gladState.recruit.name" placeholder="(auto from style)" class="w-full border border-ink rounded px-1 py-0.5"></label>
+      <label class="block text-sm">Fighting style
+        <select x-model="gladState.recruit.gladiatorType" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="t in gladTypes()" :key="t.key"><option :value="t.key" :selected="t.key === gladState.recruit.gladiatorType" x-text="t.label + ' (' + t.latinName + ')'"></option></template>
+        </select>
+      </label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block text-sm">Method
+          <select x-model="gladState.recruit.method" class="w-full border border-ink rounded px-1 py-0.5">
+            <option value="buy-trained">Buy trained</option>
+            <option value="buy-candidate">Buy candidate (40gp)</option>
+            <option value="impress-prisoner">Impress prisoner</option>
+          </select>
+        </label>
+        <label class="block text-sm">Level (0–5) <input type="number" min="0" max="5" x-model="gladState.recruit.level" class="w-full border border-ink rounded px-1 py-0.5"></label>
+      </div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladState.recruit.thrassian"> Thrassian (+20% value, AXIOMS 4 p.29)</label>
+      <div class="flex justify-end gap-2">
+        <button @click="gladState.recruit.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitRecruit()" class="px-3 py-1 border border-ink rounded text-sm bg-green-300 hover:bg-green-400 font-semibold">🪖 Recruit</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- Gladiators G2 — schedule-bout modal (z-70) -->
+<template x-if="gladState.bout.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladState.bout.open=false" @keydown.escape.window="gladState.bout.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">⚔ Schedule a bout</h3>
+      <label class="block text-sm">Side A
+        <select x-model="gladState.bout.sideAId" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideAId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Side B
+        <select x-model="gladState.bout.sideBId" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideBId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Stakes
+        <select x-model="gladState.bout.kind" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="to-incapacitation">To incapacitation</option>
+          <option value="to-death">To the death (rented at 2×)</option>
+        </select>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button @click="gladState.bout.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitBout()" class="px-3 py-1 border border-ink rounded text-sm bg-green-300 hover:bg-green-400 font-semibold">⚔ Schedule</button>
+      </div>
+    </div>
+  </div>
+</template>
 <!-- === @b9-lifecycle  (team) — character transformation modal === -->
 <!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) === -->
 
@@ -17497,6 +17692,9 @@ return {
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
       // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
+      // Gladiators G2 (#150, burst9) — the ⚔ Gladiators top-level tab, DORMANT-UNTIL-USED (present only
+      // when gladiator-games is on OR a school already exists; the gladiator-as-Character data is ungated core).
+      ...(this.gladiatorsTabVisible() ? [{ id:'gladiators', label:'⚔ Gladiators', count: (this.currentCampaign?.gladiatorSchools||[]).length || null }] : []),
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -17963,6 +18161,84 @@ return {
   },
   // === @b9-sages      (team) — Sages SG-3 periodic-fee commissions: state + methods ===
   // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===
+  // Gladiators G2 (#150) — the ⚔ arena tab over acks-engine-gladiators.js (recruitGladiator /
+  // scheduleBout / resolveAndCommitBout / holdGame / freeGladiator; the abstract 1d10 resolver + the
+  // Mortal-Wounds aftermath live in the engine). Dormant-until-used: the tab + view show only when
+  // gladiator-games is on OR a school exists. The verbs gate on gladiator-games (refuse + toast when off).
+  gladState: { schoolId:null, showNewSchool:false,
+    newSchool:{ name:'', settlementId:'', lanistaId:'' },
+    recruit:{ open:false, schoolId:null, name:'', gladiatorType:'', level:0, method:'buy-trained', thrassian:false },
+    bout:{ open:false, schoolId:null, sideAId:'', sideBId:'', kind:'to-incapacitation' },
+    lastBout:null },
+  gladiatorsTabVisible(){ const c=this.currentCampaign; return !!(c && window.ACKS.gladiatorsSubsystemActive && window.ACKS.gladiatorsSubsystemActive(c)); },
+  gladRuleOn(){ const c=this.currentCampaign; return !!(c && window.ACKS.isHouseRuleEnabled && window.ACKS.isHouseRuleEnabled(c,'gladiator-games')); },
+  gladSchools(){ const c=this.currentCampaign; return (c && window.ACKS.gladiatorSchoolsList) ? window.ACKS.gladiatorSchoolsList(c) : []; },
+  gladSelectedSchool(){ const ss=this.gladSchools(); if(!ss.length) return null; return ss.find(s=>s && s.id===this.gladState.schoolId) || ss[0]; },
+  gladRoster(school){ const c=this.currentCampaign; return (c && school && window.ACKS.gladiatorsOfSchool) ? window.ACKS.gladiatorsOfSchool(c, school) : []; },
+  gladTypes(){ return window.ACKS.gladiatorTypes ? window.ACKS.gladiatorTypes() : []; },
+  gladTypeLabel(key){ const t=window.ACKS.findGladiatorType && window.ACKS.findGladiatorType(key); return t ? t.label : (key||'—'); },
+  gladRankLabel(ch){ return window.ACKS.gladiatorRank ? window.ACKS.gladiatorRank(ch) : ''; },
+  gladGpValue(ch){ return window.ACKS.gladiatorGpValue ? window.ACKS.gladiatorGpValue(ch, { thrassian: ch && ch.gladiatorIsThrassian }) : 0; },
+  gladEarnedFreedom(ch){ return window.ACKS.gladiatorEarnedFreedom ? window.ACKS.gladiatorEarnedFreedom(ch) : false; },
+  gladSettlementOptions(){ const c=this.currentCampaign; return (c && Array.isArray(c.settlements)) ? c.settlements.map(s=>({ id:s.id, name:s.name||s.id })) : []; },
+  gladLanistaOptions(){ const c=this.currentCampaign; return (c && Array.isArray(c.characters)) ? c.characters.filter(x=>x && x.socialTier!=='gladiator' && x.lifecycleState!=='deceased').map(x=>({ id:x.id, name:x.name })) : []; },
+  gladCombatantName(id){ const c=this.currentCampaign; const ch=(c && c.characters||[]).find(x=>x && x.id===id); return ch?ch.name:id; },
+  gladScheduledBouts(school){ const c=this.currentCampaign; return (c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school, { scheduledOnly:true }) : []; },
+  gladRecentBouts(school){ const c=this.currentCampaign; const all=(c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school) : []; return all.filter(b=>b.status==='resolved').slice(-6).reverse(); },
+  gladBoutSummary(b){ if(!b || !b.result) return ''; const win=(b.result.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); const slain=(b.result.casualties||[]).filter(x=>x.outcome==='slain').length; return win+' won (1d10 '+b.result.d10+')'+(slain?(' · '+slain+' slain'):'')+(b.result.crowdReaction?(' · crowd '+b.result.crowdReaction):''); },
+  _gladPersist(){ try{ this.markDirty(); this.schedulePersist(); }catch(_e){} },
+  gladEstablishSchool(){
+    const c=this.currentCampaign; if(!c) return;
+    const f=this.gladState.newSchool;
+    const r=window.ACKS.createGladiatorSchool(c, { name:f.name||'New Ludus', settlementId:f.settlementId||null, lanistaCharacterId:f.lanistaId||null, foundedAtTurn:c.currentTurn||1 });
+    if(!r){ this.showToast('Could not establish a school.',3000,'error'); return; }
+    this.gladState.schoolId=r.id; this.gladState.showNewSchool=false;
+    this.gladState.newSchool={ name:'', settlementId:'', lanistaId:'' };
+    this._gladPersist(); this.showToast('School established: '+r.name,2500);
+  },
+  gladOpenRecruit(){ const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; } this.gladState.recruit={ open:true, schoolId:s.id, name:'', gladiatorType:(this.gladTypes()[0]||{}).key||'', level:0, method:'buy-trained', thrassian:false }; },
+  gladSubmitRecruit(){
+    const c=this.currentCampaign; const f=this.gladState.recruit;
+    const r=window.ACKS.recruitGladiator(c, f.schoolId, { name:f.name||undefined, gladiatorType:f.gladiatorType||null, level:parseInt(f.level,10)||0, method:f.method, thrassian:!!f.thrassian });
+    if(!r.ok){ this.showToast('Recruit failed: '+r.reason,3500,'error'); return; }
+    this.gladState.recruit.open=false; this._gladPersist();
+    this.showToast(r.character.name+' joins the school ('+(r.costGp||0).toLocaleString()+' gp value)',2800);
+  },
+  gladOpenBout(){
+    const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    const roster=this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate');
+    if(roster.length<2){ this.showToast('Recruit at least two ready gladiators first.',3500,'warn'); return; }
+    this.gladState.bout={ open:true, schoolId:s.id, sideAId:roster[0].id, sideBId:roster[1].id, kind:'to-incapacitation' };
+  },
+  gladBoutRoster(){ const s=this.gladSchools().find(x=>x && x.id===this.gladState.bout.schoolId); return this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate'); },
+  gladSubmitBout(){
+    const c=this.currentCampaign; const f=this.gladState.bout;
+    if(!f.sideAId || !f.sideBId || f.sideAId===f.sideBId){ this.showToast('Pick two different combatants.',3000,'warn'); return; }
+    const r=window.ACKS.scheduleBout(c, { sideA:{ combatantIds:[f.sideAId], kind:'gladiator' }, sideB:{ combatantIds:[f.sideBId], kind:'gladiator' }, kind:f.kind });
+    if(!r.ok){ this.showToast('Schedule failed: '+r.reason,3500,'error'); return; }
+    this.gladState.bout.open=false; this._gladPersist(); this.showToast('Bout scheduled.',2200);
+  },
+  gladResolveBout(boutId){
+    const c=this.currentCampaign;
+    const r=window.ACKS.resolveAndCommitBout(c, boutId, {});
+    if(!r.ok){ this.showToast('Resolve failed: '+r.reason,3500,'error'); return; }
+    this.gladState.lastBout={ boutId, result:r.result };
+    this._gladPersist();
+    const slain=(r.result.casualties||[]).filter(x=>x.outcome==='slain').length;
+    this.showToast('Bout resolved — Side '+r.result.winnerSide+' wins'+(slain?(', '+slain+' slain'):''),3000);
+  },
+  gladStageGame(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s) return;
+    const scheduled=this.gladScheduledBouts(s);
+    if(!scheduled.length){ this.showToast('Schedule some bouts first.',3000,'warn'); return; }
+    const g=window.ACKS.createGame(c, { name:(s.name||'The')+' Games', settlementId:s.settlementId||null, createdAtTurn:c.currentTurn||1 });
+    scheduled.forEach(b=>{ b.gameId=g.id; if(!Array.isArray(g.boutIds)) g.boutIds=[]; if(!g.boutIds.includes(b.id)) g.boutIds.push(b.id); });
+    const r=window.ACKS.holdGame(c, g, {});
+    if(!r.ok){ this.showToast('Game failed: '+r.reason,3500,'error'); return; }
+    this.gladState.lastBout=null; this._gladPersist();
+    this.showToast('Games held — '+r.resolved.length+' bout(s) fought.',3000);
+  },
+  gladFreeGladiator(ch){ const c=this.currentCampaign; const r=window.ACKS.freeGladiator(c, ch.id); if(!r.ok){ this.showToast('Cannot free: '+r.reason,3000,'warn'); return; } this._gladPersist(); this.showToast(ch.name+' wins their freedom.',2500); },
   // === @b9-lifecycle  (team) — Lifecycle CL-5 transformation: state + methods ===
   // === @b9-hexscales  (team) — Hex Scales HW-5 local authoring: state + methods ===
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───

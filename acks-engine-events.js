@@ -402,7 +402,14 @@ const EVENT_KINDS = Object.freeze([
   // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
   // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
   'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
-  'magic-item-commission-resolved' // the commission's research throw resolves (item delivered | up-front lost)
+  'magic-item-commission-resolved', // the commission's research throw resolves (item delivered | up-front lost)
+  // === Gladiators G2 (team burst9 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // resolveAndCommitBout / holdGame / recruitGladiator verbs apply the state — the bout result + XP +
+  // Mortal-Wounds casualties, the game.status flip, the minted gladiator Character). Record-only audits;
+  // behind the default-OFF gladiator-games rule. Carry the Event.context envelope (settlement/school/combatants).
+  'bout-resolved',          // an abstract bout is resolved → winner/casualties/XP/crowd reaction (RAW p.25/27/28)
+  'gladiator-game-held',    // a Game/Munus is staged → all its scheduled bouts resolved (RAW p.22)
+  'gladiator-recruited'     // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1277,6 +1284,21 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-item-commission-resolved': {
     R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
     O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
+  },
+  // === Gladiators G2 (team burst9 2026-06-20) === — record-only audit (see EVENT_KINDS). The verbs in
+  // acks-engine-gladiators.js already applied the state (the bout result + XP + Mortal-Wounds casualties).
+  'bout-resolved': {
+    R: { boutId: 'string', winnerSide: 'string' },
+    O: { gameId: 'string', kind: 'string', d10: 'number', death: 'boolean', crowdReaction: 'string',
+         casualties: 'array', xpAwarded: 'array', freedomEarned: 'array', narrative: 'string' }
+  },
+  'gladiator-game-held': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', boutCount: 'number', budgetGp: 'number', narrative: 'string' }
+  },
+  'gladiator-recruited': {
+    R: { characterId: 'string', schoolId: 'string' },
+    O: { method: 'string', gladiatorType: 'string', level: 'number', costGp: 'number', narrative: 'string' }
   }
 });
 
@@ -3068,6 +3090,18 @@ function applyEvent_generationAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'generation run' } };
 }
 registerEventHandler('generation', applyEvent_generationAudit);
+
+// === Gladiators G2 (team burst9 2026-06-20) === — #150; the bout/game/recruit events share the
+// record-only audit posture: acks-engine-gladiators.js (resolveAndCommitBout / holdGame /
+// recruitGladiator) already applied the bout result + XP + Mortal-Wounds casualties + the minted
+// Character; these handlers keep the events well-formed on replay (a no-op beyond the narrative).
+function applyEvent_gladiatorAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'gladiator event' } };
+}
+registerEventHandler('bout-resolved', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-game-held', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6191,7 +6225,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // that produced nothing — the Generators tab is the real surface.
   'generation',
   // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
-  'magic-item-commissioned', 'magic-item-commission-resolved'
+  'magic-item-commissioned', 'magic-item-commission-resolved',
+  // === Gladiators G2 (team burst9 2026-06-20) === — owned by acks-engine-gladiators.js (resolveAndCommit
+  // Bout / holdGame / recruitGladiator, driven by the ⚔ Gladiators tab); a raw Event-Wizard emit would
+  // record a bout/game/recruit the bout/game/character state doesn't show.
+  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

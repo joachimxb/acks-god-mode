@@ -461,6 +461,277 @@
     };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // G2 — THE ARENA: recruit a gladiator · resolve-and-commit a bout · hold a game
+  // G1's resolveBoutAbstract is PURE (returns the result, mutates nothing). G2 adds
+  // the COMMIT path that the Gladiators tab drives: mutate the bout, apply the winners'
+  // XP + the contract counters, route the losers' casualties through the SHIPPED Mortal-
+  // Wounds resolver (Delves D1 — applyMortalWound; the battle-aftermath idiom), check
+  // level-ups, and emit the (now-registered) record-only `bout-resolved` event. Plus the
+  // recruit verb (mint a socialTier:'gladiator' Character → a school roster + `gladiator-
+  // recruited`) and holdGame (resolve every scheduled bout of a Game → `gladiator-game-
+  // held`). All GATED on `gladiator-games`. Late-binds the shipped resolvers on global.ACKS
+  // (load order: events + mortal-wounds load before this module — index.html + the test glob),
+  // with a bare fallback if Delves D1 isn't present (the applyBattleAftermath precedent).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  function _findChar(campaign, id){
+    return (campaign && Array.isArray(campaign.characters)) ? (campaign.characters.find(c => c && c.id === id) || null) : null;
+  }
+  function _resolveSchool(campaign, school){ return (school && typeof school === 'object') ? school : findGladiatorSchool(campaign, school); }
+  function _resolveBout(campaign, bout){ return (bout && typeof bout === 'object') ? bout : findBout(campaign, bout); }
+  function _resolveGame(campaign, game){ return (game && typeof game === 'object') ? game : findGame(campaign, game); }
+
+  // Record-only event emit — the mortal-wounds / hijinks audit template (newEvent +
+  // setEventContext + push an APPLIED entry onto eventLog). The handler is registered in
+  // acks-engine-events.js (the labeled Gladiators block). Returns the event (or null).
+  function _emitGladiatorEvent(campaign, kind, payload, narrative, ctx){
+    const A = _A();
+    if(!campaign || !A || typeof A.newEvent !== 'function') return null;
+    const cal = (campaign && campaign.calendar) || {};
+    let ev;
+    try {
+      ev = A.newEvent(kind, {
+        submittedBy: 'engine', cadence: 'monthly-turn', targetTurn: (campaign && campaign.currentTurn) || 1,
+        gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: (campaign && campaign.currentDayInMonth) || 1 },
+        payload: Object.assign({ narrative }, payload || {})
+      });
+    } catch(_e){ return null; }
+    if(typeof A.setEventContext === 'function'){
+      try { A.setEventContext(ev, ctx || {}); } catch(_e){}
+    }
+    ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+    ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+    ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: (typeof ctx === 'object' && ctx && ctx.stamp) || null });
+    return ev;
+  }
+
+  // recruitGladiator(campaign, school, opts) — mint a gladiator Character into a school's
+  // roster (RAW p.23: buy-trained / buy-candidate / impress-prisoner). Mints via the shipped
+  // blankCharacter (socialTier:'gladiator'); the gladiator FIELDS are set defensively on the
+  // returned object (the G1 "no blankCharacter edit" discipline). GATED. The gp economy
+  // (rent/upkeep/P&L) is G3 — recruit records the cost in the event, debits nothing here.
+  //   opts = { name, method, gladiatorType, level, thrassian, controlledBy, alignment, rng }
+  // Returns { ok, character, costGp } or { ok:false, reason }.
+  function recruitGladiator(campaign, school, opts){
+    if(!campaign || typeof campaign !== 'object') return { ok:false, reason:'no-campaign' };
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const sch = _resolveSchool(campaign, school);
+    if(!sch) return { ok:false, reason:'no-school' };
+    opts = opts || {};
+    const method = opts.method || 'buy-trained';   // 'buy-trained' | 'buy-candidate' | 'impress-prisoner'
+    const lvl = Math.max(0, Math.min(5, (opts.level != null ? opts.level : 0) | 0));
+    const A = _A();
+    const typeRow = findGladiatorType(opts.gladiatorType);
+    const name = opts.name || ((typeRow ? typeRow.label : 'Gladiator') + ' recruit');
+    let ch;
+    if(typeof A.blankCharacter === 'function'){
+      ch = A.blankCharacter({ name, socialTier:'gladiator', controlledBy: opts.controlledBy || 'gm',
+        class: 'Gladiator', alignment: opts.alignment || 'N', level: lvl || 1 });
+    } else {
+      ch = { id: _newId('character', 'chr'), name, socialTier:'gladiator', controlledBy:'gm', class:'Gladiator', level: lvl || 1, xp:0, history:[] };
+    }
+    ch.level = lvl;                                  // honor level 0 (blankCharacter coerces 0→1)
+    // Gladiator fields (defensive — present only on gladiators; survey §3 / plan §3.1).
+    ch.gladiatorType       = typeRow ? typeRow.key : (opts.gladiatorType || null);
+    ch.gladiatorIsThrassian= !!opts.thrassian;
+    ch.arenaMorale         = (opts.arenaMorale != null) ? opts.arenaMorale : 1;   // 0..+2 bout-local bravery
+    ch.lanistaMorale       = (opts.lanistaMorale != null) ? opts.lanistaMorale : -4; // loyalty-to-owner (uprising axis)
+    ch.victoriesWon        = 0;
+    ch.boutsSurvived       = 0;
+    ch.sobriquet           = null;
+    ch.contractSchoolId    = sch.id;
+    ch.deadToTheGames      = false;
+    ch.lifecycleState      = (method === 'buy-candidate') ? 'candidate' : 'active';
+    if(!Array.isArray(campaign.characters)) campaign.characters = [];
+    campaign.characters.push(ch);
+    if(!Array.isArray(sch.gladiatorCharacterIds)) sch.gladiatorCharacterIds = [];
+    sch.gladiatorCharacterIds.push(ch.id);
+    const costGp = (method === 'buy-candidate' || method === 'impress-prisoner') ? CANDIDATE_COST_GP : gladiatorGpValue(ch, { thrassian: ch.gladiatorIsThrassian });
+    if(typeof A.addCharacterHistory === 'function'){
+      try { A.addCharacterHistory(campaign, ch, 'note', 'Joined ' + (sch.name || 'the school') + ' as a gladiator (' + method + ')'); } catch(_e){}
+    }
+    const narrative = name + ' joins ' + (sch.name || 'the school') + ' (' + method + ', ' + gladiatorRankForLevel(lvl) + ')';
+    _emitGladiatorEvent(campaign, 'gladiator-recruited', {
+      characterId: ch.id, schoolId: sch.id, method, gladiatorType: ch.gladiatorType, level: lvl, costGp
+    }, narrative, { settlementId: sch.settlementId || null,
+      relatedEntities: [{ kind:'gladiator-school', id: sch.id, role:'site' }, { kind:'character', id: ch.id, role:'subject' }] });
+    return { ok:true, character: ch, costGp };
+  }
+
+  // freeGladiator — a gladiator who earned freedom (10 victories / 15 bouts; RAW p.20) is
+  // manumitted: socialTier → 'independent', the gladiator contract goes dormant. GM-driven.
+  function freeGladiator(campaign, characterId){
+    const ch = (characterId && typeof characterId === 'object') ? characterId : _findChar(campaign, characterId);
+    if(!ch) return { ok:false, reason:'no-character' };
+    if(ch.socialTier !== 'gladiator') return { ok:false, reason:'not-a-gladiator' };
+    ch.socialTier = 'independent';
+    const schId = ch.contractSchoolId;
+    ch.contractSchoolId = null;
+    const sch = schId ? findGladiatorSchool(campaign, schId) : null;
+    if(sch && Array.isArray(sch.gladiatorCharacterIds)) sch.gladiatorCharacterIds = sch.gladiatorCharacterIds.filter(id => id !== ch.id);
+    const A = _A();
+    if(typeof A.addCharacterHistory === 'function'){ try { A.addCharacterHistory(campaign, ch, 'note', ch.name + ' wins their freedom from the arena'); } catch(_e){} }
+    return { ok:true, character: ch };
+  }
+
+  // scheduleBout — the gated create-a-bout verb (keeps a Game's boutIds in sync). Thin over
+  // createBout; the UI passes sideA/sideB combatant ids + kind + rentPaidGp + gameId.
+  function scheduleBout(campaign, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    opts = opts || {};
+    const b = createBout(campaign, opts);
+    if(!b) return { ok:false, reason:'no-campaign' };
+    b.createdAtTurn = (campaign && campaign.currentTurn) || b.createdAtTurn || 1;
+    if(opts.gameId){
+      const g = findGame(campaign, opts.gameId);
+      if(g){ if(!Array.isArray(g.boutIds)) g.boutIds = []; if(!g.boutIds.includes(b.id)) g.boutIds.push(b.id); }
+    }
+    return { ok:true, bout: b };
+  }
+
+  // Apply one combatant's Mortal Wound via the shipped Delves-D1 resolver. `killed` (the bout's
+  // own death determination) drives healedToOneHp (the battle-aftermath idiom, acks-engine-battles.js).
+  // For a survived loser whose natural roll lands an instantly-killed band, clamp to the worst
+  // SURVIVABLE band so the 1d10's "survived" verdict holds. Returns a compact wound descriptor.
+  function _applyBoutWound(campaign, ch, killed, rng){
+    const A = _A();
+    if(typeof A.rollMortalWound !== 'function' || typeof A.applyMortalWound !== 'function'){
+      if(killed){ ch.lifecycleState = 'deceased'; ch.alive = false; }    // D1 not loaded — bare death
+      return { conditionId: killed ? 'instantly-killed' : null, conditionLabel: killed ? 'Slain' : 'Survived', killed: !!killed, permanentWound: null };
+    }
+    let wound;
+    if(killed){
+      wound = A.rollMortalWound(ch, { conditionId:'mortally-wounded', damageType:'slashing', abstract:true, rng });
+      A.applyMortalWound(campaign, ch, wound, { healedToOneHp:false });   // 1–15 band + not healed → dies
+    } else {
+      wound = A.rollMortalWound(ch, { damageType:'slashing', abstract:true, rng });
+      if(wound.killed){   // a natural instantly-killed band, but the bout said SURVIVE → clamp to the worst survivable band
+        wound = A.rollMortalWound(ch, { conditionId:'mortally-wounded', damageType:'slashing', abstract:true, rng, forcedD6: wound.d6 });
+      }
+      A.applyMortalWound(campaign, ch, wound, { healedToOneHp:true });    // healed to 1hp → incapacitated + bed rest (+ any lasting wound)
+    }
+    return { conditionId: wound.conditionId, conditionLabel: wound.conditionLabel,
+             permanentWound: (wound.permanentWound && wound.permanentWound.effect) || null,
+             permanentWoundLasting: !!(wound.permanentWound && wound.permanentWound.lasting), killed: !!killed };
+  }
+
+  // resolveAndCommitBout(campaign, bout, opts) — run the abstract resolver, then COMMIT:
+  // mutate the bout (status/result), award the winners' XP + contract counters, route the
+  // losers through Mortal Wounds (the crowd decides a defeated-but-alive gladiator's fate —
+  // RAW p.27: Hateful/Bloodthirsty → slain; else lives), check level-ups, emit `bout-resolved`.
+  // Returns { ok, result, bout } or the resolver's refusal ({ ok:false, reason }).
+  function resolveAndCommitBout(campaign, bout, opts){
+    const b = _resolveBout(campaign, bout);
+    if(!b) return { ok:false, reason:'no-bout' };
+    if(b.status === 'resolved') return { ok:false, reason:'already-resolved' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const res = resolveBoutAbstract(campaign, b, { rng, roll: opts.roll });   // gates on gladiator-games
+    if(!res.ok) return res;
+    const result = res.result;
+    const A = _A();
+
+    // Winners: XP (= the defeated gp value, p.28) + the contract counters (a win is also a bout).
+    const freedomEarned = [];
+    for(const aw of (result.xpAwarded || [])){
+      const ch = _findChar(campaign, aw.characterId);
+      if(!ch) continue;
+      ch.xp = (Number(ch.xp) || 0) + (Number(aw.xp) || 0);
+      ch.victoriesWon = (Number(ch.victoriesWon) || 0) + 1;
+      ch.boutsSurvived = (Number(ch.boutsSurvived) || 0) + 1;
+      if(typeof A.addCharacterHistory === 'function'){ try { A.addCharacterHistory(campaign, ch, 'xp', '+' + (aw.xp||0) + ' XP — won an arena bout'); } catch(_e){} }
+      if(gladiatorEarnedFreedom(ch)) freedomEarned.push(ch.id);
+    }
+
+    // Losers: the crowd decides a defeated-but-alive gladiator's fate (RAW p.27).
+    for(const cas of (result.casualties || [])){
+      const ch = _findChar(campaign, cas.characterId);
+      if(!ch) continue;
+      let killed = (cas.outcome === 'slain');
+      if(!killed && (result.crowdReaction === 'hateful' || result.crowdReaction === 'bloodthirsty')){
+        killed = true; cas.outcome = 'slain'; cas.crowdKilled = true;   // the mob calls for death
+      }
+      cas.mortalWound = _applyBoutWound(campaign, ch, killed, rng);
+      if(!killed){
+        ch.boutsSurvived = (Number(ch.boutsSurvived) || 0) + 1;
+        if(gladiatorEarnedFreedom(ch) && freedomEarned.indexOf(ch.id) < 0) freedomEarned.push(ch.id);
+      } else if(ch.socialTier === 'gladiator'){
+        ch.deadToTheGames = true;
+      }
+    }
+    result.freedomEarned = freedomEarned;
+    try { if(typeof A.checkAllCharacterLevelUps === 'function') A.checkAllCharacterLevelUps(campaign); } catch(_e){}
+
+    // Commit the bout.
+    b.status = 'resolved';
+    b.resolvedAtTurn = (campaign && campaign.currentTurn) || 1;
+    b.result = result;
+    const game = b.gameId ? findGame(campaign, b.gameId) : null;
+    const winNames = (result.winnerSide === 'A' ? b.sideA : b.sideB).combatantIds
+      .map(id => { const c = _findChar(campaign, id); return c ? c.name : id; });
+    const narrative = 'Arena bout — ' + (winNames.join(', ') || 'Side ' + result.winnerSide) + ' prevail'
+      + (result.casualties.some(c => c.outcome === 'slain') ? ' (a gladiator falls)' : '')
+      + (freedomEarned.length ? ' — ' + freedomEarned.length + ' earn(s) freedom' : '');
+    if(!Array.isArray(b.history)) b.history = [];
+    b.history.push({ turn: b.resolvedAtTurn, type: 'resolved', summary: narrative });
+    const combatants = [].concat(b.sideA.combatantIds, b.sideB.combatantIds)
+      .map(id => ({ kind:'character', id, role:'combatant' }));
+    _emitGladiatorEvent(campaign, 'bout-resolved', {
+      boutId: b.id, gameId: b.gameId || null, kind: b.kind, winnerSide: result.winnerSide,
+      d10: result.d10, death: result.death, crowdReaction: result.crowdReaction,
+      casualties: result.casualties, xpAwarded: result.xpAwarded, freedomEarned
+    }, narrative, { settlementId: (game && game.settlementId) || null, relatedEntities:
+      [{ kind:'bout', id: b.id, role:'subject' }].concat(game ? [{ kind:'game', id: game.id, role:'site' }] : []).concat(combatants) });
+    return { ok:true, result, bout: b };
+  }
+
+  // holdGame(campaign, game, opts) — stage a Game/Munus: resolve every scheduled bout, mark
+  // it held, emit `gladiator-game-held`. GATED. Returns { ok, resolved:[…], game }.
+  function holdGame(campaign, game, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const g = _resolveGame(campaign, game);
+    if(!g) return { ok:false, reason:'no-game' };
+    if(g.status === 'held') return { ok:false, reason:'already-held' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const scheduled = boutsForGame(campaign, g.id).filter(b => b && b.status === 'scheduled');
+    const resolved = [];
+    for(const b of scheduled){
+      const r = resolveAndCommitBout(campaign, b, { rng });
+      if(r.ok) resolved.push({ boutId: b.id, winnerSide: r.result.winnerSide });
+    }
+    g.status = 'held';
+    g.heldAtTurn = (campaign && campaign.currentTurn) || 1;
+    if(!Array.isArray(g.history)) g.history = [];
+    const narrative = (g.name || 'The games') + ' are held — ' + resolved.length + ' bout(s) fought';
+    g.history.push({ turn: g.heldAtTurn, type: 'held', summary: narrative });
+    _emitGladiatorEvent(campaign, 'gladiator-game-held', {
+      gameId: g.id, settlementId: g.settlementId || null, boutCount: resolved.length, budgetGp: g.budgetGp || 0
+    }, narrative, { settlementId: g.settlementId || null, relatedEntities: [{ kind:'game', id: g.id, role:'subject' }] });
+    return { ok:true, resolved, game: g };
+  }
+
+  // ── G2 UI read helpers (defensive) ──
+  function gladiatorSchoolsList(campaign){ return _schools(campaign).slice(); }
+  function gamesList(campaign){ return _games(campaign).slice(); }
+  function boutsList(campaign){ return _bouts(campaign).slice(); }
+  // Bouts a school's gladiators are committed to (either side), optionally only scheduled.
+  function boutsForSchool(campaign, school, opts){
+    const sch = _resolveSchool(campaign, school); if(!sch) return [];
+    const ids = new Set(sch.gladiatorCharacterIds || []);
+    opts = opts || {};
+    return _bouts(campaign).filter(b => b && (!opts.scheduledOnly || b.status === 'scheduled') &&
+      [].concat(b.sideA.combatantIds, b.sideB.combatantIds).some(id => ids.has(id)));
+  }
+  // Is the Gladiators tab live? (the rule is on, OR a school already exists — dormant-until-used).
+  function gladiatorsSubsystemActive(campaign){
+    return _ruleOn(campaign, 'gladiator-games') || _schools(campaign).length > 0;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // constants
@@ -484,7 +755,11 @@
     findBout, boutsForGame, findGladiatorSchool, gladiatorSchoolsInSettlement,
     gladiatorSchoolsOfLanista, findGame, gamesInSettlement, gladiatorsOfSchool,
     // the abstract bout resolver
-    rollGladiatorBoutOutcome, rollCrowdReaction, resolveBoutAbstract
+    rollGladiatorBoutOutcome, rollCrowdReaction, resolveBoutAbstract,
+    // G2 — the arena: recruit · schedule · resolve-and-commit · hold a game · free
+    recruitGladiator, freeGladiator, scheduleBout, resolveAndCommitBout, holdGame,
+    // G2 UI reads
+    gladiatorSchoolsList, gamesList, boutsList, boutsForSchool, gladiatorsSubsystemActive
   });
 
 })(typeof window !== 'undefined' ? window : global);
