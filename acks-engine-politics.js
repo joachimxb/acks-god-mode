@@ -1753,6 +1753,349 @@
     return result;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // P-7 wizard (burst11 2026-06-20) — the generative SENATE-MATERIALIZATION WIZARD.
+  //   Spec: Phase_4_Politics_Plan.md §5.2 + §14 P-5/P-7; Politics_RAW_Survey.md §4.4 (the
+  //   7-step construction: size → requirements of office → leading senators → 1d3 objectives
+  //   → influence → factions → faction totals, RR pp.356–357). A GM/Action wizard: roll/derive
+  //   a senate for a realm's APEX domain and DRAW its leading senators from the realm's actual
+  //   NOTABLES (the SHIPPED demographics census — realmCommandStructure / findResidents, READ-
+  //   ONLY, never written), then MINT the shipped senate/faction/senatorship entities + set the
+  //   apex governance senatorial. STATIC materialization only — a senator carries his 1d3 policy
+  //   objectives as DATA; the autonomous NPC-goals layer (§13) is OUT (FENCED — no knowledge.js).
+  //   proposeSenateMaterialization is PURE + seeded (re-open reproduces; a new seed re-rolls);
+  //   materializeSenate applies a passed/recomputed plan + emits ONE record-only event
+  //   (senate-materialized; the verb-applies-state + emits pattern, the P-2/P-3/P-5/P-7 precedent).
+  //   NO new entity / prefix / collection / house rule / migration — only the shipped sen-/fac-/
+  //   snr- factories + the governance sub-tree + ONE new event kind.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // RR p.357 — Size of the Senate (by realm families). Contiguous upper-bound bands (the book's
+  // 52,000→53,000 / 363,000→364,000 / 1,499,000→1,500,001 gaps are rounding — made contiguous).
+  const SENATE_SIZE_BANDS = Object.freeze([
+    Object.freeze({ maxFamilies: 4599,     minSeats: 4,   maxSeats: 15 }),
+    Object.freeze({ maxFamilies: 52000,    minSeats: 4,   maxSeats: 50 }),
+    Object.freeze({ maxFamilies: 363000,   minSeats: 16,  maxSeats: 225 }),
+    Object.freeze({ maxFamilies: 1499000,  minSeats: 51,  maxSeats: 1500 }),
+    Object.freeze({ maxFamilies: Infinity, minSeats: 225, maxSeats: 6000 })
+  ]);
+  function senateSizeBandForFamilies(families){
+    const f = Math.max(0, Number(families) || 0);
+    return SENATE_SIZE_BANDS.find(b => f <= b.maxFamilies) || SENATE_SIZE_BANDS[SENATE_SIZE_BANDS.length - 1];
+  }
+
+  // RR p.357 — Senate Characteristics (by seat count). minLevelDelta = ruler level − N (the senator
+  // bar is INVERSE to size). leading/influence are dice descriptors {n,d,plus?,mult?} for _rollDice.
+  const SENATE_CHARACTERISTICS = Object.freeze([
+    Object.freeze({ maxSeats: 15,       minLevelDelta: -1, leading:{n:1,d:4},        influence:{n:2,d:3} }),
+    Object.freeze({ maxSeats: 50,       minLevelDelta: -3, leading:{n:2,d:6},        influence:{n:2,d:6} }),
+    Object.freeze({ maxSeats: 225,      minLevelDelta: -5, leading:{n:2,d:6,plus:3}, influence:{n:2,d:6,mult:3} }),
+    Object.freeze({ maxSeats: 1500,     minLevelDelta: -7, leading:{n:3,d:6,plus:2}, influence:{n:2,d:10,mult:5} }),
+    Object.freeze({ maxSeats: Infinity, minLevelDelta: -9, leading:{n:4,d:6,plus:1}, influence:{n:2,d:10,mult:20} })
+  ]);
+  function senateCharacteristicsForSeats(seats){
+    const s = Math.max(0, Number(seats) || 0);
+    return SENATE_CHARACTERISTICS.find(b => s <= b.maxSeats) || SENATE_CHARACTERISTICS[SENATE_CHARACTERISTICS.length - 1];
+  }
+
+  // RR p.357 — Requirements of Office (by min senator level, clamped [3,11]). The Judge's in-world bar
+  // + the per-period BRIBE cost (copied onto each senatorship's bribeCostByPeriod, RR p.357 — the P-4
+  // influence machinery reads it).
+  const REQUIREMENTS_OF_OFFICE = Object.freeze({
+    3:  Object.freeze({ title:'Baron',    netWorthGp:5000,    landDescription:'5 × 1.5-mi hexes',  families:40,   bribe:{ day:4,    week:25,   month:100,   year:1200 } }),
+    4:  Object.freeze({ title:'Baron',    netWorthGp:10000,   landDescription:'7 × 1.5-mi hexes',  families:80,   bribe:{ day:7,    week:50,   month:200,   year:2400 } }),
+    5:  Object.freeze({ title:'Baron',    netWorthGp:20000,   landDescription:'12 × 1.5-mi hexes', families:160,  bribe:{ day:15,   week:100,  month:400,   year:4800 } }),
+    6:  Object.freeze({ title:'Viscount', netWorthGp:38000,   landDescription:'1 × 6-mi hex',      families:285,  bribe:{ day:25,   week:200,  month:800,   year:9600 } }),
+    7:  Object.freeze({ title:'Count',    netWorthGp:75000,   landDescription:'2 × 6-mi hexes',    families:550,  bribe:{ day:50,   week:400,  month:1600,  year:19200 } }),
+    8:  Object.freeze({ title:'Count',    netWorthGp:150000,  landDescription:'3 × 6-mi hexes',    families:1200, bribe:{ day:100,  week:750,  month:3000,  year:36000 } }),
+    9:  Object.freeze({ title:'Duke',     netWorthGp:350000,  landDescription:'4 × 6-mi hexes',    families:2650, bribe:{ day:250,  week:1800, month:7250,  year:87000 } }),
+    10: Object.freeze({ title:'Duke',     netWorthGp:500000,  landDescription:'5 × 6-mi hexes',    families:3750, bribe:{ day:400,  week:3000, month:12000, year:144000 } }),
+    11: Object.freeze({ title:'Prince',   netWorthGp:1125000, landDescription:'10 × 6-mi hexes',   families:8500, bribe:{ day:1000, week:8000, month:32000, year:384000 } })
+  });
+  function requirementsOfOfficeForLevel(level){
+    const lv = Math.max(3, Math.min(11, Math.round(Number(level) || 3)));
+    return REQUIREMENTS_OF_OFFICE[lv];
+  }
+
+  // A tiny self-contained seeded PRNG (FNV-1a → mulberry32) so the wizard preview is byte-stable
+  // across re-opens (same inputs → same plan), the project's day-tick/encounter idiom. Kept self-
+  // contained (not subsystems' un-exported _jHash32) per the module's late-bind discipline.
+  function _polHash32(str){ let h = 0x811c9dc5; const s = String(str); for(let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h >>> 0; }
+  function _polMulberry32(seed){ let a = seed >>> 0; return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  // Roll a dice descriptor {n,d,plus?,mult?}: (n d-sided dice + plus) × mult.
+  function _rollDice(desc, rng){
+    const r = (typeof rng === 'function') ? rng : Math.random;
+    let sum = 0; const n = (desc && desc.n) || 0, d = (desc && desc.d) || 1;
+    for(let i = 0; i < n; i++) sum += 1 + Math.floor(r() * d);
+    sum += (desc && desc.plus) || 0;
+    if(desc && desc.mult) sum *= desc.mult;
+    return sum;
+  }
+  function _diceLabel(desc){
+    if(!desc) return '';
+    let s = ((desc.n) || 0) + 'd' + ((desc.d) || 0);
+    if(desc.plus) s += '+' + desc.plus;
+    if(desc.mult) s += '×' + desc.mult;
+    return s;
+  }
+  function _humanizeObjective(key){ return String(key || '').split('-').map(w => w ? (w.charAt(0).toUpperCase() + w.slice(1)) : '').join(' '); }
+
+  // RAW "re-roll conflicts" (RR p.357 step 4): a senator never holds a contradictory pair.
+  const _OBJECTIVE_CONFLICTS = Object.freeze({
+    'increase-army':'decrease-army', 'decrease-army':'increase-army',
+    'increase-navy':'decrease-navy', 'decrease-navy':'increase-navy',
+    'replace-ruler':'preserve-ruler', 'preserve-ruler':'replace-ruler',
+    'conquer-neighbor':'make-peace', 'make-peace':'conquer-neighbor',
+    'decrease-peasant-taxes':'increase-peasant-taxes', 'increase-peasant-taxes':'decrease-peasant-taxes',
+    'support-existing-faith':'introduce-new-faith', 'introduce-new-faith':'support-existing-faith'
+  });
+  // 1d3 distinct, non-conflicting policy objectives (RR p.357 step 4 — each leading senator rolls 1d3
+  // of the 1d20 table; the shipped POLICY_OBJECTIVES IS that table in order).
+  function _rollObjectives(rng){
+    const r = (typeof rng === 'function') ? rng : Math.random;
+    const count = 1 + Math.floor(r() * 3);
+    const out = []; let guard = 0;
+    while(out.length < count && guard++ < 60){
+      const o = POLICY_OBJECTIVES[Math.floor(r() * POLICY_OBJECTIVES.length)];
+      if(out.indexOf(o) >= 0) continue;
+      if(out.indexOf(_OBJECTIVE_CONFLICTS[o]) >= 0) continue;
+      out.push(o);
+    }
+    return out;
+  }
+
+  // Cluster leading senators into factions by COMPATIBLE policy objectives (RR p.357 step 6): any two
+  // senators sharing ≥1 objective join the same faction (union-find over shared objectives); a senator
+  // sharing none forms his own faction. Each faction's platform = its objectives by frequency. Returns
+  // [{ memberIdx:[i…], policyObjectives:[keys], dominant }] in descending member-count order.
+  function _clusterFactions(senators){
+    const n = senators.length;
+    const parent = []; for(let i = 0; i < n; i++) parent[i] = i;
+    const find = x => { while(parent[x] !== x){ parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    const union = (a, b) => { parent[find(a)] = find(b); };
+    const byObj = {};
+    senators.forEach((s, i) => (s.objectives || []).forEach(o => { (byObj[o] = byObj[o] || []).push(i); }));
+    Object.keys(byObj).forEach(o => { const arr = byObj[o]; for(let k = 1; k < arr.length; k++) union(arr[0], arr[k]); });
+    const comp = {};
+    senators.forEach((s, i) => { const root = find(i); (comp[root] = comp[root] || []).push(i); });
+    return Object.keys(comp).map(root => {
+      const memberIdx = comp[root];
+      const counts = {};
+      memberIdx.forEach(i => (senators[i].objectives || []).forEach(o => { counts[o] = (counts[o] || 0) + 1; }));
+      const objKeys = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || POLICY_OBJECTIVES.indexOf(a) - POLICY_OBJECTIVES.indexOf(b));
+      return { memberIdx, policyObjectives: objKeys, dominant: objKeys[0] || '' };
+    }).sort((a, b) => b.memberIdx.length - a.memberIdx.length);
+  }
+
+  // The realm's NOTABLE NPCs — the pool the wizard seats as leading senators (RR: the Judge names the
+  // leading senators; here they are DRAWN from the realm's actual notables). READ-ONLY over the SHIPPED
+  // demographics census (realmCommandStructure — office-holders/entourage/vassal-lords; findResidents —
+  // the realm's high-level homed residents), plus GM-supplied extras. Excludes the apex RULER (the
+  // senate constrains him — he is not a senator) + the deceased. Deduped by character id; sorted by
+  // level desc. Defensive: a thin realm with no homed residents still yields its vassal lords +
+  // magistrates via realmCommandStructure (which needs no homeSettlementId). opts.minLevel filters.
+  //   opts: { minLevel, extraCharacterIds[] }
+  function senateMaterializeCandidates(campaign, apexDomainOrId, opts){
+    opts = opts || {};
+    const A = _A();
+    const apex = realmApexDomain(campaign, (typeof apexDomainOrId === 'string') ? _findDomain(campaign, apexDomainOrId) : apexDomainOrId);
+    if(!apex) return [];
+    const rulerId = apex.rulerCharacterId || null;
+    const minLevel = (opts.minLevel != null) ? Number(opts.minLevel) : null;
+    const byId = new Map();
+    const add = (charId, source) => {
+      if(!charId || charId === rulerId || byId.has(charId)) return;
+      const ch = _findChar(campaign, charId);
+      if(!ch || ch.lifecycleState === 'deceased') return;
+      const level = Number(ch.level) || 1;
+      if(minLevel != null && level < minLevel) return;
+      byId.set(charId, { characterId: charId, name: ch.name || '(unnamed)', level, class: ch.class || '', source: source || '' });
+    };
+    // 1. realmCommandStructure — office-holders (skip the ruler office), entourage, vassal lords.
+    if(typeof A.realmCommandStructure === 'function'){
+      let cs = null; try { cs = A.realmCommandStructure(campaign, apex.id); } catch(e){ cs = null; }
+      if(cs){
+        (cs.offices || []).forEach(off => { if(off && off.mapsTo !== 'ruler' && off.holder && off.holder.id) add(off.holder.id, off.label || 'office'); });
+        (cs.entourageOther || []).forEach(e => { if(e && e.id) add(e.id, 'court'); });
+        (cs.vassalLords || []).forEach(vl => { if(vl && vl.rulerId) add(vl.rulerId, 'vassal lord of ' + (vl.domainName || 'a domain')); });
+      }
+    }
+    // 2. findResidents — the realm's high-level homed residents (the broader notable pool).
+    if(typeof A.findResidents === 'function'){
+      let residents = [];
+      try { residents = A.findResidents(campaign, { domainId: apex.id, includeVassals: true, minLevel: (minLevel != null ? minLevel : undefined) }) || []; }
+      catch(e){ residents = []; }
+      residents.forEach(r => { if(r && r.id) add(r.id, 'notable resident' + (r.settlementName ? ' of ' + r.settlementName : '')); });
+    }
+    // 3. GM-supplied extras (the UI lets the GM seat anyone).
+    (Array.isArray(opts.extraCharacterIds) ? opts.extraCharacterIds : []).forEach(id => add(id, 'GM'));
+    return Array.from(byId.values()).sort((a, b) => b.level - a.level || (a.name || '').localeCompare(b.name || ''));
+  }
+
+  // PROPOSE (pure, seeded) — the full 7-step plan for a realm's senate, WITHOUT mutating the campaign.
+  // The GM reviews/overrides + passes it back to materializeSenate (the propose-review-commit idiom).
+  //   opts: { domainId | apexDomain, seats (GM override, clamped to the band), seed, rng,
+  //           extraCharacterIds[], turn }
+  function proposeSenateMaterialization(campaign, opts){
+    opts = opts || {};
+    const apex = realmApexDomain(campaign, opts.apexDomain || _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    const A = _A();
+    const realmFamilies = (typeof A.realmFamiliesForDomain === 'function') ? (Number(A.realmFamiliesForDomain(campaign, apex)) || 0) : 0;
+    const band = senateSizeBandForFamilies(realmFamilies);
+    let seats = (opts.seats != null) ? Math.round(Number(opts.seats)) : band.minSeats;
+    seats = Math.max(band.minSeats, Math.min(band.maxSeats, seats));
+    const chars = senateCharacteristicsForSeats(seats);
+    const ruler = _findChar(campaign, apex.rulerCharacterId);
+    const rulerLevel = ruler ? (Number(ruler.level) || 1) : 1;
+    const minSenatorLevel = Math.max(1, rulerLevel + chars.minLevelDelta);
+    const requirements = requirementsOfOfficeForLevel(minSenatorLevel);
+
+    const seed = (opts.seed != null) ? opts.seed : 1;
+    const rng = (typeof opts.rng === 'function') ? opts.rng
+      : _polMulberry32(_polHash32(apex.id + '|' + seats + '|' + realmFamilies + '|' + seed));
+
+    // step 3 — leading-senator count (rolled); draw that many real realm notables (highest-level first)
+    const rolledLeadingCount = Math.max(1, _rollDice(chars.leading, rng));
+    const pool = senateMaterializeCandidates(campaign, apex, { minLevel: minSenatorLevel, extraCharacterIds: opts.extraCharacterIds });
+    const poolSize = pool.length;
+    const seatCount0 = Math.min(rolledLeadingCount, poolSize);
+    // step 5 — an influence value per leading senator; sort desc so the most notable carries the most.
+    const influences = [];
+    for(let i = 0; i < seatCount0; i++) influences.push(Math.max(1, _rollDice(chars.influence, rng)));
+    influences.sort((a, b) => b - a);
+    let seated = pool.slice(0, seatCount0).map((cand, i) => ({
+      characterId: cand.characterId, name: cand.name, level: cand.level, class: cand.class, source: cand.source,
+      votes: influences[i] || 1
+    }));
+    // RAW influence accounting (RR p.357): if Σ influence > seats, drop the least-influential leading
+    // senators until it fits.
+    seated.sort((a, b) => b.votes - a.votes);
+    let runTotal = seated.reduce((s, x) => s + x.votes, 0);
+    while(seated.length > 1 && runTotal > seats){ runTotal -= seated.pop().votes; }
+    // step 4 — 1d3 policy objectives each; step 6 — cluster into factions
+    seated.forEach(s => { s.objectives = _rollObjectives(rng); });
+    const clusters = _clusterFactions(seated);
+    clusters.forEach((cl, fi) => cl.memberIdx.forEach(i => { seated[i].factionIndex = fi; }));
+    const factions = clusters.map((cl, fi) => {
+      const members = cl.memberIdx.map(i => seated[i]);
+      return { index: fi,
+        name: cl.dominant ? (_humanizeObjective(cl.dominant) + ' faction') : ('Faction ' + (fi + 1)),
+        platform: cl.policyObjectives.map(_humanizeObjective).join(', '),
+        policyObjectives: cl.policyObjectives.slice(),
+        memberCharacterIds: members.map(m => m.characterId),
+        totalVotes: members.reduce((s, x) => s + x.votes, 0) };
+    });
+    // step 7 — independent minor votes + the derived ruling/leading faction (display; the shipped
+    // senateRulingFactionId reproduces this after minting — they share the same totals + threshold).
+    const seatedInfluence = seated.reduce((s, x) => s + x.votes, 0);
+    const independentMinorVotes = Math.max(0, seats - seatedInfluence);
+    const totalSeatPool = seatedInfluence + independentMinorVotes;
+    const majority = Math.floor(totalSeatPool / 2) + 1;
+    let rulingFactionIndex = -1, leadingFactionIndex = -1, best = 0, tie = false;
+    factions.forEach(f => {
+      if(f.totalVotes >= majority && rulingFactionIndex < 0) rulingFactionIndex = f.index;
+      if(f.totalVotes > best){ best = f.totalVotes; leadingFactionIndex = f.index; tie = false; }
+      else if(f.totalVotes === best && f.totalVotes > 0){ tie = true; }
+    });
+    if(rulingFactionIndex >= 0) leadingFactionIndex = rulingFactionIndex;
+    else if(tie || best === 0) leadingFactionIndex = -1;
+    factions.forEach(f => { f.standing = (f.index === rulingFactionIndex) ? 'ruling' : (f.index === leadingFactionIndex ? 'leading' : 'minor'); });
+
+    return {
+      ok: true, apexDomainId: apex.id, apexName: apex.name || apex.id, realmFamilies,
+      minSeats: band.minSeats, maxSeats: band.maxSeats, seats,
+      rulerCharacterId: apex.rulerCharacterId || null, rulerName: ruler ? (ruler.name || '(unnamed)') : null, rulerLevel,
+      minSenatorLevel, leadingDiceLabel: _diceLabel(chars.leading), influenceDiceLabel: _diceLabel(chars.influence),
+      requirements: { minLevel: minSenatorLevel, title: requirements.title, netWorthGp: requirements.netWorthGp,
+        landDescription: requirements.landDescription, families: requirements.families, bribe: Object.assign({}, requirements.bribe) },
+      senators: seated, factions, independentMinorVotes,
+      rolledLeadingCount, seatedCount: seated.length, poolSize, poolShort: poolSize < rolledLeadingCount,
+      rulingFactionIndex, leadingFactionIndex, seed
+    };
+  }
+
+  // COMMIT — apply a senate plan: mint the shipped senate/faction/senatorship entities, set the apex
+  // governance senatorial, and emit ONE record-only `senate-materialized` event. Guard: refuses if the
+  // apex already has a live senate (unless opts.replace). Pass opts.plan (the reviewed propose* result)
+  // for byte-exact commit; else recomputes from opts (seed/seats). NO new collection/migration — the
+  // three collections are init-on-write (the importer ensures them on load).
+  //   opts: { domainId | apexDomain, plan, seats, seed, extraCharacterIds[], turn, emit, replace,
+  //           kind, name }  → { ok, senate, factions[], senatorships[], plan } | { ok:false, reason }
+  function materializeSenate(campaign, opts){
+    opts = opts || {};
+    const apex = realmApexDomain(campaign, opts.apexDomain || _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    const existing = senateForRealm(campaign, apex.id);
+    if(existing && existing.status !== 'dissolved' && !opts.replace) return { ok:false, reason:'senate-exists', senateId: existing.id };
+    const plan = (opts.plan && opts.plan.ok) ? opts.plan
+      : proposeSenateMaterialization(campaign, Object.assign({}, opts, { apexDomain: apex }));
+    if(!plan || !plan.ok) return { ok:false, reason: (plan && plan.reason) || 'no-plan' };
+    const turn = _turnOf(campaign, opts);
+
+    if(!Array.isArray(campaign.senates)) campaign.senates = [];
+    if(!Array.isArray(campaign.factions)) campaign.factions = [];
+    if(!Array.isArray(campaign.senatorships)) campaign.senatorships = [];
+
+    const req = plan.requirements;
+    const senate = blankSenate({
+      realmDomainId: apex.id,
+      name: opts.name || (plan.apexName + ' Senate'),
+      kind: opts.kind || 'senate',
+      seats: plan.seats,
+      minSenatorLevel: plan.minSenatorLevel,
+      requirementsOfOffice: {
+        minLevel: req.minLevel, title: req.title, netWorthGp: req.netWorthGp,
+        landDescription: req.landDescription, families: req.families,
+        bribeCostDay: req.bribe.day, bribeCostWeek: req.bribe.week, bribeCostMonth: req.bribe.month, bribeCostYear: req.bribe.year
+      },
+      independentMinorSenatorVotes: plan.independentMinorVotes,
+      establishedAtTurn: turn,
+      history: [{ turn, type: 'materialized', seats: plan.seats, leadingSenators: plan.seatedCount, families: plan.realmFamilies }]
+    });
+    campaign.senates.push(senate);
+
+    const factionIdByIndex = {};
+    plan.factions.forEach(f => {
+      const fac = blankFaction({
+        name: f.name, platform: f.platform, senateId: senate.id, realmDomainId: apex.id,
+        policyObjectives: (f.policyObjectives || []).slice(), kind: f.standing || 'minor'
+      });
+      campaign.factions.push(fac);
+      factionIdByIndex[f.index] = fac.id;
+    });
+
+    const senatorships = [];
+    plan.senators.forEach(s => {
+      const seat = blankSenatorship({
+        senatorCharacterId: s.characterId, senateId: senate.id, rank: 'leading', votes: s.votes,
+        factionId: (s.factionIndex != null) ? (factionIdByIndex[s.factionIndex] || null) : null,
+        policyObjectives: (s.objectives || []).slice(),
+        bribeCostByPeriod: { day: req.bribe.day, week: req.bribe.week, month: req.bribe.month, year: req.bribe.year },
+        isSecretInfluence: true, seatedAtTurn: turn,
+        history: [{ turn, type: 'materialized', source: s.source || '' }]
+      });
+      campaign.senatorships.push(seat);
+      senatorships.push(seat);
+    });
+
+    setDomainGovernance(campaign, apex.id, { mode: 'senatorial', senateId: senate.id });
+    _ensureGovernanceHistory(apex).push({ turn, type: 'senate-materialized', senateId: senate.id, seats: plan.seats, leadingSenators: senatorships.length });
+
+    if(opts.emit !== false){
+      _emitPoliticsEvent(campaign, 'senate-materialized', {
+        senateId: senate.id, apexDomainId: apex.id, seats: plan.seats, leadingSenators: senatorships.length,
+        factions: plan.factions.length, independentMinorVotes: plan.independentMinorVotes,
+        realmFamilies: plan.realmFamilies, minSenatorLevel: plan.minSenatorLevel,
+        narrative: 'A ' + plan.seats + '-seat senate is convened over ' + (apex.name || 'the realm') + ' — ' +
+          senatorships.length + ' leading senators in ' + plan.factions.length + ' faction' + (plan.factions.length === 1 ? '' : 's') + ' (RR pp.355–360).'
+      }, senate, apex.rulerCharacterId || null, senatorships.map(s => ({ senatorCharacterId: s.senatorCharacterId })));
+    }
+    return { ok: true, senate,
+      factions: plan.factions.map(f => findFaction(campaign, factionIdByIndex[f.index])).filter(Boolean),
+      senatorships, plan };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
@@ -1784,7 +2127,11 @@
     // P-7 — Eldermoot vocabulary + the rule-of-the-few oligarchy mode (burst10)
     RULE_OF_THE_FEW, SENATE_KINDS, OLIGARCHY_DECISION_RULES,
     isEldermoot, senateKindLabel,
-    establishOligarchy, dissolveOligarchy, secedeFromOligarchy, resolveOligarchyDecision
+    establishOligarchy, dissolveOligarchy, secedeFromOligarchy, resolveOligarchyDecision,
+    // === Politics P-7 wizard (burst11) === — the generative Senate-Materialization Wizard
+    SENATE_SIZE_BANDS, SENATE_CHARACTERISTICS, REQUIREMENTS_OF_OFFICE,
+    senateSizeBandForFamilies, senateCharacteristicsForSeats, requirementsOfOfficeForLevel,
+    senateMaterializeCandidates, proposeSenateMaterialization, materializeSenate
   });
 
 })(typeof window !== 'undefined' ? window : global);

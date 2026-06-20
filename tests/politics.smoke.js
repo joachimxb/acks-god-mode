@@ -1057,6 +1057,162 @@ ok('P-7 adds nothing to migrateCampaign (governanceHistory is init-on-write only
 })());
 
 // =============================================================================
+// P-7 wizard (burst11) — the generative Senate-Materialization Wizard.
+// Politics_RAW_Survey.md §4.4 (the 7-step construction); Phase_4_Politics_Plan.md §5.2.
+// Covers the RAW tables (size / characteristics / requirements incl. the RR p.357 Auran 600-seat
+// example), the candidate pool (reads the SHIPPED demographics census — realmCommandStructure office-
+// holders + GM extras; excludes the ruler + deceased; dedups), proposeSenateMaterialization (seeded
+// determinism + purity + seats clamp + poolShort + influence accounting + faction clustering +
+// independent votes), and materializeSenate (mints sen-/fac-/snr- + sets governance senatorial +
+// emits the record-only senate-materialized + the shipped derived tally reproduces the plan + no new
+// prefix/collection).
+// =============================================================================
+section('P-7 wizard — the RAW construction tables (RR p.357)');
+
+ok('senateSizeBandForFamilies — < 4,600 → 4..15', (function(){ const b = ACKS.senateSizeBandForFamilies(4000); return b.minSeats === 4 && b.maxSeats === 15; })());
+ok('senateSizeBandForFamilies — 4,600 → 4..50', (function(){ const b = ACKS.senateSizeBandForFamilies(4600); return b.minSeats === 4 && b.maxSeats === 50; })());
+ok('senateSizeBandForFamilies — 52,000 → 4..50 (lower band edge)', (function(){ const b = ACKS.senateSizeBandForFamilies(52000); return b.minSeats === 4 && b.maxSeats === 50; })());
+ok('senateSizeBandForFamilies — 53,000 → 16..225 (contiguous over the book gap)', (function(){ const b = ACKS.senateSizeBandForFamilies(53000); return b.minSeats === 16 && b.maxSeats === 225; })());
+ok('senateSizeBandForFamilies — 364,000 → 51..1,500', (function(){ const b = ACKS.senateSizeBandForFamilies(364000); return b.minSeats === 51 && b.maxSeats === 1500; })());
+ok('senateSizeBandForFamilies — 2,000,000 → 225..6,000', (function(){ const b = ACKS.senateSizeBandForFamilies(2000000); return b.minSeats === 225 && b.maxSeats === 6000; })());
+
+ok('senateCharacteristicsForSeats — 8 seats → ruler−1, 1d4 / 2d3', (function(){ const c = ACKS.senateCharacteristicsForSeats(8); return c.minLevelDelta === -1 && c.leading.n === 1 && c.leading.d === 4 && c.influence.n === 2 && c.influence.d === 3; })());
+ok('senateCharacteristicsForSeats — 30 seats → ruler−3, 2d6 / 2d6', (function(){ const c = ACKS.senateCharacteristicsForSeats(30); return c.minLevelDelta === -3 && c.leading.n === 2 && c.leading.d === 6 && c.influence.n === 2 && c.influence.d === 6; })());
+ok('senateCharacteristicsForSeats — 600 seats → ruler−7, 3d6+2 / 2d10×5 (the Auran example)', (function(){ const c = ACKS.senateCharacteristicsForSeats(600); return c.minLevelDelta === -7 && c.leading.n === 3 && c.leading.d === 6 && c.leading.plus === 2 && c.influence.n === 2 && c.influence.d === 10 && c.influence.mult === 5; })());
+
+ok('requirementsOfOfficeForLevel — 7 → Count, 75,000gp, 550 fam, bribe 50/400/1600/19200', (function(){ const r = ACKS.requirementsOfOfficeForLevel(7); return r.title === 'Count' && r.netWorthGp === 75000 && r.families === 550 && r.bribe.day === 50 && r.bribe.week === 400 && r.bribe.month === 1600 && r.bribe.year === 19200; })());
+ok('requirementsOfOfficeForLevel — clamps below 3 → the level-3 row', (function(){ const r = ACKS.requirementsOfOfficeForLevel(1); return r.title === 'Baron' && r.netWorthGp === 5000; })());
+ok('requirementsOfOfficeForLevel — clamps above 11 → the level-11 row (Prince)', (function(){ const r = ACKS.requirementsOfOfficeForLevel(14); return r.title === 'Prince' && r.netWorthGp === 1125000; })());
+
+// — a fixture: a realm apex with a ruler + a magistrate office-holder + GM-addable notables.
+//   `families` drives realmFamiliesForDomain → the senate-size band (default 0 → the 4..15 band). —
+function genFix(rulerLevel, families){
+  return {
+    schemaVersion: 2, currentTurn: 5,
+    domains: [
+      { id:'dom-apex', name:'Aura', liegeId:null, rulerCharacterId:'chr-ruler',
+        magistrates:{ captainOfGuard:{ characterId:'chr-mag1' } }, demographics:{ peasantFamilies: families || 0 } }
+    ],
+    characters: [
+      { id:'chr-ruler', name:'The Imperator', level: rulerLevel || 14, class:'Fighter' },
+      { id:'chr-mag1',  name:'Sir Garric',   level: 8, class:'Fighter' },
+      { id:'chr-dead',  name:'Old Cassius',  level: 9, class:'Mage', lifecycleState:'deceased' },
+      { id:'chr-a',     name:'Lady Vorena',  level: 7, class:'Crusader' },
+      { id:'chr-b',     name:'Marcus Pyle',  level: 6, class:'Venturer' },
+      { id:'chr-c',     name:'Tullia Brand', level: 5, class:'Thief' },
+      { id:'chr-d',     name:'Drusus Vale',  level: 5, class:'Explorer' }
+    ],
+    senates: [], factions: [], senatorships: [], vassalages: [], eventLog: [], houseRules: {}
+  };
+}
+
+section('P-7 wizard — senateMaterializeCandidates (reads the demographics census, READ-ONLY)');
+(function(){
+  const c = genFix(14);
+  const pool = ACKS.senateMaterializeCandidates(c, 'dom-apex', { minLevel: 5, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-a'] });
+  const ids = pool.map(p => p.characterId);
+  ok('draws the magistrate office-holder (realmCommandStructure)', ids.indexOf('chr-mag1') >= 0);
+  ok('includes GM extras', ids.indexOf('chr-a') >= 0 && ids.indexOf('chr-b') >= 0 && ids.indexOf('chr-c') >= 0);
+  ok('EXCLUDES the apex ruler (a senate constrains him — not a senator)', ids.indexOf('chr-ruler') < 0);
+  ok('EXCLUDES the deceased', ids.indexOf('chr-dead') < 0);
+  ok('dedupes a doubly-added candidate', ids.filter(x => x === 'chr-a').length === 1);
+  ok('sorted by level desc (mag1 L8 first)', pool[0] && pool[0].characterId === 'chr-mag1');
+  ok('minLevel filters (chr-c L5 out at minLevel 6)',
+    ACKS.senateMaterializeCandidates(c, 'dom-apex', { minLevel: 6, extraCharacterIds: ['chr-c'] }).map(p=>p.characterId).indexOf('chr-c') < 0);
+  ok('candidate gather mutates nothing', c.senates.length === 0 && c.factions.length === 0 && c.characters.length === 7);
+})();
+
+section('P-7 wizard — proposeSenateMaterialization (pure, seeded; RR p.357 steps)');
+(function(){
+  // the RR p.357 Auran example: 14th ruler, a realm in the 226..1,500-seat band → 600 seats allowed →
+  // min level 7, 3d6+2 leading, 2d10×5 influence
+  const c = genFix(14, 500000);
+  const p = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 600, seed: 1, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-d'] });
+  ok('plan ok', p.ok === true);
+  ok('seats = 600 (within the band)', p.seats === 600 && p.minSeats === 51 && p.maxSeats === 1500);
+  ok('min senator level = ruler 14 − 7 = 7 (the Auran example)', p.minSenatorLevel === 7);
+  ok('leading/influence dice labels (3d6+2 / 2d10×5)', p.leadingDiceLabel === '3d6+2' && p.influenceDiceLabel === '2d10×5');
+  ok('requirements row = Count', p.requirements.title === 'Count' && p.requirements.bribe.month === 1600);
+  // at min level 7 only chr-mag1 (L8) + chr-a (L7) qualify → poolShort vs a 3d6+2 rolled count
+  ok('pool filtered to level ≥ 7 (mag1 + Vorena)', p.poolSize === 2);
+  ok('poolShort flagged (rolled leading count > pool of 2)', p.poolShort === true && p.seatedCount <= 2);
+  ok('senators are REAL realm notables (not invented)', p.senators.every(s => ['chr-mag1','chr-a'].indexOf(s.characterId) >= 0));
+  ok('independent minor votes = seats − Σ seated influence', p.independentMinorVotes === Math.max(0, 600 - p.senators.reduce((s,x)=>s+x.votes,0)));
+  ok('propose mutates nothing', c.senates.length === 0 && c.factions.length === 0 && c.senatorships.length === 0 && c.eventLog.length === 0);
+  const p2 = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 600, seed: 1, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-d'] });
+  ok('seeded determinism — same seed → identical plan', JSON.stringify(p) === JSON.stringify(p2));
+  const p3 = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 600, seed: 2, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-d'] });
+  ok('a new seed re-rolls (plan differs)', JSON.stringify(p) !== JSON.stringify(p3));
+})();
+
+(function(){
+  // a low-level ruler + a richer pool → multiple seated senators + real factions
+  const c = genFix(6);
+  const p = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 12, seed: 7, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-d'] });
+  ok('seats clamps to the 4..15 band (12 ok)', p.seats === 12 && p.minSeats === 4 && p.maxSeats === 15);
+  ok('min level = ruler 6 − 1 = 5', p.minSenatorLevel === 5);
+  ok('each senator carries 1d3 (1..3) policy objectives', p.senators.every(s => s.objectives.length >= 1 && s.objectives.length <= 3));
+  ok('objectives are valid POLICY_OBJECTIVES keys', p.senators.every(s => s.objectives.every(o => ACKS.POLICY_OBJECTIVES.indexOf(o) >= 0)));
+  ok('no senator holds a contradictory objective pair', p.senators.every(s => !(s.objectives.indexOf('increase-army') >= 0 && s.objectives.indexOf('decrease-army') >= 0)));
+  ok('every senator is assigned to a faction', p.senators.every(s => s.factionIndex != null && p.factions[s.factionIndex]));
+  ok('faction totalVotes = Σ its members votes', p.factions.every(f => f.totalVotes === f.memberCharacterIds.reduce((sum,cid)=>{ const s=p.senators.find(x=>x.characterId===cid); return sum+(s?s.votes:0); },0)));
+  ok('a faction is named from its objectives', p.factions.every(f => typeof f.name === 'string' && f.name.length > 0));
+  const pOver = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 999, seed: 7, extraCharacterIds: ['chr-a'] });
+  ok('seats clamps to the band max (999 → 15)', pOver.seats === 15);
+})();
+
+section('P-7 wizard — materializeSenate (mint + governance + event; the shipped tally reproduces)');
+(function(){
+  const c = genFix(6);
+  const plan = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 12, seed: 7, extraCharacterIds: ['chr-a','chr-b','chr-c','chr-d'] });
+  const r = ACKS.materializeSenate(c, { domainId:'dom-apex', plan });
+  ok('materialize ok', r.ok === true);
+  ok('minted ONE senate (sen- prefix, no new prefix)', c.senates.length === 1 && /^sen-/.test(c.senates[0].id));
+  ok('minted factions (fac- prefix) = plan factions', c.factions.length === plan.factions.length && c.factions.every(f => /^fac-/.test(f.id)));
+  ok('minted senatorships (snr- prefix) = plan senators', c.senatorships.length === plan.senators.length && c.senatorships.every(s => /^snr-/.test(s.id)));
+  ok('every senatorship seats a REAL realm notable', c.senatorships.every(s => c.characters.some(ch => ch.id === s.senatorCharacterId)));
+  ok('senate carries the rolled seats + min level + independent votes', c.senates[0].seats === plan.seats && c.senates[0].minSenatorLevel === plan.minSenatorLevel && c.senates[0].independentMinorSenatorVotes === plan.independentMinorVotes);
+  ok('requirements-of-office bribe row copied onto the senate', c.senates[0].requirementsOfOffice.bribeCostMonth === plan.requirements.bribe.month);
+  ok('senatorship bribeCostByPeriod copied from requirements', c.senatorships.every(s => s.bribeCostByPeriod.month === plan.requirements.bribe.month));
+  ok('senatorships carry their policy objectives + leading rank', c.senatorships.every(s => s.rank === 'leading' && Array.isArray(s.policyObjectives)));
+  const g = ACKS.governanceFor(c, c.domains[0]);
+  ok('apex governance set senatorial + senateId', g.mode === 'senatorial' && g.senateId === c.senates[0].id);
+  ok('isSenatorialRealm true after materialize', ACKS.isSenatorialRealm(c, c.domains[0]) === true);
+  ok('senateForRealm resolves the new senate', (ACKS.senateForRealm(c, 'dom-apex') || {}).id === c.senates[0].id);
+  ok('emitted ONE senate-materialized event', c.eventLog.filter(x => x.event && x.event.kind === 'senate-materialized').length === 1);
+  const ev = c.eventLog.find(x => x.event && x.event.kind === 'senate-materialized').event;
+  ok('event payload carries senateId + seats + leadingSenators', ev.payload.senateId === c.senates[0].id && ev.payload.seats === plan.seats && ev.payload.leadingSenators === c.senatorships.length);
+  ok('event context envelope set (apex domain + ruler)', !!ev.context && ev.context.domainId === 'dom-apex' && (ev.context.relatedEntities||[]).some(e => e.id === 'chr-ruler'));
+  ok('senateTotalVotes = Σ senatorship votes + independents', ACKS.senateTotalVotes(c, c.senates[0]) === (c.senatorships.reduce((s,x)=>s+x.votes,0) + c.senates[0].independentMinorSenatorVotes));
+  const planRulingFacId = plan.rulingFactionIndex >= 0 ? r.factions[plan.rulingFactionIndex].id : null;
+  ok('shipped senateRulingFactionId reproduces the plan ruling faction', ACKS.senateRulingFactionId(c, c.senates[0]) === planRulingFacId);
+})();
+
+(function(){
+  const c = genFix(6);
+  ACKS.materializeSenate(c, { domainId:'dom-apex', seats: 12, seed: 7, extraCharacterIds: ['chr-a','chr-b'] });
+  const r2 = ACKS.materializeSenate(c, { domainId:'dom-apex', seats: 12, seed: 7, extraCharacterIds: ['chr-a','chr-b'] });
+  ok('refuses a second live senate on the apex', r2.ok === false && r2.reason === 'senate-exists');
+  ok('still only one senate', c.senates.length === 1);
+  const r3 = ACKS.materializeSenate(c, { domainId:'dom-apex', seats: 12, seed: 9, extraCharacterIds: ['chr-a','chr-b'], replace: true });
+  ok('replace:true materializes another senate', r3.ok === true && c.senates.length === 2);
+  ok('refuses an unknown domain', ACKS.materializeSenate(c, { domainId:'nope' }).reason === 'no-domain');
+  const c2 = genFix(6);
+  const before = c2.eventLog.length;
+  ACKS.materializeSenate(c2, { domainId:'dom-apex', seats: 12, seed: 7, extraCharacterIds: ['chr-a'], emit: false });
+  ok('emit:false suppresses the event', c2.eventLog.length === before);
+})();
+
+section('P-7 wizard — event registration + opt-out + no new collection');
+ok('EVENT_KINDS includes senate-materialized', ACKS.EVENT_KINDS.indexOf('senate-materialized') >= 0);
+ok('senate-materialized has a schema (R.senateId)', !!(ACKS.EVENT_SCHEMAS['senate-materialized'] && ACKS.EVENT_SCHEMAS['senate-materialized'].R.senateId));
+ok('senate-materialized is wizard-opt-out (engine-owned)', ACKS.isWizardEmittable('senate-materialized') === false);
+ok('P-7 wizard adds nothing to migrateCampaign', (function(){
+  const c = ACKS.migrateCampaign({ schemaVersion:2, domains:[{ id:'d', liegeId:null }], characters:[], houseRules:{} });
+  return !Array.isArray(c.senates) || c.senates.length === 0;
+})());
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

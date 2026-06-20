@@ -39,16 +39,16 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-20-burst10"></script>
-<script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
+<script src="acks-engine.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-entities.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-economy.js?v=2026-06-20-burst10"></script>
-<script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-entity-registry.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-field-schemas.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-events.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
@@ -70,7 +70,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-politics.js?v=2026-06-20-burst11"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
@@ -78,15 +78,15 @@
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
-<script src="acks-engine-delves.js?v=2026-06-14-a"></script>
+<script src="acks-engine-delves.js?v=2026-06-20-burst11"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- Phase 4 Construction Wave C — Follower Attraction (RR p.334): the stronghold-completion attraction sibling of the sanctum's apprentices. Late-binds strongholdValue / rulerCharacter / blankCharacter / blankGroup. -->
-<script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
+<script src="acks-engine-followers.js?v=2026-06-20-burst11"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-burst11"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -95,7 +95,7 @@
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-20-burst11"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
@@ -105,7 +105,7 @@
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
-<script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -2846,6 +2846,15 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink/40 rounded p-2">
             <div class="font-semibold" x-text="'🪖 ' + followerArrival.proposal.troopCount.toLocaleString() + ' ' + (followerArrival.proposal.troopLevel >= 1 ? '1st' : '0th') + '-level troops'"></div>
             <div class="opacity-70 text-xs">→ a follower band commanded by the ruler (they follow him on adventures).</div>
+            <!-- @b11-followers (Wave B) — the per-platoon Type & Equipment table (RR p.337) -->
+            <div class="opacity-70 text-xs" x-show="followerArrival.proposal.troopTableKey">⚙ Type &amp; equipment rolled per platoon of 30 on the <span class="font-medium" x-text="followerArrival.proposal.troopTableKey"></span> table (RR p.337).</div>
+          </div>
+        </template>
+        <!-- @b11-followers (Wave B) — the Families Arriving with Followers preview (RR p.337) -->
+        <template x-if="followerArrival.proposal.familiesPreview && followerArrival.proposal.familiesPreview.applicable">
+          <div class="vellum border border-ink/40 rounded p-2">
+            <div class="font-semibold">🌾 Peasant families settle the domain</div>
+            <div class="opacity-70 text-xs" x-text="'→ ' + followerArrival.proposal.familiesPreview.label + ' (rolled when they arrive — RR p.337).'"></div>
           </div>
         </template>
         <template x-if="followerArrival.proposal.apprenticeCount > 0">
@@ -6661,7 +6670,36 @@ document.addEventListener('alpine:init', () => {
                     x-text="' (' + (followerEligibility(selectedDomain).ruler.class || '') + ', level ' + (followerEligibility(selectedDomain).ruler.level || 9) + ') holds a ' + (followerEligibility(selectedDomain).row.stronghold || 'stronghold') + ' worth ' + (followerEligibility(selectedDomain).strongholdValue || 0).toLocaleString() + 'gp — enough to attract followers (RR p.334).'"></span>
                 </p>
                 <p class="text-sm opacity-80 mt-1"><span x-text="followerCardWho(selectedDomain)"></span> will rally to the banner.</p>
+                <!-- @b11-followers (Wave B) — loyalty/morale + the Families-Arriving preview -->
+                <p class="text-xs opacity-70 mt-1" x-text="followerLoyaltyPreviewLabel(selectedDomain)"></p>
+                <p class="text-xs opacity-70" x-show="followerFamiliesPreviewLabel(selectedDomain)">🌾 Peasant families settling: <span x-text="followerFamiliesPreviewLabel(selectedDomain)"></span> (RR p.337).</p>
                 <button @click="openFollowerArrival(selectedDomain)" class="mt-2 px-3 py-1 border border-ink rounded text-sm font-semibold hover:bg-amber-50" title="Roll + review the followers, then bring them in (RR p.334)">🎺 Summon followers…</button>
+              </div>
+            </template>
+
+            <!-- @b11-followers (Wave B) — post-attraction readout: companion loyalty/morale, the troop band's
+                 per-class composition + morale (RR p.337), and the families that settled with the followers.
+                 The x-for-over-singleton keeps `fs` reactive (re-keyed on the domain) — a plain x-data alias
+                 would capture it once at mount and go stale when the selected domain changes. -->
+            <template x-for="fs in (domainFollowersSummary(selectedDomain) ? [domainFollowersSummary(selectedDomain)] : [])" :key="'followers-' + selectedDomain.id">
+              <div class="vellum border rounded p-3 mb-3" style="border-color:rgba(160,110,20,.4); background:rgba(180,120,20,.05)">
+                <h3 class="font-bold text-lg">🎺 Followers <span class="text-sm font-normal opacity-70">· RR pp.334–337</span></h3>
+                <p class="text-sm mt-1" x-show="fs.companions">
+                  ⚔ <span class="font-semibold" x-text="fs.companions"></span> companion<span x-show="fs.companions !== 1">s</span> —
+                  loyalty <span x-text="_signed(fs.companionLoyalty)"></span><span x-show="fs.fanatical" class="text-green-700"> (fanatical — no calamity loyalty roll)</span><span x-show="fs.companionMorale != null">, morale <span x-text="_signed(fs.companionMorale)"></span></span>
+                </p>
+                <template x-if="fs.troopBand">
+                  <div class="text-sm mt-1">
+                    <p>🪖 <span class="font-semibold" x-text="fs.troopBand.count.toLocaleString()"></span> troops — morale <span x-text="_signed(fs.troopBand.morale)"></span>, loyalty <span x-text="_signed(fs.troopBand.loyalty)"></span></p>
+                    <ul class="text-xs opacity-80 ml-5 list-disc">
+                      <template x-for="row in fs.troopBand.summary" :key="row.type + '|' + row.equipment">
+                        <li><span x-text="row.count"></span> × <span class="font-medium" x-text="row.type"></span> <span class="opacity-60" x-text="'(' + row.equipment + ')'"></span></li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+                <p class="text-sm mt-1" x-show="fs.novices">📿 <span class="font-semibold" x-text="fs.novices.toLocaleString()"></span> cloister novices</p>
+                <p class="text-sm mt-1" x-show="fs.families">🌾 <span class="font-semibold" x-text="fs.families.toLocaleString()"></span> peasant families settled with the followers (RR p.337).</p>
               </div>
             </template>
 
@@ -15935,6 +15973,8 @@ document.addEventListener('alpine:init', () => {
         <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
         <span class="opacity-30">|</span>
         <button @click="openCommissionModal()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-200 hover:bg-yellow-300" title="Commission a magic item from an NPC caster (TT p.28: 3× base — routes into Magic Research)">🛠 Commission…</button>
+        <!-- === @b11-magicitems (team) — MI-3: the magic-item market launcher === -->
+        <button @click="openMagicMarket()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-amber-200 hover:bg-amber-300" title="Buy / sell / appraise a magic item at a settlement market (TT p.28 price spread; GP rides GP Wave B)">🛒 Market…</button>
       </div>
     </div>
     <template x-if="magicItemList().length === 0">
@@ -16118,8 +16158,9 @@ document.addEventListener('alpine:init', () => {
     </div>
   </div>
 </div>
-<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
-<div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
+<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably.
+     Wave B (team burst11) — gated on the knowledge-tracking master rule; + promote-rumor + provenance. -->
+<div x-show="currentView === 'knowledge' && isHouseRuleEnabled('knowledge-tracking')" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h2 class="font-bold text-xl">📚 Knowledge <span class="text-sm opacity-70 font-normal">· the Lore your campaign tracks — who knows what, how reliably</span></h2>
@@ -16148,6 +16189,24 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
 
+    <!-- Wave B (team burst11) — Promote a rumor → Lore. A campaign rumor becomes a loreKind:'rumor'
+         Lore item (carrying its reach + apparent level), bridging the Rumors subsystem into the
+         generalized Lore layer. Idempotent; non-destructive (the rumor stays in its settlement panel). -->
+    <div class="vellum border border-ink rounded p-4 space-y-2">
+      <h3 class="font-semibold">🗣 Promote a rumor → Lore</h3>
+      <p class="text-xs opacity-70">A campaign rumor becomes a tracked <span class="font-mono">rumor</span>-kind fact here — who believes it, and how reliably, is then tracked like any Lore. The rumor stays in its settlement panel.</p>
+      <template x-if="knowledgePromotableRumors().length === 0"><p class="text-sm italic opacity-60">No campaign rumors left to promote.</p></template>
+      <ul class="text-sm divide-y divide-ink/20" x-show="knowledgePromotableRumors().length">
+        <template x-for="r in knowledgePromotableRumors()" :key="r.id">
+          <li class="py-1.5 flex items-center gap-2 flex-wrap">
+            <span class="font-medium" x-text="r.text || r.topic || r.id"></span>
+            <span class="text-xs opacity-60" x-text="'· ' + (r.topic || 'other') + ' · truth ' + (r.truthLevel || 'unknown') + ' · ' + (r.apparentLevel || (r.reach && r.reach[0] && r.reach[0].apparentLevel) || 'uncommon')"></span>
+            <button @click="knowledgePromote(r.id)" class="ml-auto text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Author a loreKind:'rumor' Lore item from this rumor">→ Promote</button>
+          </li>
+        </template>
+      </ul>
+    </div>
+
     <!-- Lore facts + the selected-fact detail -->
     <div class="vellum border border-ink rounded p-4 space-y-3">
       <h3 class="font-semibold">Lore</h3>
@@ -16173,10 +16232,14 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="knowledgeKnowersOf(l.id).length === 0"><p class="text-xs italic opacity-60">Nobody holds this yet.</p></template>
                 <ul class="space-y-0.5">
                   <template x-for="k in knowledgeKnowersOf(l.id)" :key="k.knowledgeId">
-                    <li class="flex items-center gap-2 text-xs">
+                    <li class="flex items-center gap-2 text-xs flex-wrap">
                       <span class="font-semibold" x-text="k.knowerKind==='character' ? knowledgeCharName(k.knowerId) : (k.knowerKind+' '+k.knowerId)"></span>
                       <span class="px-1.5 rounded border" :class="knowledgeCertaintyClass(k.certainty)" x-text="k.certainty"></span>
                       <span class="opacity-60" x-text="'· ' + (k.source && k.source.kind || '?') + (k.source && k.source.byId ? (' ' + knowledgeCharName(k.source.byId)) : '')"></span>
+                      <!-- Wave B — provenance trail (the DF gossip trace): who told whom, back to the origin. -->
+                      <template x-if="(k.source && (k.source.kind==='told-by' || k.source.kind==='gossip')) && k.source.byId">
+                        <span class="opacity-60 italic" x-text="'⛓ ' + knowledgeChainText(k.knowerKind, k.knowerId, l.id)" title="Provenance trail — who told whom, back to the origin (Wave B)"></span>
+                      </template>
                       <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover:text-red-700" title="Forget (drop this record)">✕</button>
                     </li>
                   </template>
@@ -16222,11 +16285,15 @@ document.addEventListener('alpine:init', () => {
           <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
         </select>
         <template x-if="knowledgeViewCharId">
-          <span class="text-sm flex items-baseline gap-1 ml-auto">tell
+          <span class="text-sm flex items-baseline gap-2 ml-auto">tell
             <select x-model="knowledgeShareToId" class="border border-ink rounded px-1.5 py-0.5">
               <option value="">— someone —</option>
               <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option x-show="c.id !== knowledgeViewCharId" :value="c.id" x-text="c.name || c.id"></option></template>
             </select>
+            <!-- Wave B — share verbatim (don't degrade the certainty one band; the §5.5 provenance depth). -->
+            <label class="flex items-center gap-1 text-xs opacity-80" title="Off (default): gossip degrades the certainty one band. On: pass it along at full confidence (a trusted report).">
+              <input type="checkbox" x-model="knowledgeShareVerbatim"> verbatim
+            </label>
           </span>
         </template>
       </div>
@@ -17202,7 +17269,11 @@ document.addEventListener('alpine:init', () => {
             <template x-for="b in gladScheduledBouts(gladSelectedSchool())" :key="b.id">
               <div class="flex items-center justify-between text-sm py-0.5 gap-2">
                 <span x-text="b.sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + b.sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + b.kind"></span>
-                <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap">▶ Resolve</button>
+                <div class="flex items-center gap-1.5">
+                  <!-- @b11-gladiators G5 — the round-by-round tactical alternative to the abstract ▶ Resolve -->
+                  <button @click="gladOpenTacticalBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-orange-200 hover:bg-orange-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Fight it round by round (AXIOMS 4 p.27) — the tactical alternative to the abstract ▶ Resolve">⚔ Fight</button>
+                  <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Resolve it abstractly (1d10; AXIOMS 4 p.25)">▶ Resolve</button>
+                </div>
               </div>
             </template>
           </div>
@@ -17337,6 +17408,421 @@ document.addEventListener('alpine:init', () => {
      markup ONLY after your own @b10-<lane> marker below. None of the 6 lanes adds a top-level tab; each
      extends an existing view (Senate / Gladiators / Religion / Activities▸Hijinks) or is a wizard/modal.
      The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+
+<!-- ════ TEAM SESSION (burst11 2026-06-20) — per-agent NEW modal/overlay/panel markup. Append your markup
+     ONLY after your own @b11-<lane> marker below. None of the 6 lanes adds a top-level tab; each extends an
+     existing view (Senate / Dungeons / Knowledge / Magic Items / Gladiators / Stronghold-followers card) or
+     is a wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b11-politics   (team) — P-7 senate-materialization wizard: the generative Generate-Senate wizard/modal (launched from the 🏛 Senate tab) === -->
+<!-- The generative Senate Wizard (RR pp.355–360). Convenes a senate over a realm's apex domain — it
+     rolls the size/characteristics/requirements, DRAWS the leading senators from the realm's actual
+     NOTABLES (the shipped demographics census — vassal lords / magistrates / court / residents),
+     assigns each rolled influence + 1d3 policy objectives + a faction, then mints the shipped
+     senate/faction/senatorship entities + sets the apex governance senatorial. A fixed launcher pill
+     is shown on the 🏛 Senate tab + the World ▸ Domains sub-view (so a cold-start realm with no senate
+     can reach it). State + methods at the @b11-politics domainApp marker. -->
+<button x-show="senGenLauncherVisible()" @click="openSenateGen(null)" x-cloak
+        class="fixed bottom-4 right-4 z-40 vellum border-2 border-ink rounded-full shadow-lg px-4 py-2 text-sm font-semibold hover:bg-green-100"
+        title="Generate a senate for a realm's apex domain — its senators are drawn from the realm's notables (RR pp.355–360)">🏛 Generate a senate</button>
+<div x-show="senGen.open" @keydown.escape.window="if(senGen.open && !$event.defaultPrevented){ closeSenateGen(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSenateGen()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <button @click="closeSenateGen()" class="text-xl px-2">×</button>
+    </div>
+    <p class="text-sm opacity-70">Convene a senate over a realm's apex domain. Its size derives from the realm's families; its leading senators are drawn from the realm's actual notables (vassal lords, magistrates, court, residents), each with rolled influence, 1d3 policy objectives, and a faction. Re-roll, seat extra notables, then materialize it.</p>
+
+    <div class="flex flex-wrap items-end gap-3 border border-ink rounded p-3">
+      <label class="text-sm">Realm (apex)
+        <select x-model="senGen.apexId" @change="senGenApexChanged()" class="ml-1 block mt-0.5">
+          <template x-for="r in senGenApexRows()" :key="r.id"><option :value="r.id" x-text="r.name"></option></template>
+        </select>
+      </label>
+      <template x-if="senGen.plan">
+        <label class="text-sm">Seats
+          <input type="number" x-model.number="senGen.seats" @change="senGenSeatsChanged()" :min="senGen.plan.minSeats" :max="senGen.plan.maxSeats" class="ml-1 w-24 border border-ink rounded px-1 py-0.5 block mt-0.5">
+          <span class="text-xs opacity-60 block" x-text="'band ' + senGen.plan.minSeats + '..' + senGen.plan.maxSeats + ' · ' + senGen.plan.realmFamilies.toLocaleString() + ' families'"></span>
+        </label>
+      </template>
+      <button @click="senGenReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Re-roll the senate (a new seed)">⟳ Re-roll</button>
+    </div>
+
+    <template x-if="senGen.plan">
+      <div class="space-y-3">
+        <div class="border border-ink rounded p-3 text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          <div class="sm:col-span-2 font-semibold" x-text="'A ' + senGen.plan.seats + '-seat senate over ' + senGen.plan.apexName"></div>
+          <div>Ruler: <strong x-text="(senGen.plan.rulerName||'(none)') + ' · L' + senGen.plan.rulerLevel"></strong></div>
+          <div>Min senator level: <strong x-text="senGen.plan.minSenatorLevel"></strong> <span class="opacity-60" x-text="'(' + senGen.plan.requirements.title + ')'"></span></div>
+          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span></div>
+          <div>Influence each: <strong x-text="senGen.plan.influenceDiceLabel"></strong></div>
+          <div>Factions: <strong x-text="senGen.plan.factions.length"></strong></div>
+          <div>Independent minor votes: <strong x-text="senGen.plan.independentMinorVotes.toLocaleString()"></strong></div>
+        </div>
+        <template x-if="senGen.plan.poolShort">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below.'"></div>
+        </template>
+        <template x-if="senGen.plan.seatedCount===0">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — seat at least one below, or the senate is convened all as independent minor senators.</div>
+        </template>
+
+        <div class="border border-ink rounded p-3">
+          <div class="font-semibold text-sm mb-1">Leading senators <span class="opacity-60 font-normal">· drawn from the realm's notables</span></div>
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Senator</th><th class="text-right">Lvl</th><th class="text-right">Votes</th><th>Faction</th><th>Objectives</th></tr></thead>
+            <tbody>
+              <template x-for="s in senGen.plan.senators" :key="s.characterId">
+                <tr>
+                  <td><span class="font-semibold" x-text="s.name"></span> <span class="text-xs opacity-60" x-text="'· ' + s.source"></span></td>
+                  <td class="text-right" x-text="s.level"></td>
+                  <td class="text-right" x-text="s.votes"></td>
+                  <td class="text-xs" x-text="senGenFactionName(s.factionIndex)"></td>
+                  <td class="text-xs opacity-80" x-text="(s.objectives||[]).map(o => o.replace(/-/g,' ')).join(', ')"></td>
+                </tr>
+              </template>
+              <template x-if="senGen.plan.senators.length===0"><tr><td colspan="5" class="text-center italic opacity-50 py-1">none</td></tr></template>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="border border-ink rounded p-3">
+          <div class="font-semibold text-sm mb-1">Factions</div>
+          <template x-for="f in senGen.plan.factions" :key="f.index">
+            <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm py-0.5">
+              <span><strong x-text="f.name"></strong> <span class="text-xs opacity-60" x-text="'(' + f.memberCharacterIds.length + ' senator' + (f.memberCharacterIds.length===1?'':'s') + ')'"></span></span>
+              <span class="text-xs"><span x-text="f.totalVotes.toLocaleString() + ' votes'"></span> <span class="px-1 rounded ml-1" :class="f.standing==='ruling'?'bg-purple-200':(f.standing==='leading'?'bg-blue-100':'bg-stone-100')" x-text="f.standing"></span></span>
+            </div>
+          </template>
+          <template x-if="senGen.plan.factions.length===0"><div class="text-xs italic opacity-50">no factions (all independent minor senators)</div></template>
+        </div>
+
+        <div class="border border-ink rounded p-3 space-y-1">
+          <div class="font-semibold text-sm">Seat extra notables <span class="opacity-60 font-normal">· optional</span></div>
+          <template x-for="id in senGen.extras" :key="id">
+            <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 mr-1 mb-1">
+              <span x-text="senGenCharName(id)"></span>
+              <button @click="senGenRemoveExtra(id)" class="opacity-60 hover:opacity-100" title="remove">×</button>
+            </span>
+          </template>
+          <div class="flex flex-wrap items-center gap-1">
+            <select x-model="senGen.extraPick" class="text-sm">
+              <option value="">+ seat a notable…</option>
+              <template x-for="ch in senGenAddCandidates()" :key="ch.id"><option :value="ch.id" x-text="(ch.name||ch.id) + ' · L' + (ch.level||1)"></option></template>
+            </select>
+            <button @click="senGenAddExtra()" :disabled="!senGen.extraPick" class="text-xs px-2 py-1 border border-ink rounded hover:bg-green-100 disabled:opacity-40">add</button>
+          </div>
+          <p class="text-xs opacity-60">A seated notable joins the candidate pool (only those at/above the min senator level are drawn). The apex ruler is never a senator — a senate constrains him.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <label class="text-xs flex items-center gap-1" x-show="senGenAlreadyHasSenate()">
+            <input type="checkbox" x-model="senGen.replace"> Replace the realm's existing senate
+          </label>
+          <span class="text-xs opacity-60" x-show="senGenAlreadyHasSenate() && !senGen.replace">A senate already governs this realm — tick Replace to convene a new one.</span>
+          <button @click="senGenMaterialize()" :disabled="senGenAlreadyHasSenate() && !senGen.replace" class="px-4 py-1.5 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40 ml-auto">🏛 Materialize senate</button>
+        </div>
+      </div>
+    </template>
+    <template x-if="!senGen.plan">
+      <p class="text-sm italic opacity-60 py-3 text-center">Pick a realm to convene a senate over.</p>
+    </template>
+  </div>
+</div>
+<!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
+<!-- A floating launcher on the World ▸ 🕳️ Dungeons sub-view (the lane extends that view via this marker
+     region; it adds no top-level tab). Opens the off-screen Settlement-Visit panel (JJ ch.3). -->
+<button x-show="currentView === 'world' && worldSubView === 'dungeons'" x-cloak
+        @click="openSettlementVisits()"
+        class="fixed bottom-4 right-4 z-40 px-3 py-2 border border-ink rounded-full bg-amber-100 hover:bg-amber-200 shadow-lg text-sm font-semibold"
+        title="Settlement Visits (JJ ch.3) — hole up in town while the wounded recover / the mage researches; roll urban incidents">🏙 Settlement Visits<span class="ml-1 opacity-70" x-text="'· ' + svtVisits().length"></span></button>
+<!-- The Settlement-Visit panel: start a stay · the active/past visits · the selected visit's incident log. -->
+<div x-show="svtUI.open" x-cloak class="fixed inset-0 z-[64] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="svtUI.open && (svtUI.open = false)">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-4" @click.outside="svtUI.open = false">
+    <div class="flex items-center justify-between border-b border-ink/40 pb-2 mb-3">
+      <h3 class="font-bold text-lg">🏙 Settlement Visits <span class="text-sm opacity-70 font-normal">— off-screen town stays (JJ ch.3)</span></h3>
+      <button @click="svtUI.open = false" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Close">✕</button>
+    </div>
+
+    <!-- Start a visit -->
+    <div class="border border-ink/40 rounded p-3 mb-3 bg-yellow-50/40">
+      <div class="font-semibold text-sm mb-2">＋ Start a stay</div>
+      <div class="flex flex-wrap items-end gap-3 text-sm">
+        <label class="flex flex-col gap-0.5">Settlement
+          <select x-model="svtUI.startSettlementId" class="border border-ink rounded px-1 py-0.5 min-w-[12rem]">
+            <option value="">— pick a settlement —</option>
+            <template x-for="s in svtSettlementOptions()" :key="s.id"><option :value="s.id" :selected="svtUI.startSettlementId === s.id" x-text="s.name"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col gap-0.5">Mode
+          <select x-model="svtUI.startMode" class="border border-ink rounded px-1 py-0.5">
+            <option value="holed-up">Holed up (auto 1/day check)</option>
+            <option value="wandering">Wandering (GM-pressed)</option>
+            <option value="looking-for-trouble">Looking for trouble (GM-pressed)</option>
+          </select>
+        </label>
+        <button @click="svtStart()" :disabled="!svtUI.startSettlementId" class="px-3 py-1 border border-ink rounded bg-green-100 hover:bg-green-200 disabled:opacity-40 disabled:cursor-not-allowed">Start</button>
+      </div>
+      <div class="mt-2 text-sm">
+        <div class="opacity-70 mb-1">Who's in town:</div>
+        <div class="flex flex-wrap gap-x-3 gap-y-1 max-h-24 overflow-y-auto">
+          <template x-for="ch in svtCharacterOptions()" :key="ch.id">
+            <label class="flex items-center gap-1"><input type="checkbox" :checked="svtUI.startParticipantIds.includes(ch.id)" @change="svtToggleParticipant(ch.id)"><span x-text="ch.name || '(unnamed)'"></span></label>
+          </template>
+        </div>
+        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <!-- The visit list -->
+      <div class="w-44 shrink-0 border-r border-ink/30 pr-2">
+        <div class="text-xs font-semibold opacity-70 mb-1">Visits</div>
+        <template x-if="svtVisits().length === 0"><p class="text-xs italic opacity-50">No stays yet.</p></template>
+        <template x-for="v in svtVisits()" :key="v.id">
+          <button @click="svtUI.selectedId = v.id"
+                  class="block w-full text-left px-2 py-1 rounded text-sm mb-0.5 border"
+                  :class="svtUI.selectedId === v.id ? 'bg-amber-200 border-ink' : 'border-transparent hover:bg-yellow-100'">
+            <div class="font-medium truncate" x-text="svtSettlementName(v.settlementId)"></div>
+            <div class="text-xs opacity-70" x-text="v.mode + ' · ' + v.status + ' · ' + (v.incidents||[]).length + ' inc.'"></div>
+          </button>
+        </template>
+      </div>
+
+      <!-- The selected visit -->
+      <div class="flex-1 min-w-0">
+        <template x-if="!svtSelected()"><p class="text-sm italic opacity-50 py-8 text-center">Select a stay to see its incidents.</p></template>
+        <template x-if="svtSelected()">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <span class="font-semibold" x-text="svtSettlementName(svtSelected().settlementId)"></span>
+                <span class="text-sm opacity-70" x-text="' · ' + svtSelected().mode + ' · ' + svtSelected().status"></span>
+              </div>
+              <button x-show="svtSelected().status === 'active'" @click="svtDepart(svtSelected().id)" class="px-2 py-0.5 border border-ink rounded text-sm hover:bg-yellow-100" title="End the stay">🚪 Depart</button>
+            </div>
+            <div class="text-xs opacity-70 mb-2">In town: <span x-text="(svtSelected().participantCharacterIds||[]).map(id => svtCharName(id)).join(', ') || '—'"></span></div>
+
+            <div x-show="svtSelected().status === 'active'" class="flex items-center gap-2 mb-3">
+              <button @click="svtRoll()" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm">🎲 Roll an incident</button>
+              <label class="flex items-center gap-1 text-sm"><input type="checkbox" x-model="svtUI.afterDark"> after dark (+30)</label>
+            </div>
+
+            <div class="text-xs font-semibold opacity-70 mb-1">Incidents (newest first)</div>
+            <template x-if="svtIncidents().length === 0"><p class="text-sm italic opacity-50">No incidents yet.</p></template>
+            <div class="space-y-1.5">
+              <template x-for="(inc, i) in svtIncidents()" :key="i">
+                <div class="border border-ink/30 rounded p-2 text-sm" :class="inc.combatRisk ? 'bg-red-50' : (inc.diseaseExposure ? 'bg-orange-50' : 'bg-white/40')">
+                  <div class="font-medium">
+                    <span x-text="inc.label"></span>
+                    <span class="text-xs opacity-60" x-text="' (roll ' + inc.roll + (inc.afterDark ? ', after dark' : '') + ' · ' + inc.cite + ')'"></span>
+                  </div>
+                  <div class="text-xs mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                    <template x-if="inc.reaction"><span class="px-1 rounded bg-blue-100" x-text="'reaction: ' + inc.reaction.band + (inc.tone ? ' (' + inc.tone + ')' : '')"></span></template>
+                    <template x-if="inc.theft && inc.theft.failed"><span class="px-1 rounded bg-yellow-200" x-text="inc.theft.gpLost + 'gp lifted'"></span></template>
+                    <template x-if="inc.diseaseExposure"><span class="px-1 rounded bg-orange-200" x-text="'disease exposure' + (inc.disease ? (inc.disease.infected ? ' → ' + (inc.disease.label || 'infected') : ' (resisted)') : '')"></span></template>
+                    <template x-if="inc.authority"><span class="px-1 rounded bg-gray-200">authority</span></template>
+                    <template x-if="inc.rumor"><span class="px-1 rounded bg-green-100">rumor hook</span></template>
+                    <template x-if="inc.affectedName"><span class="opacity-70" x-text="'· ' + inc.affectedName"></span></template>
+                  </div>
+                  <!-- combat-risk → resolve as a fight (wound a participant via the shipped Mortal Wounds resolver) -->
+                  <div x-show="inc.combatRisk && !inc.casualty" class="text-xs mt-1 flex items-center gap-1">
+                    <span class="text-red-700">⚔ A fight may break out —</span>
+                    <select :id="'svtcas-' + i" class="border border-ink rounded px-1 text-xs">
+                      <template x-for="id in (svtSelected().participantCharacterIds||[])" :key="id"><option :value="id" x-text="svtCharName(id)"></option></template>
+                    </select>
+                    <button @click="svtResolveCasualty(document.getElementById('svtcas-' + i).value)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200">Resolve (wound)</button>
+                  </div>
+                  <template x-if="inc.casualty"><div class="text-xs mt-1 text-red-700" x-text="'⚔ ' + (inc.casualty.name || '') + ' — ' + (inc.casualty.conditionLabel || '') + (inc.casualty.outcome ? ' (' + inc.casualty.outcome + ')' : '')"></div></template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- === @b11-knowledge  (team) — Knowledge Wave B: the share-a-fact / promote-rumor→lore controls + provenance panel (📚 Knowledge tab) === -->
+<!-- === @b11-magicitems (team) — MI-3 magic-item market: the buy / sell / appraise wizard/modal (🪄 Magic Items tab) === -->
+<div x-show="magicMarket.open" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="closeMagicMarket()" @keydown.escape.window="closeMagicMarket()">
+  <div class="vellum border border-ink rounded p-4 max-w-xl w-full max-h-[88vh] overflow-y-auto">
+    <div class="flex justify-between items-baseline mb-2">
+      <h3 class="font-bold text-lg">🛒 Magic-item market</h3>
+      <button @click="closeMagicMarket()" class="text-sm underline">close ✕</button>
+    </div>
+    <p class="text-sm opacity-70 mb-3">Buy / sell / appraise at a settlement market. Price is the <strong>TT p.28</strong> spread (buy ×2.25, sell-created ×2, sell-found ×1); a bigger market handles rarer goods. The coin move rides GP Wave B; the item is a <code>notableItem</code>.</p>
+    <div class="space-y-2 text-sm">
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Market</span>
+        <select x-model="magicMarket.settlementId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+          <option value="">— pick a settlement —</option>
+          <template x-for="s in magicMarketSettlements()" :key="s.id"><option :value="s.id" x-text="(s.name || s.id) + ' · Class ' + magicMarketClassLabel(s)"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Character</span>
+        <select x-model="magicMarket.actorId" @change="magicMarket.result=null; magicMarket.sellItemId=''" class="flex-1 min-w-[12rem]">
+          <option value="">— pick a character —</option>
+          <template x-for="c in magicMarketActors()" :key="c.id"><option :value="c.id" x-text="(c.name || c.id) + ' · ' + (c.coins && c.coins.gp || 0).toLocaleString() + ' gp'"></option></template>
+        </select>
+      </label>
+      <!-- mode tabs -->
+      <div class="flex gap-1 border-b border-ink/30 pb-1">
+        <button @click="magicMarket.mode='appraise'; magicMarket.result=null" :class="magicMarket.mode==='appraise' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">🔍 Appraise</button>
+        <button @click="magicMarket.mode='sell'; magicMarket.result=null" :class="magicMarket.mode==='sell' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">💰 Sell</button>
+        <button @click="magicMarket.mode='buy'; magicMarket.result=null" :class="magicMarket.mode==='buy' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">🛒 Buy</button>
+      </div>
+
+      <!-- APPRAISE / SELL item picker (the actor's items) -->
+      <template x-if="magicMarket.mode==='appraise' || magicMarket.mode==='sell'">
+        <label class="flex flex-wrap items-baseline gap-2"><span class="w-24" x-text="magicMarket.mode==='sell' ? 'Sell item' : 'Item'"></span>
+          <select x-model="magicMarket.sellItemId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+            <option value="">— pick an item the character holds —</option>
+            <template x-for="ni in magicMarketSellItems()" :key="ni.id"><option :value="ni.id" x-text="(ni.name || ni.kind || 'item') + ' · ' + magicMarketRarityOf(ni)"></option></template>
+          </select>
+        </label>
+      </template>
+      <template x-if="(magicMarket.mode==='appraise' || magicMarket.mode==='sell') && magicMarket.actorId && !magicMarketSellItems().length">
+        <p class="text-xs italic opacity-60">This character holds no magic items to <span x-text="magicMarket.mode"></span>. (Custody, or a carried link, marks who holds an item.)</p>
+      </template>
+
+      <!-- BUY source + picker -->
+      <template x-if="magicMarket.mode==='buy'">
+        <div class="space-y-2">
+          <div class="flex gap-3 items-center">
+            <span class="w-24">Source</span>
+            <label class="flex items-center gap-1"><input type="radio" value="stock" x-model="magicMarket.buySource" @change="magicMarket.result=null"> from market stock</label>
+            <label class="flex items-center gap-1"><input type="radio" value="catalog" x-model="magicMarket.buySource" @change="magicMarket.result=null"> from the catalog</label>
+          </div>
+          <template x-if="magicMarket.buySource==='stock'">
+            <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Item</span>
+              <select x-model="magicMarket.buyItemId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+                <option value="">— pick an item in this market —</option>
+                <template x-for="ni in magicMarketStockItems()" :key="ni.id"><option :value="ni.id" x-text="(ni.name || ni.kind || 'item') + ' · ' + magicMarketRarityOf(ni)"></option></template>
+              </select>
+            </label>
+          </template>
+          <template x-if="magicMarket.buySource==='catalog'">
+            <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Catalog</span>
+              <select x-model="magicMarket.buyCatalogKey" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+                <option value="">— pick an archetype —</option>
+                <template x-for="e in magicMarketCatalog()" :key="e.key"><option :value="e.key" x-text="e.name + ' (' + e.rarity + ', ' + e.baseCost.toLocaleString() + 'gp base)'"></option></template>
+              </select>
+            </label>
+          </template>
+          <template x-if="magicMarket.buySource==='stock' && magicMarket.settlementId && !magicMarketStockItems().length">
+            <p class="text-xs italic opacity-60">This market has no magic items in stock (sell one here, or buy from the catalog).</p>
+          </template>
+        </div>
+      </template>
+
+      <!-- live forecast -->
+      <template x-if="magicMarketForecast()">
+        <div class="border border-ink/40 rounded bg-amber-50/60 p-2 text-sm space-y-0.5">
+          <template x-if="!magicMarketForecast().available"><div class="text-red-700" x-text="'Cannot price this item: ' + (magicMarketForecast().reason || '?')"></div></template>
+          <template x-if="magicMarketForecast().available">
+            <div>
+              <div><strong x-text="magicMarketForecast().spread.rarityLabel"></strong> · base <span class="font-mono" x-text="magicMarketForecast().spread.baseCost.toLocaleString()"></span> gp · market <strong x-text="'Class ' + magicMarketForecast().buyAv.marketClass"></strong></div>
+              <!-- appraise shows both ways -->
+              <template x-if="magicMarket.mode==='appraise'">
+                <div class="mt-1 space-y-0.5">
+                  <div>🛒 Buy here: <span class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></span> gp <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span></div>
+                  <div>💰 Sell here: <span class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></span> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+                </div>
+              </template>
+              <template x-if="magicMarket.mode==='sell'">
+                <div class="mt-1">💰 Offer: <strong class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></strong> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+              </template>
+              <template x-if="magicMarket.mode==='buy'">
+                <div class="mt-1">🛒 Cost: <strong class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></strong> gp (×2.25) <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span>
+                  <span x-show="magicMarketActorGp() < magicMarketForecast().spread.buy" class="text-red-700"> · can't afford (<span class="font-mono" x-text="magicMarketActorGp().toLocaleString()"></span> gp)</span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- gmOverride for sell/buy -->
+      <template x-if="magicMarket.mode!=='appraise'">
+        <label class="flex items-center gap-1 text-xs opacity-80"><input type="checkbox" x-model="magicMarket.gmOverride"> GM override — force a too-rare / sold-out market through</label>
+      </template>
+
+      <!-- submit -->
+      <div class="flex gap-2 items-center pt-1">
+        <template x-if="magicMarket.mode==='appraise'">
+          <button @click="magicMarketSubmitAppraise()" :disabled="!magicMarketForecast() || !magicMarketForecast().available" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed">🔍 Record appraisal</button>
+        </template>
+        <template x-if="magicMarket.mode==='sell'">
+          <button @click="magicMarketSubmitSell()" :disabled="!magicMarketCanSubmit()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" x-text="magicMarketForecast() && magicMarketForecast().available ? ('💰 Sell for ~' + magicMarketForecast().spread.sell.toLocaleString() + ' gp') : '💰 Sell'"></button>
+        </template>
+        <template x-if="magicMarket.mode==='buy'">
+          <button @click="magicMarketSubmitBuy()" :disabled="!magicMarketCanSubmit()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" x-text="magicMarketForecast() && magicMarketForecast().available ? ('🛒 Buy for ~' + magicMarketForecast().spread.buy.toLocaleString() + ' gp') : '🛒 Buy'"></button>
+        </template>
+      </div>
+      <template x-if="magicMarket.result">
+        <p class="text-sm mt-1" :class="magicMarket.result.ok ? 'text-green-800' : 'text-red-700'" x-text="magicMarket.result.msg"></p>
+      </template>
+    </div>
+  </div>
+</div>
+<!-- === @b11-gladiators (team) — G5 round-by-round bout: the tactical-bout modal/overlay (⚔ Gladiators tab) === -->
+<!-- The tactical-bout modal (z-75). Deepens the abstract ▶ Resolve into a per-round arena duel (AXIOMS 4
+     p.27 — the Combat-Option-B exemplar): a self-contained round resolver (initiative · attack throws ·
+     damage · the to-incapacitation ≤½-hp surrender check), then the SHARED aftermath (_commitBoutResult:
+     the crowd verdict + Delves-D1 Mortal Wounds + XP). resolveAndCommitBoutTactical; reuses bout-resolved. -->
+<template x-if="gladTactState.open">
+  <div class="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 p-4" @click.self="gladCloseTactical()" @keydown.escape.window="gladCloseTactical()">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-4 space-y-3">
+      <h3 class="text-lg font-bold">⚔ Tactical bout <span class="text-sm font-normal opacity-70">· round by round (AXIOMS 4 p.27)</span></h3>
+      <template x-if="gladTactBout()">
+        <div class="text-sm font-semibold" x-text="gladTactBout().sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + gladTactBout().sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + gladTactBout().kind"></div>
+      </template>
+      <!-- pre-fight -->
+      <template x-if="!gladTactState.result">
+        <div class="space-y-3">
+          <p class="text-xs opacity-70">The fight plays out blow by blow over its own hp pool — no map. A to-incapacitation bout uses nonlethal attacks (−4) and a battered gladiator may yield; a to-the-death bout ends with the loser slain. Afterward the crowd decides a defeated survivor's fate and Mortal Wounds are rolled. It records as a normal bout.</p>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladTactState.logRounds"> Keep a verbose per-round log in the Event Log</label>
+          <div class="flex justify-end gap-2">
+            <button @click="gladCloseTactical()" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="gladTacticalFight()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-300 hover:bg-red-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Fight!</button>
+          </div>
+        </div>
+      </template>
+      <!-- result -->
+      <template x-if="gladTactState.result">
+        <div class="space-y-2">
+          <div class="font-semibold text-sm" x-text="gladTactOutcomeText()"></div>
+          <div class="vellum border border-ink/30 rounded p-2 max-h-56 overflow-y-auto text-xs space-y-1.5">
+            <template x-for="r in gladTactState.result.rounds" :key="r.n">
+              <div>
+                <div class="font-semibold opacity-70" x-text="'Round ' + r.n"></div>
+                <template x-for="(ln, i) in r.lines" :key="i"><div class="opacity-90" x-text="ln"></div></template>
+              </div>
+            </template>
+            <template x-if="!gladTactState.result.rounds.length"><div class="opacity-60">No rounds fought.</div></template>
+          </div>
+          <template x-if="(gladTactState.result.casualties||[]).length">
+            <div class="text-sm">
+              <div class="font-semibold">Casualties</div>
+              <template x-for="cas in gladTactState.result.casualties" :key="cas.characterId">
+                <div x-text="gladCombatantName(cas.characterId) + ' — ' + (cas.outcome==='slain' ? '☠ slain' : (cas.surrendered ? 'yielded' : 'survived')) + (cas.mortalWound && cas.mortalWound.conditionLabel ? ' (' + cas.mortalWound.conditionLabel + (cas.mortalWound.permanentWound ? ': ' + cas.mortalWound.permanentWound : '') + ')' : '')"></div>
+              </template>
+            </div>
+          </template>
+          <template x-if="(gladTactState.result.xpAwarded||[]).length">
+            <div class="text-sm">
+              <template x-for="aw in gladTactState.result.xpAwarded" :key="aw.characterId">
+                <div class="text-green-800" x-text="gladCombatantName(aw.characterId) + ' +' + aw.xp + ' XP'"></div>
+              </template>
+            </div>
+          </template>
+          <div class="flex justify-end"><button @click="gladCloseTactical()" class="px-3 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold">Done</button></div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+<!-- === @b11-followers  (team) — Followers Wave B: the loyalty/morale + Families-arriving readout on the Stronghold-tab 🎺 follower card === -->
+
 <!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
 <!-- The ⚖ oligarchy governance modal (rule-of-the-few). Launched from the 🏛 Senate tab's ⚖ Governance
      card: establish/dissolve an oligarchy, manage members, run a majority decision, let an oligarch
@@ -18169,7 +18655,8 @@ return {
   },
   knowledgeShareFrom(loreId){
     if(!this.knowledgeViewCharId || !this.knowledgeShareToId){ this.showToast('Pick someone to tell.', 3000); return; }
-    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId });
+    // Wave B — the verbatim toggle: off (default) gossip degrades one band; on shares at full certainty.
+    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId, degrade: !this.knowledgeShareVerbatim });
     if(!r.ok){ this.showToast('Could not share: '+(r.reason==='teller-does-not-know'?'they don’t hold this as a tracked fact':(r.reason||'?')), 3500); return; }
     this.markDirty(); this.schedulePersist(); this.showToast('Told '+this.knowledgeCharName(this.knowledgeShareToId)+' ('+r.sharedCertainty+').', 3000);
   },
@@ -18457,7 +18944,10 @@ return {
       ...((this.campaignHasSenate() || this.governanceTabAvailable()) ? [{ id:'senate', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
-      { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
+      // Knowledge Layer (Wave B, team burst11 2026-06-20) — the 📚 Knowledge tab is now GATED on the
+      // knowledge-tracking master house rule (default OFF, opt-in). Hidden when off (principle 8 —
+      // non-functional AND hidden). The lore[]/knowledge[] data is benign core; the FEATURE gates here.
+      ...(this.isHouseRuleEnabled('knowledge-tracking') ? [{ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore||[]).length || null }] : []),
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
       // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
@@ -19156,7 +19646,7 @@ return {
   gladCombatantName(id){ const c=this.currentCampaign; const ch=(c && c.characters||[]).find(x=>x && x.id===id); return ch?ch.name:id; },
   gladScheduledBouts(school){ const c=this.currentCampaign; return (c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school, { scheduledOnly:true }) : []; },
   gladRecentBouts(school){ const c=this.currentCampaign; const all=(c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school) : []; return all.filter(b=>b.status==='resolved').slice(-6).reverse(); },
-  gladBoutSummary(b){ if(!b || !b.result) return ''; const win=(b.result.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); const slain=(b.result.casualties||[]).filter(x=>x.outcome==='slain').length; return win+' won (1d10 '+b.result.d10+')'+(slain?(' · '+slain+' slain'):'')+(b.result.crowdReaction?(' · crowd '+b.result.crowdReaction):''); },
+  gladBoutSummary(b){ if(!b || !b.result) return ''; const r=b.result; const slain=(r.casualties||[]).filter(x=>x.outcome==='slain').length; /* @b11-gladiators G5: resolution-mode-aware (combat → N rounds; abstract → 1d10) + draw */ const how=(r.resolutionMode==='combat')?(r.roundCount+' rounds'):('1d10 '+r.d10); if(r.winnerSide==='draw') return 'a draw ('+how+')'+(slain?(' · '+slain+' slain'):''); const win=(r.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); return win+' won ('+how+')'+(slain?(' · '+slain+' slain'):'')+(r.crowdReaction?(' · crowd '+r.crowdReaction):''); },
   _gladPersist(){ try{ this.markDirty(); this.schedulePersist(); }catch(_e){} },
   gladEstablishSchool(){
     const c=this.currentCampaign; if(!c) return;
@@ -19251,6 +19741,234 @@ return {
   //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
   // ─── burst10 (team session 2026-06-20) — per-agent state + methods. Each builder appends its Alpine
   //     state + methods ONLY after its own @b10-<lane> marker below; the Lead reconciles at integration. ───
+  // ─── burst11 (team session 2026-06-20) — per-agent Alpine state + methods. Each builder appends its
+  //     state + methods ONLY after its own @b11-<lane> marker below; the Lead reconciles at integration. ───
+  // === @b11-politics   (team) — P-7 senate-materialization wizard: state + methods ===
+  // The generative Senate Wizard — thin UI over acks-engine-politics.js (proposeSenateMaterialization /
+  // materializeSenate + senateMaterializeCandidates). Reads the SHIPPED demographics census to draw
+  // senators; mints sen-/fac-/snr-; sets the apex governance senatorial; emits one senate-materialized.
+  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, plan:null },
+  // the realm apexes (no liege) — where a senate can be convened (self-contained; not @b10's helper)
+  senGenApexRows(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
+    return c.domains.filter(d => d && !d.liegeId).map(d => ({ id: d.id, name: d.name || d.id }));
+  },
+  // the fixed launcher pill — shown on the 🏛 Senate tab + the World ▸ Domains sub-view (so a
+  // cold-start realm with no senate can still reach the generator). Hidden when there's no realm.
+  senGenLauncherVisible(){
+    return !!(this.currentCampaign && this.senGenApexRows().length > 0
+      && (this.currentView === 'senate' || (this.currentView === 'world' && this.worldSubView === 'domains')));
+  },
+  senGenCharName(id){ const ch = ((this.currentCampaign||{}).characters||[]).find(c => c && c.id === id); return (ch && (ch.name||ch.id)) || id; },
+  openSenateGen(apexId){
+    const rows = this.senGenApexRows();
+    this.senGen.apexId = apexId || (rows[0] && rows[0].id) || null;
+    this.senGen.seats = null; this.senGen.seed = 1; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGen.replace = false;
+    this.senGen.plan = null;
+    this.senGenRepreview();
+    this.senGen.open = true;
+  },
+  closeSenateGen(){ this.senGen.open = false; },
+  // (re)compute the plan from the current realm/seats/seed/extras (pure; the engine clamps seats).
+  senGenRepreview(){
+    const c = this.currentCampaign; if(!c || !this.senGen.apexId){ this.senGen.plan = null; return; }
+    const p = window.ACKS.proposeSenateMaterialization(c, {
+      domainId: this.senGen.apexId,
+      seats: (this.senGen.seats != null && this.senGen.seats !== '') ? Number(this.senGen.seats) : undefined,
+      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice()
+    });
+    this.senGen.plan = (p && p.ok) ? p : null;
+    // snap the seats input to the clamped senate size so the field always shows the real value
+    if(this.senGen.plan) this.senGen.seats = this.senGen.plan.seats;
+  },
+  senGenReroll(){ this.senGen.seed = (this.senGen.seed || 1) + 1; this.senGenRepreview(); },
+  senGenApexChanged(){ this.senGen.seats = null; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGenRepreview(); },
+  senGenSeatsChanged(){ this.senGenRepreview(); },
+  senGenFactionName(idx){ const p = this.senGen.plan; const f = (p && idx != null) ? p.factions[idx] : null; return f ? f.name : '—'; },
+  // the GM-add picker: every character except the apex ruler + already-added extras + the deceased
+  senGenAddCandidates(){
+    const c = this.currentCampaign; if(!c) return [];
+    const apex = (c.domains||[]).find(d => d && d.id === this.senGen.apexId);
+    const rulerId = apex && apex.rulerCharacterId;
+    const have = new Set(this.senGen.extras);
+    return (c.characters||[]).filter(ch => ch && ch.id !== rulerId && !have.has(ch.id) && ch.lifecycleState !== 'deceased');
+  },
+  senGenAddExtra(){ const id = this.senGen.extraPick; if(id && this.senGen.extras.indexOf(id) < 0){ this.senGen.extras.push(id); this.senGenRepreview(); } this.senGen.extraPick = ''; },
+  senGenRemoveExtra(id){ const i = this.senGen.extras.indexOf(id); if(i >= 0){ this.senGen.extras.splice(i,1); this.senGenRepreview(); } },
+  senGenAlreadyHasSenate(){
+    const c = this.currentCampaign; if(!c || !this.senGen.apexId) return false;
+    const s = window.ACKS.senateForRealm(c, this.senGen.apexId);
+    return !!(s && s.status !== 'dissolved');
+  },
+  senGenMaterialize(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!c || !this.senGen.plan){ this.showToast('No senate plan to materialize.', 4000, 'warn'); return; }
+    const r = A.materializeSenate(c, { domainId: this.senGen.apexId, plan: this.senGen.plan, replace: this.senGen.replace });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){
+      this.senGen.open = false;
+      this.currentView = 'senate';
+      this.senateSelectedId = r.senate.id;
+      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + '.', 6000);
+    } else {
+      const why = (r && r.reason) === 'senate-exists' ? 'a senate already governs this realm (tick Replace to convene a new one)' : ((r && r.reason) || 'error');
+      this.showToast('Could not materialize the senate: ' + why, 5000, 'warn');
+    }
+  },
+  // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
+  // Thin UI over the D5 engine (acks-engine-delves.js): start/depart a SettlementVisit, roll urban
+  // incidents (JJ ch.3), and resolve a combat-risk fight via the shipped Mortal Wounds resolver.
+  // No house rule (RAW core); the launcher floats on the World ▸ 🕳️ Dungeons sub-view.
+  svtUI: { open:false, selectedId:null, startSettlementId:'', startMode:'holed-up', startParticipantIds:[], afterDark:false },
+  openSettlementVisits(){ this.svtUI.open = true; if(!this.svtUI.selectedId){ const list = this.svtVisits(); if(list.length) this.svtUI.selectedId = list[0].id; } },
+  svtVisits(){ const c = this.currentCampaign; if(!c || !Array.isArray(c.settlementVisits)) return []; return c.settlementVisits.slice().sort((a,b)=> (a.status==='active'?0:1)-(b.status==='active'?0:1)); },
+  svtSelected(){ const c = this.currentCampaign; if(!c || !this.svtUI.selectedId) return null; return (c.settlementVisits||[]).find(v=>v && v.id===this.svtUI.selectedId) || null; },
+  svtSettlementOptions(){ const c = this.currentCampaign; if(!c) return []; const out = []; (c.settlements||[]).forEach(s=>{ if(s && s.id) out.push({ id:s.id, name:s.name||s.id }); }); (c.hexes||[]).forEach(h=>{ if(h && h.settlement && h.settlement.id && !out.find(x=>x.id===h.settlement.id)) out.push({ id:h.settlement.id, name:h.settlement.name||h.settlement.id }); }); return out; },
+  svtSettlementName(id){ const o = this.svtSettlementOptions().find(x=>x.id===id); return o ? o.name : 'the settlement'; },
+  svtCharacterOptions(){ const c = this.currentCampaign; return (c && Array.isArray(c.characters)) ? c.characters.filter(x=>x && x.alive!==false) : []; },
+  svtCharName(id){ const c = this.currentCampaign; const ch = ((c && c.characters)||[]).find(x=>x && x.id===id); return ch ? (ch.name||'(unnamed)') : id; },
+  svtToggleParticipant(id){ const i = this.svtUI.startParticipantIds.indexOf(id); if(i>=0) this.svtUI.startParticipantIds.splice(i,1); else this.svtUI.startParticipantIds.push(id); },
+  svtStart(){ const c = this.currentCampaign; if(!c || !this.svtUI.startSettlementId) return; const v = window.ACKS.startSettlementVisit(c, { settlementId:this.svtUI.startSettlementId, participantCharacterIds:this.svtUI.startParticipantIds.slice(), mode:this.svtUI.startMode }); if(v){ this.svtUI.selectedId = v.id; this.svtUI.startParticipantIds = []; this.markDirty(); this.schedulePersist(); this.showToast('🏙 Stay started in ' + this.svtSettlementName(v.settlementId)); } },
+  svtDepart(id){ const c = this.currentCampaign; window.ACKS.departSettlementVisit(c, id); this.markDirty(); this.schedulePersist(); this.showToast('🚪 Departed the settlement.'); },
+  svtRoll(){ const c = this.currentCampaign; const v = this.svtSelected(); if(!v || v.status!=='active') return; const rec = window.ACKS.rollAndApplySettlementIncident(c, v.id, { afterDark:this.svtUI.afterDark }); this.markDirty(); this.schedulePersist(); if(rec) this.showToast('🏙 ' + (rec.label || 'Incident')); },
+  svtIncidents(){ const v = this.svtSelected(); return (v && Array.isArray(v.incidents)) ? v.incidents.slice().reverse() : []; },
+  svtResolveCasualty(charId){ const c = this.currentCampaign; const v = this.svtSelected(); if(!v || !charId) return; const res = window.ACKS.resolveSettlementCasualty(c, v.id, charId); this.markDirty(); this.schedulePersist(); if(res) this.showToast('⚔ ' + this.svtCharName(charId) + ' — ' + (res.conditionLabel || 'wounded') + (res.outcome ? ' (' + res.outcome + ')' : '')); },
+  // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
+  knowledgeShareVerbatim: false,   // the share "verbatim" toggle (off = gossip degrades the certainty one band)
+  knowledgePromotableRumors(){ return (window.ACKS && window.ACKS.promotableRumors) ? window.ACKS.promotableRumors(this.currentCampaign) : []; },
+  knowledgePromote(rumorId){
+    const r = window.ACKS.promoteRumorToLore(this.currentCampaign, { rumorId });
+    if(!r || !r.ok){ this.showToast('Could not promote: '+((r&&r.reason)||'?'), 3500); return; }
+    this.knowledgeSelectedLoreId = r.lore.id;
+    if(r.alreadyPromoted){ this.showToast('Already promoted — showing the Lore.', 3000); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast('Rumor promoted to Lore.', 2800);
+  },
+  // The provenance trail (Wave B §5.5) — "Cass ← Bryn ← Aelric (deduced)". Walks the told-by chain to
+  // the origin via the engine loreProvenanceChain. Shown on told-by/gossip knower rows.
+  knowledgeChainText(knowerKind, knowerId, loreId){
+    const A = window.ACKS;
+    if(!A || !A.loreProvenanceChain) return '';
+    const chain = A.loreProvenanceChain(this.currentCampaign, knowerKind, knowerId, loreId);
+    if(chain.length <= 1) return '';
+    const names = chain.map(h => h.knowerKind === 'character' ? this.knowledgeCharName(h.knowerId) : (h.knowerKind + ' ' + h.knowerId));
+    let s = names.join(' ← ');
+    const origin = chain[chain.length - 1];
+    if(origin && origin.hasRecord && origin.sourceKind && origin.sourceKind !== 'told-by' && origin.sourceKind !== 'gossip') s += ' (' + origin.sourceKind + ')';
+    return s;
+  },
+  // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
+  // A thin Alpine layer over the engine verbs (acks-engine-magic-items.js): appraiseMagicItemAtMarket /
+  // sellMagicItem / buyMagicItem + the magicItemMarketAvailability gate + the TT magicItemPriceSpread.
+  // The coin move rides GP Wave B inside the verb; the item is a notableItem. All reads guard
+  // currentCampaign (the modal is x-show, not unmounted — it evaluates on the welcome screen too).
+  magicMarket: { open:false, settlementId:'', actorId:'', mode:'appraise', sellItemId:'', buySource:'stock', buyItemId:'', buyCatalogKey:'', gmOverride:false, result:null },
+  magicMarketSettlements(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.settlements)) ? this.currentCampaign.settlements : []; },
+  magicMarketActors(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.characters)) ? this.currentCampaign.characters : []; },
+  magicMarketSettlementObj(){ const id = this.magicMarket.settlementId; return id ? this.magicMarketSettlements().find(s => s && s.id === id) : null; },
+  magicMarketActorObj(){ const id = this.magicMarket.actorId; return id ? this.magicMarketActors().find(c => c && c.id === id) : null; },
+  magicMarketActorGp(){ const c = this.magicMarketActorObj(); return (c && c.coins && c.coins.gp) || 0; },
+  _magicMarketFindNotable(id){ return ((this.currentCampaign && this.currentCampaign.notableItems) || []).find(n => n && n.id === id) || null; },
+  openMagicMarket(){ const s = this.magicMarketSettlements(), c = this.magicMarketActors(); this.magicMarket = { open:true, settlementId: s[0] ? s[0].id : '', actorId: c[0] ? c[0].id : '', mode:'appraise', sellItemId:'', buySource:'stock', buyItemId:'', buyCatalogKey:'', gmOverride:false, result:null }; },
+  closeMagicMarket(){ this.magicMarket.open = false; this.magicMarket.result = null; },
+  magicMarketClassLabel(s){ if(!s || !this.currentCampaign || !window.ACKS.magicMarketClassIdx) return '?'; return ['I','II','III','IV','V','VI'][window.ACKS.magicMarketClassIdx(this.currentCampaign, s)] || '?'; },
+  magicMarketRarityOf(ni){ const A = window.ACKS; if(!ni || !this.currentCampaign) return ''; const bc = A.magicItemBaseCost(this.currentCampaign, ni); const r = (ni.intrinsic && ni.intrinsic.rarity) || (bc != null ? A.magicItemRarity(bc) : 'common'); return A.magicItemRarityLabel(r); },
+  magicMarketSellItems(){ return (this.magicMarket.actorId && this.currentCampaign) ? window.ACKS.sellableMagicItemsFor(this.currentCampaign, this.magicMarket.actorId) : []; },
+  magicMarketStockItems(){ return (this.magicMarket.settlementId && this.currentCampaign) ? window.ACKS.magicItemMarketListings(this.currentCampaign, this.magicMarket.settlementId) : []; },
+  magicMarketCatalog(){ return window.ACKS.magicItemCatalog ? window.ACKS.magicItemCatalog() : []; },
+  magicMarketForecast(){
+    const A = window.ACKS, camp = this.currentCampaign, m = this.magicMarket;
+    if(!camp || !A.magicItemPriceSpread) return null;
+    const set = this.magicMarketSettlementObj(); if(!set) return null;
+    let ref = null;
+    if(m.mode === 'buy'){ ref = (m.buySource === 'catalog') ? (m.buyCatalogKey || null) : (m.buyItemId ? this._magicMarketFindNotable(m.buyItemId) : null); }
+    else { ref = m.sellItemId ? this._magicMarketFindNotable(m.sellItemId) : null; }
+    if(!ref) return null;
+    const spread = A.magicItemPriceSpread(camp, ref);
+    if(!spread || !spread.available) return { available:false, reason: (spread && spread.reason) || 'no-base-cost' };
+    return { available:true, spread,
+      buyAv:  A.magicItemMarketAvailability(camp, ref, set, { direction:'buy'  }),
+      sellAv: A.magicItemMarketAvailability(camp, ref, set, { direction:'sell' }) };
+  },
+  magicMarketTransactNote(av){ if(!av) return ''; if(!av.transactable) return '· ✗ too rare for this market'; if(!av.available) return '· ✗ market full this month'; return '· ✓ ' + av.monthlyRemaining + ' left this month'; },
+  magicMarketCanSubmit(){
+    const f = this.magicMarketForecast(), m = this.magicMarket;
+    if(!f || !f.available || !m.actorId) return false;
+    if(m.mode === 'sell'){ if(!m.sellItemId) return false; return !!m.gmOverride || (f.sellAv.transactable && f.sellAv.available); }
+    if(m.mode === 'buy'){ const has = m.buySource === 'catalog' ? !!m.buyCatalogKey : !!m.buyItemId; if(!has) return false; const afford = this.magicMarketActorGp() >= f.spread.buy; return afford && (!!m.gmOverride || (f.buyAv.transactable && f.buyAv.available)); }
+    return !!m.sellItemId;
+  },
+  magicMarketErr(e){ const map = { 'market-too-small-for-rarity':'this market is too small to deal in an item this rare', 'monthly-ceiling':'the market has filled its quota for this rarity this month', 'not-transactable':'this market cannot deal in an item this rare', 'insufficient-funds':'the buyer cannot afford it', 'unknown-settlement':'pick a settlement', 'unknown-item':'pick an item', 'no-item':'pick an item', 'unknown-buyer':'pick a buyer', 'no-seller':'pick a seller', 'no-base-cost':'this item has no base cost to price', 'payment-failed':'the coin transfer failed' }; return map[e] || e; },
+  magicMarketSubmitAppraise(){ const m = this.magicMarket; const r = window.ACKS.appraiseMagicItemAtMarket(this.currentCampaign, { itemId: m.sellItemId, settlementId: m.settlementId, characterId: m.actorId || null }); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.result = { ok:true, msg: r.event.payload.narrative }; } else { m.result = { ok:false, msg: 'Cannot appraise: ' + this.magicMarketErr(r.error || '?') }; } },
+  magicMarketSubmitSell(){ const m = this.magicMarket; const r = window.ACKS.sellMagicItem(this.currentCampaign, { itemId: m.sellItemId, sellerCharacterId: m.actorId, settlementId: m.settlementId, gmOverride: !!m.gmOverride }); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.sellItemId = ''; m.result = { ok:true, msg: r.event.payload.narrative }; this.showToast && this.showToast('💰 Sold for ' + r.proceedsGp.toLocaleString() + ' gp.', 3000); } else { m.result = { ok:false, msg: 'Cannot sell: ' + this.magicMarketErr(r.error || '?') }; } },
+  magicMarketSubmitBuy(){ const m = this.magicMarket; const opts = { buyerCharacterId: m.actorId, settlementId: m.settlementId, gmOverride: !!m.gmOverride }; if(m.buySource === 'catalog') opts.catalogKey = m.buyCatalogKey; else opts.itemId = m.buyItemId; const r = window.ACKS.buyMagicItem(this.currentCampaign, opts); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.buyItemId = ''; m.buyCatalogKey = ''; m.result = { ok:true, msg: r.event.payload.narrative }; this.showToast && this.showToast('🛒 Bought for ' + r.costGp.toLocaleString() + ' gp.', 3000); } else { m.result = { ok:false, msg: 'Cannot buy: ' + this.magicMarketErr(r.error || '?') }; } },
+  // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
+  // The tactical-bout modal (the ⚔ Fight launcher on each scheduled-bout row). Runs the SELF-CONTAINED
+  // round resolver (resolveAndCommitBoutTactical) — the Combat-Option-B exemplar — and shows the per-round
+  // log + the shared aftermath (crowd verdict + Delves-D1 Mortal Wounds + XP). gladTactState.logRounds →
+  // a verbose, campaignLogHidden bout-round event per round. Gated on gladiator-games (the verb refuses off).
+  gladTactState: { open:false, boutId:null, logRounds:false, result:null },
+  gladTactBout(){ const c=this.currentCampaign; return (c && window.ACKS.findBout) ? window.ACKS.findBout(c, this.gladTactState.boutId) : null; },
+  gladOpenTacticalBout(boutId){
+    if(!this.gladRuleOn()){ this.showToast('Enable Gladiator games first.',3000,'warn'); return; }
+    this.gladTactState = { open:true, boutId, logRounds:false, result:null };
+  },
+  gladCloseTactical(){ this.gladTactState.open=false; this.gladTactState.boutId=null; this.gladTactState.result=null; },
+  gladTacticalFight(){
+    const c=this.currentCampaign;
+    const r=window.ACKS.resolveAndCommitBoutTactical(c, this.gladTactState.boutId, { logRounds: !!this.gladTactState.logRounds });
+    if(!r.ok){ this.showToast('Bout failed: '+r.reason,3500,'error'); return; }
+    this.gladTactState.result=r.result;
+    this.gladState.lastBout={ boutId:this.gladTactState.boutId, result:r.result };
+    this._gladPersist();
+    const slain=(r.result.casualties||[]).filter(x=>x.outcome==='slain').length;
+    this.showToast('Bout fought — '+(r.result.winnerSide==='draw'?'a draw':'Side '+r.result.winnerSide+' wins')+' in '+r.result.roundCount+' round(s)'+(slain?(', '+slain+' slain'):''),3200);
+  },
+  gladTactOutcomeText(){
+    const res=this.gladTactState.result; const b=this.gladTactBout(); if(!res || !b) return '';
+    if(res.winnerSide==='draw') return 'A draw — neither side fell after '+res.roundCount+' rounds.';
+    const win=(res.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', ');
+    return win+' prevail after '+res.roundCount+' round'+(res.roundCount===1?'':'s')+(res.crowdReaction?(' · crowd '+res.crowdReaction):'')+'.';
+  },
+  // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
+  // Pure reads over the Wave-B engine — they extend the shipped eligibility-driven Stronghold card.
+  // The eligibility "await" card shows what WILL arrive (loyalty/morale + families preview); a NEW
+  // post-attraction readout shows what DID (companion loyalty, the troop band's composition + morale,
+  // the families that settled). RR pp.334–337.
+  followerFamiliesPreviewLabel(domain){
+    const c = this.currentCampaign; const e = this.followerEligibility(domain);
+    if(!c || !e.ok || !(window.ACKS && window.ACKS.familiesArrivingPreview)) return '';
+    const pv = window.ACKS.familiesArrivingPreview(c, domain, e.row);
+    return (pv && pv.applicable) ? pv.label : '';
+  },
+  followerLoyaltyPreviewLabel(domain){
+    const e = this.followerEligibility(domain);
+    if(!e.ok) return '';
+    const divine = !!(e.row && e.row.divine);
+    return 'Loyalty ' + (divine ? '+4 (fanatical)' : '+2') + " + the ruler's Charisma modifier; morale " + (divine ? '+4' : '+1') + ' (RR pp.335–337).';
+  },
+  // The post-attraction readout (null until the ruler has attracted followers).
+  domainFollowersSummary(domain){
+    const c = this.currentCampaign; if(!c || !domain || !window.ACKS) return null;
+    const ruler = window.ACKS.rulerCharacter ? window.ACKS.rulerCharacter(c, domain) : null;
+    if(!ruler || !ruler.followersAttracted) return null;
+    const companions = (c.characters || []).filter(ch => ch && ch.attractedAsFollower && ch.liegeCharacterId === ruler.id);
+    const bands = (c.groups || []).filter(g => g && g.socialTier === 'follower' && g.commanderCharacterId === ruler.id);
+    const troopBand = bands.find(g => Array.isArray(g.followerComposition) && g.followerComposition.length) || bands.find(g => !/novice/i.test(g.name || ''));
+    const noviceBand = bands.find(g => /novice/i.test(g.name || ''));
+    const active = g => (window.ACKS.groupActiveCount ? window.ACKS.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0)));
+    const info = companions.length && window.ACKS.followerLoyaltyInfo ? window.ACKS.followerLoyaltyInfo(c, companions[0].id) : null;
+    return {
+      rulerName: ruler.name || 'The ruler',
+      companions: companions.length,
+      fanatical: info ? !!info.fanatical : false,
+      companionLoyalty: info ? info.effectiveLoyalty : (companions[0] ? (companions[0].loyalty || 0) : null),
+      companionMorale: info ? info.morale : null,
+      troopBand: troopBand ? { count: active(troopBand), morale: troopBand.followerMorale, loyalty: troopBand.followerLoyalty, summary: troopBand.followerCompositionSummary || [] } : null,
+      novices: noviceBand ? active(noviceBand) : 0,
+      families: Number(domain.followerFamiliesArrived) || 0
+    };
+  },
+  _signed(n){ return (n != null && n >= 0 ? '+' : '') + n; },
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +

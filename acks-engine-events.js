@@ -95,6 +95,9 @@ const EVENT_KINDS = Object.freeze([
   // acks-engine-followers.js (attractFollowers already minted the follower Characters + the troop Group
   // + marked the ruler attracted-once). The Stronghold-tab card + review modal drive it.
   'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (attractFollowers bumps the
+  // domain's peasant population per the Families Arriving with Followers table, RR p.337); record-only audit.
+  'follower-families-arrived',
   // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
   // (day-tick consumer + startJourney); opted out of the Event Wizard below.
   'journey-start',
@@ -317,6 +320,11 @@ const EVENT_KINDS = Object.freeze([
   'oligarchy-established',
   'oligarchy-dissolved',
   'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — the generative Senate-Materialization Wizard
+  // (RR pp.355–360). Engine-emitted by acks-engine-politics.js (materializeSenate), record-only: the
+  // verb already minted the senate/factions/senatorships + set the apex governance senatorial. Carries
+  // the Event.context envelope (apex hex + ruler + the seated senators). Wizard opt-out below.
+  'senate-materialized',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -330,6 +338,14 @@ const EVENT_KINDS = Object.freeze([
   // adventure-result disbursement). Carries the Event.context envelope (the lair as site + the
   // casualties + beneficiaries). Event Wizard opt-out below.
   'wilderness-foray',
+  // === Delves D5 (team burst11) === — Phase 3.5 (JJ ch.3, the off-screen settlement layer).
+  // Record-only audit emitted by acks-engine-delves.js. 'settlement-visited' = a party opens a
+  // SettlementVisit (arrival in town); 'urban-incident' = an urban incident occurs during the stay
+  // (the holed-up day-consumer's resolution OR a GM-pressed wandering/looking roll). Diseases ride
+  // the shipped CL-2 'disease-contracted' (a disease-exposure incident calls ACKS.contractDisease);
+  // casualties ride the shipped Delves-D1 'mortal-wound'. Event Wizard opt-out below.
+  'settlement-visited',
+  'urban-incident',
   // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
   // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
   // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
@@ -430,6 +446,10 @@ const EVENT_KINDS = Object.freeze([
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
   'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
   'lore-shared',                   // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (Knowledge_Layer_Plan.md §6.4).
+  // Record-only audit emitted by acks-engine-knowledge.js promoteRumorToLore (the loreKind:'rumor' Lore
+  // item was already authored). Bridges the shipped Rumors subsystem into the generalized Lore layer.
+  'rumor-promoted',                // a campaign rumor is promoted into a loreKind:'rumor' Lore item
   // === Magic Items (team) === — #143 W1; owned by acks-engine-magic-items.js (the identify / use /
   // appraise verbs apply the state — the identification write, the charge depletion, the appraisal
   // record). Distinct from magic-item-created (Magic Research mints) / magic-item-sale (M&M) /
@@ -459,7 +479,17 @@ const EVENT_KINDS = Object.freeze([
   // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
   'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
   'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
-  'game-sponsored'          // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  'game-sponsored',         // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  // === Magic Items MI-3 (team burst11) === — #143 the magic-item MARKET; owned by acks-engine-magic-
+  // items.js (the appraiseMagicItemAtMarket / sellMagicItem / buyMagicItem verbs own the gp [GP Wave B]
+  // + the NotableItem custody; these are record-only audits). TT pp.26–28. Distinct from the W1
+  // item-appraised (context-free spread) / item-transfer / market-transaction.
+  'magic-item-appraised',   // a MARKET price estimate for a magic item (transactability + offered buy/sell + headroom)
+  'magic-item-sold',        // a magic item changed hands at a market (payload.direction ∈ 'buy'|'sell')
+  // === Gladiators G5 (team burst11 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // round-by-round tactical bout — resolveAndCommitBoutTactical with opts.logRounds). A record-only,
+  // campaignLogHidden VERBOSE per-round audit; the bout's result still rides the shipped bout-resolved.
+  'bout-round'              // a tactical-bout round's blow-by-blow (opt-in verbose log; RAW p.27)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -697,7 +727,12 @@ const EVENT_SCHEMAS = Object.freeze({
   // Phase 4 Construction Wave C — follower attraction (RR p.334).
   'follower-arrival': {
     R: { domainId: 'string', rulerCharacterId: 'string' },
-    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', narrative: 'string' }
+    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', families: 'number', troopTableKey: 'string', narrative: 'string' }
+  },
+  // === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337).
+  'follower-families-arrived': {
+    R: { domainId: 'string', rulerCharacterId: 'string', families: 'number' },
+    O: { classification: 'string', hexCount: 'number', perHex: 'object', narrative: 'string' }
   },
   // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
   'journey-start': {
@@ -1152,6 +1187,13 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { policy: 'string', decisionRule: 'string', outcome: 'string',
          forVotes: 'number', againstVotes: 'number', abstainVotes: 'number', narrative: 'string' }
   },
+  // === Politics P-7 wizard (burst11 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate is generatively convened over a realm's apex (the 7-step construction materialized).
+  'senate-materialized': {
+    R: { senateId: 'string' },
+    O: { apexDomainId: 'string', seats: 'number', leadingSenators: 'number', factions: 'number',
+         independentMinorVotes: 'number', realmFamilies: 'number', minSenatorLevel: 'number', narrative: 'string' }
+  },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
   // carries the final disbursement (outcome cleared|withdrawn + magic-item rolls).
@@ -1169,6 +1211,20 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { lairId: 'string', monster: 'string', defeated: 'boolean', monsterLevel: 'number',
          expeditionLevel: 'number', treasureGp: 'number', magicItemRolls: 'number', combatXp: 'number',
          casualties: 'array', unitCasualties: 'array', lairCleared: 'boolean', narrative: 'string' }
+  },
+  // === Delves D5 (team burst11) === (JJ ch.3; engine-emitted by acks-engine-delves.js, record-only).
+  // A party opens a stay in a settlement.
+  'settlement-visited': {
+    R: { visitId: 'string' },
+    O: { settlementId: 'string', mode: 'string', participantCount: 'number', narrative: 'string' }
+  },
+  // An urban incident during a stay: the rolled d100 incident + its mechanical hooks (reaction band,
+  // disease exposure, combat risk, theft) — the consequences (disease/casualty) ride their own events.
+  'urban-incident': {
+    R: { visitId: 'string', incidentKey: 'string' },
+    O: { settlementId: 'string', roll: 'number', afterDark: 'boolean', category: 'string',
+         reactionBand: 'string', diseaseExposure: 'boolean', combatRisk: 'boolean',
+         affectedCharacterId: 'string', narrative: 'string' }
   },
   // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
   // record-only). A character contracts a disease (infected); then the disease resolves.
@@ -1395,6 +1451,12 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { loreId: 'string', toKnowerId: 'string' },
     O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
   },
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (record-only; the
+  // loreKind:'rumor' Lore item was authored by acks-engine-knowledge.js promoteRumorToLore).
+  'rumor-promoted': {
+    R: { rumorId: 'string', loreId: 'string' },
+    O: { loreKind: 'string', truthValue: 'string', apparentLevel: 'string', consumed: 'boolean', narrative: 'string' }
+  },
   // === Magic Items (team) === — #143 W1 (acks-engine-magic-items.js). knownProperties/learned/throw
   // are objects/arrays (typed 'object', the kindResult/throwResult convention). characterId is REQUIRED
   // for identify (you identify AS someone) but optional for charge-spend/appraise (the party may act).
@@ -1455,6 +1517,24 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { gameId: 'string' },
     O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
          boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
+  },
+  // === Magic Items MI-3 (team burst11) === — the magic-item market (acks-engine-magic-items.js).
+  // Record-only; settlementId carries the market (Event.context.settlementId picks it up).
+  'magic-item-appraised': {
+    R: { itemId: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', baseCost: 'number', apparentValue: 'number',
+         created: 'boolean', offeredBuyGp: 'number', offeredSellGp: 'number', transactable: 'boolean',
+         buy: 'object', sell: 'object', narrative: 'string' }
+  },
+  'magic-item-sold': {
+    R: { itemId: 'string', direction: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', created: 'boolean', priceGp: 'number', qty: 'number', narrative: 'string' }
+  },
+  // === Gladiators G5 (team burst11 2026-06-20) === — record-only verbose audit (see EVENT_KINDS); the
+  // tactical resolver applied the bout via the shipped bout-resolved — bout-round is the opt-in blow-by-blow.
+  'bout-round': {
+    R: { boutId: 'string', round: 'number' },
+    O: { initiative: 'object', lines: 'array', hp: 'object', narrative: 'string' }
   }
 });
 
@@ -2924,6 +3004,15 @@ function applyEvent_followerArrival(campaign, event){
 }
 registerEventHandler('follower-arrival', applyEvent_followerArrival);
 
+// === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337). Record-only audit:
+// attractFollowers (acks-engine-followers.js) already bumped the domain's peasant population; this handler
+// keeps the event well-formed on replay (the follower-arrival audit posture).
+function applyEvent_followerFamiliesArrived(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || ((p.families || 0) + ' peasant families settle with the followers (RR p.337)') } };
+}
+registerEventHandler('follower-families-arrived', applyEvent_followerFamiliesArrived);
+
 // ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
 // The Journey day-tick consumer mutates journey state in its commit() and emits these
 // events as an audit trail via emitDayTickEvents (which constructs + pushes the event
@@ -3123,6 +3212,11 @@ registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
 registerEventHandler('oligarchy-established', applyEvent_senateAudit);
 registerEventHandler('oligarchy-dissolved', applyEvent_senateAudit);
 registerEventHandler('oligarchy-decision', applyEvent_senateAudit);
+// === Politics P-7 wizard (burst11 2026-06-20) === — the generative senate-materialization event shares
+// the same record-only audit: ACKS.materializeSenate (acks-engine-politics.js) already minted the
+// senate/factions/senatorships + set the apex governance senatorial; the handler keeps the event
+// well-formed on replay (records the narrative only).
+registerEventHandler('senate-materialized', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -3135,6 +3229,12 @@ registerEventHandler('delve-foray', applyEvent_delveAudit);
 // ACKS.commitWildernessForay already applied the state (Mortal Wounds, unit casualties, clearLair, the
 // adventure-result disbursement); this keeps the event well-formed on replay (records the narrative only).
 registerEventHandler('wilderness-foray', applyEvent_delveAudit);
+// === Delves D5 (team burst11) === — the off-screen settlement events share the same record-only audit
+// posture: acks-engine-delves.js already applied the state (the SettlementVisit / its incidents[];
+// disease via contractDisease, casualties via applyMortalWound — both emit their own events); this
+// keeps the settlement events well-formed on replay (records the narrative only).
+registerEventHandler('settlement-visited', applyEvent_delveAudit);
+registerEventHandler('urban-incident', applyEvent_delveAudit);
 // === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
 // acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
@@ -3252,6 +3352,9 @@ function applyEvent_loreAudit(campaign, event){
 }
 registerEventHandler('lore-learned', applyEvent_loreAudit);
 registerEventHandler('lore-shared', applyEvent_loreAudit);
+// === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (acks-engine-knowledge.js
+// promoteRumorToLore already authored the Lore item); the same record-only audit handler keeps it replay-safe.
+registerEventHandler('rumor-promoted', applyEvent_loreAudit);
 
 // === Magic Items (team) === — #143 W1 record-only audits. acks-engine-magic-items.js owns the state
 // (the identifyMagicItem / useMagicItemCharge / appraiseMagicItem verbs already wrote the notableItem's
@@ -3268,6 +3371,10 @@ registerEventHandler('item-appraised', applyEvent_magicItemAudit);
 // (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
 registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
 registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
+// === Magic Items MI-3 (team burst11) === — the market verbs (acks-engine-magic-items.js) own the gp
+// (GP Wave B) + the NotableItem custody; this keeps the appraise/sale events well-formed on replay.
+registerEventHandler('magic-item-appraised', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-sold', applyEvent_magicItemAudit);
 
 // === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
 // (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
@@ -3294,6 +3401,9 @@ registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
 registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
+// === Gladiators G5 (team burst11 2026-06-20) === — same record-only audit; the round-by-round tactical
+// resolver applied the bout via the shipped bout-resolved, and bout-round is its opt-in verbose per-round log.
+registerEventHandler('bout-round', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6365,12 +6475,20 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (acks-engine-politics.js establish/dissolve/secede/decide); a raw Wizard emit would record an
   // oligarchy transition the apex governance state doesn't show.
   'oligarchy-established', 'oligarchy-dissolved', 'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — owned by the Senate tab's 🏛 Generate-a-Senate
+  // wizard (acks-engine-politics.js materializeSenate); a raw Wizard emit would record a convening the
+  // senate/faction/senatorship state doesn't show.
+  'senate-materialized',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
   // === Delves D4 (team) === — owned by ACKS.commitWildernessForay (the Wilderness Foray modal);
   // a raw emit would narrate a foray the casualties / treasure / lair state don't show.
   'wilderness-foray',
+  // === Delves D5 (team burst11) === — owned by acks-engine-delves.js (startSettlementVisit + the
+  // slot-66 settlement-incidents consumer / the on-demand roller); a raw emit would narrate a visit /
+  // incident the SettlementVisit + its incidents[] don't show. The GM runs a stay via the 🏙 panel.
+  'settlement-visited', 'urban-incident',
   // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
@@ -6418,6 +6536,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
   // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
   'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (the Families-Arriving population
+  // bump); a raw emit would record peasant families the domain's demographics don't actually carry.
+  'follower-families-arrived',
   // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
   // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
   // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
@@ -6433,6 +6554,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
   'lore-learned', 'lore-shared',
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — owned by acks-engine-knowledge.js
+  // (promoteRumorToLore); a raw emit would record a promotion the loreKind:'rumor' Lore item + its
+  // sourceRumorId link don't show. Promotion happens via the 📚 Knowledge tab's promote-rumor panel.
+  'rumor-promoted',
   // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
   // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
   // identification + intrinsic.charges don't show.
@@ -6450,7 +6575,13 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
   // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
   // character/school/game state doesn't show.
-  'gladiator-trained', 'gladiator-uprising', 'game-sponsored'
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored',
+  // === Magic Items MI-3 (team burst11) === — owned by acks-engine-magic-items.js (the market verbs
+  // move the gp + custody); a raw Event-Wizard emit would record a sale/appraisal nothing moved for.
+  'magic-item-appraised', 'magic-item-sold',
+  // === Gladiators G5 (team burst11 2026-06-20) === — owned by acks-engine-gladiators.js (the tactical
+  // resolver emits bout-round per round); a raw Event-Wizard emit would record arena chatter with no fight.
+  'bout-round'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

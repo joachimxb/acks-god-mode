@@ -398,6 +398,144 @@ section('W2 event registration + replay + wizard-opt-out');
   ok('replay handler returns a narrativeSummary', replay && replay.result && typeof replay.result.narrativeSummary === 'string' && replay.result.narrativeSummary.length > 0);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+// MI-3 — THE MAGIC-ITEM MARKET (buy / sell / appraise at a settlement; GP rides GP Wave B). TT pp.26–28.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+function mkMarket(extra){
+  const camp = mkCampaign(Object.assign({ itemCustody:[], settlements:[
+    { id:'set-1', name:'Saltmarket', marketClass:'III', domainId:'dom-1', hexId:'hex-1', families:5000 }   // Class III
+  ] }, extra || {}));
+  camp.characters.push(mkChar({ id:'chr-1', name:'Aelric', coins:{ pp:0, gp:60000, ep:0, sp:0, cp:0 }, inventory:[] }));
+  return camp;
+}
+function set1(camp){ return camp.settlements.find(s => s.id === 'set-1'); }
+function hold(camp, ni, charId){ camp.itemCustody.push({ id:'cus-'+ni.id, itemId: ni.id, custodianKind:'character', custodianId: charId, sinceTurn:1, status:'active' }); return ni; }
+
+// ── 15. Market availability gate (rarity × market class; per-party 10%; monthly headroom) ────────────
+section('Market availability — rarity × market class, per-party 10%, monthly headroom');
+{
+  const camp = mkMarket();
+  const set = set1(camp);
+  const rareItem = ACKS.createNotableFromCatalog(camp, 'weapon-plus-2');        // base 15000, rare
+  const av = ACKS.magicItemMarketAvailability(camp, rareItem, set, { direction:'sell' });
+  ok('rare IS transactable at a Class III market', av.transactable === true && av.rarity === 'rare' && av.marketClass === 'III');
+  ok('per-party = 10% of per-market (≥1)', av.perPartyMax >= 1 && av.monthlyRemaining === av.perPartyMax);
+  // legendary at Class III → too small
+  const leg = ACKS.createNotableFromCatalog(camp, 'wondrous-legendary');         // base 150000, legendary
+  const la = ACKS.magicItemMarketAvailability(camp, leg, set, {});
+  ok('legendary is NOT transactable at Class III (market-too-small-for-rarity)', la.transactable === false && la.reason === 'market-too-small-for-rarity');
+  // a Class I market CAN handle legendary
+  const big = mkMarket(); big.settlements[0].marketClass = 'I';
+  const laBig = ACKS.magicItemMarketAvailability(big, ACKS.createNotableFromCatalog(big, 'wondrous-legendary'), set1(big), {});
+  ok('legendary IS transactable at a Class I market', laBig.transactable === true && laBig.marketClass === 'I');
+  // the rarity → max market-class ladder is monotone (rarer ⇒ smaller max index)
+  const L = ACKS.MAGIC_MARKET_MAX_CLASS_IDX;
+  ok('rarity→max-class ladder is monotone (common ≥ uncommon ≥ rare ≥ very-rare ≥ legendary)',
+     L.common >= L.uncommon && L.uncommon >= L.rare && L.rare >= L['very-rare'] && L['very-rare'] >= L.legendary && L.legendary === 0);
+  // market class derives from families when marketClass is absent
+  const noClass = mkMarket(); delete noClass.settlements[0].marketClass;
+  ok('magicMarketClassIdx defaults to VI for a tiny/unknown market', ACKS.magicMarketClassIdx(noClass, { families: 0 }) === 5);
+}
+
+// ── 16. Market appraise (offered buy/sell + transactability; magic-item-appraised) ──────────────────
+section('Market appraise — offered buy/sell + transactability (magic-item-appraised)');
+{
+  const camp = mkMarket();
+  const ni = hold(camp, ACKS.createNotableFromCatalog(camp, 'weapon-plus-2'), 'chr-1');  // rare, found
+  const r = ACKS.appraiseMagicItemAtMarket(camp, { itemId: ni.id, settlementId:'set-1', characterId:'chr-1' });
+  ok('appraise ok', r.ok === true);
+  ok('offered buy = TT ×2.25 (33750), sell-found = ×1 (15000)', r.appraisal.offeredBuyGp === 33750 && r.appraisal.offeredSellGp === 15000 && r.appraisal.created === false);
+  ok('appraisal carries per-direction transactability + headroom', r.appraisal.buy.transactable === true && typeof r.appraisal.sell.monthlyRemaining === 'number');
+  ok('emits magic-item-appraised with the settlement in context', r.event.kind === 'magic-item-appraised' &&
+     r.event.context && r.event.context.settlementId === 'set-1' && typeof r.event.payload.narrative === 'string');
+  ok('market appraise is DISTINCT from W1 item-appraised', camp.eventLog.every(e => e.event.kind !== 'item-appraised'));
+  // a created (authenticated) item offers ×2 on sell
+  const made = hold(camp, ACKS.createNotableFromCatalog(camp, 'weapon-plus-2', { makerCharacterId:'chr-1' }), 'chr-1');
+  const r2 = ACKS.appraiseMagicItemAtMarket(camp, { itemId: made.id, settlementId:'set-1' });
+  ok('a created item appraises sell at ×2 (30000)', r2.appraisal.created === true && r2.appraisal.offeredSellGp === 30000);
+  ok('appraise(unknown item) → error', ACKS.appraiseMagicItemAtMarket(camp, { itemId:'nope', settlementId:'set-1' }).ok === false);
+  ok('appraise(unknown settlement) → error', ACKS.appraiseMagicItemAtMarket(camp, { itemId: ni.id, settlementId:'nope' }).error === 'unknown-settlement');
+}
+
+// ── 17. Sell a magic item (TT spread; GP Wave B; custody → merchant-stock; magic-item-sold) ─────────
+section('Sell — TT spread, GP Wave B payout, custody → merchant-stock');
+{
+  const camp = mkMarket();
+  const ni = hold(camp, ACKS.createNotableFromCatalog(camp, 'weapon-plus-2'), 'chr-1');  // found rare, sell ×1 = 15000
+  // a carry-line link to the Notable (proves the sale drops it)
+  camp.characters[0].inventory.push({ name:'Weapon +2', qty:1, stone:0.5, notableItemId: ni.id });
+  const before = camp.characters[0].coins.gp;
+  const r = ACKS.sellMagicItem(camp, { itemId: ni.id, sellerCharacterId:'chr-1', settlementId:'set-1' });
+  ok('sell ok, proceeds = TT sell-found ×1 (15000)', r.ok === true && r.proceedsGp === 15000);
+  ok('GP Wave B credited the seller purse (+15000)', camp.characters[0].coins.gp === before + 15000);
+  ok('the item left the party → custody is merchant-stock(settlement)', (() => { const c = ACKS.itemCustodyOf(camp, ni.id); return c && c.custodianKind === 'merchant-stock' && c.custodianId === 'set-1'; })());
+  ok('the seller carry-line link is dropped', camp.characters[0].inventory.every(l => l.notableItemId !== ni.id));
+  ok('provenance records the sale', ni.provenance.disposition === 'sold' && ni.provenance.soldToSettlementId === 'set-1');
+  ok('emits magic-item-sold (direction sell)', r.event.kind === 'magic-item-sold' && r.event.payload.direction === 'sell' && r.event.payload.priceGp === 15000);
+  ok('the item now appears in the market listings', ACKS.magicItemMarketListings(camp, 'set-1').some(n => n.id === ni.id));
+  ok('it is no longer in the seller\'s sellable set', ACKS.sellableMagicItemsFor(camp, 'chr-1').every(n => n.id !== ni.id));
+  // proceeds can route to a domain treasury handle (GP Wave B)
+  const camp2 = mkMarket();
+  const ni2 = hold(camp2, ACKS.createNotableFromCatalog(camp2, 'weapon-plus-1'), 'chr-1');  // uncommon? base 5000 → uncommon, found ×1 = 5000
+  const r2 = ACKS.sellMagicItem(camp2, { itemId: ni2.id, sellerCharacterId:'chr-1', settlementId:'set-1', proceedsHandle:{ kind:'external' } });
+  ok('proceeds can route to an alternate handle (external sink → seller purse unchanged)', r2.ok === true && camp2.characters[0].coins.gp === 60000);
+  // a market too small refuses (legendary at Class III)
+  const leg = hold(camp, ACKS.createNotableFromCatalog(camp, 'wondrous-legendary'), 'chr-1');
+  ok('sell a legendary at Class III is refused (too small)', ACKS.sellMagicItem(camp, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1' }).error === 'market-too-small-for-rarity');
+  ok('…but gmOverride forces it through', ACKS.sellMagicItem(camp, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1', gmOverride:true }).ok === true);
+}
+
+// ── 18. Buy a magic item (existing listing + from catalog; affordability; rollback) ─────────────────
+section('Buy — existing listing + mint-from-catalog, affordability, atomic rollback');
+{
+  const camp = mkMarket();
+  // a rare item sitting in merchant stock (put it there by minting + setting custody)
+  const stock = ACKS.createNotableFromCatalog(camp, 'weapon-plus-2');
+  camp.itemCustody.push({ id:'cus-s', itemId: stock.id, custodianKind:'merchant-stock', custodianId:'set-1', sinceTurn:1, status:'active' });
+  const before = camp.characters[0].coins.gp;
+  const r = ACKS.buyMagicItem(camp, { buyerCharacterId:'chr-1', settlementId:'set-1', itemId: stock.id });
+  ok('buy a listing ok, cost = TT buy ×2.25 (33750)', r.ok === true && r.costGp === 33750);
+  ok('GP Wave B debited the buyer purse (−33750)', camp.characters[0].coins.gp === before - 33750);
+  ok('custody re-homes to the buyer', ACKS.itemCustodyOf(camp, stock.id).custodianKind === 'character' && ACKS.itemCustodyOf(camp, stock.id).custodianId === 'chr-1');
+  ok('emits magic-item-sold (direction buy)', camp.eventLog.some(e => e.event.kind === 'magic-item-sold' && e.event.payload.direction === 'buy'));
+  // buy a fresh item minted from the catalog
+  const camp2 = mkMarket();
+  const r2 = ACKS.buyMagicItem(camp2, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'potion-common', name:'Potion of Healing' });
+  ok('buy mints a fresh NotableItem from a catalog key', r2.ok === true && r2.minted === true && camp2.notableItems.some(n => n.id === r2.item.id && n.name === 'Potion of Healing'));
+  ok('a market-bought item is "found" provenance (resells ×1)', ACKS.magicItemIsCreated(r2.item) === false);
+  // insufficient funds → refuse + roll back the minted item (no orphan Notable)
+  const poor = mkMarket(); poor.characters[0].coins.gp = 100;
+  const nBefore = poor.notableItems.length;
+  const rPoor = ACKS.buyMagicItem(poor, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'weapon-plus-2' });
+  ok('insufficient funds refused', rPoor.ok === false && rPoor.error === 'insufficient-funds' && rPoor.need === 33750);
+  ok('the minted item is rolled back on failure (no orphan Notable)', poor.notableItems.length === nBefore && poor.characters[0].coins.gp === 100);
+  // a too-small market refuses a legendary catalog buy + rolls back
+  const camp3 = mkMarket();
+  const nB3 = camp3.notableItems.length;
+  const r3 = ACKS.buyMagicItem(camp3, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'wondrous-legendary' });
+  ok('legendary buy at Class III refused + rolled back', r3.ok === false && r3.error === 'market-too-small-for-rarity' && camp3.notableItems.length === nB3);
+  ok('buy(unknown buyer) → error', ACKS.buyMagicItem(camp, { buyerCharacterId:'nope', settlementId:'set-1', catalogKey:'potion-common' }).error === 'unknown-buyer');
+}
+
+// ── 19. MI-3 event registration + replay + wizard-opt-out + no collision ─────────────────────────────
+section('MI-3 event registration + replay + wizard-opt-out');
+{
+  ['magic-item-appraised','magic-item-sold'].forEach(k => {
+    ok(k + ' is a known kind', ACKS.isEventKindKnown(k) === true);
+    ok(k + ' has a schema', ACKS.EVENT_SCHEMAS && !!ACKS.EVENT_SCHEMAS[k]);
+    ok(k + ' is wizard-opt-out (verb-owned)', ACKS.wizardEmittableKinds && ACKS.wizardEmittableKinds().indexOf(k) < 0);
+  });
+  // no collision with the W1/W2 magic-item kinds
+  ['item-appraised','item-identified','item-charge-spent','magic-item-commissioned','magic-item-created'].forEach(k => ok('shipped kind ' + k + ' intact', ACKS.isEventKindKnown(k) === true));
+  // the record-only replay handler keeps a sale event well-formed
+  const camp = mkMarket();
+  const ni = hold(camp, ACKS.createNotableFromCatalog(camp, 'weapon-plus-1'), 'chr-1');
+  ACKS.sellMagicItem(camp, { itemId: ni.id, sellerCharacterId:'chr-1', settlementId:'set-1' });
+  const ev = camp.eventLog.find(e => e.event.kind === 'magic-item-sold').event;
+  const replay = ACKS.applyEvent(camp, ev);
+  ok('replay handler returns a narrativeSummary', replay && replay.result && typeof replay.result.narrativeSummary === 'string' && replay.result.narrativeSummary.length > 0);
+}
+
 // ── summary ───────────────────────────────────────────────────────────────────────────────────────
 console.log('\n=============================================');
 console.log('magic-items.smoke: ' + passed + ' passed, ' + failed + ' failed');

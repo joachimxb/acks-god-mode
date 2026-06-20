@@ -1,6 +1,8 @@
 // =============================================================================
 // delves.smoke.js — Delves D2 (the Dungeon + Delve entities) + D3 (the Abstract Dungeon
-// foray resolver — JJ ch.12, locked against the four worked examples). Phase 3.5 (Milestone B).
+// foray resolver — JJ ch.12) + D4 (Abstract Wilderness — JJ ch.13) + D5 (the off-screen
+// Settlement layer — JJ ch.3: the SettlementVisit + the urban-incident generator + the
+// holed-up day-consumer + diseases/casualties via the shipped CL-2 + Delves-D1). Phase 3.5.
 // Covers: the dun- (registered) / dlv- (new) prefixes; the blankDungeon (RECONCILED shape,
 // Data_Dictionary §13.2 — both facets, single status axis, arcane reserved-null) + blankDelve
 // factories; the derived overlays dungeonLifecycleLabel (Q1: attuned > owned > stored status)
@@ -678,11 +680,215 @@ ok("'wilderness-foray' has a schema", !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMA
 ok("'wilderness-foray' is Event-Wizard opt-out", ACKS.EVENT_WIZARD_OPTOUT.has('wilderness-foray'));
 
 // =============================================================================
+// D5 — the off-screen Settlement layer (JJ ch.3, the SettlementVisit + the urban-incident
+// generator + the holed-up day-consumer; reuses the shipped encounter reaction/tone +
+// CL-2 contractDisease + Delves-D1 mortal wounds).
+// =============================================================================
+function mkVisit(){
+  const c = ACKS.blankCampaign({ name:'D5' }); c.eventLog = []; c.currentTurn = 5; c.currentDayInMonth = 3;
+  c.settlements = [{ id:'set-sp', name:'Saltspur', hexId:'hex-1' }];
+  c.characters = [
+    Object.assign(ACKS.blankCharacter({ id:'chr-a', name:'Aelric' }), { abilities:{STR:12,INT:10,WIL:10,DEX:12,CON:14,CHA:13} }),
+    Object.assign(ACKS.blankCharacter({ id:'chr-b', name:'Mira' }),   { abilities:{STR:10,INT:12,WIL:11,DEX:13,CON:12,CHA:9} })
+  ];
+  return c;
+}
+
+section('D5 — SettlementVisit entity (svt-) + registration');
+ok('ID_PREFIXES.settlementVisit === "svt"', ACKS.ID_PREFIXES.settlementVisit === 'svt');
+ok('blankSettlementVisit is a function', typeof ACKS.blankSettlementVisit === 'function');
+(function(){
+  const v = ACKS.blankSettlementVisit({ settlementId:'set-sp' });
+  ok('svt- prefixed id', /^svt-/.test(v.id));
+  ok('schemaVersion 2', v.schemaVersion === 2);
+  ok('default mode "holed-up"', v.mode === 'holed-up');
+  ok('default status "active"', v.status === 'active');
+  ok('default incidents []', Array.isArray(v.incidents) && v.incidents.length === 0);
+  ok('stores NO entity-kind field (registry carries it — blankLair precedent)', !('kind' in v));
+  ok('participantCharacterIds defaults []', Array.isArray(v.participantCharacterIds));
+})();
+// registry kind + field-schema (both reserved 2026-05-30; this lane mints factory + schema)
+(function(){
+  const reg = (ACKS.ENTITY_KINDS_LIST || []).find(e => e && e.kind === 'settlementVisit');
+  ok('entity-registry kind "settlementVisit" registered (🛤)', !!reg && reg.icon === '🛤');
+  ok('registry displayName reads name||id (invariant-safe)', !!reg && reg.displayName({}, { name:'Saltspur stay', id:'svt-x' }) === 'Saltspur stay');
+  const schema = ACKS.FIELD_SCHEMAS && ACKS.FIELD_SCHEMAS['settlementVisit'];
+  ok('field-schema "settlementVisit" exists', !!schema && schema.factory === 'blankSettlementVisit');
+  ok('field-schema adminCreate schemaForm', !!schema && schema.adminCreate === 'schemaForm');
+})();
+
+section('D5 — the urban-incident table (JJ pp.81–84) + lookup');
+ok('SETTLEMENT_INCIDENTS has 16 rows', (ACKS.SETTLEMENT_INCIDENTS || []).length === 16);
+ok('every row has a JJ page cite', (ACKS.SETTLEMENT_INCIDENTS || []).every(e => /^JJ p\.\d+$/.test(e.cite || '')));
+(function(){
+  // Contiguity: the ranges tile 1..130 with no gaps or overlaps.
+  const rows = ACKS.SETTLEMENT_INCIDENTS.slice().sort((a,b) => a.range[0] - b.range[0]);
+  let contiguous = rows[0].range[0] === 1;
+  for(let i = 1; i < rows.length; i++){ if(rows[i].range[0] !== rows[i-1].range[1] + 1) contiguous = false; }
+  ok('ranges tile 1..130 contiguously (no gaps/overlaps)', contiguous && rows[rows.length-1].range[1] === 130);
+})();
+ok('lookup 1 → stray-animals', ACKS.lookupSettlementIncident(1).key === 'stray-animals');
+ok('lookup 75 → town-watch', ACKS.lookupSettlementIncident(75).key === 'town-watch');
+ok('lookup 100 → drunken-brawl (top of a daytime d100)', ACKS.lookupSettlementIncident(100).key === 'drunken-brawl');
+ok('lookup 112 → plague-cart (after-dark only)', ACKS.lookupSettlementIncident(112).key === 'plague-cart');
+ok('lookup 130 → riot', ACKS.lookupSettlementIncident(130).key === 'riot');
+ok('lookup 999 → clamps to the most dangerous (riot)', ACKS.lookupSettlementIncident(999).key === 'riot');
+ok('the dangerous high band (101–130) holds combat/disease/hazard', (ACKS.SETTLEMENT_INCIDENTS || []).filter(e => e.range[0] >= 101).every(e => e.combatRisk || e.diseaseExposure || e.hazardSave));
+
+section('D5 — rollSettlementIncident (PURE roller)');
+(function(){
+  const c = mkVisit();
+  const v = ACKS.blankSettlementVisit({ settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'] });
+  // town-watch (reaction, intimidating tone), rng 0.3 → affected = participants[0] = Aelric
+  const inc = ACKS.rollSettlementIncident(c, v, { forcedRoll:75, rng:()=>0.3 });
+  ok('forcedRoll 75 → town-watch', inc.incidentKey === 'town-watch');
+  ok('reactionCall true', inc.reactionCall === true);
+  ok('reaction rolled (band present)', !!inc.reaction && typeof inc.reaction.band === 'string' && inc.reaction.band.length > 0);
+  ok('tone intimidating (the town-watch tone)', inc.tone === 'intimidating');
+  ok('affectedCharacterId is a participant', ['chr-a','chr-b'].includes(inc.affectedCharacterId));
+  ok('PURE — the roll did NOT push to visit.incidents', v.incidents.length === 0);
+  // stray-animals (no reaction)
+  const inc2 = ACKS.rollSettlementIncident(c, v, { forcedRoll:1, rng:()=>0.5 });
+  ok('forcedRoll 1 → stray-animals, no reaction', inc2.incidentKey === 'stray-animals' && inc2.reactionCall === false && inc2.reaction === null);
+  // after-dark shift: base 82 + 30 = 112 → plague-cart (diseaseExposure)
+  const inc3 = ACKS.rollSettlementIncident(c, v, { forcedRoll:82, afterDark:true, rng:()=>0.5 });
+  ok('after-dark +30: base 82 → roll 112 → plague-cart', inc3.roll === 112 && inc3.incidentKey === 'plague-cart' && inc3.diseaseExposure === true);
+  // theft incident (cutpurse, forcedRoll 84): rng 0.5 → save 11 < 14 → failed → gp lifted
+  const inc4 = ACKS.rollSettlementIncident(c, v, { forcedRoll:84, rng:()=>0.5 });
+  ok('forcedRoll 84 → cutpurse, theft rolled', inc4.incidentKey === 'cutpurse' && !!inc4.theft);
+  ok('failed theft save → gpLost > 0', inc4.theft.failed === true && inc4.theft.gpLost > 0);
+})();
+
+section('D5 — startSettlementVisit / departSettlementVisit (init-on-write)');
+(function(){
+  const c = mkVisit(); delete c.settlementVisits;                 // prove init-on-write (no collection present)
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'], mode:'holed-up' });
+  ok('init-on-write — campaign.settlementVisits created', Array.isArray(c.settlementVisits) && c.settlementVisits.length === 1);
+  ok('visit is active + holed-up', v.status === 'active' && v.mode === 'holed-up');
+  ok('hexId resolved from the settlement', v.hexId === 'hex-1');
+  ok('emits a settlement-visited event', c.eventLog.some(e => e.event.kind === 'settlement-visited'));
+  ok('findSettlementVisit returns it', ACKS.findSettlementVisit(c, v.id) === v);
+  ok('activeSettlementVisits lists it', ACKS.activeSettlementVisits(c).length === 1);
+  ACKS.departSettlementVisit(c, v.id);
+  ok('depart → status departed + departedAtTurn', v.status === 'departed' && v.departedAtTurn === 5);
+  ok('activeSettlementVisits now empty', ACKS.activeSettlementVisits(c).length === 0);
+})();
+
+section('D5 — applySettlementIncident (push + emit + disease via CL-2 contractDisease)');
+(function(){
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'] });
+  const before = c.eventLog.length;
+  const inc = ACKS.rollSettlementIncident(c, v, { forcedRoll:39, rng:()=>0.5 });  // peddler — benign
+  ACKS.applySettlementIncident(c, v, inc, {});
+  ok('apply pushes to visit.incidents', v.incidents.length === 1 && v.incidents[0].resolved === true);
+  ok('apply emits an urban-incident event', c.eventLog.slice(before).some(e => e.event.kind === 'urban-incident'));
+  // disease exposure — INFECT path (low rng → natural-1 Death save → infected; contractDisease emits)
+  const mira = c.characters.find(x => x.id === 'chr-b');
+  const incD = ACKS.rollSettlementIncident(c, v, { forcedRoll:110, rng:()=>0 });   // plague-cart; rng 0 → affected = chr-a... ensure deterministic affected
+  // force the affected to Mira for a clean assertion
+  incD.affectedCharacterId = 'chr-b'; incD.affectedName = 'Mira';
+  ACKS.applySettlementIncident(c, v, incD, { rng:()=>0.02 });                       // save d20 = 1 → infected
+  ok('disease-exposure infects via contractDisease (char.diseases grows)', (mira.diseases || []).length === 1);
+  ok('contractDisease emits a disease-contracted event', c.eventLog.some(e => e.event.kind === 'disease-contracted'));
+  ok('incident records the disease', incD.disease && incD.disease.infected === true);
+  // disease exposure — RESIST path (high save → no infection)
+  const c2 = mkVisit();
+  const v2 = ACKS.startSettlementVisit(c2, { settlementId:'set-sp', participantCharacterIds:['chr-a'] });
+  const aelric = c2.characters.find(x => x.id === 'chr-a');
+  const incR = ACKS.rollSettlementIncident(c2, v2, { forcedRoll:110, rng:()=>0 });
+  incR.affectedCharacterId = 'chr-a';
+  ACKS.applySettlementIncident(c2, v2, incR, { rng:()=>0.99 });                     // save d20 = 20 → resists
+  ok('high Death save → resists (no infection)', (aelric.diseases || []).length === 0 && incR.disease.infected === false);
+})();
+
+section('D5 — resolveSettlementCasualty (Delves-D1 mortal-wounds reuse)');
+(function(){
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'] });
+  const inc = ACKS.rollSettlementIncident(c, v, { forcedRoll:105, rng:()=>0.5 });  // footpad (combatRisk)
+  ACKS.applySettlementIncident(c, v, inc, {});
+  const aelric = c.characters.find(x => x.id === 'chr-a');
+  const cas = ACKS.resolveSettlementCasualty(c, v.id, 'chr-a', { rng:()=>0.02 });   // low d20 → a wound
+  ok('a mortal wound is applied (char.mortalWounds grows)', (aelric.mortalWounds || []).length === 1);
+  ok('casualty has an outcome', typeof cas.outcome === 'string' && cas.outcome.length > 0);
+  ok('the latest combat-risk incident is annotated with the casualty', !!inc.casualty && inc.casualty.characterId === 'chr-a');
+  ok('a mortal-wound event is emitted (D1)', c.eventLog.some(e => e.event.kind === 'mortal-wound'));
+})();
+
+section('D5 — the holed-up day-consumer (slot 66)');
+(function(){
+  const cons = ACKS.dayConsumersInOrder().find(x => x.name === 'settlement-incidents');
+  ok('registered at order 66', !!cons && cons.order === 66);
+  ok('declares the encounter pause trigger', !!cons && cons.pauseTriggers.indexOf('encounter') >= 0);
+  ok('slot 66 sits between sage-commission (64) and the encounter stack (80)', !!cons && cons.order > 64 && cons.order < 80);
+
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'], mode:'holed-up' });
+  // 1d6 → 6 (≥5) → an incident is proposed
+  const prop = ACKS.proposeSettlementVisitDay(c, { rng:()=>0.9 });
+  ok('1d6 ≥ 5 → 1 pending incident', prop.pendingRecords.length === 1 && prop.pendingRecords[0].type === 'settlement-incident');
+  ok('a notable event is surfaced', prop.notableEvents.length === 1);
+  ok('PURE — propose did NOT mutate visit.incidents', v.incidents.length === 0);
+  const inc0 = v.incidents.length;
+  ACKS.commitSettlementVisitRecord(c, prop.pendingRecords[0]);
+  ok('commit applies the proposed incident', v.incidents.length === inc0 + 1);
+  // 1d6 → 1 (<5) → no incident
+  const prop2 = ACKS.proposeSettlementVisitDay(c, { rng:()=>0.1 });
+  ok('1d6 < 5 → no incident', prop2.pendingRecords.length === 0);
+  // wandering mode is GM-pressed — the day-consumer does NOT auto-fire for it
+  const cW = mkVisit();
+  ACKS.startSettlementVisit(cW, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'wandering' });
+  ok('wandering visits are NOT auto-checked (GM-pressed only)', ACKS.proposeSettlementVisitDay(cW, { rng:()=>0.9 }).pendingRecords.length === 0);
+  // departed visits do not fire
+  const cD = mkVisit();
+  const vD = ACKS.startSettlementVisit(cD, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'holed-up' });
+  ACKS.departSettlementVisit(cD, vD.id);
+  ok('departed visits do not fire', ACKS.proposeSettlementVisitDay(cD, { rng:()=>0.9 }).pendingRecords.length === 0);
+  // dayTickActivityInFlight engages while a holed-up visit is active. Use a day-1 campaign with no
+  // other in-flight work, so the SETTLEMENT-VISIT branch is what flips it (day>1 short-circuits first).
+  const cF = mkVisit(); cF.currentDayInMonth = 1;
+  ok('dayTickActivityInFlight false with no visit (day 1, nothing else in flight)', ACKS.dayTickActivityInFlight(cF) === false);
+  ACKS.startSettlementVisit(cF, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'holed-up' });
+  ok('dayTickActivityInFlight true with an active holed-up visit', ACKS.dayTickActivityInFlight(cF) === true);
+})();
+
+section('D5 — rollAndApplySettlementIncident (the on-demand GM verb)');
+(function(){
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'looking-for-trouble' });
+  const rec = ACKS.rollAndApplySettlementIncident(c, v.id, { forcedRoll:49, rng:()=>0.5 });  // preacher
+  ok('roll+apply pushes the incident', v.incidents.length === 1 && rec.incidentKey === 'preacher');
+  ok('roll+apply emits urban-incident', c.eventLog.some(e => e.event.kind === 'urban-incident'));
+})();
+
+section('D5 — event registration');
+ok("'settlement-visited' in EVENT_KINDS", ACKS.EVENT_KINDS.includes('settlement-visited'));
+ok("'urban-incident' in EVENT_KINDS", ACKS.EVENT_KINDS.includes('urban-incident'));
+ok("'settlement-visited' has a schema", !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['settlement-visited']));
+ok("'urban-incident' has a schema", !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['urban-incident']));
+ok("'settlement-visited' is Event-Wizard opt-out", ACKS.EVENT_WIZARD_OPTOUT.has('settlement-visited'));
+ok("'urban-incident' is Event-Wizard opt-out", ACKS.EVENT_WIZARD_OPTOUT.has('urban-incident'));
+
+section('D5 GUARD — D5 added NOTHING to migrateCampaign (templates stay no-ops)');
+(function(){
+  // settlementVisits[] was RESERVED 2026-05-30 (lazyDefaultV1ScopeReservations) — NOT added by D5.
+  // The demo stays a TRUE migrate-no-op; migrate idempotently keeps settlementVisits[] (the reserved
+  // backfill), and startSettlementVisit is the init-on-write path (no migrate dependency).
+  // DEMO is the top-level const loaded by the D2 guard above.
+  ok('migrate(demo) keeps settlementVisits identical', JSON.stringify(ACKS.migrateCampaign(clone(DEMO)).settlementVisits) === JSON.stringify(clone(DEMO).settlementVisits || []));
+  // migrate backfills the reserved collection idempotently (a fresh campaign has [], stays [])
+  const fresh = ACKS.blankCampaign({ name:'x' });
+  ok('fresh blankCampaign has settlementVisits []', Array.isArray(fresh.settlementVisits) && fresh.settlementVisits.length === 0);
+  ok('migrate is idempotent on settlementVisits', JSON.stringify(ACKS.migrateCampaign(fresh).settlementVisits) === '[]');
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Delves D2 + D3 + D4 smoke checks passed.');
+  console.log('\nAll Delves D2 + D3 + D4 + D5 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

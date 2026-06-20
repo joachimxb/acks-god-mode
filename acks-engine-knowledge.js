@@ -26,10 +26,16 @@
  *
  * Footprint (additive, no migration): blankLore / blankKnowledge live in acks-engine-entities.js; the
  * collections are added to blankCampaign ONLY (read defensively; NOT lazy-injected into migrateCampaign,
- * so templates stay migrate-no-ops). 2 record-only event kinds (lore-learned / lore-shared). No house rule
- * this wave — the data layer is benign always-on core (the Group/Lair precedent); the plan's opt-in
- * `knowledge-tracking` master gate needs a catalogs.js HOUSERULES_REGISTRY entry (out of this lane's
- * bounds) and is a documented follow-up.
+ * so templates stay migrate-no-ops). 3 record-only event kinds (lore-learned / lore-shared Wave A;
+ * rumor-promoted Wave B).
+ *
+ * Wave B (team burst11, 2026-06-20 — Knowledge_Layer_Plan.md §6/§7): the opt-in `knowledge-tracking`
+ * MASTER house rule (default-OFF; the registry entry lives in catalogs.js, the read gate is
+ * isKnowledgeTrackingOn here) FINALLY lands — gating the 📚 Knowledge tab/workflow (the data-layer verbs
+ * stay benign-callable, the Wave A "always-on core" framing). Plus rumor→lore promotion
+ * (promoteRumorToLore → a loreKind:'rumor' Lore item; the reach[]/apparentLevel ride as a rumor-Lore
+ * extension on the lore object) and provenance DEPTH (loreProvenanceChain — the told-by gossip trace).
+ * The opt-in lore-propagation diffusion tick stays a later wave (§6.5). See the WAVE B section below.
  */
 (function(global){
   'use strict';
@@ -364,6 +370,144 @@
     return { primaryHexId: opts.learnedAtHexId || null, relatedEntities: rel };
   }
 
+  // ===========================================================================
+  // WAVE B (team burst11, 2026-06-20) — Knowledge_Layer_Plan.md §6/§7.
+  //   (1) the knowledge-tracking MASTER gate (the registry entry lives in catalogs.js; this is the
+  //       canonical read helper — the FEATURE gate. The data-layer verbs stay benign-callable (the
+  //       Wave A "always-on core" framing + the Sages "Record to Knowledge" integration), so OFF means
+  //       the 📚 Knowledge tab/workflow is HIDDEN, not that the engine refuses to store Lore.)
+  //   (2) rumor→lore promotion (§6.4) — a campaign rumor becomes a loreKind:'rumor' Lore item; the
+  //       reach[] / apparentLevel stay a rumor-Lore EXTENSION attached to the lore object (NOT base
+  //       blankLore fields — additive runtime props, schema additionalProperties:true). Idempotent.
+  //   (3) sharing + provenance DEPTH (§5.5) — shareLore (the manual single-share) shipped in Wave A;
+  //       Wave B adds loreProvenanceChain (the DF gossip trace: walk the told-by links back to the
+  //       origin). The opt-in lore-propagation diffusion TICK stays a later wave (§6.5 — deferred).
+  // FENCED: no senate/politics; no autonomous NPC-goals layer.
+  // ===========================================================================
+
+  // The master gate — reads the knowledge-tracking house rule (catalogs.js). The canonical helper the
+  // UI + any integrator surface (e.g. the Sages "Record to Knowledge" tick) reads to gate the layer.
+  function isKnowledgeTrackingOn(campaign){
+    const A = _A();
+    return !!(campaign && typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'knowledge-tracking'));
+  }
+
+  // Rumor truthLevel (true|false|mixed|unknown) → Lore truthValue (true|false|partial|unknown). §6.4.
+  const RUMOR_TRUTH_TO_LORE = Object.freeze({ true:'true', false:'false', mixed:'partial', unknown:'unknown' });
+  function _loreTruthFromRumor(rt){ return RUMOR_TRUTH_TO_LORE[rt] || 'unknown'; }
+
+  // The lore promoted from a given rumor (matches the rumor-Lore extension sourceRumorId), else null.
+  function loreFromRumor(campaign, rumorId){
+    if(!campaign || !rumorId) return null;
+    return _ensureLore(campaign).find(l => l && l.sourceRumorId === rumorId) || null;
+  }
+  // Campaign rumors not yet promoted to Lore (the UI's "promotable" list).
+  function promotableRumors(campaign){
+    if(!campaign || !Array.isArray(campaign.rumors)) return [];
+    return campaign.rumors.filter(r => r && r.id && !loreFromRumor(campaign, r.id));
+  }
+  // The apparent (believed-commonness) level + the spread reach of a rumor, defensively (a rumor-emit
+  // rumor carries reach[]; a blankRumor carries apparentLevel + proliferation.settlementsReached).
+  function _rumorApparentLevel(rumor){
+    if(!rumor) return 'uncommon';
+    if(rumor.apparentLevel) return rumor.apparentLevel;
+    const reach = Array.isArray(rumor.reach) ? rumor.reach : [];
+    return (reach[0] && reach[0].apparentLevel) || 'uncommon';
+  }
+  function _cloneRumorReach(rumor){
+    if(rumor && Array.isArray(rumor.reach)) return rumor.reach.map(r => Object.assign({}, r));
+    const reached = (rumor && rumor.proliferation && Array.isArray(rumor.proliferation.settlementsReached))
+      ? rumor.proliferation.settlementsReached : [];
+    return reached.map(sid => (typeof sid === 'string' ? { settlementId: sid } : Object.assign({}, sid)));
+  }
+
+  // promoteRumorToLore — author a loreKind:'rumor' Lore item FROM a campaign rumor (§6.4). Idempotent
+  // (a rumor promotes once — re-promoting returns the existing lore). Non-destructive by default; pass
+  // opts.consume to remove the source rumor (the eventual rumors-live-as-lore migration). Emits
+  // rumor-promoted. Returns { ok, lore, created, consumed?, alreadyPromoted?, reason? }.
+  function promoteRumorToLore(campaign, opts){
+    opts = opts || {};
+    if(!campaign) return { ok:false, reason:'no-campaign' };
+    const rumorId = opts.rumorId;
+    if(!rumorId) return { ok:false, reason:'missing-args' };
+    const rumors = Array.isArray(campaign.rumors) ? campaign.rumors : [];
+    const rumor = rumors.find(r => r && r.id === rumorId) || null;
+    if(!rumor) return { ok:false, reason:'no-rumor' };
+    const existing = loreFromRumor(campaign, rumorId);
+    if(existing) return { ok:true, lore:existing, created:false, alreadyPromoted:true };
+    const A = _A();
+    if(typeof A.recordLore !== 'function' && typeof recordLore !== 'function') return { ok:false, reason:'no-factory' };
+    const turn = opts.atTurn || _currentTurn(campaign);
+    const lore = recordLore(campaign, {
+      text: rumor.text || '',
+      loreKind: 'rumor',
+      truthValue: _loreTruthFromRumor(rumor.truthLevel),
+      topic: rumor.topic || '',
+      createdByCharacterId: opts.createdByCharacterId || (rumor.origin && rumor.origin.sourceCharacterId) || null,
+      atTurn: turn,
+      notes: opts.notes || ('Promoted from rumor ' + rumorId)
+    });
+    if(!lore) return { ok:false, reason:'no-factory' };
+    // rumor-Lore EXTENSION fields (§6.4 — carried only on rumor-kind lore; not base blankLore).
+    lore.sourceRumorId = rumorId;
+    lore.apparentLevel = _rumorApparentLevel(rumor);
+    lore.reach = _cloneRumorReach(rumor);
+    (lore.history || (lore.history = [])).push({ turn, type:'promoted-from-rumor', rumorId });
+    let consumed = false;
+    if(opts.consume){
+      const idx = rumors.indexOf(rumor);
+      if(idx >= 0){ rumors.splice(idx, 1); consumed = true; }
+    }
+    _recordLoreEvent(campaign, 'rumor-promoted', {
+      rumorId, loreId: lore.id, loreKind: 'rumor', truthValue: lore.truthValue,
+      apparentLevel: lore.apparentLevel, consumed
+    }, {
+      narrative: opts.narrative || _promoteNarrative(rumor, lore),
+      campaignLogHidden: !!opts.campaignLogHidden,
+      context: _promoteContext(rumor, lore)
+    });
+    return { ok:true, lore, created:true, consumed };
+  }
+
+  function _promoteNarrative(rumor, lore){
+    const t = (rumor.text || lore.text || '').slice(0, 60);
+    return 'Rumor promoted to Lore: “' + t + ((rumor.text || lore.text || '').length > 60 ? '…' : '') + '”';
+  }
+  // Tag the produced lore + the settlements the rumor reached (so it surfaces in loreHistory + each
+  // settlementHistory). Mixed-kind tagging is avoided elsewhere; here both kinds are typed-safe.
+  function _promoteContext(rumor, lore){
+    const rel = [{ kind:'lore', id: lore.id, role:'produced' }];
+    for(const r of _cloneRumorReach(rumor)){ if(r && r.settlementId) rel.push({ kind:'settlement', id: r.settlementId, role:'site' }); }
+    return { primaryHexId: null, relatedEntities: rel };
+  }
+
+  // loreProvenanceChain — the DF gossip trace (§5.5 "witness = provenance"). Walk a Knower's told-by
+  // chain back toward the origin: A heard it from B, B from C, … until a first-hand/authored source
+  // (witnessed/sage/deduced/treatise/rumor/gm) or a teller who holds no stored record. Each hop is
+  // { knowerKind, knowerId, certainty, sourceKind, sourceById, terminal, hasRecord }. Cycle-guarded.
+  function loreProvenanceChain(campaign, knowerKind, knowerId, loreId){
+    if(!campaign || !knowerId || !loreId) return [];
+    const chain = []; const seen = new Set();
+    let curKind = knowerKind || 'character', curId = knowerId, guard = 0;
+    while(curId && guard++ < 64){
+      const key = curKind + ':' + curId;
+      if(seen.has(key)) break;     // cycle guard
+      seen.add(key);
+      const rec = knowledgeRecord(campaign, curKind, curId, loreId);
+      if(!rec){
+        // the named teller holds no STORED record (first-hand/derived, or never tracked) — terminal.
+        chain.push({ knowerKind: curKind, knowerId: curId, certainty: null, sourceKind: null, sourceById: null, terminal: true, hasRecord: false });
+        break;
+      }
+      const src = rec.source || {};
+      const hop = { knowerKind: curKind, knowerId: curId, certainty: rec.certainty, sourceKind: src.kind || null, sourceById: src.byId || null, terminal: false, hasRecord: true };
+      chain.push(hop);
+      if((src.kind === 'told-by' || src.kind === 'gossip') && src.byId){ curKind = 'character'; curId = src.byId; }
+      else { hop.terminal = true; break; }   // origin of the trail (authored / first-hand source)
+    }
+    return chain;
+  }
+
   // ── export onto window.ACKS ──
   Object.assign(ACKS, {
     // constants
@@ -373,7 +517,9 @@
     findLore, findKnowledge, loreOnSubject, knowledgeRecordsForKnower, knowledgeRecord, loreKnowers,
     isKnower, firstHandLore, loreKnownBy, loreKnownByCollective, loreHistory,
     // setters / verbs
-    recordLore, learnLore, attemptLearnLore, investigateLore, shareLore, forgetLore
+    recordLore, learnLore, attemptLearnLore, investigateLore, shareLore, forgetLore,
+    // Wave B (team burst11) — the gate + rumor→lore promotion + provenance depth
+    isKnowledgeTrackingOn, RUMOR_TRUTH_TO_LORE, loreFromRumor, promotableRumors, promoteRumorToLore, loreProvenanceChain
   });
 
   if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

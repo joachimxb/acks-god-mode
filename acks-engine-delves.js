@@ -1082,6 +1082,271 @@
     return { proposal, woundRecords, lairCleared, eventId: ev ? ev.id : null, xpAwarded, treasureAwarded };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Delves D5 — the off-screen Settlement layer (JJ ch.3, pp.79–84).
+  //
+  // The hub owns the OFF-SCREEN settlement-incident surface (the "hole up in town while the
+  // wounded recover / the mage researches / the party trains" use case) + the urban-incident
+  // generator + diseases — NOT the live block-movement / 6-turn avenue cadence (that's the GM's
+  // table / the Portal). It REUSES the shipped machinery instead of rebuilding it:
+  //   - encounter reaction + tone: ACKS.rollEncounterReaction + ACKS.ENCOUNTER_TONES (catalogs.js,
+  //     #476 E3b). A settlement incident that "calls for a reaction roll" routes through it.
+  //   - diseases: ACKS.contractDisease (acks-engine-lifecycle.js, CL-2 — the slot-57 disease
+  //     consumer advances onset→symptomatic→outcome). A disease-exposure incident exposes a
+  //     participant; we do NOT rebuild a parallel DISEASE_TYPES here.
+  //   - casualties: ACKS.rollMortalWound + applyMortalWound (acks-engine-mortal-wounds.js, D1 —
+  //     the abstract Savage subset). A combat-risk incident the GM resolves as a fight wounds a
+  //     participant.
+  // All read-only consumes (called at runtime via global.ACKS; delves.js loads after them).
+  //
+  // ⚠ IP (CLAUDE §13.6 + plan §7.5/§8.2): the JJ pp.81–83 urban-encounter d100 table is rich
+  // PROSE. SETTLEMENT_INCIDENTS ships only the MECHANICAL skeleton — the d100→incident-key mapping
+  // + the mechanical hooks (which save / reaction / disease / combat / theft) + a BRIEF own-words
+  // one-line label, each page-cited. NO rulebook prose is reproduced. The precise cell boundaries
+  // are a structured, RAW-faithful approximation (the categories ARE mechanical facts; cite JJ
+  // pp.81–84 for the authoritative table). The "+30 after dark" shift (JJ p.80) is RAW: a daytime
+  // roll is 1d100 (1–100); after dark it is 1d100+30 (31–130), so the safest rows (1–30) fall away
+  // and the most dangerous (101–130: footpad / plague / fire / riot) open up.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── The urban-incident table (JJ pp.81–84) — contiguous 1–130 (+30 after dark). ──
+  const SETTLEMENT_INCIDENTS = Object.freeze([
+    Object.freeze({ key:'stray-animals',    range:[1,8],     category:'animals',    label:'Stray animals underfoot',            cite:'JJ p.81' }),
+    Object.freeze({ key:'urchins',          range:[9,18],    category:'commoners',  label:'A pack of urchins',                  cite:'JJ p.81', reactionCall:true, tone:'diplomatic', theft:{ target:14, gp:'1d6' } }),
+    Object.freeze({ key:'beggar',           range:[19,28],   category:'commoners',  label:'An importuning beggar',              cite:'JJ p.81', reactionCall:true, tone:'diplomatic' }),
+    Object.freeze({ key:'street-performer', range:[29,38],   category:'commoners',  label:'A street performer',                 cite:'JJ p.82', reactionCall:true, tone:'diplomatic', rumor:true }),
+    Object.freeze({ key:'peddler',          range:[39,48],   category:'merchants',  label:'A peddler hawking wares',            cite:'JJ p.82', reactionCall:true, tone:'diplomatic' }),
+    Object.freeze({ key:'preacher',         range:[49,56],   category:'cultists',   label:'A preacher / proselytizer',          cite:'JJ p.82', reactionCall:true, tone:'diplomatic', rumor:true }),
+    Object.freeze({ key:'procession',       range:[57,64],   category:'crowd',      label:'A procession blocks the way',        cite:'JJ p.82' }),
+    Object.freeze({ key:'pilgrims',         range:[65,72],   category:'travellers', label:'Travellers / pilgrims pass through', cite:'JJ p.82', reactionCall:true, tone:'diplomatic', rumor:true }),
+    Object.freeze({ key:'town-watch',       range:[73,80],   category:'authority',  label:'The town watch on patrol',           cite:'JJ p.83', reactionCall:true, tone:'intimidating', authority:true }),
+    Object.freeze({ key:'cutpurse',         range:[81,88],   category:'criminals',  label:'A cutpurse works the crowd',         cite:'JJ p.83', theft:{ target:14, gp:'2d6' } }),
+    Object.freeze({ key:'swindler',         range:[89,95],   category:'criminals',  label:'A con artist / swindler',            cite:'JJ p.83', reactionCall:true, tone:'seductive', theft:{ target:16, gp:'3d6' } }),
+    Object.freeze({ key:'drunken-brawl',    range:[96,102],  category:'criminals',  label:'A drunken brawl spills over',        cite:'JJ p.83', combatRisk:true }),
+    Object.freeze({ key:'footpad',          range:[103,109], category:'criminals',  label:'A footpad / mugger in the alley',    cite:'JJ p.83', combatRisk:true, theft:{ target:14, gp:'2d6' } }),
+    Object.freeze({ key:'plague-cart',      range:[110,116], category:'hazard',     label:'A plague cart / diseased throng',    cite:'JJ p.84', diseaseExposure:true }),
+    Object.freeze({ key:'fire',             range:[117,123], category:'hazard',     label:'A fire breaks out nearby',           cite:'JJ p.83', hazardSave:{ target:14 } }),
+    Object.freeze({ key:'riot',             range:[124,130], category:'crowd',      label:'A riot / mob in the streets',        cite:'JJ p.83', combatRisk:true })
+  ]);
+  function lookupSettlementIncident(roll){
+    const r = Math.max(1, Math.round(Number(roll) || 0));
+    for(const e of SETTLEMENT_INCIDENTS){ if(r >= e.range[0] && r <= e.range[1]) return e; }
+    return SETTLEMENT_INCIDENTS[SETTLEMENT_INCIDENTS.length - 1];   // >130 → the most dangerous row
+  }
+
+  // ── SettlementVisit lookups (defensive — the collection reads as [] when absent). ──
+  function _settlementVisits(campaign){ return (campaign && Array.isArray(campaign.settlementVisits)) ? campaign.settlementVisits : []; }
+  function findSettlementVisit(campaign, visitId){ if(!visitId) return null; return _settlementVisits(campaign).find(v => v && v.id === visitId) || null; }
+  function settlementVisitsForSettlement(campaign, settlementId){ if(!settlementId) return []; return _settlementVisits(campaign).filter(v => v && v.settlementId === settlementId); }
+  function activeSettlementVisits(campaign){ return _settlementVisits(campaign).filter(v => v && v.status === 'active'); }
+
+  // Settlement name lookup (top-level campaign.settlements[] first, then an embedded hex.settlement —
+  // the Tidewrack pattern). Returns 'the settlement' when unresolved (a narrative fallback).
+  function _findSettlementD5(campaign, id){
+    if(!id) return null;
+    if(campaign && Array.isArray(campaign.settlements)){ const s = campaign.settlements.find(x => x && x.id === id); if(s) return s; }
+    if(campaign && Array.isArray(campaign.hexes)){ for(const h of campaign.hexes){ if(h && h.settlement && h.settlement.id === id) return h.settlement; } }
+    return null;
+  }
+  function _settlementName(campaign, id){ const s = _findSettlementD5(campaign, id); return (s && s.name) || 'the settlement'; }
+  function _settlementIncidentNarrative(rec, settlementName){
+    let s = (rec.label || 'An incident') + ' in ' + settlementName;
+    if(rec.reaction) s += ' — reaction: ' + rec.reaction.band;
+    if(rec.theft && rec.theft.failed) s += ' — ' + rec.theft.gpLost + 'gp lifted';
+    if(rec.diseaseExposure) s += ' — disease exposure';
+    if(rec.combatRisk) s += ' — a fight may break out';
+    return s + ' (' + rec.cite + ').';
+  }
+
+  // ── startSettlementVisit — open a stay (init-on-write; NO migrate inject). Emits settlement-visited. ──
+  function startSettlementVisit(campaign, opts){
+    opts = opts || {};
+    const A = global.ACKS;
+    if(typeof A.blankSettlementVisit !== 'function') return null;
+    const settlement = _findSettlementD5(campaign, opts.settlementId);
+    const v = A.blankSettlementVisit({
+      settlementId: opts.settlementId || null,
+      hexId: opts.hexId || (settlement ? (settlement.hexId || null) : null),
+      name: opts.name || '',
+      partyId: opts.partyId || null,
+      participantCharacterIds: (opts.participantCharacterIds || []).slice(),
+      mode: opts.mode || 'holed-up',
+      arrivedAtTurn: (campaign.currentTurn) || 1,
+      arrivedAtDayInMonth: (campaign.currentDayInMonth) || 1
+    });
+    if(!Array.isArray(campaign.settlementVisits)) campaign.settlementVisits = [];   // init-on-write — read defensively elsewhere
+    campaign.settlementVisits.push(v);
+    const sName = _settlementName(campaign, v.settlementId);
+    const verb = (v.mode === 'holed-up') ? 'holes up in ' : (v.mode === 'looking-for-trouble' ? 'goes looking for trouble in ' : 'walks the streets of ');
+    const narrative = 'A party ' + verb + sName + '.';
+    const rel = [{ kind:'settlementVisit', id: v.id, role:'subject' }]
+      .concat((v.participantCharacterIds || []).map(id => ({ kind:'character', id, role:'subject' })));
+    const ev = _emitDelveEvent(campaign, 'settlement-visited', {
+      visitId: v.id, settlementId: v.settlementId, mode: v.mode, participantCount: (v.participantCharacterIds || []).length
+    }, { primaryHexId: v.hexId || null, narrative, relatedEntities: rel });
+    if(ev) v.startEventId = ev.id;
+    return v;
+  }
+  function departSettlementVisit(campaign, visitId){
+    const v = (typeof visitId === 'object') ? visitId : findSettlementVisit(campaign, visitId);
+    if(!v) return null;
+    v.status = 'departed';
+    v.departedAtTurn = (campaign.currentTurn) || 1;
+    return v;
+  }
+
+  // ── rollSettlementIncident — the PURE roller (rolls the d100 incident + its reaction / theft /
+  //    hazard hooks; does NOT mutate). opts: { afterDark, lookingForTrouble, forcedRoll, rng }. ──
+  function rollSettlementIncident(campaign, visit, opts){
+    opts = opts || {};
+    const rng = opts.rng;
+    const afterDark = !!opts.afterDark;
+    const lookingForTrouble = !!opts.lookingForTrouble || (visit && visit.mode === 'looking-for-trouble');
+    const baseRoll = (opts.forcedRoll != null) ? Math.max(1, Math.round(Number(opts.forcedRoll))) : _rollOne(100, rng);
+    const roll = baseRoll + (afterDark ? 30 : 0);
+    const entry = lookupSettlementIncident(roll);
+    const participants = ((visit && visit.participantCharacterIds) || []).map(id => _findCharacter(campaign, id)).filter(Boolean);
+    const affected = participants.length ? participants[Math.floor(_rng(rng) * participants.length)] : null;
+    const rec = {
+      dayInMonth: (campaign.currentDayInMonth) || 1, turn: (campaign.currentTurn) || 1,
+      roll, baseRoll, afterDark, lookingForTrouble,
+      incidentKey: entry.key, label: entry.label, category: entry.category, cite: entry.cite,
+      affectedCharacterId: affected ? affected.id : null, affectedName: affected ? affected.name : null,
+      reactionCall: !!entry.reactionCall, tone: entry.tone || null, reaction: null,
+      theft: null, hazardSave: null,
+      diseaseExposure: !!entry.diseaseExposure, combatRisk: !!entry.combatRisk,
+      authority: !!entry.authority, rumor: !!entry.rumor, rewardGp: 0,
+      resolved: false, eventId: null
+    };
+    // Reaction (read-only reuse of the shipped catalogs.js roller + ENCOUNTER_TONES). The affected
+    // participant's CHA modifies the disposition (the spokesperson stands in if no one is named).
+    if(entry.reactionCall && typeof global.ACKS.rollEncounterReaction === 'function'){
+      const chaMod = (affected && affected.abilities && typeof global.ACKS.abilityMod === 'function') ? global.ACKS.abilityMod(affected.abilities.CHA || 10) : 0;
+      rec.reaction = global.ACKS.rollEncounterReaction({ rng, chaMod });
+    }
+    // Theft (a quick awareness throw; the affected loses coin on a fail).
+    if(entry.theft){
+      const save = _rollOne(20, rng), target = entry.theft.target || 14;
+      const failed = save < target;
+      rec.theft = { save, target, failed, gpLost: failed ? Math.max(0, _rollDice(entry.theft.gp || '1d6', rng)) : 0 };
+    }
+    // Hazard (fire / collapse — a save to avoid harm).
+    if(entry.hazardSave){
+      const save = _rollOne(20, rng), target = entry.hazardSave.target || 14;
+      rec.hazardSave = { save, target, failed: save < target };
+    }
+    return rec;
+  }
+
+  // ── applySettlementIncident — apply a rolled incident (mutates: push to incidents[], expose to
+  //    disease via the shipped CL-2 contractDisease, emit urban-incident). The combat casualty is a
+  //    separate GM step (resolveSettlementCasualty — combat is GM-resolved, not auto-applied). ──
+  function applySettlementIncident(campaign, visit, rec, opts){
+    opts = opts || {};
+    const A = global.ACKS;
+    if(!visit || !rec) return null;
+    if(!Array.isArray(visit.incidents)) visit.incidents = [];
+    // Disease exposure → the shipped CL-2 contractDisease (it rolls the Death save + emits its own
+    // disease-contracted event; we do NOT rebuild a disease machine). opts.diseaseModifier worsens
+    // the disease-type roll for a fouler context (a sewer / plague-quarter; default 0).
+    if(rec.diseaseExposure && rec.affectedCharacterId && typeof A.contractDisease === 'function'){
+      try {
+        const dz = A.contractDisease(campaign, rec.affectedCharacterId, { rng: opts.rng, modifier: opts.diseaseModifier || 0 });
+        rec.disease = dz ? { diseaseType: dz.diseaseType || dz.id || null, infected: dz.infected !== false, label: dz.diseaseLabel || null } : null;
+      } catch(_e){}
+    }
+    visit.incidents.push(rec);
+    rec.resolved = true;
+    const sName = _settlementName(campaign, visit.settlementId);
+    const narrative = _settlementIncidentNarrative(rec, sName);
+    const rel = [{ kind:'settlementVisit', id: visit.id, role:'site' }];
+    if(rec.affectedCharacterId) rel.push({ kind:'character', id: rec.affectedCharacterId, role: (rec.combatRisk || rec.diseaseExposure || (rec.theft && rec.theft.failed)) ? 'victim' : 'subject' });
+    const ev = _emitDelveEvent(campaign, 'urban-incident', {
+      visitId: visit.id, settlementId: visit.settlementId, incidentKey: rec.incidentKey,
+      roll: rec.roll, afterDark: rec.afterDark, category: rec.category,
+      reactionBand: rec.reaction ? rec.reaction.band : null,
+      diseaseExposure: rec.diseaseExposure, combatRisk: rec.combatRisk,
+      affectedCharacterId: rec.affectedCharacterId
+    }, { primaryHexId: visit.hexId || null, narrative, relatedEntities: rel });
+    rec.eventId = ev ? ev.id : null;
+    return rec;
+  }
+
+  // ── rollAndApplySettlementIncident — the on-demand GM verb (wandering / looking-for-trouble /
+  //    "we go out at night"): roll + apply in one call. ──
+  function rollAndApplySettlementIncident(campaign, visitId, opts){
+    opts = opts || {};
+    const v = (typeof visitId === 'object') ? visitId : findSettlementVisit(campaign, visitId);
+    if(!v) return null;
+    const rec = rollSettlementIncident(campaign, v, opts);
+    return applySettlementIncident(campaign, v, rec, opts);
+  }
+
+  // ── resolveSettlementCasualty — a combat-risk incident the GM resolves as a fight: a participant
+  //    suffers a Savage (abstract) mortal wound via the SHIPPED Delves-D1 resolver (read-only reuse). ──
+  function resolveSettlementCasualty(campaign, visitId, characterId, opts){
+    opts = opts || {};
+    const A = global.ACKS;
+    const c = _findCharacter(campaign, characterId);
+    if(!c) return null;
+    let wound = null;
+    if(typeof A.rollMortalWound === 'function') wound = A.rollMortalWound(c, { damageType: 'savage', abstract: true, rng: opts.rng });
+    let rec = null;
+    if(wound && typeof A.applyMortalWound === 'function') rec = A.applyMortalWound(campaign, characterId, wound, { healedToOneHp: opts.healedToOneHp !== false });
+    // Annotate the visit's latest combat-risk incident (so the panel shows who was hurt).
+    const v = (typeof visitId === 'object') ? visitId : findSettlementVisit(campaign, visitId);
+    if(v && Array.isArray(v.incidents)){
+      for(let i = v.incidents.length - 1; i >= 0; i--){
+        if(v.incidents[i] && v.incidents[i].combatRisk && !v.incidents[i].casualty){ v.incidents[i].casualty = { characterId, name: c.name, outcome: rec ? rec.outcome : null, conditionLabel: rec ? rec.conditionLabel : null }; break; }
+      }
+    }
+    return { characterId, wound, outcome: rec ? rec.outcome : null, conditionLabel: rec ? rec.conditionLabel : null };
+  }
+
+  // ── The holed-up day-cadence consumer (slot 66 — between sage-commission 64 and the encounter
+  //    stack 80). A holed-up visit makes 1 incident check / day; an incident occurs on 5+ on 1d6
+  //    (JJ p.80). The wandering / looking-for-trouble modes are GM-pressed (rollAndApplySettlement-
+  //    Incident), NOT auto — so the day-consumer fires only for holed-up. PURE proposal; commit
+  //    pushes the incident + applies disease exposure. ──
+  function proposeSettlementVisitDay(campaign, ctx){
+    ctx = ctx || {};
+    const days = (typeof ctx.days === 'number' && ctx.days > 0) ? ctx.days : 1;
+    const rng = ctx.rng;
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    _settlementVisits(campaign).forEach(v => {
+      if(!v || v.status !== 'active' || v.mode !== 'holed-up') return;
+      for(let d = 0; d < days; d++){
+        const check = _rollOne(6, rng);                 // 1 check/day; an incident occurs on 5+ (JJ p.80)
+        if(check < 5) continue;
+        const inc = rollSettlementIncident(campaign, v, { afterDark: false, rng });
+        const sName = _settlementName(campaign, v.settlementId);
+        const label = '🏙 ' + _settlementIncidentNarrative(inc, sName);
+        out.pendingRecords.push({ kind: 'settlement-incident', type: 'settlement-incident', visitId: v.id, settlementId: v.settlementId, incident: inc, label });
+        const dangerous = inc.combatRisk || inc.diseaseExposure;
+        out.notableEvents.push({ type: 'settlement-incident', transient: true, pauseTrigger: dangerous ? 'encounter' : undefined,
+          label, summary: label, primaryHexId: v.hexId || null, payload: { visitId: v.id, incidentKey: inc.incidentKey } });
+      }
+    });
+    return out;
+  }
+  function commitSettlementVisitRecord(campaign, record){
+    if(!campaign || !record || record.type !== 'settlement-incident') return;
+    const v = findSettlementVisit(campaign, record.visitId);
+    if(!v) return;
+    applySettlementIncident(campaign, v, record.incident, {});
+  }
+
+  // Self-register the slot-66 'settlement-incidents' day-consumer (the religion / convalescence
+  // pattern; registerDayConsumer ships from acks-engine.js, loaded before this module).
+  if(typeof ACKS.registerDayConsumer === 'function'){
+    ACKS.registerDayConsumer('settlement-incidents', {
+      handler: proposeSettlementVisitDay,
+      order: 66,
+      pauseTriggers: ['encounter'],
+      commit: commitSettlementVisitRecord
+    });
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // factories
@@ -1122,7 +1387,14 @@
     encounterXPV, ordinaryMonsterXpv,
     challengeAdjustmentForQuotient, challengeAdjustment,
     armyAdjustment, wildernessForayDifficulty,
-    resolveWildernessForay, commitWildernessForay
+    resolveWildernessForay, commitWildernessForay,
+    // ── D5 — the off-screen Settlement layer (JJ ch.3) ──
+    SETTLEMENT_INCIDENTS, lookupSettlementIncident,
+    findSettlementVisit, settlementVisitsForSettlement, activeSettlementVisits,
+    startSettlementVisit, departSettlementVisit,
+    rollSettlementIncident, applySettlementIncident, rollAndApplySettlementIncident,
+    resolveSettlementCasualty,
+    proposeSettlementVisitDay, commitSettlementVisitRecord
   });
 
 })(typeof window !== 'undefined' ? window : global);

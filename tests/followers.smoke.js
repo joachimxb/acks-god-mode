@@ -57,6 +57,12 @@ function fixture(cls, level, sv, opts){
 check('follower-arrival is a known event kind',      ACKS.isEventKindKnown('follower-arrival') === true);
 check('follower-arrival NOT Wizard-emittable (audit)', ACKS.isWizardEmittable('follower-arrival') === false);
 check('follower-arrival has a schema',                !!ACKS.EVENT_SCHEMAS['follower-arrival']);
+// Wave B — Families Arriving with Followers event (RR p.337)
+check('follower-families-arrived is a known event kind',      ACKS.isEventKindKnown('follower-families-arrived') === true);
+check('follower-families-arrived NOT Wizard-emittable (audit)', ACKS.isWizardEmittable('follower-families-arrived') === false);
+check('follower-families-arrived has a schema',                !!ACKS.EVENT_SCHEMAS['follower-families-arrived']);
+['FAMILIES_ARRIVING_PER_HEX','FOLLOWER_TROOP_TABLES','followerTroopTableKey','rollFollowerTroopType','rollFollowerTroops','familiesArrivingPreview','rollFamiliesArriving','followerLoyaltyInfo','rollFollowerLoyalty']
+  .forEach(k => check('Wave B exported: ' + k, ACKS[k] !== undefined));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Catalog — the full RR p.334 roster
@@ -228,6 +234,148 @@ check('no class → null',                      ACKS.followerClassKey({ class:''
     siteHexId:'hex-seat', ownerDomainId:'dom-x', totalCost:2000, workerCounts:{ laborer:100 }, completionSpec:{ structures:[] } });
   const res = ACKS.applyEvent(c, ACKS.newEvent('construction-completed', { payload:{ projectId:p.id }, submittedBy:'gm', status:'applied' }));
   check('no hint when still below threshold (12,000 < 15,000)', !/attract followers/.test((res && res.result && res.result.narrativeSummary) || ''));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WAVE B (team b11) — loyalty/morale wiring + Families Arriving + Type & Equipment
+// ═════════════════════════════════════════════════════════════════════════════
+
+// A fixture with a controlled domain classification + N rural (settlement-less) hexes for the
+// per-hex Families roll. (effectiveDomainClassification uses d.classification when it's a valid value.)
+function famFixture(cls, level, sv, o){
+  o = o || {};
+  const c = fixture(cls, level, sv);
+  const d = c.domains[0];
+  d.demographics = { peasantFamilies: o.peasantFamilies || 0, urbanFamilies: 0, morale: o.morale || 0, moraleNotes: '' };
+  if(o.classification) d.classification = o.classification;
+  d.geography = { hexes: [] }; c.hexes = [];
+  for(let i = 0; i < (o.nHexes || 1); i++){ const h = { id:'hex-' + i, domainId:'dom-x' }; d.geography.hexes.push(h); c.hexes.push(h); }
+  return c;
+}
+
+// ── 10. loyalty/morale WIRING ──
+{ // non-divine: canonical character.loyalty = base 2 + ruler CHA mod (CHA 13 → +1) = 3
+  const c = fixture('Fighter', 9, 15000);
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMax });
+  ACKS.attractFollowers(c, c.domains[0], p, { rng: rngMax });
+  const f = c.characters.find(ch => ch.socialTier === 'follower');
+  check('WIRING: follower carries canonical character.loyalty (base 2 + ruler CHA +1 = 3)', f.loyalty === 3, f.loyalty);
+  check('WIRING: follower keeps the immutable RAW-base followerLoyalty (2)', f.followerLoyalty === 2, f.followerLoyalty);
+  check('WIRING: non-divine follower NOT fanatical', f.fanaticalFollower === false);
+  const info = ACKS.followerLoyaltyInfo(c, f.id);
+  check('followerLoyaltyInfo: isFollower, effectiveLoyalty 3, rollsLoyalty true', info.ok && info.isFollower === true && info.effectiveLoyalty === 3 && info.rollsLoyalty === true, JSON.stringify(info));
+  // rollFollowerLoyalty bridges to the shipped rollLoyalty (nat 4+4=8 + loyalty 3 = 11 → Loyalty band)
+  const r = ACKS.rollFollowerLoyalty(c, f.id, { prerolled: { d1:4, d2:4 } });
+  check('rollFollowerLoyalty bridges to rollLoyalty (nat8 + loy3 = 11 → Loyalty)', r.ok && r.rolled === true && r.natRoll === 8 && r.adjusted === 11 && r.bandKey === 'loyalty', JSON.stringify(r));
+}
+{ // divine crusader → fanatical: loyalty base 4 (+ CHA, clamped +4); no calamity loyalty roll
+  const c = fixture('Crusader', 9, 15000);
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMin });
+  ACKS.attractFollowers(c, c.domains[0], p, { rng: rngMin });
+  const f = c.characters.find(ch => ch.socialTier === 'follower');
+  check('WIRING: divine follower fanaticalFollower true', f.fanaticalFollower === true);
+  check('WIRING: divine follower loyalty clamped to +4', f.loyalty === 4, f.loyalty);
+  const r = ACKS.rollFollowerLoyalty(c, f.id, {});
+  check('rollFollowerLoyalty: divine → fanatical, no roll (RR p.336)', r.ok && r.fanatical === true && r.rolled === false && r.bandKey === 'fanatic', JSON.stringify(r));
+  const info = ACKS.followerLoyaltyInfo(c, f.id);
+  check('followerLoyaltyInfo: divine → fanatical, rollsLoyalty false', info.fanatical === true && info.rollsLoyalty === false);
+}
+check('followerLoyaltyInfo: unknown char → not ok', ACKS.followerLoyaltyInfo(fixture('Fighter',9,15000), 'nope').ok === false);
+
+// ── 11. Families Arriving with Followers (RR p.337) ──
+check('FAMILIES table: civilized 8d6×10 / borderlands 3d6×10 / outlands 1d4+1×10',
+  ACKS.FAMILIES_ARRIVING_PER_HEX.Civilized === '8d6*10' && ACKS.FAMILIES_ARRIVING_PER_HEX.Borderlands === '3d6*10' && ACKS.FAMILIES_ARRIVING_PER_HEX.Outlands === '1d4+1*10');
+{ const c = famFixture('Fighter', 9, 15000, { classification:'Outlands', nHexes:1 });
+  const fr = ACKS.rollFamiliesArriving(c, c.domains[0], CAT.fighter, rngMax);
+  check('rollFamiliesArriving outlands 1 hex max = 50', fr.applicable && fr.families === 50 && fr.hexCount === 1 && fr.classification === 'Outlands', JSON.stringify(fr)); }
+{ const c = famFixture('Fighter', 9, 15000, { classification:'Borderlands', nHexes:2 });
+  const fr = ACKS.rollFamiliesArriving(c, c.domains[0], CAT.fighter, rngMin);
+  check('rollFamiliesArriving borderlands 2 hexes min = 60 (30×2)', fr.families === 60 && fr.hexCount === 2 && fr.perHex.length === 2, JSON.stringify(fr)); }
+{ const c = famFixture('Fighter', 9, 15000, { classification:'Civilized', nHexes:1 });
+  const fr = ACKS.rollFamiliesArriving(c, c.domains[0], CAT.fighter, rngMin);
+  check('rollFamiliesArriving civilized 1 hex min = 80', fr.families === 80, JSON.stringify(fr)); }
+{ const c = famFixture('Thief', 9, 5000, { classification:'Borderlands', nHexes:2 });
+  const fr = ACKS.rollFamiliesArriving(c, c.domains[0], CAT.thief, rngMax);
+  check('noDomain (thief hideout) → families not applicable, 0', fr.applicable === false && fr.families === 0); }
+{ const c = famFixture('Fighter', 9, 15000, { classification:'Borderlands', nHexes:2 });
+  const pv = ACKS.familiesArrivingPreview(c, c.domains[0], CAT.fighter);
+  check('familiesArrivingPreview: borderlands 2 hexes label', pv.applicable && pv.classification === 'Borderlands' && pv.hexCount === 2 && /3d6×10 per hex × 2 hexes \(Borderlands\)/.test(pv.label), pv.label); }
+// attractFollowers bumps domain population via the canonical setter (keeps the per-hex mirror in sync)
+{
+  const c = famFixture('Fighter', 9, 15000, { classification:'Borderlands', nHexes:2, peasantFamilies:200 });
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMin });
+  check('proposal carries familiesPreview (Borderlands)', p.familiesPreview && p.familiesPreview.applicable && p.familiesPreview.classification === 'Borderlands');
+  const r = ACKS.attractFollowers(c, c.domains[0], p, { rng: rngMin });   // borderlands 2 hexes min = 60
+  check('attract: families arrived = 60', r.families === 60, r.families);
+  check('domain peasantFamilies bumped 200 → 260', c.domains[0].demographics.peasantFamilies === 260, c.domains[0].demographics.peasantFamilies);
+  check('domain.followerFamiliesArrived marker = 60', c.domains[0].followerFamiliesArrived === 60);
+  const hexSum = c.domains[0].geography.hexes.reduce((s,h) => s + (h.families || 0), 0);
+  check('per-hex rural families sum == peasantFamilies (260) — canonical setter kept the mirror in sync', hexSum === 260, hexSum);
+  const fev = (c.eventLog || []).map(e => e.event).find(e => e && e.kind === 'follower-families-arrived');
+  check('follower-families-arrived event recorded with context', !!fev && fev.payload.families === 60 && fev.payload.classification === 'Borderlands' && fev.context && fev.context.domainId === 'dom-x', fev && JSON.stringify(fev.payload));
+  check('follower-arrival result/event includes families', r.familiesInfo && r.familiesInfo.families === 60);
+}
+{ // the REAL UI path: attractFollowers called with NO opts (rng omitted) — families must still roll
+  // (regression: rollFamiliesArriving handed undefined straight to rollFollowerDice → rng() threw → 0 families)
+  const c = famFixture('Fighter', 9, 15000, { classification:'Outlands', nHexes:1, peasantFamilies:50 });
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0]);          // no rng
+  const r = ACKS.attractFollowers(c, c.domains[0], p);            // no opts at all
+  check('UI path (no rng): families rolled (outlands 1 hex, 20..50)', r.families >= 20 && r.families <= 50, r.families);
+  check('UI path (no rng): peasantFamilies bumped by the rolled families', c.domains[0].demographics.peasantFamilies === 50 + r.families, c.domains[0].demographics.peasantFamilies);
+  check('UI path (no rng): troop composition still rolled', r.troopComposition && r.troopComposition.platoons.length >= 1);
+}
+{ // noDomain attract → population untouched, no families event
+  const c = famFixture('Thief', 9, 5000, { classification:'Borderlands', nHexes:2, peasantFamilies:100 });
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMax });
+  const r = ACKS.attractFollowers(c, c.domains[0], p, { rng: rngMax });
+  check('thief attract: 0 families (hideout brings none), population untouched', r.families === 0 && c.domains[0].demographics.peasantFamilies === 100);
+  check('no follower-families-arrived event for noDomain', !(c.eventLog || []).map(e => e.event).some(e => e && e.kind === 'follower-families-arrived'));
+}
+
+// ── 12. per-class Followers Type & Equipment (RR p.337) ──
+{
+  const tk = Object.keys(ACKS.FOLLOWER_TROOP_TABLES);
+  check('9 troop tables present (6 class groups + 3 barbarian setting variants)', tk.length === 9, tk.length);
+  let allContig = true;
+  for(const k of tk){
+    const t = ACKS.FOLLOWER_TROOP_TABLES[k];
+    if(t[0].lo !== 1){ allContig = false; console.log('   ' + k + ' starts ' + t[0].lo); }
+    if(t[t.length - 1].hi !== 100){ allContig = false; console.log('   ' + k + ' ends ' + t[t.length - 1].hi); }
+    for(let i = 1; i < t.length; i++){ if(t[i].lo !== t[i-1].hi + 1){ allContig = false; console.log('   ' + k + ' gap at ' + i); } }
+    if(!t.every(r => r.type && r.equipment)){ allContig = false; console.log('   ' + k + ' missing type/equipment'); }
+  }
+  check('every troop table is contiguous 1..100 with type+equipment', allContig);
+}
+check('followerTroopTableKey: fighter/paladin/crusader → fighter', ['fighter','paladin','crusader'].every(c => ACKS.followerTroopTableKey(c) === 'fighter'));
+check('followerTroopTableKey: bard/bladedancer → bard-bladedancer', ACKS.followerTroopTableKey('bard') === 'bard-bladedancer' && ACKS.followerTroopTableKey('bladedancer') === 'bard-bladedancer');
+check('followerTroopTableKey: explorer/shaman → explorer-shaman', ACKS.followerTroopTableKey('explorer') === 'explorer-shaman' && ACKS.followerTroopTableKey('shaman') === 'explorer-shaman');
+check('followerTroopTableKey: dwarven → dwarven', ACKS.followerTroopTableKey('dwarven-vaultguard') === 'dwarven' && ACKS.followerTroopTableKey('dwarven-craftpriest') === 'dwarven');
+check('followerTroopTableKey: elven-spellsword + zaharan-ruinguard', ACKS.followerTroopTableKey('elven-spellsword') === 'elven-spellsword' && ACKS.followerTroopTableKey('zaharan-ruinguard') === 'zaharan');
+check('followerTroopTableKey: barbarian default jutland; culture picks variant', ACKS.followerTroopTableKey('barbarian') === 'barbarian-jutland' && ACKS.followerTroopTableKey('barbarian', { barbarianCulture:'skysos' }) === 'barbarian-skysos');
+check('followerTroopTableKey: opts.tableKey override (Chaotic crusader → zaharan, RR p.337)', ACKS.followerTroopTableKey('crusader', { tableKey:'zaharan' }) === 'zaharan');
+check('followerTroopTableKey: rogue/no-troops class → null', ACKS.followerTroopTableKey('thief') === null);
+{ const lo = ACKS.rollFollowerTroopType('fighter', rngMin); check('rollFollowerTroopType fighter min (roll 1) → Cataphract Cavalry', lo.roll === 1 && lo.type === 'Cataphract Cavalry', JSON.stringify(lo)); }
+{ const hi = ACKS.rollFollowerTroopType('fighter', rngMax); check('rollFollowerTroopType fighter max (roll 100) → Slingers', hi.roll === 100 && hi.type === 'Slingers', JSON.stringify(hi)); }
+{
+  const comp = ACKS.rollFollowerTroops(null, 'fighter', 75, { rng: rngMax });
+  check('rollFollowerTroops 75 → 3 platoons (30+30+15)', comp.platoons.length === 3 && comp.platoons[0].count === 30 && comp.platoons[1].count === 30 && comp.platoons[2].count === 15, JSON.stringify(comp.platoons.map(p => p.count)));
+  check('  platoon counts sum to 75', comp.platoons.reduce((s,p) => s + p.count, 0) === 75);
+  check('  all-max → all Slingers, summary [{Slingers,75}]', comp.summary.length === 1 && comp.summary[0].type === 'Slingers' && comp.summary[0].count === 75, JSON.stringify(comp.summary));
+  check('  tableKey = fighter', comp.tableKey === 'fighter');
+}
+check('rollFollowerTroops 0 troops → empty', ACKS.rollFollowerTroops(null, 'fighter', 0, { rng: rngMin }).platoons.length === 0);
+{ // attractFollowers attaches the rolled composition to the troop group
+  const c = fixture('Fighter', 9, 15000);
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMax });   // 300 troops
+  check('proposal carries troopTableKey (fighter)', p.troopTableKey === 'fighter');
+  const r = ACKS.attractFollowers(c, c.domains[0], p, { rng: rngMax });
+  const g = (c.groups || []).find(x => x.id === r.troopGroupId);
+  check('troop group carries followerComposition (10 platoons for 300)', g && Array.isArray(g.followerComposition) && g.followerComposition.length === 10, g && g.followerComposition && g.followerComposition.length);
+  check('  composition platoons sum to 300', g.followerComposition.reduce((s,pl) => s + pl.count, 0) === 300);
+  check('  troop group carries follower morale (1) + loyalty (2)', g.followerMorale === 1 && g.followerLoyalty === 2);
+  check('  troop group name names the dominant type', /mostly /.test(g.name || ''), g.name);
+  check('  groupTemplate.followerTroopTableKey = fighter', g.groupTemplate && g.groupTemplate.followerTroopTableKey === 'fighter');
+  check('  attract result returns troopComposition', r.troopComposition && r.troopComposition.tableKey === 'fighter');
 }
 
 console.log((failed === 0 ? 'PASS' : 'FAIL') + ' followers.smoke — ' + passed + ' passed, ' + failed + ' failed');
