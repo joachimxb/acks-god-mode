@@ -16527,7 +16527,7 @@ document.addEventListener('alpine:init', () => {
       <div class="flex flex-wrap gap-3 items-end justify-between">
         <label class="text-sm" x-show="gladSchools().length">School
           <select x-model="gladState.schoolId" class="ml-1 border border-ink rounded px-1 py-0.5">
-            <template x-for="s in gladSchools()" :key="s.id"><option :value="s.id" x-text="s.name || 'Ludus'"></option></template>
+            <template x-for="s in gladSchools()" :key="s.id"><option :value="s.id" :selected="s.id === gladState.schoolId" x-text="s.name || 'Ludus'"></option></template>
           </select>
         </label>
         <button x-show="gladSchools().length" @click="gladState.showNewSchool=!gladState.showNewSchool" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">＋ New school</button>
@@ -16654,7 +16654,7 @@ document.addEventListener('alpine:init', () => {
       <label class="block text-sm">Name <input x-model="gladState.recruit.name" placeholder="(auto from style)" class="w-full border border-ink rounded px-1 py-0.5"></label>
       <label class="block text-sm">Fighting style
         <select x-model="gladState.recruit.gladiatorType" class="w-full border border-ink rounded px-1 py-0.5">
-          <template x-for="t in gladTypes()" :key="t.key"><option :value="t.key" x-text="t.label + ' (' + t.latinName + ')'"></option></template>
+          <template x-for="t in gladTypes()" :key="t.key"><option :value="t.key" :selected="t.key === gladState.recruit.gladiatorType" x-text="t.label + ' (' + t.latinName + ')'"></option></template>
         </select>
       </label>
       <div class="grid grid-cols-2 gap-2">
@@ -16683,12 +16683,12 @@ document.addEventListener('alpine:init', () => {
       <h3 class="text-lg font-bold">⚔ Schedule a bout</h3>
       <label class="block text-sm">Side A
         <select x-model="gladState.bout.sideAId" class="w-full border border-ink rounded px-1 py-0.5">
-          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideAId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
         </select>
       </label>
       <label class="block text-sm">Side B
         <select x-model="gladState.bout.sideBId" class="w-full border border-ink rounded px-1 py-0.5">
-          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideBId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
         </select>
       </label>
       <label class="block text-sm">Stakes
