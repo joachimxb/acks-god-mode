@@ -1268,6 +1268,40 @@ function projectNestedMirrors(campaign){
   return campaign;
 }
 
+// =============================================================================
+// T6 — single-home: STRIP the nested mirrors (2026-06-21). The reader sweep made every
+// reader read the canonical top-level collection (campaign.hexes / .settlements / .units),
+// so the nested mirrors (domain.geography.hexes / hex.settlement / domain.garrison.units /
+// character.mercenaryCompany.units) are now pure redundancy. This deletes them in place so
+// the single home is the ONLY home — in memory after load (called from migrateCampaign for
+// units + index.html _finishLoad for hexes/settlements, each AFTER its forward-lift has
+// promoted any old-save nested data to top-level) and on disk (called at save time in
+// stampCampaignForSave + index.html serializedCampaign, replacing projectNestedMirrors).
+//
+// Deletes only the mirror arrays + their now-vestigial wrappers: domain.geography.hexes (the
+// geography object itself survives — it carries controlledHexes / controlledHexList);
+// domain.garrison (held only units + the dead totalMonthlyCost/totalBR caches); hex.settlement;
+// character.mercenaryCompany (held only units). Idempotent — a no-op once stripped. Pure wrt
+// every non-mirror field. Membership is unaffected: a hex's domain is hex.domainId, a unit's
+// owner is unit.stationedAt, a settlement's hex is settlement.hexId — all on the canonical entity.
+function stripNestedMirrors(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){
+      if(!d) continue;
+      if(d.geography && 'hexes' in d.geography) delete d.geography.hexes;
+      if('garrison' in d) delete d.garrison;
+    }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && 'settlement' in h) delete h.settlement; }
+  }
+  if(Array.isArray(campaign.characters)){
+    for(const c of campaign.characters){ if(c && 'mercenaryCompany' in c) delete c.mercenaryCompany; }
+  }
+  return campaign;
+}
+
 // 2026-05-30 — Lazy backfill of additive optional fields reserved during the
 // post-RAW-survey scope pass. None of these are functional yet (their consumer
 // subsystems ship in v1.0); they exist so the schema is stable and integrators
@@ -11991,6 +12025,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   stampCampaignForSave,
   // T6 — project the dual-homed nested mirrors from the canonical top-level at save time (INTEGRATION.md §3).
   projectNestedMirrors,
+  // T6 single-home — strip the nested mirrors (the reader sweep made the top-level the single home).
+  stripNestedMirrors,
 
   // Core constants
   DEFAULT_TAX_RATES, REQUIRED_GARRISON_PER_FAMILY, HEX_CLASSIFICATIONS,
