@@ -4432,11 +4432,12 @@ document.addEventListener('alpine:init', () => {
             <span x-text="L.label"></span>
           </label>
         </template>
-        <!-- map-control:scale-switcher (team agent-3, Hex Scales HW-4) — Regional (6-mile, the canonical
-             shipped view) ⇄ Continental (24-mile aggregation). Continental cells roll up ~16 regional
-             children (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); click one to drill back in. The 1.5-mile
-             Local tier is the HW-5 follow-on (drill-down authoring) — not offered here yet. -->
-        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes per cell (climate + weather are native here). Click a continental cell to drill in.">
+        <!-- map-control:scale-local (team agent-6, Hex Scales HW-5; built on the agent-3 HW-4 switcher) —
+             Local (1.5-mile drill-down) ⇄ Regional (6-mile, the canonical shipped view) ⇄ Continental
+             (24-mile aggregation). Continental cells roll up ~16 regional children; click one to drill in.
+             ⬡ Local drills INTO a 6-mile hex (pick one, or re-enter the last) to author its 1.5-mile detail
+             (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); the breadcrumb below climbs back out. -->
+        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes (climate + weather native here, click a cell to drill in); Local (1.5-mile) drills into one 6-mile hex to author its sub-hex detail.">
           <span class="text-sm font-semibold">Scale:</span>
           <template x-for="s in mapScaleOptions()" :key="s.id">
             <button @click="mapSetScale(s.id)" type="button"
@@ -4467,9 +4468,22 @@ document.addEventListener('alpine:init', () => {
         </label>
       </div>
 
-      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional/
-           local scales only — these are 6-mile concepts; the continental view has its own breadcrumb above.) -->
-      <div x-show="mapScale !== 'continental'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <!-- Local-scale breadcrumb (team agent-6, HW-5) — shown only at the 1.5-mile drill-down scale. Names
+           the 6-mile parent you drilled into + how much of its ~16-cell nesting grid you've authored; the
+           ⬢ ← Regional button climbs back out (§7.2 — "Continental ▸ Region ▸ Hex" interlace). -->
+      <div x-show="mapScale === 'local'" class="vellum border border-sky-600/60 bg-sky-50/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" x-cloak>
+        <button @click="mapLocalBackToRegional()" class="px-2 py-0.5 border border-ink rounded hover:bg-sky-100" title="Back to the 6-mile regional view, framed on this hex">⬢ ← Regional</button>
+        <span class="font-semibold">⬡ Local view (1.5-mile)</span>
+        <template x-if="mapLocalView()">
+          <span class="opacity-80" x-text="'in ' + (window.ACKS.hexName(mapLocalView().parent) || window.ACKS.hexDisplayLabel(mapLocalView().parentCoord.q, mapLocalView().parentCoord.r)) + ' · ' + mapLocalView().authoredCount + ' of ~' + mapLocalView().idealizedCount + ' sub-hexes authored'"></span>
+        </template>
+        <span class="italic opacity-60">— click an empty cell to add detail, an authored cell to edit it</span>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional
+           scale only — these are 6-mile concepts; the continental + local drill views each have their own
+           breadcrumb above. At local scale you author sub-hexes by clicking the nesting-grid cells.) -->
+      <div x-show="mapScale === 'regional'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span class="font-semibold">Show:</span>
         <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
           <label class="flex items-center gap-1 cursor-pointer">
@@ -17084,7 +17098,9 @@ document.addEventListener('alpine:init', () => {
     </div>
   </div>
 </template>
-<!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) === -->
+<!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) ===
+     No separate modal: HW-5 local authoring reuses the shipped hex card (openHexDetail) for editing a
+     sub-hex + the in-toolbar Local breadcrumb (map-control:scale-local) for the drill/back nav. -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -18787,6 +18803,10 @@ return {
                                : (ch.name + ' holds on to their own mind (drift save ' + res.roll + ' vs ' + res.target + '+).'));
   },
   // === @b9-hexscales  (team) — Hex Scales HW-5 local authoring: state + methods ===
+  //     The HW-5 local-tier methods (mapLocalParentHexId / mapEnterLocalScale / mapLocalDrill /
+  //     mapLocalView / mapLocalMarkup / mapLocalAddHex / mapLocalBackToRegional) live WITH the HW-4
+  //     map-scale methods (the "agent-6 (Hex Scales HW-5)" section just after mapContinentalMarkup),
+  //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
@@ -27754,8 +27774,11 @@ return {
   // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
   mapSvgMarkup(){
     // HW-4 (team agent-3): at the continental (24-mile) scale the map renders the aggregated region
-    // cells, not the 6-mile hexes. Branch out before the regional render. (Local 1.5-mi = HW-5.)
+    // cells, not the 6-mile hexes. Branch out before the regional render.
     if(this.mapScale === 'continental') return this.mapContinentalMarkup();
+    // HW-5 (team agent-6): at the local (1.5-mile) scale the map renders ONE 6-mile hex's drill-down —
+    // its authored sub-hexes + the addable nesting-grid cells (mapLocalMarkup), not the whole 6-mile map.
+    if(this.mapScale === 'local') return this.mapLocalMarkup();
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const entries = this.mapHexEntries();
@@ -28171,6 +28194,15 @@ return {
       if(cc){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapContinentalDrill(cc.getAttribute('data-cont-key')); }
       return;
     }
+    // HW-5 (team agent-6): at the local (1.5-mile) scale, a click on an EMPTY nesting-grid cell AUTHORS a
+    // local hex (data-local-q/r → materializeLocalHex); a click on an AUTHORED local hex inspects it.
+    if(this.mapScale === 'local'){
+      const add = (e.target && e.target.closest) ? e.target.closest('[data-local-q]') : null;
+      if(add){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapLocalAddHex(parseInt(add.getAttribute('data-local-q'),10), parseInt(add.getAttribute('data-local-r'),10)); return; }
+      const lh = (e.target && e.target.closest) ? e.target.closest('[data-hex-id]') : null;
+      if(lh){ if(this._mapDragged){ this._mapDragged = false; return; } const hex = this._mapFindHexById(lh.getAttribute('data-hex-id')); if(hex) this.openHexDetail({ domainId:null, hexIndex:-1, hex:hex, domainName:null }); }
+      return;
+    }
     const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
     if(!el) return;
     if(el.hasAttribute('data-empty-q')){
@@ -28186,6 +28218,17 @@ return {
   // on campaign load, and by the "Fit" button.
   mapResetView(){
     const A = window.ACKS;
+    // HW-5 (team agent-6): at local scale, fit to the drilled hex's nesting grid (its idealized ~16
+    // cells + any authored sub-hexes), so an empty drill still frames the addable grid.
+    if(this.mapScale === 'local'){
+      const view = this.mapLocalView();
+      if(view){
+        const pseudo = view.idealizedCoords.concat(view.authored.map(h => h.coord)).map(c => ({ coord:c }));
+        const b = A.hexMapBounds(pseudo, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
+        if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; this.schedulePersist(); return; }
+      }
+      // no valid parent in view → fall through to the regional fit below
+    }
     // HW-4 (team agent-3): at continental scale, fit to the 24-mile cells (drawn at 4× hex size, so
     // a cell overlays its children's centroid — the §7.2 interlace; the same viewBox space as regional).
     if(this.mapScale === 'continental'){
@@ -31376,9 +31419,19 @@ return {
   // Continental cells draw at 4× the regional hex size (24mi vs 6mi); a cell then sits over its
   // children's centroid (the JJ p.467 interlace — axial→pixel is linear, so 4Q@size === Q@4·size).
   MAP_CONTINENTAL_FACTOR: 4,
-  // The scale-selector options. Regional + Continental for v1; Local (1.5-mi authoring) is HW-5.
-  mapScaleOptions(){ return ['regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
-  mapSetScale(s){ if(s !== 'regional' && s !== 'continental') return; if(this.mapScale === s) return; this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist(); },
+  // The scale-selector options — fine→coarse (⬡ Local · ⬢ Regional · ⬣ Continental). HW-5 added Local.
+  mapScaleOptions(){ return ['local','regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
+  // Continental + Regional are global toggles (the whole-map view); Local is PARENT-SCOPED — clicking it
+  // drills into a chosen 6-mile hex (HW-5, mapEnterLocalScale). Switching to regional/continental clears
+  // the local parent + cancels any pending local-pick.
+  mapSetScale(s){
+    if(s === 'local'){ this.mapEnterLocalScale(); return; }
+    if(s !== 'regional' && s !== 'continental') return;
+    if(this.mapScale === s && !this.mapLocalParentHexId) return;
+    if(this.mapMode === 'select' && /1\.5-mile/.test(this._mapSelectHint || '')) this.mapEndSelect(); // cancel a pending local pick
+    this.mapLocalParentHexId = null;
+    this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist();
+  },
   // The continental render set — one aggregate per 24-mile region (engine: continentalCellsForCampaign).
   mapContinentalCells(){ return window.ACKS.continentalCellsForCampaign(this.currentCampaign); },
   // Drill from a continental cell back to the 6-mile scale, framed on that region's ~16 children (§7.2).
@@ -31421,6 +31474,93 @@ return {
       if(wmap){ const wr = wmap[c.key]; if(wr) parts.push('<polygon points="' + pts + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.5" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>'); }
       parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + (pix.y - size * 0.62).toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.8" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(c.coord.q, c.coord.r)) + '</text>');
       parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + subFs + '" fill="#3b2f1c" fill-opacity="0.6" style="pointer-events:none;user-select:none;">' + esc((c.dominantTerrain || '—') + ' · ' + c.childCount) + '</text>');
+    });
+    return parts.join('');
+  },
+  // ── agent-6 (Hex Scales HW-5) state + methods — the local (1.5-mile) drill-down tier ──
+  // Which 6-mile hex the local view is drilled into (null = not in a local drill). Transient (resets
+  // on reload, like mapScale — a drill-in exploration view, not part of the .acks.json).
+  mapLocalParentHexId: null,
+  // The regional hex currently drilled into, or null. Guards on the live scale (a drilled hex that was
+  // deleted / rescaled drops the drill).
+  mapLocalParent(){
+    if(!this.mapLocalParentHexId) return null;
+    const h = this._mapFindHexById(this.mapLocalParentHexId);
+    return (h && window.ACKS.hexScaleOf(h) === 'regional') ? h : null;
+  },
+  // The drill render set (engine: localDrillView) — idealized ~16 nesting cells + authored sub-hexes +
+  // the still-empty addable cells + a derived aggregate. null when no valid parent is in view.
+  mapLocalView(){ const p = this.mapLocalParent(); return p ? window.ACKS.localDrillView(this.currentCampaign, p) : null; },
+  // Enter the Local tier (the ⬡ button). Re-enter the last-drilled hex if it's still valid, else put the
+  // map into select mode so the GM clicks a 6-mile hex to drill into (mapClickHex → the cb → mapLocalDrill).
+  mapEnterLocalScale(){
+    if(this.mapLocalParent()){ this.mapLocalDrill(this.mapLocalParentHexId); return; }
+    const A = window.ACKS;
+    const hasRegional = (this.currentCampaign?.hexes || []).some(h => A.hexScaleOf(h) === 'regional')
+      || (this.domains || []).some(d => (d.geography?.hexes || []).some(h => A.hexScaleOf(h) === 'regional'));
+    if(!hasRegional){ this.showToast('No 6-mile hexes on the map yet — add some first, then drill into one for 1.5-mile detail.', 5000); return; }
+    this.mapBeginSelect(hexId => this.mapLocalDrill(hexId), 'Click a 6-mile hex to drill into its 1.5-mile detail.');
+    this.showToast('Click a 6-mile hex to view & author its 1.5-mile detail (or pick another scale to cancel).', 5000);
+  },
+  // Drill INTO a regional hex → the local scale, framed on its nesting grid (§7.2).
+  mapLocalDrill(hexId){
+    const A = window.ACKS, h = this._mapFindHexById(hexId);
+    if(!h || A.hexScaleOf(h) !== 'regional'){ this.showToast('Drill into a 6-mile (regional) hex to view its 1.5-mile detail.', 4000); return; }
+    this.mapEndSelect();                         // leave the pick mode if we entered via the selector
+    this.mapLocalParentHexId = hexId;
+    this.mapScale = 'local';
+    this.mapViewBox = null; this.mapResetView(); // fits to the local children / nesting grid
+    this.schedulePersist();
+  },
+  // Climb back out of the local drill → the 6-mile view, framed on the parent hex.
+  mapLocalBackToRegional(){
+    const A = window.ACKS, parent = this.mapLocalParent();
+    this.mapScale = 'regional'; this.mapLocalParentHexId = null;
+    const entry = parent ? this.mapHexEntries().find(e => e.hex.id === parent.id) : null;
+    const b = (entry) ? A.hexMapBounds([entry.hex], this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 3) : null;
+    if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+    else { this.mapViewBox = null; this.mapEnsureView(); }
+    this.schedulePersist();
+  },
+  // Author a 1.5-mile hex at an empty nesting-grid cell (the addable cells, data-local-q/r). Materializes
+  // it bound to the parent (engine: materializeLocalHex — domainless, out of the 6-mile economy), then
+  // opens the standard hex card so the GM can set its terrain/detail.
+  mapLocalAddHex(q, r){
+    const A = window.ACKS, parent = this.mapLocalParent();
+    if(!parent){ this.showToast('No 6-mile parent hex in view to add detail to.', 3000); return; }
+    const hex = A.materializeLocalHex(this.currentCampaign, parent, { q, r });
+    if(!hex){ this.showToast('Could not add the 1.5-mile hex.', 3000); return; }
+    if(this.markDirty) this.markDirty();
+    this.schedulePersist();
+    this.openHexDetail({ domainId:null, hexIndex:-1, hex:hex, domainName:null });
+    this.showToast('Added 1.5-mile detail ' + A.hexDisplayLabel(q, r) + ' — set its terrain on the hex card.', 4000);
+  },
+  // Build the local (1.5-mile) SVG markup: the AUTHORED sub-hexes (terrain fill via the active "Color by:"
+  // layer, clickable to inspect, data-hex-id) + the empty nesting-grid cells (faint dashed, clickable to
+  // author, data-local-q/r). Drawn at the regional hex size; the local coords sit at 4× the parent's, so
+  // the ~16 children fill the space one 24-mile cell would (the §7.2 interlace, one tier down).
+  mapLocalMarkup(){
+    const A = window.ACKS, size = this.MAP_HEX_SIZE;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const view = this.mapLocalView();
+    if(!view) return '';
+    const ctx = this.mapFillContext(), layer = this.mapFillLayer;
+    const sw = (size * 0.04).toFixed(2), labelFs = (size * 0.16).toFixed(1);
+    const parts = [];
+    // empty cells first (so authored hexes paint over any overlap)
+    view.addableCoords.forEach(c => {
+      const pts = A.hexPolygonPoints(c.q, c.r, size);
+      parts.push('<polygon data-local-q="' + c.q + '" data-local-r="' + c.r + '" points="' + pts + '" fill="#000000" fill-opacity="0.03" stroke="#3a4a5e" stroke-opacity="0.35" stroke-dasharray="' + (size*0.12).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="cursor:copy;"><title>Add 1.5-mile detail here (' + esc(A.hexDisplayLabel(c.q, c.r)) + ')</title></polygon>');
+    });
+    // authored sub-hexes
+    view.authored.forEach(h => {
+      if(!h.coord) return;
+      const pts = A.hexPolygonPoints(h.coord.q, h.coord.r, size);
+      const pix = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      const title = (A.hexName(h) || A.hexDisplayLabel(h.coord.q, h.coord.r)) + ' · 1.5-mile detail'
+        + (h.terrain ? ' · ' + h.terrain : '') + (h.families ? ' · ' + h.families + ' families' : '') + ' — click to edit';
+      parts.push('<polygon data-hex-id="' + esc(h.id) + '" points="' + pts + '" fill="' + A.hexFillColor(h, layer, ctx) + '" stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(title) + '</title></polygon>');
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.7" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(h.coord.q, h.coord.r)) + '</text>');
     });
     return parts.join('');
   },
