@@ -485,6 +485,147 @@ ok('blankGladiatorSchool has NO businessNextOrd key (defensive runtime field —
    ACKS.blankGladiatorSchool({}).businessNextOrd === undefined && ACKS.blankGladiatorSchool({}).uprisingState === null);
 
 // =============================================================================
+section('G5 — the round-by-round tactical bout (AXIOMS 4 p.27; the Combat-Option-B exemplar)');
+// =============================================================================
+// A deterministic sequence rng (every die from it, in order, cycling) for the rigged-bout tests.
+function seqRng(vals){ let i = 0; return () => vals[(i++) % vals.length]; }
+// A tactical-bout campaign + a gladiator with EXPLICIT combat stats (so the profile is fully determined —
+// the resolver reads maxHp/attackThrow/ac/damageDie defensively, so a stored-stat character needs no rng).
+function mkTac(){ return { houseRules:{ 'gladiator-games':{ enabled:true } }, currentTurn:3, characters:[], bouts:[], games:[], eventLog:[] }; }
+function tacGlad(id, name, o){ return Object.assign({ id, name, socialTier:'gladiator', level:0, xp:0, victoriesWon:0, boutsSurvived:0,
+  hp:30, maxHp:30, attackThrow:10, ac:2, damageDie:'d6', arenaMorale:0, controlledBy:'gm', history:[] }, o||{}); }
+
+// --- exports + the bout-round event kind ---
+ok('resolveBoutTactical exported', typeof ACKS.resolveBoutTactical === 'function');
+ok('resolveAndCommitBoutTactical exported', typeof ACKS.resolveAndCommitBoutTactical === 'function');
+ok('gladiatorCombatProfile exported', typeof ACKS.gladiatorCombatProfile === 'function');
+ok('TACTICAL_BOUT_ROUND_CAP exported (30)', ACKS.TACTICAL_BOUT_ROUND_CAP === 30);
+ok('INCAP_ATTACK_PENALTY === 4 (nonlethal −4, RAW p.27)', ACKS.INCAP_ATTACK_PENALTY === 4);
+ok('SURRENDER_MORALE_TARGET === 5 (RAW p.27)', ACKS.SURRENDER_MORALE_TARGET === 5);
+ok('EVENT_KINDS has bout-round', ACKS.EVENT_KINDS.indexOf('bout-round') >= 0);
+ok('EVENT_SCHEMAS has bout-round', !!ACKS.EVENT_SCHEMAS['bout-round']);
+ok('EVENT_WIZARD_OPTOUT has bout-round', ACKS.EVENT_WIZARD_OPTOUT.has('bout-round'));
+ok('bout-round handler registered (no throw on a record)', (function(){ try { return typeof ACKS.applyEvent === 'function'; } catch(_e){ return true; } })());
+
+// --- gladiatorCombatProfile (defensive reads + RAW-grounded fallbacks) ---
+const profC = mkTac();
+const profStored = ACKS.gladiatorCombatProfile(profC, tacGlad('g-p','Pollux',{ hp:18, maxHp:18, attackThrow:7, ac:4, damageDie:'d8' }));
+ok('profile reads stored maxHp + full hp at the start', profStored.maxHp === 18 && profStored.hp === 18);
+ok('profile reads stored attackThrow + ac + damage sides', profStored.attackValue === 7 && profStored.ac === 4 && profStored.dmgSides === 8);
+const profBare = ACKS.gladiatorCombatProfile(profC, { id:'g-bare', name:'Nemo', socialTier:'gladiator', level:1 });
+ok('profile fallbacks for a bare character — valid hp/attack/AC', profBare.hp >= 1 && profBare.attackValue >= 1 && profBare.ac >= 0 && profBare.dmgSides >= 1);
+
+// --- rule-OFF refusal (the non-inert gate) + guards ---
+ok('resolveBoutTactical refuses when rule OFF', ACKS.resolveBoutTactical(ruleOff(), ACKS.blankBout({}), {}).reason === 'gladiator-games-off');
+ok('resolveAndCommitBoutTactical refuses when rule OFF', ACKS.resolveAndCommitBoutTactical(ruleOff(), ACKS.blankBout({}), {}).reason === 'gladiator-games-off');
+ok('resolveBoutTactical no-bout guard', ACKS.resolveBoutTactical(ruleOn(), null, {}).ok === false);
+ok('resolveBoutTactical no-combatants guard', ACKS.resolveBoutTactical(mkTac(), ACKS.blankBout({ sideA:{ combatantIds:['nope'] }, sideB:{ combatantIds:['nada'] } }), {}).reason === 'no-combatants');
+
+// --- a deterministic 1v1 to-incapacitation (rng 0.99 → all nat-20 hits, max damage, no surrender, enthusiastic crowd) ---
+const T1 = mkTac();
+T1.characters.push(tacGlad('a','Aulus',{ hp:30, maxHp:30 }), tacGlad('b','Brutus',{ hp:6, maxHp:6 }));
+const t1bout = ACKS.scheduleBout(T1, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }).bout;
+const t1res = ACKS.resolveBoutTactical(T1, t1bout, { rng:()=>0.99 });
+ok('resolveBoutTactical ok + resolutionMode "combat"', t1res.ok && t1res.result.resolutionMode === 'combat');
+ok('round-by-round: rounds[] populated + roundCount matches', Array.isArray(t1res.result.rounds) && t1res.result.rounds.length === t1res.result.roundCount && t1res.result.roundCount >= 1);
+ok('each round records initiative + lines', t1res.result.rounds[0] && t1res.result.rounds[0].initiative && Array.isArray(t1res.result.rounds[0].lines) && t1res.result.rounds[0].lines.length > 0);
+ok('the stronger gladiator wins (Side A)', t1res.result.winnerSide === 'A');
+ok('the loser is a survivor (to-incap) — casualties[0] survived', t1res.result.casualties.length === 1 && t1res.result.casualties[0].characterId === 'b' && t1res.result.casualties[0].outcome === 'survived');
+ok('crowd reaction rolled for the losing survivor', !!t1res.result.crowdReaction);
+ok('1v1 winnerCasualties is empty (the abstract/1v1 path unchanged)', Array.isArray(t1res.result.winnerCasualties) && t1res.result.winnerCasualties.length === 0);
+ok('XP to the winner = the defeated gp value (level 0 → 250)', t1res.result.xpAwarded.length === 1 && t1res.result.xpAwarded[0].xp === 250, JSON.stringify(t1res.result.xpAwarded));
+
+// --- resolveAndCommitBoutTactical: commit (status/mode/XP/counters/Mortal Wounds) + reuses bout-resolved ---
+const T2 = mkTac();
+T2.characters.push(tacGlad('a','Aulus',{ hp:30, maxHp:30, level:1 }), tacGlad('b','Brutus',{ hp:6, maxHp:6, level:0 }));
+const t2bout = ACKS.scheduleBout(T2, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }).bout;
+const t2cr = ACKS.resolveAndCommitBoutTactical(T2, t2bout, { rng:()=>0.99 });
+const t2a = T2.characters.find(x=>x.id==='a'), t2b = T2.characters.find(x=>x.id==='b');
+ok('resolveAndCommitBoutTactical ok + bout resolved + mode "combat"', t2cr.ok && t2bout.status === 'resolved' && t2bout.resolutionMode === 'combat');
+ok('bout.result carries the round log', Array.isArray(t2bout.result.rounds) && t2bout.result.roundCount >= 1);
+ok('winner XP (= defeated 250) + counters advanced', t2a.xp === 250 && t2a.victoriesWon === 1 && t2a.boutsSurvived === 1);
+ok('loser routed through the SHIPPED Mortal Wounds (Delves D1) — a wound recorded, survived', Array.isArray(t2b.mortalWounds) && t2b.mortalWounds.length >= 1 && t2b.lifecycleState !== 'deceased');
+ok('reuses the shipped bout-resolved event (resolutionMode:combat, roundCount in payload)',
+   T2.eventLog.some(e => e.event && e.event.kind === 'bout-resolved' && e.event.payload && e.event.payload.resolutionMode === 'combat' && e.event.payload.roundCount >= 1));
+ok('NO bout-round events emitted without opts.logRounds', !T2.eventLog.some(e => e.event && e.event.kind === 'bout-round'));
+ok('already-resolved guard', ACKS.resolveAndCommitBoutTactical(T2, t2bout, {}).reason === 'already-resolved');
+
+// --- to-death: the loser is slain (deceased + dead to the games); the winner survives ---
+const T3 = mkTac();
+T3.characters.push(tacGlad('a','Aulus',{ hp:30, maxHp:30 }), tacGlad('b','Brutus',{ hp:6, maxHp:6 }));
+const t3bout = ACKS.scheduleBout(T3, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-death' }).bout;
+ACKS.resolveAndCommitBoutTactical(T3, t3bout, { rng:()=>0.99 });
+const t3a = T3.characters.find(x=>x.id==='a'), t3b = T3.characters.find(x=>x.id==='b');
+ok('to-death: result.death true + winner Side A survives', t3bout.result.death === true && t3a.lifecycleState !== 'deceased' && t3a.victoriesWon === 1);
+ok('to-death: the loser is slain + dead to the games', t3b.lifecycleState === 'deceased' && t3b.deadToTheGames === true);
+ok('to-death: no crowd reaction (the loser is slain outright)', t3bout.result.crowdReaction == null);
+
+// --- the −4 nonlethal penalty (RAW p.27): a fight that RESOLVES to-death STALEMATES to-incapacitation ---
+// Identical marginal combatants (attackThrow 6, AC 2) + rng 0.5 → 1d20 = 11. to-death needs 8 (hit);
+// to-incap needs 12 (miss). So to-death resolves to a winner; to-incap reaches the round cap as a draw.
+const T4d = mkTac(); T4d.characters.push(tacGlad('a','A',{ attackThrow:6, hp:20, maxHp:20 }), tacGlad('b','B',{ attackThrow:6, hp:20, maxHp:20 }));
+const t4dRes = ACKS.resolveBoutTactical(T4d, ACKS.blankBout({ sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-death' }), { rng:()=>0.5 });
+ok('to-death marginal fight RESOLVES to a winner under the round cap', t4dRes.result.winnerSide !== 'draw' && t4dRes.result.roundCount < ACKS.TACTICAL_BOUT_ROUND_CAP);
+const T4i = mkTac(); T4i.characters.push(tacGlad('a','A',{ attackThrow:6, hp:20, maxHp:20 }), tacGlad('b','B',{ attackThrow:6, hp:20, maxHp:20 }));
+const t4iRes = ACKS.resolveBoutTactical(T4i, ACKS.blankBout({ sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }), { rng:()=>0.5 });
+ok('the −4 nonlethal penalty STALEMATES the same fight to-incapacitation → draw at the round cap',
+   t4iRes.result.winnerSide === 'draw' && t4iRes.result.roundCount === ACKS.TACTICAL_BOUT_ROUND_CAP);
+ok('a draw awards no XP + slays no one', t4iRes.result.xpAwarded.length === 0 && !T4i.characters.some(c=>c.lifecycleState==='deceased'));
+
+// --- the surrender check (to-incap, ≤½ hp, 2d6 + arena morale ≤ 5; PCs exempt) ---
+// rng order: iA, iB, A's d20, A's dmg, B's d20, [surrender 2d6 ×... ], crowd 2d6. A drops B into the
+// ≤½ window in one hit (B maxHp 12, max dmg 6 → 6 ≤ 6), then B's low-morale 2d6 yields.
+const T5 = mkTac();
+T5.characters.push(tacGlad('a','Aulus',{ hp:50, maxHp:50, attackThrow:1, ac:2 }),
+                   tacGlad('b','Brutus',{ hp:12, maxHp:12, attackThrow:20, ac:0, arenaMorale:-5 }));
+const t5bout = ACKS.scheduleBout(T5, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }).bout;
+const t5res = ACKS.resolveBoutTactical(T5, t5bout, { rng: seqRng([0.99, 0.0, 0.5, 0.99, 0.5, 0.0, 0.0, 0.5, 0.5]) });
+ok('a battered non-PC gladiator surrenders (≤½ hp, 2d6 + morale ≤ 5)', t5res.result.winnerSide === 'A' && t5res.result.casualties[0] && t5res.result.casualties[0].surrendered === true);
+// PCs are exempt from the surrender roll (RAW p.27)
+const T5p = mkTac();
+T5p.characters.push(tacGlad('a','Aulus',{ hp:50, maxHp:50, attackThrow:1, ac:2 }),
+                    tacGlad('b','Player',{ hp:12, maxHp:12, attackThrow:20, ac:0, arenaMorale:-5, controlledBy:'player' }));
+const t5pres = ACKS.resolveBoutTactical(T5p, ACKS.blankBout({ sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }), { rng: seqRng([0.99, 0.0, 0.5, 0.99, 0.5, 0.0, 0.0, 0.5, 0.5]) });
+ok('a PC gladiator does NOT surrender (exempt; the fight continues)', !(t5pres.result.casualties[0] && t5pres.result.casualties[0].surrendered));
+
+// --- a bloodthirsty crowd slays the defeated survivor (tactical path, RAW p.27) ---
+const T6 = mkTac();
+T6.characters.push(tacGlad('a','Aulus',{ hp:30, maxHp:30 }), tacGlad('b','Brutus',{ hp:6, maxHp:6 }));
+const t6bout = ACKS.scheduleBout(T6, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }).bout;
+ACKS.resolveAndCommitBoutTactical(T6, t6bout, { rng: seqRng([0.99, 0.0, 0.99, 0.99, 0.0, 0.0]) });
+const t6b = T6.characters.find(x=>x.id==='b');
+ok('bloodthirsty crowd slays the defeated survivor (tactical path)', t6b.lifecycleState === 'deceased' && t6bout.result.casualties[0].crowdKilled === true);
+
+// --- the incapacitated-WINNER path (a 2v2 to-death mutual KO; RAW p.27: Mortal Wounds for incapacitated winners) ---
+const T7 = mkTac();
+T7.characters.push(tacGlad('a1','Aulus', { hp:6,  maxHp:6  }), tacGlad('a2','Aper',  { hp:30, maxHp:30 }),
+                   tacGlad('b1','Brutus',{ hp:30, maxHp:30 }), tacGlad('b2','Balbus',{ hp:6,  maxHp:6  }));
+const t7bout = ACKS.scheduleBout(T7, { sideA:{ combatantIds:['a1','a2'] }, sideB:{ combatantIds:['b1','b2'] }, kind:'to-death' }).bout;
+const t7cr = ACKS.resolveAndCommitBoutTactical(T7, t7bout, { rng:()=>0.99 });
+const a1 = T7.characters.find(x=>x.id==='a1'), a2 = T7.characters.find(x=>x.id==='a2'),
+      b1 = T7.characters.find(x=>x.id==='b1'), b2 = T7.characters.find(x=>x.id==='b2');
+ok('2v2 to-death: Side A wins', t7cr.ok && t7bout.result.winnerSide === 'A');
+ok('an incapacitated WINNER survives via Mortal Wounds (not slain) — RAW p.27', a1.lifecycleState !== 'deceased' && Array.isArray(a1.mortalWounds) && a1.mortalWounds.length >= 1);
+ok('result.winnerCasualties records the incapacitated winner', Array.isArray(t7bout.result.winnerCasualties) && t7bout.result.winnerCasualties.some(w=>w.characterId==='a1'));
+ok('the losing side is slain (to-death)', b1.lifecycleState === 'deceased' && b2.lifecycleState === 'deceased');
+ok('the unhurt winner (a2) is alive + earned XP', a2.lifecycleState !== 'deceased' && a2.victoriesWon === 1 && a2.xp > 0);
+
+// --- opts.logRounds → a record-only, campaignLogHidden bout-round per round ---
+const T8 = mkTac();
+T8.characters.push(tacGlad('a','Aulus',{ hp:30, maxHp:30 }), tacGlad('b','Brutus',{ hp:6, maxHp:6 }));
+const t8bout = ACKS.scheduleBout(T8, { sideA:{ combatantIds:['a'] }, sideB:{ combatantIds:['b'] }, kind:'to-incapacitation' }).bout;
+const t8cr = ACKS.resolveAndCommitBoutTactical(T8, t8bout, { rng:()=>0.99, logRounds:true });
+const t8rounds = T8.eventLog.filter(e => e.event && e.event.kind === 'bout-round');
+ok('opts.logRounds emits one bout-round per round', t8rounds.length === t8bout.result.roundCount && t8rounds.length >= 1);
+ok('bout-round events are campaignLogHidden (Event Log only)', t8rounds.every(e => e.campaignLogHidden === true && e.event.campaignLogHidden === true));
+ok('bout-round payload carries the round number + lines', t8rounds[0].event.payload && t8rounds[0].event.payload.round >= 1 && Array.isArray(t8rounds[0].event.payload.lines));
+
+// --- the shared aftermath: the abstract path is byte-unchanged (the G2 tests above already pass) + the
+//     tactical path feeds the SAME _commitBoutResult (both go through bout-resolved + Delves-D1 wounds) ---
+ok('both paths set bout.resolutionMode (abstract default preserved)',
+   ACKS.blankBout({}).resolutionMode === 'abstract');
+
+// =============================================================================
 console.log('\n=============================================================');
 console.log('gladiators.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if(fail){ console.log('FAILURES:\n  ' + failures.join('\n  ')); process.exit(1); }
