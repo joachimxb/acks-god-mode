@@ -2134,19 +2134,10 @@ function applyEvent_gmFiat(campaign, event){
       entity = (campaign.rumors||[]).find(r => r.id === target.id) || null;
       break;
     case 'garrison-unit':
-      // §310.3f-fix7 — garrison units live two places: domain.garrison.units
-      // (the domain's garrison) and character.mercenaryCompany.units (a
-      // patron's private retinue). Walk both.
-      (campaign.domains||[]).forEach(d => {
-        const u = (d.garrison && d.garrison.units || []).find(u => u.id === target.id);
-        if(u) entity = u;
-      });
-      if(!entity){
-        (campaign.characters||[]).forEach(c => {
-          const u = (c.mercenaryCompany && c.mercenaryCompany.units || []).find(u => u.id === target.id);
-          if(u) entity = u;
-        });
-      }
+      // T6 single-home — every unit (garrison or private retinue) lives in the canonical
+      // campaign.units[]; find it by id there (the nested domain.garrison.units /
+      // character.mercenaryCompany.units mirror is gone).
+      entity = (campaign.units||[]).find(u => u && u.id === target.id) || null;
       break;
     default: {
       // Entity Registry fallback (#562 — 2026-05-31). The Registry (acks-engine-entity-registry.js,
@@ -2497,9 +2488,11 @@ function applyEvent_dawResult(campaign, event){
   function applyLossesToDomain(domainId, losses){
     if(!domainId) return;
     const d = (campaign.domains||[]).find(x => x.id === domainId);
-    if(!d || !d.garrison) return;
+    if(!d) return;
+    // T6 single-home — the domain's garrison units come from campaign.units[] by stationedAt.
+    const garrison = global.ACKS.domainGarrisonUnits(campaign, d);
     (losses||[]).forEach(loss => {
-      const u = (d.garrison.units||[]).find(x => x.id === loss.unitId);
+      const u = garrison.find(x => x.id === loss.unitId);
       if(u){
         u.count = Math.max(0, (u.count||0) - (loss.count||0));
         changed.domainsChanged.push(d.id);

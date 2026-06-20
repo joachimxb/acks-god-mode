@@ -3469,6 +3469,21 @@ function armyUnits(campaign, army){
   return unitsStationedAt(campaign, { kind: 'army', id: army.id });
 }
 
+// T6 single-home — a domain's garrison units / a character's mercenary-company units, read from
+// the canonical campaign.units[] by stationedAt (NOT the deleted domain.garrison.units /
+// character.mercenaryCompany.units nested mirror). Accept an entity or a bare id. The siblings of
+// armyUnits; every garrison/merc reader routes through these so the station-kind strings live once.
+function domainGarrisonUnits(campaign, domainOrId){
+  const id = domainOrId && typeof domainOrId === 'object' ? domainOrId.id : domainOrId;
+  if(!id) return [];
+  return unitsStationedAt(campaign, { kind: 'domain-garrison', id });
+}
+function characterMercenaryUnits(campaign, charOrId){
+  const id = charOrId && typeof charOrId === 'object' ? charOrId.id : charOrId;
+  if(!id) return [];
+  return unitsStationedAt(campaign, { kind: 'character', id });
+}
+
 function armyDivisionForUnit(army, unitId){
   if(!army || !Array.isArray(army.divisions)) return null;
   return army.divisions.find(dv => dv && Array.isArray(dv.unitIds) && dv.unitIds.includes(unitId)) || null;
@@ -3914,7 +3929,7 @@ function domainEffectiveTerritory(campaign, d){
 function domainIncursionClassification(campaign, d){
   const A = global.ACKS || {};
   const base = String(effectiveDomainClassification(d) || 'Outlands').toLowerCase();
-  const garrSpend = ((typeof A.garrisonCost === 'function') ? A.garrisonCost(d) : 0)
+  const garrSpend = ((typeof A.garrisonCost === 'function') ? A.garrisonCost(campaign, d) : 0)
     + ((typeof A.scutagePaidThisMonth === 'function') ? A.scutagePaidThisMonth(campaign, d) : 0);
   const garrReq = (typeof A.requiredGarrison === 'function') ? A.requiredGarrison(campaign, d) : 0;
   const insufficientGarrison = garrReq > 0 && garrSpend < garrReq;
@@ -3959,7 +3974,7 @@ function unitPlatoonScaleBr(unit){
   return (row.brPerCreature || 0) * active * 4;
 }
 function domainGarrisonPlatoonBr(campaign, d){
-  const units = (d && d.garrison && Array.isArray(d.garrison.units)) ? d.garrison.units : [];
+  const units = domainGarrisonUnits(campaign, d);
   let br = 0;
   for(const u of units){ if(u) br += unitPlatoonScaleBr(u); }
   return _roundQuarterBr(br);
@@ -5376,8 +5391,7 @@ function groupFormations(campaign, g){
     const out = [];
     for(const id of (g.memberCharacterIds || [])){
       const c = _findCharacterById(campaign, id);
-      const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
-      if(Array.isArray(arr)) for(const u of arr) if(u) out.push(u);
+      for(const u of characterMercenaryUnits(campaign, c)) if(u) out.push(u);
     }
     return out;
   }
@@ -5556,8 +5570,7 @@ function musterArmyFromParty(campaign, partyOrId, opts={}){
   const unitIds = [];
   for(const id of memberIds){
     const c = _findCharacterById(campaign, id);
-    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
-    if(Array.isArray(arr)) for(const u of arr) if(u && u.id) unitIds.push(u.id);
+    for(const u of characterMercenaryUnits(campaign, c)) if(u && u.id) unitIds.push(u.id);
   }
   const army = createArmy(campaign, {
     id: opts.id,
@@ -9401,7 +9414,7 @@ function processFavorsAndDutiesForTurn(campaign, options){
   // wage), every vassal who paid him scutage makes a Henchman Loyalty roll at -4.
   for(const key of Object.keys(scutageReceivedByLiege)){
     const acc = scutageReceivedByLiege[key];
-    const troopSpend = global.ACKS.garrisonCost(acc.liegeDomain);
+    const troopSpend = global.ACKS.garrisonCost(campaign, acc.liegeDomain);
     if(troopSpend > acc.total) continue;                                   // lord spent enough on troops — no penalty
     for(const p of acc.payers){
       if(!p.vassalRulerId) continue;
@@ -12121,7 +12134,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // (unitBattleRating reads TROOP_CATALOG; groupBattleRating reads the MM per-creature BR),
   // officer characteristics (RR pp.435–437), stationing setter + the garrison lift.
   findUnit, findArmy, unitsStationedAt, armiesAtHex, unitActiveCount,
-  armyUnits, armyDivisionForUnit, unitTroopRow, unitMarchMilesPerDay, unitCurrentHexId,
+  armyUnits, domainGarrisonUnits, characterMercenaryUnits, armyDivisionForUnit, unitTroopRow, unitMarchMilesPerDay, unitCurrentHexId,
   unitBattleRating, groupBattleRating, unitWagePerSoldier, unitWageMonthly,
   unitWeeklySupplyCost, unitMoraleScore,
   proficiencyRanks, hasProficiencyNamed,

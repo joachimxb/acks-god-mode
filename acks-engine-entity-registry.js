@@ -435,25 +435,13 @@
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,
-      list: (c) => {
-        const out = [];
-        for(const d of ((c && c.domains) || [])){
-          for(const u of ((d && d.garrison && d.garrison.units) || [])){ if(u) out.push(u); }
-        }
-        for(const ch of ((c && c.characters) || [])){
-          for(const u of ((ch && ch.mercenaryCompany && ch.mercenaryCompany.units) || [])){ if(u) out.push(u); }
-        }
-        return out;
-      },
-      find: (c, id) => {
-        for(const d of ((c && c.domains) || [])){
-          for(const u of ((d && d.garrison && d.garrison.units) || [])){ if(u && u.id === id) return u; }
-        }
-        for(const ch of ((c && c.characters) || [])){
-          for(const u of ((ch && ch.mercenaryCompany && ch.mercenaryCompany.units) || [])){ if(u && u.id === id) return u; }
-        }
-        return null;
-      },
+      // T6 single-home — garrison + private-retinue units read from the canonical campaign.units[]
+      // by stationedAt kind (the nested domain.garrison.units / character.mercenaryCompany.units
+      // mirror is gone). Distinct from the first-class 'unit' kind above, which lists ALL units.
+      list: (c) => ((c && c.units) || []).filter(u => u && u.stationedAt &&
+        (u.stationedAt.kind === 'domain-garrison' || u.stationedAt.kind === 'character')),
+      find: (c, id) => ((c && c.units) || []).find(u => u && u.id === id && u.stationedAt &&
+        (u.stationedAt.kind === 'domain-garrison' || u.stationedAt.kind === 'character')) || null,
       displayName: (c, obj) => {
         if(!obj) return '';
         const name = (obj.displayName || '').trim() || obj.unitTypeKey || obj.id;

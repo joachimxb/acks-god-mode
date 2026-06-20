@@ -108,7 +108,7 @@ function computeDomainEconomy(camp, d){
     monthlyGrossIncome: ACKS.monthlyGrossIncome(camp, d), monthlyExpenses: ACKS.monthlyExpenses(camp, d), monthlyNet: net,
     incomeFactor: ACKS.incomeFactor(d.demographics.morale), tributeOwed: ACKS.tributeOwed(camp, d), domainXpFromNet: ACKS.domainXpFromNet(camp, d, net),
     totalFamilies: ACKS.totalFamilies(d), effectiveUrbanFamilies: ACKS.effectiveUrbanFamilies(d), banditCount: ACKS.banditCount(d),
-    garrisonHeadcount: ACKS.garrisonHeadcount(d), garrisonCost: ACKS.garrisonCost(d), garrisonBR: ACKS.garrisonBR(d), requiredGarrison: ACKS.requiredGarrison(camp, d),
+    garrisonHeadcount: ACKS.garrisonHeadcount(camp, d), garrisonCost: ACKS.garrisonCost(camp, d), garrisonBR: ACKS.garrisonBR(camp, d), requiredGarrison: ACKS.requiredGarrison(camp, d),
     effectiveClassification: ACKS.effectiveDomainClassification(d), effectiveRuler: ACKS.effectiveRuler(camp, d),
     strongholdRequired: ACKS.strongholdRequired(d), strongholdValue: ACKS.strongholdValue(camp, d), domainTotalLandImprovementBonus: ACKS.domainTotalLandImprovementBonus(d),
     marketClass: ACKS.marketClass(d), tradeRevenuePerFamily: ACKS.tradeRevenuePerFamily(d),

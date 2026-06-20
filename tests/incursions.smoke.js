@@ -173,8 +173,8 @@ function mkCampaign(opts){
   const cls = ACKS.domainIncursionClassification(camp, d);
   ok('under-defended outlands reads unsettled', cls.base === 'outlands' && cls.effective === 'unsettled' && cls.demoted === true &&
      cls.insufficientGarrison === true && cls.insufficientStronghold === true, JSON.stringify(cls));
-  // fund the garrison + stronghold → no demotion
-  d.garrison = { units: [{ id: 'gar-1', displayName: 'Foot', unitTypeKey: 'heavy-infantry', race: 'man', count: 100, monthlyWage: 12, brPerSoldier: 0.016 }] };
+  // fund the garrison + stronghold → no demotion. T6 single-home — station into campaign.units[].
+  ACKS.stationUnit(camp, { id: 'gar-1', displayName: 'Foot', unitTypeKey: 'heavy-infantry', race: 'man', count: 100, monthlyWage: 12, brPerSoldier: 0.016 }, { kind: 'domain-garrison', id: d.id });
   d.stronghold = { buildValue: 100000 };
   const cls2 = ACKS.domainIncursionClassification(camp, d);
   ok('funded domain keeps its class', cls2.effective === 'outlands' && cls2.demoted === false, JSON.stringify(cls2));
@@ -188,19 +188,21 @@ section('the platoon-scale BR comparison — the JJ p.105 worked example');
   // "60 heavy infantry (720gp/mo) and 30 light infantry (180gp/mo) … 2 heavy platoons
   //  (BR 2.0 each) and 1 light platoon (BR 1.0). The garrison's total BR is 5.0."
   const d = ACKS.blankDomain({ id: 'dom-g' });
-  d.garrison = { units: [
-    { id: 'gar-h', displayName: 'Heavy Foot', unitTypeKey: 'heavy-infantry', race: 'man', count: 60, monthlyWage: 0, brPerSoldier: 0 },
-    { id: 'gar-l', displayName: 'Light Foot', unitTypeKey: 'light-infantry', race: 'man', count: 30, monthlyWage: 0, brPerSoldier: 0 }
+  // T6 single-home — units live in campaign.units[] (stationedAt the domain); pass the campaign.
+  const bcamp = { schemaVersion: 2, domains: [d], characters: [], armies: [], units: [
+    { id: 'gar-h', displayName: 'Heavy Foot', unitTypeKey: 'heavy-infantry', race: 'man', count: 60, monthlyWage: 0, brPerSoldier: 0, stationedAt: { kind: 'domain-garrison', id: 'dom-g' } },
+    { id: 'gar-l', displayName: 'Light Foot', unitTypeKey: 'light-infantry', race: 'man', count: 30, monthlyWage: 0, brPerSoldier: 0, stationedAt: { kind: 'domain-garrison', id: 'dom-g' } }
   ] };
-  ok('garrison platoon BR = 5.0 (the printed example, exact)', ACKS.domainGarrisonPlatoonBr(null, d) === 5, 'got ' + ACKS.domainGarrisonPlatoonBr(null, d));
+  ok('garrison platoon BR = 5.0 (the printed example, exact)', ACKS.domainGarrisonPlatoonBr(bcamp, d) === 5, 'got ' + ACKS.domainGarrisonPlatoonBr(bcamp, d));
   // "6 platoons of 30 orcs, each with a BR of 1.0, for a total BR of 6.0"
   const orc = ACKS.findMonster('orc');
   ok('180 orcs at platoon scale ≈ 6.0 (6 platoons × 1.0)', ACKS.monsterPlatoonBr(orc.battleRating, 180) === 7.25 || ACKS.monsterPlatoonBr(orc.battleRating, 180) === 7.2 ||
      Math.abs(ACKS.monsterPlatoonBr(orc.battleRating, 180) - 180 * orc.battleRating * 4) < 0.26, 'got ' + ACKS.monsterPlatoonBr(orc.battleRating, 180));
   ok('stored brPerSoldier override wins', (() => {
-    const du = { id: 'gar-x', unitTypeKey: 'heavy-infantry', race: 'man', count: 30, brPerSoldier: 0.1 };
-    const dd = ACKS.blankDomain({ id: 'dom-x' }); dd.garrison = { units: [du] };
-    return ACKS.domainGarrisonPlatoonBr(null, dd) === 12;       // 0.1 × 30 × 4
+    const du = { id: 'gar-x', unitTypeKey: 'heavy-infantry', race: 'man', count: 30, brPerSoldier: 0.1, stationedAt: { kind: 'domain-garrison', id: 'dom-x' } };
+    const dd = ACKS.blankDomain({ id: 'dom-x' });
+    const ocamp = { schemaVersion: 2, domains: [dd], characters: [], armies: [], units: [du] };
+    return ACKS.domainGarrisonPlatoonBr(ocamp, dd) === 12;       // 0.1 × 30 × 4
   })());
   ok('no catalog BR → null (the GM prices it)', ACKS.monsterPlatoonBr(undefined, 10) === null && ACKS.monsterPlatoonBr(0.1, 0) === null);
 }

@@ -392,8 +392,9 @@ section('The Marcus/Sarotem occupation example (RR p.458) — 9.6gp > 2gp');
   mkLeader(c, 'chr-s', 'Lord of Sarotem');
   c.domains.push({ id: 'dom-s', name: 'Sarotem', rulerCharacterId: 'chr-s', liegeId: null, classification: 'Civilized',
     demographics: { peasantFamilies: 500, urbanFamilies: 0, morale: 2 }, geography: { hexes: [] },
-    garrison: { units: [{ id: 'g1', displayName: 'Town Watch', count: 200, monthlyWage: 6 }] },
     income: {}, expenses: { tithePaid: true }, treasury: { gp: 0 }, stronghold: { components: [] } });
+  // T6 single-home — the town watch lives in campaign.units[] (the home garrisonCost reads).
+  ACKS.stationUnit(c, { id: 'g1', displayName: 'Town Watch', count: 200, monthlyWage: 6 }, { kind: 'domain-garrison', id: 'dom-s' });
   const a = mkArmy(c, 'army-occ', 'Host of Marcus', 'chr-m', 'hx-s', [{ unitTypeKey: 'heavy-cavalry', count: 100 }]);
   const st = ACKS.domainOccupationStatus(c, c.domains[0]);
   ok('100 heavy cavalry = 6,000gp/month wages', st.occupyingWages === 6000, String(st.occupyingWages));

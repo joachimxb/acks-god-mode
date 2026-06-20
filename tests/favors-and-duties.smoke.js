@@ -758,7 +758,8 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
 }
 {
   const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
-  c.domains.find(d=>d.id==='dom-lord').garrison = { units:[{ id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }] }; // 10,000gp troops ≫ 500gp scutage
+  // T6 single-home — station the lord's troops in campaign.units[] (the home garrisonCost reads).
+  ACKS.stationUnit(c, { id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }, { kind:'domain-garrison', id:'dom-lord' }); // 10,000gp troops ≫ 500gp scutage
   const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
   ACKS.payScutageObligation(c, scu.id, {});
   const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });

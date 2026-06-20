@@ -52,6 +52,10 @@ const computePersonalAuthority     = (...a) => ACKS.computePersonalAuthority(...
 const computeGpThreshold           = (...a) => ACKS.computeGpThreshold(...a);
 const isPlayerControlled           = (...a) => ACKS.isPlayerControlled(...a);
 const isHenchman                   = (...a) => ACKS.isHenchman(...a);
+// T6 single-home — garrison units come from the canonical campaign.units[] by stationedAt.
+const domainGarrisonUnits          = (...a) => ACKS.domainGarrisonUnits(...a);
+const hexesForDomain               = (...a) => ACKS.hexesForDomain(...a);
+const settlementForHex             = (...a) => ACKS.settlementForHex(...a);
 const isHouseRuleEnabled           = (campaign, id) => ACKS.isHouseRuleEnabled(campaign, id);
 
 // =============================================================================
@@ -125,23 +129,23 @@ function urbanCapacity(d){
 // =============================================================================
 // Garrison (RR p.351)
 // =============================================================================
-function garrisonHeadcount(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0), 0); }
+function garrisonHeadcount(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => s + (u.count||0), 0); }
 // Military W7 (burst4) — a Troops-favor garrison the LORD provides is wageWaived: the vassal pays
 // nothing for it (RR p.348), so it never bills as the vassal's garrison expense (its adequacy credit
 // is added in garrisonAdequacySpend below). Demo units carry no flag → unchanged.
-function garrisonCost(d){ return (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s : s + (u.count||0)*(u.monthlyWage||0), 0); }
-function garrisonBR(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0)*(u.brPerSoldier||0), 0); }
+function garrisonCost(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => u.wageWaived ? s : s + (u.count||0)*(u.monthlyWage||0), 0); }
+function garrisonBR(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => s + (u.count||0)*(u.brPerSoldier||0), 0); }
 // === Military W7 (burst4) — the gp the domain's garrison adequacy check sees (RR pp.341, 347). The
 // vassal's billed garrisonCost + scutage paid (counts as garrison, RR p.347) + the implicit wages of
 // trained militia kept at home (RR p.341) + lord-provided wage-waived troops that defend it (those
 // were excluded from garrisonCost but still garrison the realm). On the demo (no militia/scutage/
 // wage-waived troops) this equals garrisonCost, so the economy oracle is unchanged.
 function garrisonAdequacySpend(campaign, d){
-  let spend = garrisonCost(d) + scutagePaidThisMonth(campaign, d);
+  let spend = garrisonCost(campaign, d) + scutagePaidThisMonth(campaign, d);
   if(global.ACKS && typeof global.ACKS.domainTrainedMilitiaCredit === 'function'){
     spend += global.ACKS.domainTrainedMilitiaCredit(campaign, d) || 0;   // RR p.341 — trained militia at home
   }
-  spend += (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
+  spend += domainGarrisonUnits(campaign, d).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
   return spend;
 }
 // === Military W7 (burst4) — peasant families that produce REVENUE this month: the population minus
@@ -209,7 +213,7 @@ function magistrateBaseExpenseForRole(campaign, d, roleKey){
   const fam = d.demographics?.peasantFamilies || 0;
   const urb = effectiveUrbanFamilies(d);
   switch(roleKey){
-    case 'captainOfGuard': return garrisonCost(d);
+    case 'captainOfGuard': return garrisonCost(campaign, d);
     case 'chaplain':       return d.expenses?.tithePaid ? (fam+urb) : 0;
     case 'munerator':      return (d.expenses?.liturgyPerFamily ?? 1) * (fam+urb);
     case 'steward':        return fam + urb;
@@ -395,7 +399,7 @@ function expenseBreakdown(campaign, d){
   const tithe = d.expenses.tithePaid ? (fam+urb) : 0;
   const strongholdMaint = fam;  // 1gp per peasant family
   const urbanUpkeep = urb;      // 1gp per urban family (RR p.351)
-  const garrison = garrisonCost(d);
+  const garrison = garrisonCost(campaign, d);
   // Magistrate salary annotation — paid out of the existing expense pool (total unchanged).
   const charById = (id) => (campaign.characters||[]).find(c => c.id === id);
   const magistrateNoteFor = (roleKey) => {

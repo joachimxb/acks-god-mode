@@ -5795,7 +5795,7 @@ function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
   const dist = (strongholdHex && strongholdHex.coord && entryHex && entryHex.coord && typeof A.hexAxialDistance === 'function')
     ? A.hexAxialDistance(strongholdHex.coord, entryHex.coord) : null;
   let cav = 0;
-  for(const u of ((d.garrison && d.garrison.units) || [])){
+  for(const u of (A.domainGarrisonUnits ? A.domainGarrisonUnits(campaign, d) : [])){
     if(!u) continue;
     const row = (typeof A.findTroopType === 'function')
       ? A.findTroopType(u.unitTypeKey, { race: u.race || 'man', veteran: !!u.veteran, loadout: u.loadout || null }) : null;
@@ -5820,7 +5820,7 @@ function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
     { label: 'garrison cavalry scouting (' + cav + ' units)', value: cavMod }
   ]);
   const monsters = mkSide([
-    { label: 'garrison of ' + ((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : '?'), value: _incursionSizeMod((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : 0) },
+    { label: 'garrison of ' + ((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(campaign, d) : '?'), value: _incursionSizeMod((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(campaign, d) : 0) },
     { label: 'proximity (' + (dist != null ? dist + ' hexes' : 'unknown') + ')', value: _incursionProximityMod(dist) },
     { label: 'less familiar with the region', value: -1 },
     { label: 'observing from the air', value: aerial ? 2 : 0 },

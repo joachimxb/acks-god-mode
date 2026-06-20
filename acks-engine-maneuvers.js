@@ -671,7 +671,7 @@
       if(w > occupierBest){ occupierBest = w; occupierLeaderId = ar.leaderCharacterId || null; }
     }
     // defenders: the domain's own garrison spend + friendly armies present
-    let defendingWages = (typeof Ax.garrisonCost === 'function') ? Ax.garrisonCost(domain) : 0;
+    let defendingWages = (typeof Ax.garrisonCost === 'function') ? Ax.garrisonCost(campaign, domain) : 0;
     for(const ar of (campaign.armies || [])){
       if(!ar || !posOf(ar) || !domHexIds[posOf(ar)]) continue;
       if(!domainFriendlyToArmy(campaign, domain, ar)) continue;

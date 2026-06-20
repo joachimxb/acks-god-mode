@@ -11442,7 +11442,7 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- Empty state -->
-        <template x-if="!(currentCampaign?.characters||[]).some(c => c.liegeCharacterId === characterEditing.id && ['henchman','hireling','specialist','follower'].includes(c.socialTier) && c.alive !== false) && !(characterEditing.mercenaryCompany && Array.isArray(characterEditing.mercenaryCompany.units) && characterEditing.mercenaryCompany.units.length > 0)">
+        <template x-if="!(currentCampaign?.characters||[]).some(c => c.liegeCharacterId === characterEditing.id && ['henchman','hireling','specialist','follower'].includes(c.socialTier) && c.alive !== false) && characterMercUnits(characterEditing).length === 0">
           <p class="text-sm italic opacity-70 py-4">No retainers yet. Click <strong>+ Recruit</strong> to hire henchmen, specialists, or mercenaries.</p>
         </template>
 
@@ -11521,14 +11521,14 @@ document.addEventListener('alpine:init', () => {
         </template>
 
         <!-- Mercenary Company -->
-        <template x-if="characterEditing && characterEditing.mercenaryCompany && Array.isArray(characterEditing.mercenaryCompany.units) && characterEditing.mercenaryCompany.units.length > 0">
+        <template x-if="characterEditing && characterMercUnits(characterEditing).length > 0">
           <div class="vellum border border-ink/40 rounded p-3">
             <h4 class="font-semibold mb-1">Mercenary Company <span class="text-sm font-normal opacity-60">(RR p.166)</span></h4>
             <p class="text-sm opacity-70 mb-2">Units in this character's personal company. These travel with the patron (or are stationed by them) and don't draw from a domain garrison.</p>
             <table class="bookkeeping text-sm w-full">
               <thead><tr><th>Unit type</th><th>Count</th><th>Commander</th><th>Recruited at</th></tr></thead>
               <tbody>
-                <template x-for="u in characterEditing.mercenaryCompany.units" :key="u.id">
+                <template x-for="u in characterMercUnits(characterEditing)" :key="u.id">
                   <tr>
                     <td x-text="((window.ACKS && window.ACKS.HIRELING_MERCENARIES) || []).find(r => r.id === u.unitTypeKey)?.label || u.unitTypeKey || u.displayName || u.unitType"></td>
                     <td x-text="u.count"></td>
@@ -22496,12 +22496,9 @@ return {
   unitSheetUnit(){
     const id = this.unitSheetUnitId, c = this.currentCampaign;
     if(!id || !c) return null;
+    // T6 single-home — findUnit reads the canonical campaign.units[] (the nested mirror is gone).
     const A = window.ACKS;
-    let u = (A && A.findUnit) ? A.findUnit(c, id) : null;
-    if(u) return u;
-    for(const d of (this.domains || [])){ const m = (((d.garrison && d.garrison.units) || [])).find(x => x && x.id === id); if(m) return m; }
-    for(const ch of ((c.characters) || [])){ const m = (((ch.mercenaryCompany && ch.mercenaryCompany.units) || [])).find(x => x && x.id === id); if(m) return m; }
-    return null;
+    return (A && A.findUnit) ? A.findUnit(c, id) : null;
   },
   unitSheetList(){ const u = this.unitSheetUnit(); return u ? [u] : []; },
   unitSheetHexOptions(){ const u = this.unitSheetUnit(); return u ? this.unitHomeHexOptions(u) : []; },
@@ -22658,7 +22655,7 @@ return {
   canMergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return false;
     if(this.unitIsDeployed(unit)) return false;   // a deployed unit is managed through its army
-    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
+    const sibs = window.ACKS.domainGarrisonUnits(this.currentCampaign, domain).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
     return sibs.length > 0;
   },
   splitGarrisonUnit(domain, unit){
@@ -22687,7 +22684,7 @@ return {
   mergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return;
     if(this.unitIsDeployed(unit)){ this.showToast && this.showToast('This unit is with a field army — manage it through the army (Characters ▸ Parties).', 3500); return; }
-    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
+    const sibs = window.ACKS.domainGarrisonUnits(this.currentCampaign, domain).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
     if(sibs.length === 0){ alert('No same-type sibling unit to merge into.'); return; }
     let target;
     if(sibs.length === 1){ target = sibs[0]; }
@@ -22877,7 +22874,7 @@ return {
     if(camp && Array.isArray(camp.units) && A && A.unitHomeDomainId){
       for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitHomeDomainId(camp, u) === domain.id) byId.set(u.id, u); }
     }
-    for(const u of ((domain.garrison && domain.garrison.units) || [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
+    for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
     return [...byId.values()];
   },
   removeGarrisonUnit(domain, u){
@@ -26828,13 +26825,13 @@ return {
     const typeKey = s.hireTypeId;
     if(s.destinationKind === 'company'){
       const patron = this.recruitState && this.recruitState.patron;
-      const units = (patron && patron.mercenaryCompany && patron.mercenaryCompany.units) || [];
+      const units = window.ACKS.characterMercenaryUnits(this.currentCampaign, patron);
       return units.filter(u => u && u.unitTypeKey === typeKey);
     }
     if(s.destinationKind === 'garrison'){
       const doms = this.recruitPatronDomains();
       const d = doms[0]; if(!d) return [];
-      const units = (d.garrison && d.garrison.units) || [];
+      const units = window.ACKS.domainGarrisonUnits(this.currentCampaign, d);
       return units.filter(u => u && u.unitTypeKey === typeKey);
     }
     return [];
@@ -27645,7 +27642,7 @@ return {
   // A character's mercenaries (character.mercenaryCompany.units — the Retainers tab) travel with
   // them into a party. Summed per unit type for the party muster display. Returns [{label, count}].
   partyMemberMercSummary(ch){
-    const units = ((ch && ch.mercenaryCompany && ch.mercenaryCompany.units) || []).filter(u => (u.count || 0) > 0);
+    const units = window.ACKS.characterMercenaryUnits(this.currentCampaign, ch).filter(u => (u.count || 0) > 0);
     const byType = {};
     for(const u of units){
       const label = this.mercUnitLabel(u);
@@ -31411,9 +31408,11 @@ return {
     if(fam >= 20) return 'Borderlands';
     return 'Outlands';
   },
-  garrisonHeadcount(d){return window.ACKS.garrisonHeadcount(d);},
-  garrisonCost(d){return window.ACKS.garrisonCost(d);},
-  garrisonBR(d){return window.ACKS.garrisonBR(d);},
+  garrisonHeadcount(d){return window.ACKS.garrisonHeadcount(this.currentCampaign, d);},
+  garrisonCost(d){return window.ACKS.garrisonCost(this.currentCampaign, d);},
+  garrisonBR(d){return window.ACKS.garrisonBR(this.currentCampaign, d);},
+  // T6 single-home — a character's mercenary-company units, from the canonical campaign.units[].
+  characterMercUnits(c){return (window.ACKS && window.ACKS.characterMercenaryUnits) ? window.ACKS.characterMercenaryUnits(this.currentCampaign, c) : [];},
 
   // Effective tribute owed by a vassal to its liege, this month. Returns 0 if no liege OR
   // tributePaid is false. When tributeAuto is on (the default), it's the RAW precise tribute by the
