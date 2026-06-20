@@ -366,6 +366,19 @@ function processAgingForTurn(campaign, opts){
       }
     }
   }
+
+  // CL-5 (team) — the alignment-drift schedule rides this same monthly lifecycle hook. commitTurn AND
+  // the proposeMonthlyTurn preview both call processAgingForTurn (the one monthly hook this lane has —
+  // it cannot add a named hook to acks-engine.js), so folding the transformation drift pass in here makes
+  // it ride the monthly turn. It loops the TRANSFORMED characters (a different subject set than aging —
+  // a transformed character with age:null or an ageless race still drifts), so it runs AFTER the aging
+  // loop, not inside it. Its result is surfaced under out.transformations + its log lines merge in.
+  try {
+    const tx = processTransformationsForTurn(campaign, { dryRun, rng });
+    out.transformations = tx;
+    (tx.logEntries || []).forEach(l => out.logEntries.push(l));
+  } catch(_e){ /* never let a transformation drift-save fail the aging pass */ }
+
   return out;
 }
 
@@ -1559,6 +1572,353 @@ Object.assign(ACKS, {
   characterDeathInfo
 });
 // === end Character Lifecycle CL-4a (burst8, team) ============================
+
+// =============================================================================
+// === Character Lifecycle CL-5 (team) — character transformation (JJ pp.94–95) ================
+// The transformation ledger + the alignment-drift save schedule — persistent-character-state class
+// #10 (Character_Lifecycle_Plan §11 CL-5 / survey §9). An adventurer turned into an intelligent
+// monster (lycanthropy / crossbreeding / necromantic ritual / polymorph) RETAINS their attributes,
+// makes a Spells save to KEEP their class abilities (fail = lost), and then DRIFTS toward the new
+// form's alignment & personality — a Death save on transformation and at each age/HD step (success =
+// keep your old self), with two exceptions (a lycanthrope who REJECTS the gift, and an "After the
+// Flesh" undead, keep their own minds — no drift).
+//
+// THE SCOPE BOUNDARY (the task): this layer owns the LEDGER + the drift-save SCHEDULE, NOT the full
+//   effect resolution. transformationState records WHETHER class abilities were kept (the Spells save)
+//   + the alignment-drift saves; it does NOT rewrite the character's class/HD/AC/attacks/creatureTypes
+//   — that is the Phase-5 / Magic resolver's job (JJ pp.94–95 full effects). The CAUSE (how you got
+//   infected/crossbred/ritualized) is a Magic STUB seam: transformCharacter is the manual GM verb v1;
+//   the Magic cause-side calls it (or transformationDriftSave at an HD step) when it lands. The reserved
+//   blankCharacter `transformationState` field (seeded null) is the contract this shapes (survey §9 /
+//   Plan §4): { form, trigger, keptClassAbilities, alignmentDriftSaves[], retainedSelf, transformedAtTurn,
+//   reversible, history[] } + the operational drift-schedule fields.
+//
+// SHAPE (the §2 persistent-state model): stored — character.transformationState (a single object, set by
+//   transformCharacter, cleared to null by revertCharacter; the eventLog IS the cross-character history);
+//   driver — the MONTHLY drift-save pass (processTransformationsForTurn, folded into processAgingForTurn
+//   so it rides the one monthly lifecycle hook commitTurn/proposeMonthlyTurn already call — this lane
+//   cannot add a hook to acks-engine.js); resolver — the JJ pp.94–95 Spells save (keep abilities) + the
+//   alignment-drift Death save; propose→ratify — the monthly-turn review (dryRun rolls nothing); history
+//   — the two events (character-transformed / transformation-reverted) + the alignmentDriftSaves[] ledger.
+//   The five-axis lifecycleState flips active→'transformed' on transform, back to 'active' on revert.
+//
+// v1 SIMPLIFICATIONS (Mechanic Extensions): the drift cadence is a configurable monthly interval
+//   (driftSaveIntervalMonths, default 12 — ≈ "each age/HD step"); the precise per-HD-step trigger is a
+//   Magic/Phase-5 refinement that can call transformationDriftSave directly. A single drift FAILURE means
+//   the mind has drifted to the new form (retainedSelf:false, the schedule ends) — RAW frames each save
+//   as "keep your old self", so one failure loses it. Class-ability LOSS / the monster's stat block are
+//   recorded as flags for the resolver, not auto-applied. Drift saves emit NO event (only the two
+//   bracketing kinds are allocated) — they ride the ledger + character.history + the monthly log.
+//
+// Polarity (CLAUDE §6): transformation is CORE RAW — default-on, no master house-rule gate. Dormant
+//   until a character is transformed (the GM's "transform" action in v1; the Magic cause wires later).
+// =============================================================================
+const TRANSFORMATION_CITE = 'JJ pp.94–95';
+const DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS = 12;   // v1 schedule cadence (≈ each age/HD step); GM-settable.
+
+// The transformation triggers (JJ pp.94–95). Reference data for the UI picker + the cause-seam. `canReject`
+// marks a trigger whose subject may REJECT it (a lycanthrope keeps their human-form morality → no drift);
+// `undeadAfterFlesh` marks the "After the Flesh" undead exception (keeps their own mind). Mechanical
+// flags only (the RAW posture); `form` is free-text / a monster-catalog key the GM supplies.
+const TRANSFORMATION_TRIGGERS = Object.freeze([
+  { id:'lycanthropy',  label:'Lycanthropy',          canReject:true,  cite:'JJ p.94' },
+  { id:'crossbreed',   label:'Magical crossbreeding', canReject:false, cite:'JJ p.94' },
+  { id:'necromantic',  label:'Necromantic ritual',    canReject:false, undeadAfterFlesh:true, cite:'JJ p.95' },
+  { id:'polymorph',    label:'Polymorph',             canReject:false, cite:'JJ p.94' },
+  { id:'possession',   label:'Possession',            canReject:false, cite:'JJ p.94' },
+  { id:'awakening',    label:'Awakening',             canReject:false, cite:'JJ p.94' },
+  { id:'other',        label:'Other',                 canReject:false, cite:'JJ pp.94–95' }
+]);
+const TRANSFORMATION_TRIGGER_BY_ID = Object.freeze(TRANSFORMATION_TRIGGERS.reduce((m, t) => { m[t.id] = t; return m; }, {}));
+function transformationTriggerById(id){ return TRANSFORMATION_TRIGGER_BY_ID[id] || null; }
+
+// isTransformed — the predicate (defensive: absent/null ⇒ false). A transformed character carries a
+// non-null transformationState; the five-axis lifecycleState reads 'transformed'.
+function isTransformed(c){ return !!(c && c.transformationState && typeof c.transformationState === 'object'); }
+
+// _spellsSaveTarget / _deathSaveTarget — the save targets (default 15; + a GM modifier). A natural 1
+// always fails (RR pp.9–10) — applied at the roll sites, the disease/condition idiom.
+function _spellsSaveTarget(c, opts){
+  const base = (c && c.savingThrows && c.savingThrows.spells != null) ? Number(c.savingThrows.spells) : 15;
+  return base - (Number(opts && opts.spellsSaveMod) || 0);   // a positive mod EASES the save (lowers the target)
+}
+function _driftSaveTarget(c, opts){
+  const base = (c && c.savingThrows && c.savingThrows.death != null) ? Number(c.savingThrows.death) : 15;
+  return base - (Number(opts && opts.driftSaveMod) || 0);
+}
+
+// _applyDriftSave — roll + apply ONE alignment-drift Death save (JJ pp.94–95). Mutates the state: pushes
+// the save to alignmentDriftSaves[], and on a FAIL flips retainedSelf:false + ends the schedule (the mind
+// has drifted to the new form); on a PASS keeps retainedSelf + RE-ARMS the next interval. Records a
+// history line + returns { roll, target, saved, drifted }. Shared by the monthly clock (commit) + the
+// direct transformationDriftSave verb. forcedRoll (tests / a Magic-side roll) overrides the die.
+function _applyDriftSave(campaign, c, rng, opts){
+  opts = opts || {};
+  const st = c.transformationState;
+  const target = _driftSaveTarget(c, opts);
+  const roll = (opts.forcedRoll != null) ? Number(opts.forcedRoll) : _d(20, rng);
+  const saved = roll !== 1 && roll >= target;             // a natural 1 always fails (RR pp.9–10)
+  const turn = (campaign && campaign.currentTurn) || 1;
+  if(!Array.isArray(st.alignmentDriftSaves)) st.alignmentDriftSaves = [];
+  st.alignmentDriftSaves.push({ atTurn: turn, roll, target, saved, initial: !!opts.initial });
+  let drifted = false;
+  if(saved){
+    st.retainedSelf = true;
+    const interval = Number(st.driftSaveIntervalMonths) || DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS;
+    st.driftSave = { dueInMonths: interval };              // re-arm for the next age/HD step
+    _txHistory(st, turn, 'drift-resisted', c.name + ' resists the drift toward ' + st.form + ' (Death save ' + roll + ' vs ' + target + '+).');
+  } else {
+    st.retainedSelf = false;
+    st.driftSave = null;                                   // the mind is the new form's now — no more saves
+    drifted = true;
+    _txHistory(st, turn, 'drifted', c.name + ' drifts away — now thinks and feels as a ' + st.form + ' (Death save ' + roll + ' vs ' + target + '+ — failed).');
+  }
+  return { roll, target, saved, drifted };
+}
+function _txHistory(st, turn, type, note){
+  if(!Array.isArray(st.history)) st.history = [];
+  st.history.push({ atTurn: turn, type, note });
+}
+
+// =============================================================================
+// transformCharacter — the transformation verb (JJ pp.94–95). The manual GM action in v1 (the Magic
+// cause-side calls it when it lands). Rolls the Spells save (keep class abilities) + the INITIAL
+// alignment-drift Death save (unless the subject rejects the gift / is an After-the-Flesh undead), arms
+// the drift schedule, flips lifecycleState→'transformed', sets transformationState, emits the record-only
+// `character-transformed`. Overwrites any prior transformation (a new form supersedes; the prior rides
+// the eventLog). Returns the transformationState (or null on a bad char / missing form).
+//   opts: { form (required — monster key / free text), trigger ('lycanthropy'|…), rng, reversible (default
+//           true), rejectedGift, afterTheFlesh, driftSaveIntervalMonths, spellsSaveMod, driftSaveMod,
+//           forcedSpellsRoll, forcedDriftRoll }.
+// =============================================================================
+function transformCharacter(campaign, characterId, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c) return null;
+  if(c.lifecycleState === 'deceased' || c.alive === false) return null;     // the dead don't transform
+  const form = String(opts.form || '').trim();
+  if(!form) return null;                                                    // a form is required
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const triggerId = opts.trigger || 'other';
+  const trig = transformationTriggerById(triggerId) || transformationTriggerById('other');
+  const turn = (campaign && campaign.currentTurn) || 1;
+
+  // (1) The Spells save to KEEP class abilities (fail = lost — recorded, the resolver applies the loss).
+  const spellsTarget = _spellsSaveTarget(c, opts);
+  const spellsRoll = (opts.forcedSpellsRoll != null) ? Number(opts.forcedSpellsRoll) : _d(20, rng);
+  const keptClassAbilities = spellsRoll !== 1 && spellsRoll >= spellsTarget;   // natural 1 always fails
+
+  // (2) The exceptions (JJ pp.94–95): a lycanthrope who REJECTS the gift, or an After-the-Flesh undead,
+  //     keeps their own mind — no alignment drift. (rejectedGift only honored for a can-reject trigger.)
+  const rejectedGift = opts.rejectedGift === true && !!trig.canReject;
+  const afterTheFlesh = opts.afterTheFlesh === true && !!trig.undeadAfterFlesh;
+  const autoRetain = rejectedGift || afterTheFlesh;
+  const interval = (opts.driftSaveIntervalMonths != null) ? Math.max(1, Math.floor(Number(opts.driftSaveIntervalMonths)) || DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS) : DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS;
+
+  const st = {
+    form, trigger: triggerId, triggerLabel: trig.label,
+    keptClassAbilities, classAbilitiesSave: { roll: spellsRoll, target: spellsTarget, saved: keptClassAbilities },
+    retainedSelf: true, rejectedGift, afterTheFlesh,
+    reversible: opts.reversible !== false,
+    transformedAtTurn: turn, driftSaveIntervalMonths: interval,
+    driftSave: null, alignmentDriftSaves: [], history: []
+  };
+  c.transformationState = st;
+  c.lifecycleState = 'transformed';                                          // the five-axis flip
+  _txHistory(st, turn, 'transformed', c.name + ' is transformed into a ' + form + ' (' + trig.label + ').');
+
+  // (3) The INITIAL alignment-drift Death save on transformation (skipped for the auto-retain exceptions).
+  let initialDrift = null;
+  if(autoRetain){
+    st.retainedSelf = true; st.driftSave = null;                            // keeps their own mind, no schedule
+  } else {
+    initialDrift = _applyDriftSave(campaign, c, rng, { initial: true, driftSaveMod: opts.driftSaveMod, forcedRoll: opts.forcedDriftRoll });
+  }
+
+  const abilityBit = keptClassAbilities ? 'keeps their class abilities' : 'loses their class abilities';
+  const selfBit = autoRetain ? (rejectedGift ? 'rejects the gift — keeps their own mind' : 'keeps their own mind (After the Flesh)')
+                : (st.retainedSelf ? 'keeps their own mind (for now)' : 'their mind drifts to the beast at once');
+  const summary = c.name + ' is transformed into a ' + form + ' (' + trig.label + ') — ' + abilityBit + '; ' + selfBit + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'character-transformed', summary, { form, trigger: triggerId }); } catch(_e){}
+  const ev = _emitTransformationEvent(campaign, c, 'character-transformed', {
+    characterId: c.id, form, trigger: triggerId, triggerLabel: trig.label,
+    keptClassAbilities, spellsSave: spellsRoll, spellsTarget,
+    retainedSelf: st.retainedSelf, rejectedGift, afterTheFlesh, reversible: st.reversible,
+    initialDriftSave: initialDrift ? initialDrift.roll : null, initialDriftSaved: initialDrift ? initialDrift.saved : null,
+    narrative: summary
+  }, summary);
+  if(ev) st.eventId = ev.id;
+  return st;
+}
+
+// =============================================================================
+// revertCharacter — reverse the transformation (JJ pp.94–95: cured lycanthropy / dispelled polymorph).
+// Restores lifecycleState→'active', emits the record-only `transformation-reverted`, then CLEARS
+// transformationState to null (the eventLog is the history). A bad char / a non-transformed char / a
+// deceased char → null (you can't revert the dead). The class-ability restoration + the monster stat-block
+// removal are the resolver's effects (this clears the ledger). Returns { characterId, form, trigger }.
+//   opts: { reason ('cured'|'dispelled'|'reverted'|…), atTurn }.
+// =============================================================================
+function revertCharacter(campaign, characterId, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c || !isTransformed(c)) return null;
+  if(c.lifecycleState === 'deceased' || c.alive === false) return null;     // can't revert the dead
+  const st = c.transformationState;
+  const form = st.form, trigger = st.trigger, triggerLabel = st.triggerLabel;
+  const reason = opts.reason || 'reverted';
+  const summary = c.name + ' reverts from ' + form + ' to their original form' + (reason && reason !== 'reverted' ? (' (' + reason + ')') : '') + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'transformation-reverted', summary, { form, trigger, reason }); } catch(_e){}
+  _emitTransformationEvent(campaign, c, 'transformation-reverted', {
+    characterId: c.id, form, trigger, triggerLabel, reason,
+    keptSelf: st.retainedSelf === true, driftSaveCount: (st.alignmentDriftSaves || []).length, narrative: summary
+  }, summary);
+  if(c.lifecycleState === 'transformed') c.lifecycleState = 'active';
+  c.transformationState = null;
+  return { characterId: c.id, form, trigger };
+}
+
+// =============================================================================
+// transformationDriftSave — roll ONE alignment-drift save NOW (the direct verb). A GM "roll a drift save"
+// action, or the Magic/Phase-5 cause-side firing it at an HD step (the precise RAW trigger). Skips a
+// non-transformed / already-drifted / auto-retain character. Returns the save result (or null).
+// =============================================================================
+function transformationDriftSave(campaign, characterId, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c || !isTransformed(c)) return null;
+  const st = c.transformationState;
+  if(st.retainedSelf === false) return null;                                // already drifted — no self left to lose
+  if(st.rejectedGift || st.afterTheFlesh) return null;                      // the auto-retain exceptions never drift
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const res = _applyDriftSave(campaign, c, rng, { driftSaveMod: opts.driftSaveMod, forcedRoll: opts.forcedRoll });
+  const summary = res.drifted ? (c.name + ' drifts away — now thinks as a ' + st.form + '.')
+                              : (c.name + ' holds on to their own mind (drift save ' + res.roll + ' vs ' + res.target + '+).');
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'character-transformed', summary, { form: st.form, drift: true }); } catch(_e){}
+  return res;
+}
+
+// =============================================================================
+// processTransformationsForTurn — the MONTHLY drift-save pass. Folded into processAgingForTurn (the one
+// monthly lifecycle hook commitTurn / proposeMonthlyTurn call — this lane cannot edit acks-engine.js), so
+// it rides the monthly turn. Loops the TRANSFORMED characters (a different subject set than aging), ticking
+// each armed driftSave's 1d12-style countdown; when due, rolls the alignment-drift Death save (success →
+// keep self + re-arm; failure → drift). dryRun reports the deterministic facts (a save DUE / counting down)
+// + rolls NO dice + mutates nothing — the dice live only at commit (the aging dry-run discipline). Drift
+// saves emit no event (only the two bracketing kinds are allocated) — recorded on the ledger + history + the
+// monthly log, surfaced under processAgingForTurn's out.transformations.
+// =============================================================================
+function _isTransformationSubject(c){
+  if(!c || !isTransformed(c)) return false;
+  if(c.lifecycleState === 'deceased' || c.alive === false) return false;
+  const st = c.transformationState;
+  if(st.retainedSelf === false) return false;                              // already fully drifted
+  if(!st.driftSave || st.driftSave.dueInMonths == null) return false;      // no armed schedule (auto-retain / not-yet-armed)
+  return true;
+}
+function processTransformationsForTurn(campaign, opts){
+  opts = opts || {};
+  const dryRun = !!opts.dryRun;
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const out = { ran:true, dryRun, driftSaves:[], drifts:[], logEntries:[] };
+  const chars = (campaign && campaign.characters) || [];
+  for(const c of chars){
+    if(!_isTransformationSubject(c)) continue;
+    const st = c.transformationState;
+    const dueAfter = Number(st.driftSave.dueInMonths) - 1;
+    if(dueAfter > 0){
+      // Counting down — not due this month.
+      if(!dryRun) st.driftSave = { dueInMonths: dueAfter };
+      out.driftSaves.push({ characterId:c.id, name:c.name, form:st.form, dueInMonths:dueAfter });
+    } else {
+      // Due this month → the alignment-drift Death save fires (commit rolls; dry-run only flags it).
+      if(dryRun){
+        out.driftSaves.push({ characterId:c.id, name:c.name, form:st.form, dueThisMonth:true, target:_driftSaveTarget(c, opts) });
+      } else {
+        const res = _applyDriftSave(campaign, c, rng, { driftSaveMod: opts.driftSaveMod });
+        out.driftSaves.push({ characterId:c.id, name:c.name, form:st.form, roll:res.roll, target:res.target, saved:res.saved, drifted:res.drifted });
+        const summary = res.drifted
+          ? (c.name + ' drifts away — now thinks and feels as a ' + st.form + ' (drift save ' + res.roll + ' vs ' + res.target + '+ — failed; JJ pp.94–95).')
+          : (c.name + ' resists the pull of the ' + st.form + ' (drift save ' + res.roll + ' vs ' + res.target + '+ — keeps their own mind).');
+        out.logEntries.push('Transformation — ' + summary);
+        if(res.drifted) out.drifts.push({ characterId:c.id, name:c.name, form:st.form });
+        try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'character-transformed', summary, { form:st.form, drift:true, drifted:res.drifted }); } catch(_e){}
+        // No event kind for a drift save (only the two bracketing kinds are allocated) — the aging-arm idiom.
+      }
+    }
+  }
+  return out;
+}
+
+// characterTransformationInfo — the char-sheet read accessor (the Lifecycle/Health-cluster card): the
+// transformed state + form + trigger + whether class abilities were kept + the drift status (retained /
+// drifted / next save) + the drift-save ledger count.
+function characterTransformationInfo(c){
+  if(!c || !isTransformed(c)) return { transformed:false };
+  const st = c.transformationState;
+  const saves = Array.isArray(st.alignmentDriftSaves) ? st.alignmentDriftSaves : [];
+  const last = saves.length ? saves[saves.length - 1] : null;
+  return {
+    transformed:true, form:st.form, trigger:st.trigger, triggerLabel:st.triggerLabel,
+    keptClassAbilities: st.keptClassAbilities === true,
+    retainedSelf: st.retainedSelf !== false,
+    drifted: st.retainedSelf === false,
+    rejectedGift: st.rejectedGift === true, afterTheFlesh: st.afterTheFlesh === true,
+    reversible: st.reversible !== false,
+    transformedAtTurn: st.transformedAtTurn != null ? st.transformedAtTurn : null,
+    driftSaveIntervalMonths: Number(st.driftSaveIntervalMonths) || DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS,
+    driftSaveDueInMonths: (st.driftSave && st.driftSave.dueInMonths != null) ? st.driftSave.dueInMonths : null,
+    driftSaveCount: saves.length,
+    lastDriftSave: last ? { roll:last.roll, target:last.target, saved:last.saved } : null
+  };
+}
+
+// =============================================================================
+// Event emit — the record-only audit pattern (the aging/disease/condition/death idiom). Both CL-5 kinds
+// (`character-transformed` / `transformation-reverted`) ride it. cadence 'monthly-turn' (transformation +
+// its drift rides the monthly cadence); the character rides the context envelope as subject.
+// =============================================================================
+function _emitTransformationEvent(campaign, c, kind, payload, narrative){
+  const A = global.ACKS;
+  if(!A || typeof A.newEvent !== 'function') return null;
+  const cal = (campaign && campaign.calendar) || {};
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy:'engine', cadence:'monthly-turn', targetTurn:(campaign && campaign.currentTurn) || 1,
+      gameTimeAt:{ year:cal.year || 1, month:cal.month || 1, day:(campaign && campaign.currentDayInMonth) || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(_e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    A.setEventContext(ev, {
+      primaryHexId:(c && c.currentHexId) || null,
+      domainId:(c && c.currentDomainId) || null,
+      relatedEntities:[{ kind:'character', id:c && c.id, role:'subject' }]
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+  ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result:{ narrativeSummary:narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+Object.assign(ACKS, {
+  // data
+  TRANSFORMATION_TRIGGERS, TRANSFORMATION_CITE, DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS,
+  // catalog lookup
+  transformationTriggerById,
+  // verbs
+  transformCharacter, revertCharacter, transformationDriftSave,
+  // the monthly drift-save pass (folded into processAgingForTurn — rides the monthly turn)
+  processTransformationsForTurn,
+  // reads
+  isTransformed, characterTransformationInfo
+});
+// === end Character Lifecycle CL-5 (team) =====================================
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
