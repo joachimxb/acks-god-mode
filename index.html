@@ -17370,6 +17370,120 @@ document.addEventListener('alpine:init', () => {
      existing view (Senate / Dungeons / Knowledge / Magic Items / Gladiators / Stronghold-followers card) or
      is a wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
 <!-- === @b11-politics   (team) — P-7 senate-materialization wizard: the generative Generate-Senate wizard/modal (launched from the 🏛 Senate tab) === -->
+<!-- The generative Senate Wizard (RR pp.355–360). Convenes a senate over a realm's apex domain — it
+     rolls the size/characteristics/requirements, DRAWS the leading senators from the realm's actual
+     NOTABLES (the shipped demographics census — vassal lords / magistrates / court / residents),
+     assigns each rolled influence + 1d3 policy objectives + a faction, then mints the shipped
+     senate/faction/senatorship entities + sets the apex governance senatorial. A fixed launcher pill
+     is shown on the 🏛 Senate tab + the World ▸ Domains sub-view (so a cold-start realm with no senate
+     can reach it). State + methods at the @b11-politics domainApp marker. -->
+<button x-show="senGenLauncherVisible()" @click="openSenateGen(null)" x-cloak
+        class="fixed bottom-4 right-4 z-40 vellum border-2 border-ink rounded-full shadow-lg px-4 py-2 text-sm font-semibold hover:bg-green-100"
+        title="Generate a senate for a realm's apex domain — its senators are drawn from the realm's notables (RR pp.355–360)">🏛 Generate a senate</button>
+<div x-show="senGen.open" @keydown.escape.window="if(senGen.open && !$event.defaultPrevented){ closeSenateGen(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSenateGen()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <button @click="closeSenateGen()" class="text-xl px-2">×</button>
+    </div>
+    <p class="text-sm opacity-70">Convene a senate over a realm's apex domain. Its size derives from the realm's families; its leading senators are drawn from the realm's actual notables (vassal lords, magistrates, court, residents), each with rolled influence, 1d3 policy objectives, and a faction. Re-roll, seat extra notables, then materialize it.</p>
+
+    <div class="flex flex-wrap items-end gap-3 border border-ink rounded p-3">
+      <label class="text-sm">Realm (apex)
+        <select x-model="senGen.apexId" @change="senGenApexChanged()" class="ml-1 block mt-0.5">
+          <template x-for="r in senGenApexRows()" :key="r.id"><option :value="r.id" x-text="r.name"></option></template>
+        </select>
+      </label>
+      <template x-if="senGen.plan">
+        <label class="text-sm">Seats
+          <input type="number" x-model.number="senGen.seats" @change="senGenSeatsChanged()" :min="senGen.plan.minSeats" :max="senGen.plan.maxSeats" class="ml-1 w-24 border border-ink rounded px-1 py-0.5 block mt-0.5">
+          <span class="text-xs opacity-60 block" x-text="'band ' + senGen.plan.minSeats + '..' + senGen.plan.maxSeats + ' · ' + senGen.plan.realmFamilies.toLocaleString() + ' families'"></span>
+        </label>
+      </template>
+      <button @click="senGenReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Re-roll the senate (a new seed)">⟳ Re-roll</button>
+    </div>
+
+    <template x-if="senGen.plan">
+      <div class="space-y-3">
+        <div class="border border-ink rounded p-3 text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          <div class="sm:col-span-2 font-semibold" x-text="'A ' + senGen.plan.seats + '-seat senate over ' + senGen.plan.apexName"></div>
+          <div>Ruler: <strong x-text="(senGen.plan.rulerName||'(none)') + ' · L' + senGen.plan.rulerLevel"></strong></div>
+          <div>Min senator level: <strong x-text="senGen.plan.minSenatorLevel"></strong> <span class="opacity-60" x-text="'(' + senGen.plan.requirements.title + ')'"></span></div>
+          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span></div>
+          <div>Influence each: <strong x-text="senGen.plan.influenceDiceLabel"></strong></div>
+          <div>Factions: <strong x-text="senGen.plan.factions.length"></strong></div>
+          <div>Independent minor votes: <strong x-text="senGen.plan.independentMinorVotes.toLocaleString()"></strong></div>
+        </div>
+        <template x-if="senGen.plan.poolShort">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below.'"></div>
+        </template>
+        <template x-if="senGen.plan.seatedCount===0">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — seat at least one below, or the senate is convened all as independent minor senators.</div>
+        </template>
+
+        <div class="border border-ink rounded p-3">
+          <div class="font-semibold text-sm mb-1">Leading senators <span class="opacity-60 font-normal">· drawn from the realm's notables</span></div>
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Senator</th><th class="text-right">Lvl</th><th class="text-right">Votes</th><th>Faction</th><th>Objectives</th></tr></thead>
+            <tbody>
+              <template x-for="s in senGen.plan.senators" :key="s.characterId">
+                <tr>
+                  <td><span class="font-semibold" x-text="s.name"></span> <span class="text-xs opacity-60" x-text="'· ' + s.source"></span></td>
+                  <td class="text-right" x-text="s.level"></td>
+                  <td class="text-right" x-text="s.votes"></td>
+                  <td class="text-xs" x-text="senGenFactionName(s.factionIndex)"></td>
+                  <td class="text-xs opacity-80" x-text="(s.objectives||[]).map(o => o.replace(/-/g,' ')).join(', ')"></td>
+                </tr>
+              </template>
+              <template x-if="senGen.plan.senators.length===0"><tr><td colspan="5" class="text-center italic opacity-50 py-1">none</td></tr></template>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="border border-ink rounded p-3">
+          <div class="font-semibold text-sm mb-1">Factions</div>
+          <template x-for="f in senGen.plan.factions" :key="f.index">
+            <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm py-0.5">
+              <span><strong x-text="f.name"></strong> <span class="text-xs opacity-60" x-text="'(' + f.memberCharacterIds.length + ' senator' + (f.memberCharacterIds.length===1?'':'s') + ')'"></span></span>
+              <span class="text-xs"><span x-text="f.totalVotes.toLocaleString() + ' votes'"></span> <span class="px-1 rounded ml-1" :class="f.standing==='ruling'?'bg-purple-200':(f.standing==='leading'?'bg-blue-100':'bg-stone-100')" x-text="f.standing"></span></span>
+            </div>
+          </template>
+          <template x-if="senGen.plan.factions.length===0"><div class="text-xs italic opacity-50">no factions (all independent minor senators)</div></template>
+        </div>
+
+        <div class="border border-ink rounded p-3 space-y-1">
+          <div class="font-semibold text-sm">Seat extra notables <span class="opacity-60 font-normal">· optional</span></div>
+          <template x-for="id in senGen.extras" :key="id">
+            <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 mr-1 mb-1">
+              <span x-text="senGenCharName(id)"></span>
+              <button @click="senGenRemoveExtra(id)" class="opacity-60 hover:opacity-100" title="remove">×</button>
+            </span>
+          </template>
+          <div class="flex flex-wrap items-center gap-1">
+            <select x-model="senGen.extraPick" class="text-sm">
+              <option value="">+ seat a notable…</option>
+              <template x-for="ch in senGenAddCandidates()" :key="ch.id"><option :value="ch.id" x-text="(ch.name||ch.id) + ' · L' + (ch.level||1)"></option></template>
+            </select>
+            <button @click="senGenAddExtra()" :disabled="!senGen.extraPick" class="text-xs px-2 py-1 border border-ink rounded hover:bg-green-100 disabled:opacity-40">add</button>
+          </div>
+          <p class="text-xs opacity-60">A seated notable joins the candidate pool (only those at/above the min senator level are drawn). The apex ruler is never a senator — a senate constrains him.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <label class="text-xs flex items-center gap-1" x-show="senGenAlreadyHasSenate()">
+            <input type="checkbox" x-model="senGen.replace"> Replace the realm's existing senate
+          </label>
+          <span class="text-xs opacity-60" x-show="senGenAlreadyHasSenate() && !senGen.replace">A senate already governs this realm — tick Replace to convene a new one.</span>
+          <button @click="senGenMaterialize()" :disabled="senGenAlreadyHasSenate() && !senGen.replace" class="px-4 py-1.5 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40 ml-auto">🏛 Materialize senate</button>
+        </div>
+      </div>
+    </template>
+    <template x-if="!senGen.plan">
+      <p class="text-sm italic opacity-60 py-3 text-center">Pick a realm to convene a senate over.</p>
+    </template>
+  </div>
+</div>
 <!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
 <!-- A floating launcher on the World ▸ 🕳️ Dungeons sub-view (the lane extends that view via this marker
      region; it adds no top-level tab). Opens the off-screen Settlement-Visit panel (JJ ch.3). -->
@@ -19410,6 +19524,77 @@ return {
   // ─── burst11 (team session 2026-06-20) — per-agent Alpine state + methods. Each builder appends its
   //     state + methods ONLY after its own @b11-<lane> marker below; the Lead reconciles at integration. ───
   // === @b11-politics   (team) — P-7 senate-materialization wizard: state + methods ===
+  // The generative Senate Wizard — thin UI over acks-engine-politics.js (proposeSenateMaterialization /
+  // materializeSenate + senateMaterializeCandidates). Reads the SHIPPED demographics census to draw
+  // senators; mints sen-/fac-/snr-; sets the apex governance senatorial; emits one senate-materialized.
+  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, plan:null },
+  // the realm apexes (no liege) — where a senate can be convened (self-contained; not @b10's helper)
+  senGenApexRows(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
+    return c.domains.filter(d => d && !d.liegeId).map(d => ({ id: d.id, name: d.name || d.id }));
+  },
+  // the fixed launcher pill — shown on the 🏛 Senate tab + the World ▸ Domains sub-view (so a
+  // cold-start realm with no senate can still reach the generator). Hidden when there's no realm.
+  senGenLauncherVisible(){
+    return !!(this.currentCampaign && this.senGenApexRows().length > 0
+      && (this.currentView === 'senate' || (this.currentView === 'world' && this.worldSubView === 'domains')));
+  },
+  senGenCharName(id){ const ch = ((this.currentCampaign||{}).characters||[]).find(c => c && c.id === id); return (ch && (ch.name||ch.id)) || id; },
+  openSenateGen(apexId){
+    const rows = this.senGenApexRows();
+    this.senGen.apexId = apexId || (rows[0] && rows[0].id) || null;
+    this.senGen.seats = null; this.senGen.seed = 1; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGen.replace = false;
+    this.senGen.plan = null;
+    this.senGenRepreview();
+    this.senGen.open = true;
+  },
+  closeSenateGen(){ this.senGen.open = false; },
+  // (re)compute the plan from the current realm/seats/seed/extras (pure; the engine clamps seats).
+  senGenRepreview(){
+    const c = this.currentCampaign; if(!c || !this.senGen.apexId){ this.senGen.plan = null; return; }
+    const p = window.ACKS.proposeSenateMaterialization(c, {
+      domainId: this.senGen.apexId,
+      seats: (this.senGen.seats != null && this.senGen.seats !== '') ? Number(this.senGen.seats) : undefined,
+      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice()
+    });
+    this.senGen.plan = (p && p.ok) ? p : null;
+    // snap the seats input to the clamped senate size so the field always shows the real value
+    if(this.senGen.plan) this.senGen.seats = this.senGen.plan.seats;
+  },
+  senGenReroll(){ this.senGen.seed = (this.senGen.seed || 1) + 1; this.senGenRepreview(); },
+  senGenApexChanged(){ this.senGen.seats = null; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGenRepreview(); },
+  senGenSeatsChanged(){ this.senGenRepreview(); },
+  senGenFactionName(idx){ const p = this.senGen.plan; const f = (p && idx != null) ? p.factions[idx] : null; return f ? f.name : '—'; },
+  // the GM-add picker: every character except the apex ruler + already-added extras + the deceased
+  senGenAddCandidates(){
+    const c = this.currentCampaign; if(!c) return [];
+    const apex = (c.domains||[]).find(d => d && d.id === this.senGen.apexId);
+    const rulerId = apex && apex.rulerCharacterId;
+    const have = new Set(this.senGen.extras);
+    return (c.characters||[]).filter(ch => ch && ch.id !== rulerId && !have.has(ch.id) && ch.lifecycleState !== 'deceased');
+  },
+  senGenAddExtra(){ const id = this.senGen.extraPick; if(id && this.senGen.extras.indexOf(id) < 0){ this.senGen.extras.push(id); this.senGenRepreview(); } this.senGen.extraPick = ''; },
+  senGenRemoveExtra(id){ const i = this.senGen.extras.indexOf(id); if(i >= 0){ this.senGen.extras.splice(i,1); this.senGenRepreview(); } },
+  senGenAlreadyHasSenate(){
+    const c = this.currentCampaign; if(!c || !this.senGen.apexId) return false;
+    const s = window.ACKS.senateForRealm(c, this.senGen.apexId);
+    return !!(s && s.status !== 'dissolved');
+  },
+  senGenMaterialize(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!c || !this.senGen.plan){ this.showToast('No senate plan to materialize.', 4000, 'warn'); return; }
+    const r = A.materializeSenate(c, { domainId: this.senGen.apexId, plan: this.senGen.plan, replace: this.senGen.replace });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){
+      this.senGen.open = false;
+      this.currentView = 'senate';
+      this.senateSelectedId = r.senate.id;
+      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + '.', 6000);
+    } else {
+      const why = (r && r.reason) === 'senate-exists' ? 'a senate already governs this realm (tick Replace to convene a new one)' : ((r && r.reason) || 'error');
+      this.showToast('Could not materialize the senate: ' + why, 5000, 'warn');
+    }
+  },
   // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
   // Thin UI over the D5 engine (acks-engine-delves.js): start/depart a SettlementVisit, roll urban
   // incidents (JJ ch.3), and resolve a combat-risk fight via the shipped Mortal Wounds resolver.
