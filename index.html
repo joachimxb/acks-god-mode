@@ -17337,6 +17337,18 @@ document.addEventListener('alpine:init', () => {
      markup ONLY after your own @b10-<lane> marker below. None of the 6 lanes adds a top-level tab; each
      extends an existing view (Senate / Gladiators / Religion / Activities▸Hijinks) or is a wizard/modal.
      The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+
+<!-- ════ TEAM SESSION (burst11 2026-06-20) — per-agent NEW modal/overlay/panel markup. Append your markup
+     ONLY after your own @b11-<lane> marker below. None of the 6 lanes adds a top-level tab; each extends an
+     existing view (Senate / Dungeons / Knowledge / Magic Items / Gladiators / Stronghold-followers card) or
+     is a wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b11-politics   (team) — P-7 senate-materialization wizard: the generative Generate-Senate wizard/modal (launched from the 🏛 Senate tab) === -->
+<!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
+<!-- === @b11-knowledge  (team) — Knowledge Wave B: the share-a-fact / promote-rumor→lore controls + provenance panel (📚 Knowledge tab) === -->
+<!-- === @b11-magicitems (team) — MI-3 magic-item market: the buy / sell / appraise wizard/modal (🪄 Magic Items tab) === -->
+<!-- === @b11-gladiators (team) — G5 round-by-round bout: the tactical-bout modal/overlay (⚔ Gladiators tab) === -->
+<!-- === @b11-followers  (team) — Followers Wave B: the loyalty/morale + Families-arriving readout on the Stronghold-tab 🎺 follower card === -->
+
 <!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
 <!-- The ⚖ oligarchy governance modal (rule-of-the-few). Launched from the 🏛 Senate tab's ⚖ Governance
      card: establish/dissolve an oligarchy, manage members, run a majority decision, let an oligarch
@@ -19251,6 +19263,14 @@ return {
   //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
   // ─── burst10 (team session 2026-06-20) — per-agent state + methods. Each builder appends its Alpine
   //     state + methods ONLY after its own @b10-<lane> marker below; the Lead reconciles at integration. ───
+  // ─── burst11 (team session 2026-06-20) — per-agent Alpine state + methods. Each builder appends its
+  //     state + methods ONLY after its own @b11-<lane> marker below; the Lead reconciles at integration. ───
+  // === @b11-politics   (team) — P-7 senate-materialization wizard: state + methods ===
+  // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
+  // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
+  // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
+  // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
+  // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +
