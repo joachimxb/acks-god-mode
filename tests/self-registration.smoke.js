@@ -173,5 +173,83 @@ ok('a conflicting re-register keeps the original flags', !ACKS.lazyDefaultCollec
 ok('registerCollection() with no name is a safe no-op', (function(){ try { const n = ACKS.registeredCollections().length; ACKS.registerCollection(); return ACKS.registeredCollections().length === n; } catch(e){ return false; } })());
 
 // =============================================================================
+// SLICE 3 — the house-rule registry (registerHouseRule + registerHouseRuleCategory).
+// =============================================================================
+// HOUSERULES_REGISTRY + HOUSERULE_CATEGORIES were frozen literals every rule-shipping subsystem
+// had to edit (the dominant burst-session conflict surface). They are now accumulating stores a
+// module extends from its own file via ACKS.registerHouseRule / ACKS.registerHouseRuleCategory.
+// The kernel lives in catalogs.js (the data's home, which loads first), not acks-engine.js. House
+// rules are PURE reference data — a campaign stores only toggled overrides, so this is the safe
+// (prefix-like) posture with NO data-layer fork. The id + category + default sets below ARE the
+// truth table (node-captured from the pre-refactor frozen literal). A dropped/typo'd/flipped seed
+// fails here; the default set is behaviour-critical (isHouseRuleEnabled falls back to it).
+const EXP_HR_IDS = [
+  "alternative-farming-methods", "auran-calendar", "auto-pause-on-encounter", "auto-pause-on-navigation-fail", "auto-pause-on-overbudget", "auto-pause-on-supplies-low",
+  "auto-resolve-trivial-throws", "beastman-domains", "crew-hijinks", "custom-power-compendium", "demographics-auto-generate", "detailed-hijink-tracking",
+  "domain-morale-banditry", "dwarven-civilization", "dwarven-mining", "dwarven-mining-despoliation", "dwarven-mining-discovery", "dwarven-mining-non-dwarven",
+  "dwarven-mining-salt", "dwarven-mining-vagaries", "elite-troops", "elven-civilization", "experimental-mushroom-farming", "families-per-hex-tracking",
+  "favor-duty-auto-roll", "gladiator-games", "gm-fiat-proficiency-throws", "gm-set-weather", "hidden-stashes", "ignore-encumbrance",
+  "ignore-rations", "journey-batching-routine", "journey-fast-travel", "knowledge-tracking", "living-census", "living-expenses",
+  "magic-item-traits", "markets-black-market", "markets-entryways", "markets-load-metered-activity", "markets-magic-wizard", "markets-notability",
+  "markets-regulated-assets", "markets-transaction-threshold", "monster-pursuit", "monthly-commit-subsumes-in-flight", "notable-items-tracking", "party-loot-split",
+  "persistent-hireling-candidates", "persistent-hireling-resurfacing", "persistent-wandering-monsters", "random-merchandise-rolling", "recruitment-notability", "rule-of-the-few",
+  "rumors-auto-emit", "rumors-manual", "rumors-proliferation", "seasonal-trade-modifiers", "senate-auto-vote", "separating-land-and-lordship",
+  "simplified-fatigue", "slavery", "stronghold-by-buildings", "syndicate-auto-tribute", "vagaries-of-battle", "vagaries-of-incursion",
+  "vagaries-of-recruitment", "vagaries-of-war"
+];
+const EXP_HR_CATS = ['domain','construction','mercantile','characters','world','encounters','military','rumors','knowledge','hijinks','cultural'];
+// The 7 default:true rules — the behaviour-critical set (isHouseRuleEnabled returns true for these
+// when a campaign hasn't toggled them). A wrong/missing default here silently flips every campaign.
+const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living-expenses','monster-pursuit','persistent-wandering-monsters','senate-auto-vote','syndicate-auto-tribute'];
+
+section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
+const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
+ok('exactly 68 house rules seeded', hrIds.length === 68, 'got ' + hrIds.length);
+ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
+ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
+  'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');
+ok('exactly 11 categories seeded', ACKS.HOUSERULE_CATEGORIES.length === 11, 'got ' + ACKS.HOUSERULE_CATEGORIES.length);
+ok('same category-id set as before', sortedEq(ACKS.HOUSERULE_CATEGORIES.map(c => c.id), EXP_HR_CATS));
+const liveDefaults = ACKS.HOUSERULES_REGISTRY.filter(r => r.default === true).map(r => r.id);
+ok('the 7 default:true rules are exactly preserved', sortedEq(liveDefaults, EXP_HR_DEFAULTS),
+  'got [' + liveDefaults.slice().sort().join(',') + ']');
+ok('every rule names a registered category', hrIds.every(() => true) &&
+  ACKS.HOUSERULES_REGISTRY.every(r => EXP_HR_CATS.includes(r.category)),
+  ACKS.HOUSERULES_REGISTRY.filter(r => !EXP_HR_CATS.includes(r.category)).map(r => r.id + ':' + r.category).join(', '));
+
+section('registerHouseRule / registerHouseRuleCategory — the kernel');
+ok('registerHouseRule exported', typeof ACKS.registerHouseRule === 'function');
+ok('registerHouseRuleCategory exported', typeof ACKS.registerHouseRuleCategory === 'function');
+ok('registeredHouseRules / houseRuleCategories accessors exported', typeof ACKS.registeredHouseRules === 'function' && typeof ACKS.houseRuleCategories === 'function');
+ok('the rule store is mutable (no longer Object.freeze-d)', !Object.isFrozen(ACKS.HOUSERULES_REGISTRY));
+ok('the category store is mutable', !Object.isFrozen(ACKS.HOUSERULE_CATEGORIES));
+
+// a module self-registering a fresh rule from its own file at load (default:true to also exercise the fallback)
+ACKS.registerHouseRule({ id:'__smoke-rule', category:'world', name:'Smoke rule', source:'test', default:true, description:'x' });
+ok('a fresh rule lands in the registry', ACKS.HOUSERULES_REGISTRY.some(r => r.id === '__smoke-rule'));
+ok('lookupHouseRule finds the self-registered rule', (ACKS.lookupHouseRule('__smoke-rule') || {}).category === 'world');
+ok('isHouseRuleEnabled honours a self-registered default:true (the fallback path)',
+  ACKS.isHouseRuleEnabled({ houseRules: {} }, '__smoke-rule') === true);
+ok('an explicit {enabled:false} still beats the default', ACKS.isHouseRuleEnabled({ houseRules: { '__smoke-rule': { enabled:false } } }, '__smoke-rule') === false);
+// idempotent: same id + identical content is a silent no-op (no duplicate)
+const hrCnt = ACKS.HOUSERULES_REGISTRY.length;
+ACKS.registerHouseRule({ id:'__smoke-rule', category:'world', name:'Smoke rule', source:'test', default:true, description:'x' });
+ok('re-registering identical content is idempotent (count unchanged)', ACKS.HOUSERULES_REGISTRY.length === hrCnt);
+// conflict: same id + different content keeps the original
+ACKS.registerHouseRule({ id:'__smoke-rule', category:'cultural', name:'CHANGED', source:'test', description:'y' });
+ok('a conflicting re-register keeps the original (id stays the original content)', (ACKS.lookupHouseRule('__smoke-rule') || {}).name === 'Smoke rule');
+ok('a conflicting re-register does not duplicate', ACKS.HOUSERULES_REGISTRY.filter(r => r.id === '__smoke-rule').length === 1);
+// guards
+ok('registerHouseRule() with no arg is a safe no-op', (function(){ try { const n = ACKS.HOUSERULES_REGISTRY.length; ACKS.registerHouseRule(); return ACKS.HOUSERULES_REGISTRY.length === n; } catch(e){ return false; } })());
+ok('registerHouseRule({}) (no id) does not register', (function(){ const n = ACKS.HOUSERULES_REGISTRY.length; ACKS.registerHouseRule({ category:'world' }); return ACKS.HOUSERULES_REGISTRY.length === n; })());
+
+// a module self-registering a fresh category
+ACKS.registerHouseRuleCategory({ id:'__smoke-cat', label:'🔬 Smoke', description:'test category' });
+ok('a fresh category lands + is visible to houseRuleCategories()', ACKS.houseRuleCategories().some(c => c.id === '__smoke-cat'));
+ACKS.registerHouseRuleCategory({ id:'__smoke-cat', label:'CHANGED', description:'z' });
+ok('a conflicting category re-register keeps the original', (ACKS.HOUSERULE_CATEGORIES.find(c => c.id === '__smoke-cat') || {}).label === '🔬 Smoke');
+ok('registerHouseRuleCategory() with no arg is a safe no-op', (function(){ try { const n = ACKS.HOUSERULE_CATEGORIES.length; ACKS.registerHouseRuleCategory(); return ACKS.HOUSERULE_CATEGORIES.length === n; } catch(e){ return false; } })());
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — self-registration.smoke.js: ' + pass + ' passed, ' + fail + ' failed.');
 if (fail) { console.log('  failing: ' + failures.join(' · ')); process.exit(1); }
