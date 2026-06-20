@@ -9120,6 +9120,23 @@ document.addEventListener('alpine:init', () => {
             </label>
           </div>
 
+          <!-- HJ-3 crew (gated crew-hijinks; hidden when the rule is OFF) -->
+          <template x-if="crewHijinksOn() && hijinkLaunch.perpetratorCharacterId">
+            <div class="text-sm border border-ink/40 rounded bg-yellow-50/30 px-3 py-2">
+              <div class="font-semibold mb-1">🤝 Crew <span class="opacity-60 font-normal text-xs">(each eligible member +1 to the secret throw, cap +3)</span></div>
+              <div class="flex flex-wrap gap-x-4 gap-y-1">
+                <template x-for="c in hijinkCrewCandidates()" :key="c.id">
+                  <label class="inline-flex items-center gap-1 text-xs">
+                    <input type="checkbox" :value="c.id" :checked="hj3CrewIds.includes(c.id)" @change="hj3ToggleCrew(c.id)">
+                    <span x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></span>
+                  </label>
+                </template>
+              </div>
+              <p x-show="hijinkCrewCandidates().length === 0" class="text-xs italic opacity-60">No other eligible co-perpetrators.</p>
+              <p x-show="hj3CrewIds.length" class="text-xs opacity-70 mt-1" x-text="'Crew of ' + hj3CrewIds.length + ' → +' + Math.min(3, hj3CrewIds.length) + ' to the secret throw.'"></p>
+            </div>
+          </template>
+
           <!-- live forecast of the throw + timing -->
           <template x-if="hijinkLaunchForecast()">
             <div class="text-xs border border-ink/40 rounded bg-yellow-50/40 px-3 py-2 space-y-0.5">
@@ -9243,6 +9260,36 @@ document.addEventListener('alpine:init', () => {
                 <label class="block">Level <input type="number" min="0" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).level" @input="_synDraft(syn.id).level = $event.target.value"></label>
                 <label class="block">Count <input type="number" min="1" class="w-16 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).count" @input="_synDraft(syn.id).count = $event.target.value"></label>
                 <button @click="synAddMembers(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200">＋ Add members</button>
+              </div>
+              <!-- HJ-3 — lieutenants / criminal guild / change-in-management takeover -->
+              <div class="border-t border-dashed border-ink/20 pt-2 text-xs space-y-1.5">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <span class="font-semibold opacity-80">Lieutenants <span class="opacity-60 font-normal" x-text="'(' + synHj3(syn.id).lieutenants.length + ')'"></span></span>
+                  <div class="flex items-center gap-2">
+                    <button @click="openTakeover(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-amber-100 hover:bg-amber-200" title="A rival or lieutenant seizes control of the syndicate">⚔ Takeover</button>
+                    <template x-if="synHj3(syn.id).guildChartered">
+                      <span class="px-2 py-0.5 rounded bg-purple-100 border border-purple-300 font-semibold" x-text="'🏷 ' + synHj3(syn.id).guildName"></span>
+                    </template>
+                    <template x-if="!synHj3(syn.id).guildChartered">
+                      <button @click="synCharterGuild(syn.id)" :disabled="!synHj3(syn.id).canCharter"
+                              class="px-2 py-0.5 border border-ink rounded font-semibold"
+                              :class="synHj3(syn.id).canCharter ? 'bg-purple-100 hover:bg-purple-200' : 'opacity-40 cursor-not-allowed'"
+                              :title="synHj3(syn.id).canCharter ? 'Charter this syndicate as a criminal guild (formal organization, +50% membership cap)' : synHj3(syn.id).canCharterReason">🏷 Charter guild</button>
+                    </template>
+                  </div>
+                </div>
+                <template x-if="synHj3(syn.id).lieutenants.length">
+                  <div class="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <template x-for="lt in synHj3(syn.id).lieutenants" :key="lt.id">
+                      <span class="opacity-80 cursor-pointer hover:underline" @click="openCharacterEditor(lt.id)" x-text="'🎖 ' + lt.name + ' · ' + lt.class + ' L' + lt.level"></span>
+                    </template>
+                  </div>
+                </template>
+                <div class="flex items-end gap-2">
+                  <label class="block">Level <input type="number" min="1" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synLtDraft(syn.id).level" @input="_synLtDraft(syn.id).level = $event.target.value"></label>
+                  <label class="block">Name <input type="text" placeholder="(auto)" class="w-32 border border-ink rounded px-1 py-0.5 ml-1" :value="_synLtDraft(syn.id).name" @input="_synLtDraft(syn.id).name = $event.target.value"></label>
+                  <button @click="synIndividuate(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200" title="Individuate a member into a named lieutenant (draws from the counted roster at that level)">🎖 Name a lieutenant</button>
+                </div>
               </div>
             </div>
           </template>
@@ -17282,6 +17329,36 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
 <!-- === @b10-sages      (team) — SG-5: read-a-treatise UI (folds into the Consult-a-Sage modal / item sheet) === -->
 <!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
+<div x-show="takeoverModal.open" x-cloak class="fixed inset-0 z-[76] flex items-center justify-center bg-black/40 p-4"
+     @keydown.escape.window="takeoverModal.open=false" @click.self="takeoverModal.open=false">
+  <div class="vellum border border-ink rounded shadow-xl w-full max-w-md p-4 space-y-3" @click.stop>
+    <div class="flex items-baseline justify-between">
+      <h3 class="font-bold text-lg">⚔ Change in management</h3>
+      <button @click="takeoverModal.open=false" class="text-ink/60 hover:text-ink">✕</button>
+    </div>
+    <p class="text-xs opacity-70" x-text="'A rival or lieutenant seizes ' + takeoverSynName() + '. The boss flips, his lieutenants rebind to the new chain of command, and a takeover is recorded.'"></p>
+    <label class="block text-sm">
+      <span class="font-semibold">New boss</span>
+      <select x-model="takeoverModal.newBossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+        <option value="" :selected="!takeoverModal.newBossCharacterId">— pick the new boss —</option>
+        <template x-for="c in takeoverCandidateRows()" :key="c.id">
+          <option :value="c.id" :selected="takeoverModal.newBossCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1) + (c.isLieutenant ? ' · lieutenant' : '')"></option>
+        </template>
+      </select>
+      <span x-show="takeoverCandidateRows().length === 0" class="block text-xs text-red-700 mt-1">No eligible new boss — only a Thief / Assassin / Nightblade / Venturer may take over (RR p.358).</span>
+    </label>
+    <label class="block text-sm">
+      <span class="font-semibold">Reason <span class="opacity-60 font-normal">(optional)</span></span>
+      <input x-model="takeoverModal.reason" type="text" placeholder="a coup, the old boss's death…" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+    </label>
+    <div class="flex items-center justify-end gap-2">
+      <button @click="takeoverModal.open=false" class="px-3 py-1 border border-ink rounded text-sm">Cancel</button>
+      <button @click="submitTakeover()" :disabled="!takeoverModal.newBossCharacterId"
+              class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+              :class="takeoverModal.newBossCharacterId ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-40 cursor-not-allowed'">⚔ Seize control</button>
+    </div>
+  </div>
+</div>
 <!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
 <!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
 
@@ -19075,6 +19152,63 @@ return {
   // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
   // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
+  hj3CrewIds: [],                                            // selected crew charIds in the launch form (gated crew-hijinks)
+  synLtDraft: {},                                            // { [synId]: { level, name } } — the individuate-a-lieutenant draft
+  takeoverModal: { open: false, synId: null, newBossCharacterId: '', reason: '' },
+  // crews (gated crew-hijinks) — when OFF, the picker is hidden + the engine ignores any crew.
+  crewHijinksOn() { const A = window.ACKS; return !!(A && A.crewHijinksEnabled && A.crewHijinksEnabled(this.currentCampaign)); },
+  hijinkCrewCandidates() {
+    const A = window.ACKS, c = this.currentCampaign; if (!A || !c) return [];
+    const perpId = this.hijinkLaunch && this.hijinkLaunch.perpetratorCharacterId;
+    const type = this.hijinkLaunch && this.hijinkLaunch.type;
+    return (c.characters || []).filter(ch => ch && ch.id !== perpId
+      && (A.isActive ? A.isActive(ch) : (ch.alive !== false))
+      && A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(ch, type));
+  },
+  hj3ToggleCrew(id) { const i = this.hj3CrewIds.indexOf(id); if (i >= 0) this.hj3CrewIds.splice(i, 1); else this.hj3CrewIds.push(id); },
+  // named lieutenants + criminal guild (per syndicate card)
+  synHj3(synId) {
+    const A = window.ACKS, c = this.currentCampaign;
+    const syn = (c && c.syndicates || []).find(s => s && s.id === synId);
+    if (!A || !syn) return { lieutenants: [], guildChartered: false, guildName: '', canCharter: false, canCharterReason: '' };
+    const lts = (A.syndicateLieutenants ? A.syndicateLieutenants(c, syn) : []).map(lt => ({ id: lt.id, name: lt.name || '(unnamed)', class: lt.class || '?', level: lt.level || 1 }));
+    const reason = A.canCharterGuildReason ? A.canCharterGuildReason(c, syn) : '';
+    return { lieutenants: lts, guildChartered: !!(A.guildChartered && A.guildChartered(syn)), guildName: (syn.guild && syn.guild.name) || '', canCharter: reason === '', canCharterReason: reason };
+  },
+  _synLtDraft(synId) { if (!this.synLtDraft[synId]) this.synLtDraft[synId] = { level: 1, name: '' }; return this.synLtDraft[synId]; },
+  synIndividuate(synId) {
+    const A = window.ACKS, d = this._synLtDraft(synId);
+    const res = A.individuateLieutenant(this.currentCampaign, synId, { level: Number(d.level) || 1, name: (d.name || '').trim() || undefined });
+    if (!res || !res.ok) { this.showToast('Could not name a lieutenant: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.showToast('🎖 ' + res.lieutenant.name + ' is named a lieutenant of the syndicate.', 3500);
+    d.name = '';
+    this.markDirty(); this.schedulePersist();
+  },
+  synCharterGuild(synId) {
+    const A = window.ACKS;
+    const res = A.charterGuild(this.currentCampaign, synId, {});
+    if (!res || !res.ok) { this.showToast('Could not charter a guild: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('🏷 Chartered as ' + res.guild.name + ' (its formal reach raises the membership cap).', 4500);
+    this.markDirty(); this.schedulePersist();
+  },
+  // change-in-management takeover
+  openTakeover(synId) { this.takeoverModal = { open: true, synId, newBossCharacterId: '', reason: '' }; },
+  takeoverSynName() { const c = this.currentCampaign; const syn = (c && c.syndicates || []).find(s => s && s.id === this.takeoverModal.synId); return (syn && syn.name) || 'the syndicate'; },
+  takeoverCandidateRows() {
+    const A = window.ACKS, c = this.currentCampaign;
+    const syn = (c && c.syndicates || []).find(s => s && s.id === this.takeoverModal.synId);
+    if (!A || !syn) return [];
+    const ltSet = new Set(syn.lieutenantCharacterIds || []);
+    return (A.syndicateTakeoverCandidates ? A.syndicateTakeoverCandidates(c, syn) : []).map(x => ({ id: x.id, name: x.name, class: x.class, level: x.level, isLieutenant: ltSet.has(x.id) }));
+  },
+  submitTakeover() {
+    const A = window.ACKS, m = this.takeoverModal;
+    const res = A.takeoverSyndicate(this.currentCampaign, m.synId, { newBossCharacterId: m.newBossCharacterId, reason: (m.reason || '').trim() || undefined });
+    if (!res || !res.ok) { this.showToast('Takeover failed: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.takeoverModal.open = false;
+    this.showToast('⚔ Control of the syndicate has changed hands.', 4000);
+    this.markDirty(); this.schedulePersist();
+  },
   // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
   // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
   // Thin Alpine layer over the acks-engine-religion.js R3/R5 verbs (consecrateAltar / consecrateRuler /
@@ -31540,12 +31674,14 @@ return {
       perpetratorCharacterId: this.hijinkLaunch.perpetratorCharacterId,
       type: this.hijinkLaunch.type,
       bossCharacterId: this.hijinkLaunch.bossCharacterId || null,
-      settlementId: this.hijinkLaunch.settlementId || null
+      settlementId: this.hijinkLaunch.settlementId || null,
+      crew: this.crewHijinksOn() ? (this.hj3CrewIds || []).slice() : []   // HJ-3 — gated crew-hijinks
     });
     if(!res || !res.ok){ this.showToast('Could not assign hijink: ' + ((res && (res.detail||res.error)) || 'unknown'), 4000); return; }
     const def = window.ACKS.hijinkDefinition(res.hijink.type) || {};
     this.showToast('🗡 ' + (this._hijinkPerp()?.name || 'Perpetrator') + ' begins a ' + (def.label||res.hijink.type).toLowerCase() + ' hijink — advance the Day Clock to resolve it.', 4500);
     this.hijinkLaunch.perpetratorCharacterId = '';     // keep type/boss/settlement for a quick repeat
+    this.hj3CrewIds = [];                              // HJ-3 — reset the crew selection
     this.markDirty(); this.schedulePersist();
     if(this.dayTickProposal) this._refreshPendingDayTick();
   },
