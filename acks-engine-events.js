@@ -95,6 +95,9 @@ const EVENT_KINDS = Object.freeze([
   // acks-engine-followers.js (attractFollowers already minted the follower Characters + the troop Group
   // + marked the ruler attracted-once). The Stronghold-tab card + review modal drive it.
   'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (attractFollowers bumps the
+  // domain's peasant population per the Families Arriving with Followers table, RR p.337); record-only audit.
+  'follower-families-arrived',
   // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
   // (day-tick consumer + startJourney); opted out of the Event Wizard below.
   'journey-start',
@@ -724,7 +727,12 @@ const EVENT_SCHEMAS = Object.freeze({
   // Phase 4 Construction Wave C — follower attraction (RR p.334).
   'follower-arrival': {
     R: { domainId: 'string', rulerCharacterId: 'string' },
-    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', narrative: 'string' }
+    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', families: 'number', troopTableKey: 'string', narrative: 'string' }
+  },
+  // === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337).
+  'follower-families-arrived': {
+    R: { domainId: 'string', rulerCharacterId: 'string', families: 'number' },
+    O: { classification: 'string', hexCount: 'number', perHex: 'object', narrative: 'string' }
   },
   // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
   'journey-start': {
@@ -2995,6 +3003,15 @@ function applyEvent_followerArrival(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'followers arrive (RR p.334)' } };
 }
 registerEventHandler('follower-arrival', applyEvent_followerArrival);
+
+// === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337). Record-only audit:
+// attractFollowers (acks-engine-followers.js) already bumped the domain's peasant population; this handler
+// keeps the event well-formed on replay (the follower-arrival audit posture).
+function applyEvent_followerFamiliesArrived(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || ((p.families || 0) + ' peasant families settle with the followers (RR p.337)') } };
+}
+registerEventHandler('follower-families-arrived', applyEvent_followerFamiliesArrived);
 
 // ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
 // The Journey day-tick consumer mutates journey state in its commit() and emits these
@@ -6519,6 +6536,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
   // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
   'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (the Families-Arriving population
+  // bump); a raw emit would record peasant families the domain's demographics don't actually carry.
+  'follower-families-arrived',
   // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
   // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
   // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
