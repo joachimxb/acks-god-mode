@@ -642,8 +642,8 @@
     if(friendlyWages <= 0) return [];
     const fam = Math.max(1, (domain.demographics && domain.demographics.peasantFamilies) || 0);
     const perFam = friendlyWages / fam;
-    const req = (typeof Ax.requiredGarrison === 'function' && typeof Ax.totalFamilies === 'function' && Ax.totalFamilies(domain) > 0)
-      ? Ax.requiredGarrison(campaign, domain) / Ax.totalFamilies(domain) : 2;
+    const req = (typeof Ax.requiredGarrison === 'function' && typeof Ax.totalFamilies === 'function' && Ax.totalFamilies(campaign, domain) > 0)
+      ? Ax.requiredGarrison(campaign, domain) / Ax.totalFamilies(campaign, domain) : 2;
     if(perFam >= req) return [{ label: 'Friendly army in the domain counts as garrison (RR p.458)', value: 1 }];
     return [];
   }
@@ -678,7 +678,7 @@
       defendingWages += (typeof Ax.armyWageMonthly === 'function') ? Ax.armyWageMonthly(campaign, ar) : 0;
     }
     const fam = (domain.demographics && domain.demographics.peasantFamilies) || 0;
-    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(domain) : fam;
+    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(campaign, domain) : fam;
     const threshold = (totalFam > 0 && typeof Ax.requiredGarrison === 'function')
       ? Ax.requiredGarrison(campaign, domain) / totalFam : 2;
     const netPerFamily = fam > 0 ? (occupyingWages - defendingWages) / fam : 0;
@@ -818,7 +818,7 @@
     if(!army.leaderCharacterId || domain.rulerCharacterId !== army.leaderCharacterId) return { ok: false, reason: 'not-conquered' };
     const j = army.journeyId && typeof Ax.findJourney === 'function' ? Ax.findJourney(campaign, army.journeyId) : null;
     if(j && j.status === 'in-transit') return { ok: false, reason: 'still-marching' };
-    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(domain) : ((domain.demographics && domain.demographics.peasantFamilies) || 0);
+    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(campaign, domain) : ((domain.demographics && domain.demographics.peasantFamilies) || 0);
     if(totalFam <= 0) return { ok: false, reason: 'nothing-left' };
     const req = Ax.pillageRequirementRow(totalFam);
     const troops = armyTroopCount(campaign, army);
@@ -842,7 +842,7 @@
     const Ax = A();
     const rng = (opts && opts.rng) || Math.random;
     const peasant = (domain.demographics && domain.demographics.peasantFamilies) || 0;
-    const urban = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(domain) : ((domain.demographics && domain.demographics.urbanFamilies) || 0);
+    const urban = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(campaign, domain) : ((domain.demographics && domain.demographics.urbanFamilies) || 0);
     const totalFam = peasant + urban;
     const proportion = Math.max(0, Math.min(1, (opts && opts.proportionUnits != null ? opts.proportionUnits : 1) * (opts && opts.proportionTime != null ? opts.proportionTime : 1)));
     let out;
@@ -1055,7 +1055,7 @@
     const gross = rows.reduce((s, r) => s + (r.gp || 0), 0);
     if(gross <= 0) return 1;
     const fam = (d.demographics && d.demographics.peasantFamilies) || 0;
-    const urb = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(d) : 0;
+    const urb = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(campaign, d) : 0;
     const famShare = (fam + urb) > 0 ? fam / (fam + urb) : 1;
     let peasantGp = 0;
     for(const r of rows){

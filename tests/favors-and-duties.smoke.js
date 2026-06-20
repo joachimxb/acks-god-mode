@@ -140,7 +140,7 @@ section('realmFamiliesForDomain — own domain + sub-vassal realms (RR p.346)');
   sub.liegeId = 'dom-vassal'; sub.demographics.peasantFamilies = 200;
   c.domains.push(sub);
   const vassalDomain = c.domains.find(d => d.id === 'dom-vassal');
-  ok('vassal alone = 500 families', ACKS.totalFamilies(vassalDomain) === 500);
+  ok('vassal alone = 500 families', ACKS.totalFamilies(c, vassalDomain) === 500);
   ok('realm families = vassal 500 + sub-vassal 200 = 700', ACKS.realmFamiliesForDomain(c, vassalDomain) === 700);
 }
 

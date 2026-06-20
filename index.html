@@ -31105,7 +31105,7 @@ return {
     return out;
   },
 
-  totalFamilies(d){return window.ACKS.totalFamilies(d);},
+  totalFamilies(d){return window.ACKS.totalFamilies(this.currentCampaign, d);},
   moraleLevel(score){return MORALE_LEVEL_NAMES[String(clamp(score||0,-4,4))]||'—';},
   moraleEmoji(score){return MORALE_EMOJI[String(clamp(score||0,-4,4))]||'';},
   moraleEffectSummary(score){
@@ -31254,7 +31254,7 @@ return {
   // Urban / market class helpers (ACKS RR p.350-351)
   // Settlements live per-hex (hex.settlement) as named entities. Legacy aggregate at demographics.urbanFamilies
   // is only used when no hex has a settlement yet.
-  hexSettlements(d){return window.ACKS.hexSettlements(d);},
+  hexSettlements(d){return window.ACKS.hexSettlements(this.currentCampaign, d);},
   // Settlement Demographics SD-1 — the per-settlement Step-3 census roster read (Settlement_Demographics_Plan.md).
   demoSettlementId: null,   // the settlement whose demographic roster is expanded (scoped to selectedDomain)
   demoSettlement(){ const id=this.demoSettlementId; if(!id) return null; const e=(this.hexSettlements(this.selectedDomain)||[]).find(x=>x.settlement&&x.settlement.id===id); return e?e.settlement:null; },
@@ -31304,10 +31304,10 @@ return {
   realmEntourageCandidates(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.characters||[]).filter(c => c.homeDomainId!==d.id && c.lifecycleState!=='deceased').sort((a,b)=>(b.level||1)-(a.level||1)||(a.name||'').localeCompare(b.name||'')); },
   realmAssignEntourage(){ const id=this.realmAssignPick; const d=this.selectedDomain; if(!id||!d||!d.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:d.id}); this.realmAssignPick=''; },
   realmRemoveEntourage(e){ if(!e||!e.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===e.id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:null}); },
-  totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(d);},
-  totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(d);},
+  totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(this.currentCampaign, d);},
+  totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(this.currentCampaign, d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.
-  effectiveUrbanFamilies(d){return window.ACKS.effectiveUrbanFamilies(d);},
+  effectiveUrbanFamilies(d){return window.ACKS.effectiveUrbanFamilies(this.currentCampaign, d);},
   // Per-settlement market class
   settlementMarketClass(s){return window.ACKS.settlementMarketClass(s);},
   settlementTradeRate(s){return window.ACKS.settlementTradeRate(s);},
@@ -31331,10 +31331,10 @@ return {
     return revenue-expenses;
   },
   // Domain-level market class summary (largest settlement's class, or legacy aggregate)
-  marketClassRow(d){return window.ACKS.marketClassRow(d);},
-  marketClass(d){return window.ACKS.marketClass(d);},
-  tradeRevenuePerFamily(d){return window.ACKS.tradeRevenuePerFamily(d);},
-  urbanCapacity(d){return window.ACKS.urbanCapacity(d);},
+  marketClassRow(d){return window.ACKS.marketClassRow(this.currentCampaign, d);},
+  marketClass(d){return window.ACKS.marketClass(this.currentCampaign, d);},
+  tradeRevenuePerFamily(d){return window.ACKS.tradeRevenuePerFamily(this.currentCampaign, d);},
+  urbanCapacity(d){return window.ACKS.urbanCapacity(this.currentCampaign, d);},
 
   banditCount(d){return window.ACKS.banditCount(d);},
   // #476 E10 — the materialized morale-banditry bands of a domain (RR pp.350–351).
@@ -31643,7 +31643,7 @@ return {
     return hexes.reduce((s,h)=>s+(Array.isArray(h.landImprovementProjects)?h.landImprovementProjects.length:0),0);
   },
   // Total completed +bonus across all hexes (for UI display).
-  domainTotalLandImprovementBonus(d){return window.ACKS.domainTotalLandImprovementBonus(d);},
+  domainTotalLandImprovementBonus(d){return window.ACKS.domainTotalLandImprovementBonus(this.currentCampaign, d);},
 
   incomeBreakdown(d){return window.ACKS.incomeBreakdown(this.currentCampaign, d);},
   monthlyGrossIncome(d){return window.ACKS.monthlyGrossIncome(this.currentCampaign, d);},

@@ -210,7 +210,7 @@
     const d = _findDomain(campaign, cong.domainWorshipDomainId);
     if(!d) return 0;
     const A = _A();
-    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0)
+    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0)
                                                         : ((d.demographics && d.demographics.peasantFamilies) || 0);
     return Math.max(0, fam - (cong.personalCongregants || 0));
   }
@@ -263,7 +263,7 @@
     const d = domId ? _findDomain(campaign, domId) : null;
     if(!d) return null;
     const A = _A();
-    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
+    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
     return fam * 5;
   }
 
@@ -447,7 +447,7 @@
     if(!ch) return { ok: false, reason: 'no-caster' };
     if(!d) return { ok: false, reason: 'no-domain' };
     const A = _A();
-    const families = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
+    const families = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
     const cost = Math.max(0, families * 2);
     const spend = spendDivinePower(campaign, casterId, cost);
     if(!spend.ok) return { ok: false, reason: 'insufficient-divine-power', cost, available: spend.remaining };

@@ -107,15 +107,15 @@ function computeDomainEconomy(camp, d){
     incomeSum: ACKS.incomeSum({income:inc}), expenseSum: ACKS.expenseSum({expenses:exp}), moraleModSum: ACKS.moraleModSum({moraleMods:mm}),
     monthlyGrossIncome: ACKS.monthlyGrossIncome(camp, d), monthlyExpenses: ACKS.monthlyExpenses(camp, d), monthlyNet: net,
     incomeFactor: ACKS.incomeFactor(d.demographics.morale), tributeOwed: ACKS.tributeOwed(camp, d), domainXpFromNet: ACKS.domainXpFromNet(camp, d, net),
-    totalFamilies: ACKS.totalFamilies(d), effectiveUrbanFamilies: ACKS.effectiveUrbanFamilies(d), banditCount: ACKS.banditCount(d),
+    totalFamilies: ACKS.totalFamilies(camp, d), effectiveUrbanFamilies: ACKS.effectiveUrbanFamilies(camp, d), banditCount: ACKS.banditCount(d),
     garrisonHeadcount: ACKS.garrisonHeadcount(camp, d), garrisonCost: ACKS.garrisonCost(camp, d), garrisonBR: ACKS.garrisonBR(camp, d), requiredGarrison: ACKS.requiredGarrison(camp, d),
     effectiveClassification: ACKS.effectiveDomainClassification(d), effectiveRuler: ACKS.effectiveRuler(camp, d),
-    strongholdRequired: ACKS.strongholdRequired(d), strongholdValue: ACKS.strongholdValue(camp, d), domainTotalLandImprovementBonus: ACKS.domainTotalLandImprovementBonus(d),
-    marketClass: ACKS.marketClass(d), tradeRevenuePerFamily: ACKS.tradeRevenuePerFamily(d),
+    strongholdRequired: ACKS.strongholdRequired(d), strongholdValue: ACKS.strongholdValue(camp, d), domainTotalLandImprovementBonus: ACKS.domainTotalLandImprovementBonus(camp, d),
+    marketClass: ACKS.marketClass(camp, d), tradeRevenuePerFamily: ACKS.tradeRevenuePerFamily(camp, d),
     magistrateSalaries: { captainOfGuard: ACKS.magistrateSalaryForRole(camp,d,'captainOfGuard'), chaplain: ACKS.magistrateSalaryForRole(camp,d,'chaplain'), munerator: ACKS.magistrateSalaryForRole(camp,d,'munerator'), steward: ACKS.magistrateSalaryForRole(camp,d,'steward') },
     magistrateAdminCandidates: ACKS.magistrateAdminCandidates(camp, d),
-    hexEffectiveValues: ((d.geography && d.geography.hexes) || []).map(h => ({ id:h.id, eff: ACKS.effectiveHexValue(h) })),
-    settlements: ACKS.hexSettlements(d).map(x => ({ name:x.settlement.name, marketClass: ACKS.settlementMarketClass(x.settlement), tradeRate: ACKS.settlementTradeRate(x.settlement), capacity: ACKS.settlementCapacity(x.settlement) }))
+    hexEffectiveValues: ACKS.hexesForDomain(camp, d.id).map(h => ({ id:h.id, eff: ACKS.effectiveHexValue(h) })),
+    settlements: ACKS.hexSettlements(camp, d).map(x => ({ name:x.settlement.name, marketClass: ACKS.settlementMarketClass(x.settlement), tradeRate: ACKS.settlementTradeRate(x.settlement), capacity: ACKS.settlementCapacity(x.settlement) }))
   };
 }
 
@@ -171,7 +171,9 @@ check('incomeFactor clamps out-of-range (99 → 1)', ACKS.incomeFactor(99) === 1
 
 // Synthetic domain: service 4gp + tax 2gp on peasant AND urban families (RR Collecting Revenue —
 // codifies the audit I2 rebuttal), and trade revenue by market class.
-function mkCampaign(domain){ return { houseRules:{}, domains:[domain], characters:[], settlements:[], hexes:[] }; }
+// T6 single-home — lift the domain's nested geography.hexes/.settlement into campaign.hexes/.settlements
+// (what the readers now read), exactly as the real load (_finishLoad) does.
+function mkCampaign(domain){ const c = { houseRules:{}, domains:[domain], characters:[], settlements:[], hexes:[], rumors:[] }; ACKS.liftToTopLevelCollections(c); return c; }
 function mkDomain(over){
   return Object.assign({
     id:'dom-test', name:'Testmark', liegeId:null, rulerCharacterId:null, administersThisMonth:false, classification:'Borderlands',
@@ -186,14 +188,15 @@ function mkDomain(over){
 // fam 100 + urb 220 (a 220-family settlement → Class VI, trade 1gp/family). I2: service + tax on BOTH.
 const tradeDom = mkDomain({ demographics:{ peasantFamilies:100, urbanFamilies:0, morale:0 },
   geography:{ controlledHexes:1, hexes:[ { id:'hex-t', valuePerFamily:6, landImprovementBonus:0, families:100, settlement:{ name:'Markettown', families:220, totalInvestment:0 } } ] } });
-const tradeRows = ACKS.incomeBreakdown(mkCampaign(tradeDom), tradeDom);
+const tradeCamp = mkCampaign(tradeDom);
+const tradeRows = ACKS.incomeBreakdown(tradeCamp, tradeDom);
 const svcRow = tradeRows.find(r => /^Service revenue/.test(r.label));
 const taxRow = tradeRows.find(r => /^Tax /.test(r.label));
 const tradeRow = tradeRows.find(r => /^Trade revenue/.test(r.label));
 check('service revenue = 4 × (peasant+urban) = 4 × 320 = 1280', svcRow && svcRow.gp === 1280, svcRow && ('got ' + svcRow.gp));
 check('tax = 2 × (peasant+urban) = 2 × 320 = 640 (I2 rebuttal: urban families ARE taxed)', taxRow && taxRow.gp === 640, taxRow && ('got ' + taxRow.gp));
 check('trade revenue = Class VI rate 1 × 220 = 220', tradeRow && tradeRow.gp === 220 && /Class VI/.test(tradeRow.label), tradeRow && ('got ' + JSON.stringify(tradeRow)));
-check('effectiveUrbanFamilies reads the settlement (220)', ACKS.effectiveUrbanFamilies(tradeDom) === 220);
+check('effectiveUrbanFamilies reads the settlement (220)', ACKS.effectiveUrbanFamilies(tradeCamp, tradeDom) === 220);
 
 // Garrison required = per-family rate by classification × peasant + 2 × urban (RR p.351).
 check('requiredGarrison Civilized = 2 × 100', ACKS.requiredGarrison(mkCampaign(mkDomain({classification:'Civilized'})), mkDomain({classification:'Civilized'})) === 200);

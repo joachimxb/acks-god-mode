@@ -7274,8 +7274,8 @@ function favorDutyObligationsForVassalDomain(campaign, vassalDomainId){
 // the tribute realm-family walk (tributeOwed).
 function realmFamiliesForDomain(campaign, domain){
   if(!domain) return 0;
-  let families = global.ACKS.totalFamilies(domain);
-  for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(v);
+  let families = global.ACKS.totalFamilies(campaign, domain);
+  for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(campaign, v);
   return families;
 }
 
@@ -9501,7 +9501,7 @@ function proposeMonthlyTurn(campaign, options){
         administersThisMonth: !!d.administersThisMonth,
         hasLiege: !!d.liegeId,
         moraleBefore: d.demographics.morale,
-        populationBefore: global.ACKS.totalFamilies(d),
+        populationBefore: global.ACKS.totalFamilies(campaign, d),
         treasuryBefore: d.treasury.gp || 0,
         income: global.ACKS.incomeBreakdown(campaign, d).map(r => ({...r})),
         expenses: global.ACKS.expenseBreakdown(campaign, d).map(r => ({...r})),
@@ -9510,7 +9510,7 @@ function proposeMonthlyTurn(campaign, options){
         moraleRoll: rollD6(rng) + rollD6(rng),
         event: global.ACKS.sampleEvent(d.demographics.morale),
         hasPlayerInput: !!d.pendingPlayerInput,
-        urbanInvestments: global.ACKS.hexSettlements(d).map(({hexIndex, settlement}) => ({
+        urbanInvestments: global.ACKS.hexSettlements(campaign, d).map(({hexIndex, settlement}) => ({
           hexIndex,
           settlementName: settlement.name || '(unnamed)',
           marketClass: global.ACKS.settlementMarketClass(settlement),
@@ -9700,7 +9700,7 @@ function commitTurn(campaign, proposal, options){
     const naturalDecrease = rollNaturalDecrease(familiesK, rng);
     const moraleExtra = rollMoraleExtra(moraleAfter, familiesK, rng);
     const popDelta = naturalIncrease - naturalDecrease + moraleExtra;
-    const populationAfter = Math.max(0, global.ACKS.totalFamilies(d) + popDelta);
+    const populationAfter = Math.max(0, global.ACKS.totalFamilies(campaign, d) + popDelta);
 
     const snapshotBefore = {
       peasantFamilies: d.demographics.peasantFamilies,
@@ -10062,7 +10062,7 @@ function commitTurn(campaign, proposal, options){
 
     const snapshotAfter = {
       peasantFamilies: d.demographics.peasantFamilies,
-      urbanFamilies: global.ACKS.effectiveUrbanFamilies(d),
+      urbanFamilies: global.ACKS.effectiveUrbanFamilies(campaign, d),
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
