@@ -17202,7 +17202,11 @@ document.addEventListener('alpine:init', () => {
             <template x-for="b in gladScheduledBouts(gladSelectedSchool())" :key="b.id">
               <div class="flex items-center justify-between text-sm py-0.5 gap-2">
                 <span x-text="b.sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + b.sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + b.kind"></span>
-                <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap">▶ Resolve</button>
+                <div class="flex items-center gap-1.5">
+                  <!-- @b11-gladiators G5 — the round-by-round tactical alternative to the abstract ▶ Resolve -->
+                  <button @click="gladOpenTacticalBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-orange-200 hover:bg-orange-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Fight it round by round (AXIOMS 4 p.27) — the tactical alternative to the abstract ▶ Resolve">⚔ Fight</button>
+                  <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Resolve it abstractly (1d10; AXIOMS 4 p.25)">▶ Resolve</button>
+                </div>
               </div>
             </template>
           </div>
@@ -17347,6 +17351,62 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b11-knowledge  (team) — Knowledge Wave B: the share-a-fact / promote-rumor→lore controls + provenance panel (📚 Knowledge tab) === -->
 <!-- === @b11-magicitems (team) — MI-3 magic-item market: the buy / sell / appraise wizard/modal (🪄 Magic Items tab) === -->
 <!-- === @b11-gladiators (team) — G5 round-by-round bout: the tactical-bout modal/overlay (⚔ Gladiators tab) === -->
+<!-- The tactical-bout modal (z-75). Deepens the abstract ▶ Resolve into a per-round arena duel (AXIOMS 4
+     p.27 — the Combat-Option-B exemplar): a self-contained round resolver (initiative · attack throws ·
+     damage · the to-incapacitation ≤½-hp surrender check), then the SHARED aftermath (_commitBoutResult:
+     the crowd verdict + Delves-D1 Mortal Wounds + XP). resolveAndCommitBoutTactical; reuses bout-resolved. -->
+<template x-if="gladTactState.open">
+  <div class="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 p-4" @click.self="gladCloseTactical()" @keydown.escape.window="gladCloseTactical()">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-4 space-y-3">
+      <h3 class="text-lg font-bold">⚔ Tactical bout <span class="text-sm font-normal opacity-70">· round by round (AXIOMS 4 p.27)</span></h3>
+      <template x-if="gladTactBout()">
+        <div class="text-sm font-semibold" x-text="gladTactBout().sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + gladTactBout().sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + gladTactBout().kind"></div>
+      </template>
+      <!-- pre-fight -->
+      <template x-if="!gladTactState.result">
+        <div class="space-y-3">
+          <p class="text-xs opacity-70">The fight plays out blow by blow over its own hp pool — no map. A to-incapacitation bout uses nonlethal attacks (−4) and a battered gladiator may yield; a to-the-death bout ends with the loser slain. Afterward the crowd decides a defeated survivor's fate and Mortal Wounds are rolled. It records as a normal bout.</p>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladTactState.logRounds"> Keep a verbose per-round log in the Event Log</label>
+          <div class="flex justify-end gap-2">
+            <button @click="gladCloseTactical()" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="gladTacticalFight()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-300 hover:bg-red-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Fight!</button>
+          </div>
+        </div>
+      </template>
+      <!-- result -->
+      <template x-if="gladTactState.result">
+        <div class="space-y-2">
+          <div class="font-semibold text-sm" x-text="gladTactOutcomeText()"></div>
+          <div class="vellum border border-ink/30 rounded p-2 max-h-56 overflow-y-auto text-xs space-y-1.5">
+            <template x-for="r in gladTactState.result.rounds" :key="r.n">
+              <div>
+                <div class="font-semibold opacity-70" x-text="'Round ' + r.n"></div>
+                <template x-for="(ln, i) in r.lines" :key="i"><div class="opacity-90" x-text="ln"></div></template>
+              </div>
+            </template>
+            <template x-if="!gladTactState.result.rounds.length"><div class="opacity-60">No rounds fought.</div></template>
+          </div>
+          <template x-if="(gladTactState.result.casualties||[]).length">
+            <div class="text-sm">
+              <div class="font-semibold">Casualties</div>
+              <template x-for="cas in gladTactState.result.casualties" :key="cas.characterId">
+                <div x-text="gladCombatantName(cas.characterId) + ' — ' + (cas.outcome==='slain' ? '☠ slain' : (cas.surrendered ? 'yielded' : 'survived')) + (cas.mortalWound && cas.mortalWound.conditionLabel ? ' (' + cas.mortalWound.conditionLabel + (cas.mortalWound.permanentWound ? ': ' + cas.mortalWound.permanentWound : '') + ')' : '')"></div>
+              </template>
+            </div>
+          </template>
+          <template x-if="(gladTactState.result.xpAwarded||[]).length">
+            <div class="text-sm">
+              <template x-for="aw in gladTactState.result.xpAwarded" :key="aw.characterId">
+                <div class="text-green-800" x-text="gladCombatantName(aw.characterId) + ' +' + aw.xp + ' XP'"></div>
+              </template>
+            </div>
+          </template>
+          <div class="flex justify-end"><button @click="gladCloseTactical()" class="px-3 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold">Done</button></div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
 <!-- === @b11-followers  (team) — Followers Wave B: the loyalty/morale + Families-arriving readout on the Stronghold-tab 🎺 follower card === -->
 
 <!-- === @b10-politics   (team) — P-7 Eldermoot + rule-of-the-few oligarchy: governance-mode controls / oligarchy modal (if any) === -->
@@ -19168,7 +19228,7 @@ return {
   gladCombatantName(id){ const c=this.currentCampaign; const ch=(c && c.characters||[]).find(x=>x && x.id===id); return ch?ch.name:id; },
   gladScheduledBouts(school){ const c=this.currentCampaign; return (c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school, { scheduledOnly:true }) : []; },
   gladRecentBouts(school){ const c=this.currentCampaign; const all=(c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school) : []; return all.filter(b=>b.status==='resolved').slice(-6).reverse(); },
-  gladBoutSummary(b){ if(!b || !b.result) return ''; const win=(b.result.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); const slain=(b.result.casualties||[]).filter(x=>x.outcome==='slain').length; return win+' won (1d10 '+b.result.d10+')'+(slain?(' · '+slain+' slain'):'')+(b.result.crowdReaction?(' · crowd '+b.result.crowdReaction):''); },
+  gladBoutSummary(b){ if(!b || !b.result) return ''; const r=b.result; const slain=(r.casualties||[]).filter(x=>x.outcome==='slain').length; /* @b11-gladiators G5: resolution-mode-aware (combat → N rounds; abstract → 1d10) + draw */ const how=(r.resolutionMode==='combat')?(r.roundCount+' rounds'):('1d10 '+r.d10); if(r.winnerSide==='draw') return 'a draw ('+how+')'+(slain?(' · '+slain+' slain'):''); const win=(r.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); return win+' won ('+how+')'+(slain?(' · '+slain+' slain'):'')+(r.crowdReaction?(' · crowd '+r.crowdReaction):''); },
   _gladPersist(){ try{ this.markDirty(); this.schedulePersist(); }catch(_e){} },
   gladEstablishSchool(){
     const c=this.currentCampaign; if(!c) return;
@@ -19270,6 +19330,33 @@ return {
   // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
   // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
   // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
+  // The tactical-bout modal (the ⚔ Fight launcher on each scheduled-bout row). Runs the SELF-CONTAINED
+  // round resolver (resolveAndCommitBoutTactical) — the Combat-Option-B exemplar — and shows the per-round
+  // log + the shared aftermath (crowd verdict + Delves-D1 Mortal Wounds + XP). gladTactState.logRounds →
+  // a verbose, campaignLogHidden bout-round event per round. Gated on gladiator-games (the verb refuses off).
+  gladTactState: { open:false, boutId:null, logRounds:false, result:null },
+  gladTactBout(){ const c=this.currentCampaign; return (c && window.ACKS.findBout) ? window.ACKS.findBout(c, this.gladTactState.boutId) : null; },
+  gladOpenTacticalBout(boutId){
+    if(!this.gladRuleOn()){ this.showToast('Enable Gladiator games first.',3000,'warn'); return; }
+    this.gladTactState = { open:true, boutId, logRounds:false, result:null };
+  },
+  gladCloseTactical(){ this.gladTactState.open=false; this.gladTactState.boutId=null; this.gladTactState.result=null; },
+  gladTacticalFight(){
+    const c=this.currentCampaign;
+    const r=window.ACKS.resolveAndCommitBoutTactical(c, this.gladTactState.boutId, { logRounds: !!this.gladTactState.logRounds });
+    if(!r.ok){ this.showToast('Bout failed: '+r.reason,3500,'error'); return; }
+    this.gladTactState.result=r.result;
+    this.gladState.lastBout={ boutId:this.gladTactState.boutId, result:r.result };
+    this._gladPersist();
+    const slain=(r.result.casualties||[]).filter(x=>x.outcome==='slain').length;
+    this.showToast('Bout fought — '+(r.result.winnerSide==='draw'?'a draw':'Side '+r.result.winnerSide+' wins')+' in '+r.result.roundCount+' round(s)'+(slain?(', '+slain+' slain'):''),3200);
+  },
+  gladTactOutcomeText(){
+    const res=this.gladTactState.result; const b=this.gladTactBout(); if(!res || !b) return '';
+    if(res.winnerSide==='draw') return 'A draw — neither side fell after '+res.roundCount+' rounds.';
+    const win=(res.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', ');
+    return win+' prevail after '+res.roundCount+' round'+(res.roundCount===1?'':'s')+(res.crowdReaction?(' · crowd '+res.crowdReaction):'')+'.';
+  },
   // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
