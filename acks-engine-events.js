@@ -312,6 +312,13 @@ const EVENT_KINDS = Object.freeze([
   // succession economy (successor + Reserve XP + Heroic Funeral + the will/heir transfer). Wizard opt-out below.
   'character-died',
   'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — character transformation (JJ pp.94–95). Record-only audit
+  // emitted by acks-engine-lifecycle.js (transformCharacter / revertCharacter). 'character-transformed'
+  // records the form + trigger + the keep-class-abilities Spells save + the initial alignment-drift Death
+  // save; 'transformation-reverted' records reverting to the original form. The monthly drift-save schedule
+  // rides processAgingForTurn (no event kind of its own — recorded on the ledger + history, the aging-arm idiom).
+  'character-transformed',
+  'transformation-reverted',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -1067,6 +1074,21 @@ const EVENT_SCHEMAS = Object.freeze({
          funeralXp: 'number', funeralGpSpent: 'number', heroic: 'boolean', transferredGp: 'number',
          bankFeeGp: 'number', bankFeePct: 'number', treasureLost: 'number', stashesTransferred: 'number',
          successorStartXp: 'number', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-5 (team) === (JJ pp.94–95; engine-emitted by acks-engine-lifecycle.js, record-only).
+  // A character is transformed into a monster: the form + trigger + the keep-class-abilities Spells save +
+  // the initial alignment-drift Death save. On transform the verb flips lifecycleState 'transformed'.
+  'character-transformed': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', keptClassAbilities: 'boolean', spellsSave: 'number',
+         spellsTarget: 'number', retainedSelf: 'boolean', rejectedGift: 'boolean', afterTheFlesh: 'boolean',
+         reversible: 'boolean', initialDriftSave: 'number', initialDriftSaved: 'boolean', narrative: 'string' }
+  },
+  // The transformation is reversed (cured / dispelled); on revert lifecycleState returns to 'active'.
+  'transformation-reverted': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', reason: 'string', keptSelf: 'boolean',
+         driftSaveCount: 'number', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -2939,6 +2961,16 @@ function applyEvent_lifecycleDeathAudit(campaign, event){
 }
 registerEventHandler('character-died', applyEvent_lifecycleDeathAudit);
 registerEventHandler('inheritance-resolved', applyEvent_lifecycleDeathAudit);
+// === Character Lifecycle CL-5 (team) === — transformation events share the record-only audit posture:
+// acks-engine-lifecycle.js (transformCharacter / revertCharacter) already applied the state (the
+// transformationState ledger + the lifecycleState 'transformed'/'active' flip); the handler keeps the
+// event well-formed on replay (records the narrative only). Mirrors aging / disease / death.
+function applyEvent_transformationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'transformation' } };
+}
+registerEventHandler('character-transformed', applyEvent_transformationAudit);
+registerEventHandler('transformation-reverted', applyEvent_transformationAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -6106,6 +6138,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // character's lifecycleState + the successor/inheritance state don't show. The GM marks a death +
   // resolves succession on the character sheet, not the Event Wizard.
   'character-died', 'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — owned by acks-engine-lifecycle.js (transformCharacter /
+  // revertCharacter); a raw Wizard emit would record a transformation the character's transformationState
+  // + lifecycleState don't show. The GM transforms / reverts a character via the character sheet, not the Wizard.
+  'character-transformed', 'transformation-reverted',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
