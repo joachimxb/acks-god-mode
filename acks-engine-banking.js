@@ -602,9 +602,13 @@
     if(!loan) return { ok:false, reason:'no-loan' };
     if(loan.status === 'repaid' || loan.status === 'written-off') return { ok:false, reason:'already-settled' };
     if(loan.kind === 'feudal') return { ok:false, reason:'feudal-loan' };
+    const forgiven = Number(loan.balanceGp) || 0;
     loan.status = 'written-off'; loan.settledAtTurn = _currentTurn(c);
     loan.history.push({ turn: _currentTurn(c), type:'written-off',
-      reason: (opts.reason || 'creditor wrote off the debt') + ' (balance ' + (Number(loan.balanceGp)||0).toLocaleString() + 'gp forgiven)' });
+      reason: (opts.reason || 'creditor wrote off the debt') + ' (balance ' + forgiven.toLocaleString() + 'gp forgiven)' });
+    _recordBankingEvent(c, 'loan-written-off',
+      { loanId: loan.id, forgivenGp: forgiven, reason: opts.reason || null },
+      { narrative: 'Loan written off: ' + forgiven.toLocaleString() + 'gp forgiven', relatedEntities: _loanEntities(loan) });
     return { ok:true, loan };
   }
 
@@ -619,7 +623,13 @@
     if(loan.kind === 'feudal') return { ok:false, reason:'feudal-loan' };
     loan.status = 'defaulted'; loan.disreputable = true; loan.settledAtTurn = _currentTurn(c);
     loan.history.push({ turn: _currentTurn(c), type:'defaulted', reason: opts.reason || 'loan called in default (RR p.42)' });
-    return { ok:true, loan, bountyNote: loanBountyNote(c, loan) };
+    const bountyNote = loanBountyNote(c, loan);   // B5 OQ8 — flag + note only; the spawned bounty-hunter force is the deferred Encounter/Military seam
+    _recordBankingEvent(c, 'loan-defaulted',
+      { loanId: loan.id, balanceGp: Number(loan.balanceGp) || 0, debtOverXp: !!loan.debtOverXp, bountyTriggered: !!bountyNote },
+      { narrative: 'Loan called in default: ' + (Number(loan.balanceGp) || 0).toLocaleString() + 'gp outstanding'
+          + (bountyNote ? (' — bounty hunters at ~' + bountyNote.monthlyWagesGp.toLocaleString() + 'gp/mo (RR p.42)') : ''),
+        relatedEntities: _loanEntities(loan) });
+    return { ok:true, loan, bountyNote };
   }
 
   // ── Derived reads (pure; drive the panel + integrators) ──
@@ -665,6 +675,146 @@
     };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // B4/B5 (burst9 b9-banking 2026-06-20) — letters of credit (loc-)
+  // ════════════════════════════════════════════════════════════════════════════
+  // B1 shipped the BankAccount (bnk-) deposit/custody relation + deposit/withdraw + the bank-account
+  // wealth-handle; this slice adds the inter-market draw primitive (RR p.42 Access to Capital; the
+  // merchant bill-of-exchange — a reasoned tooling extension grounded in RR pp.375–376 + history,
+  // flagged not-RAW-verbatim). The GOLD NEVER TRAVELS — that is the whole point of a letter of credit:
+  // issuing DEBITS the source account → the banking network (an 'external' handle, the abstraction
+  // boundary the GP grammar already supports); redeeming CREDITS the bearer FROM the network at the
+  // drawing market, gated by that market's RR p.42 capital pool (the drawing bank advances the cash).
+  // Net gp-neutral (face leaves at A, face arrives at B) minus the one-time issue fee.
+  // Additive + DECOUPLED: NO migrateCampaign hook — campaign.lettersOfCredit[] is read defensively
+  // (?? []) + seeded on first write (the B1 banking precedent); blankCampaign seeds it for new campaigns.
+
+  const LOC_ISSUE_FEE_PCT = 0.01;   // 1% bill-of-exchange fee at issue — a reasoned tooling number (no RAW fee); overridable per-issue, 0 allowed.
+
+  function _letters(c){ return (c && Array.isArray(c.lettersOfCredit)) ? c.lettersOfCredit : []; }
+  function settlementName(c, id){ if(!id) return null; const s = _settlements(c).find(x => x && x.id === id); return s ? (s.name || s.id) : id; }
+
+  function blankLetterOfCredit(opts){
+    opts = opts || {};
+    const face = _round(opts.faceValueGp);
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      id: opts.id || newId(ID_PREFIXES.letterOfCredit),       // 'loc-…'
+      sourceAccountId: opts.sourceAccountId || null,          // the bnk- account it's drawn against
+      issuer: opts.issuer || null,   // { kind:'character'|'domain'|'party', id } — who drew it (the account owner)
+      bearer: opts.bearer || null,   // { kind:'character'|'domain'|'party', id } — who may redeem it (default = issuer)
+      faceValueGp: face,                                      // the amount drawable at the destination
+      issueFeeGp: _round(opts.issueFeeGp),                    // the fee taken at issue (face × feePct)
+      issuingMarketSettlementId: opts.issuingMarketSettlementId || null,   // where it was drawn (the account's market)
+      drawingMarketSettlementId: opts.drawingMarketSettlementId || null,   // where it's redeemable (a different market)
+      status: opts.status || 'outstanding',  // outstanding | redeemed | cancelled
+      issuedAtTurn: opts.issuedAtTurn || 1,
+      settledAtTurn: (opts.settledAtTurn != null) ? opts.settledAtTurn : null,
+      history: opts.history || []
+    };
+  }
+  function findLetterOfCredit(c, id){ if(id && typeof id === 'object') return id; return _letters(c).find(l => l && l.id === id) || null; }
+  function outstandingLettersOfCredit(c){ return _letters(c).filter(l => l && l.status === 'outstanding'); }
+  function lettersForBearer(c, bearerId){ return _letters(c).filter(l => l && l.bearer && l.bearer.id === bearerId); }
+  function _letterEntities(loc){
+    const e = [];
+    if(loc && loc.issuer && loc.issuer.id && (loc.issuer.kind === 'character' || loc.issuer.kind === 'domain')) e.push({ kind: loc.issuer.kind, id: loc.issuer.id, role: 'subject' });
+    if(loc && loc.bearer && loc.bearer.id && (loc.bearer.kind === 'character' || loc.bearer.kind === 'domain') && (!loc.issuer || loc.bearer.id !== loc.issuer.id)) e.push({ kind: loc.bearer.kind, id: loc.bearer.id, role: 'recipient' });
+    return e;
+  }
+
+  // Issue a letter of credit against a bank account at the issuing (account's) market, drawable at a
+  // DIFFERENT market. Debits face + fee from the account → the banking network. The bearer defaults
+  // to the account owner. opts: { accountId, faceValueGp, drawingMarketSettlementId, bearer?, feePct? }.
+  function issueLetterOfCredit(c, opts){
+    opts = opts || {};
+    if(!c) return { ok:false, reason:'no-campaign' };
+    const acc = findBankAccount(c, opts.accountId);
+    if(!acc) return { ok:false, reason:'no-account' };
+    if(acc.status !== 'open') return { ok:false, reason:'account-not-open' };
+    const face = _round(opts.faceValueGp);
+    if(face <= 0) return { ok:false, reason:'bad-amount' };
+    const feePct = (opts.feePct != null) ? Math.max(0, Number(opts.feePct)) : LOC_ISSUE_FEE_PCT;
+    const fee = _round(face * feePct);
+    if(face + fee > (Number(acc.balanceGp) || 0)) return { ok:false, reason:'insufficient-balance', balanceGp: Number(acc.balanceGp) || 0, needed: face + fee };
+    const drawingMarket = opts.drawingMarketSettlementId || null;
+    const bearer = opts.bearer || acc.owner;
+    // Debit face + fee from the account → the banking network ('external').
+    try { _move(c, face + fee, { kind:'bank-account', id: acc.id }, { kind:'external', label:'letter of credit' }, 'Letter of credit issued', 'letter-of-credit'); }
+    catch(e){ return { ok:false, reason:'transfer-failed', detail: e.message }; }
+    const loc = blankLetterOfCredit({ sourceAccountId: acc.id, issuer: acc.owner, bearer, faceValueGp: face,
+      issueFeeGp: fee, issuingMarketSettlementId: acc.marketSettlementId || null, drawingMarketSettlementId: drawingMarket,
+      issuedAtTurn: _currentTurn(c), status:'outstanding' });
+    loc.history.push({ turn: _currentTurn(c), type:'issued', reason: face.toLocaleString() + 'gp' + (fee ? (' (−' + fee.toLocaleString() + 'gp fee)') : '') + ' drawable at ' + (settlementName(c, drawingMarket) || 'another market') });
+    if(!Array.isArray(c.lettersOfCredit)) c.lettersOfCredit = [];
+    c.lettersOfCredit.push(loc);
+    acc.history.push({ turn: _currentTurn(c), type:'letter-of-credit', reason: 'issued ' + face.toLocaleString() + 'gp letter (−' + (face + fee).toLocaleString() + 'gp)' });
+    _recordBankingEvent(c, 'letter-of-credit-issued',
+      { letterId: loc.id, accountId: acc.id, faceValueGp: face, issueFeeGp: fee, issuingMarketSettlementId: loc.issuingMarketSettlementId, drawingMarketSettlementId: drawingMarket },
+      { narrative: 'Letter of credit issued: ' + face.toLocaleString() + 'gp drawable at ' + (settlementName(c, drawingMarket) || 'another market') + (fee ? (' (−' + fee.toLocaleString() + 'gp fee)') : ''),
+        settlementId: loc.issuingMarketSettlementId, relatedEntities: _letterEntities(loc) });
+    return { ok:true, letter: loc };
+  }
+
+  // Redeem an outstanding letter at its drawing market: credit the bearer the face value from the
+  // banking network, gated by the drawing market's RR p.42 capital pool. opts: { atMarketSettlementId?, bearer?, force? }.
+  function redeemLetterOfCredit(c, letterId, opts){
+    opts = opts || {};
+    const loc = findLetterOfCredit(c, letterId);
+    if(!loc) return { ok:false, reason:'no-letter' };
+    if(loc.status !== 'outstanding') return { ok:false, reason:'not-outstanding' };
+    const atMarket = opts.atMarketSettlementId || loc.drawingMarketSettlementId || null;
+    // RR p.42 — the drawing bank advances the cash from its monthly capital pool (reuses the shipped
+    // per-market pool the loan engine tracks). force:true lets the GM honor it regardless.
+    if(loc.drawingMarketSettlementId && atMarket && !opts.force){
+      const remaining = marketCapitalRemaining(c, atMarket);
+      if(loc.faceValueGp > remaining) return { ok:false, reason:'over-capital-pool', remaining, requested: loc.faceValueGp };
+    }
+    const bearer = opts.bearer || loc.bearer;
+    const dst = _partyHandle(bearer);
+    if(!dst) return { ok:false, reason:'no-bearer' };
+    try { _move(c, loc.faceValueGp, { kind:'external', label:'letter of credit' }, dst, 'Letter of credit redeemed', 'letter-of-credit'); }
+    catch(e){ return { ok:false, reason:'transfer-failed', detail: e.message }; }
+    if(atMarket) _trackCapitalUsed(c, atMarket, loc.faceValueGp);
+    loc.status = 'redeemed'; loc.settledAtTurn = _currentTurn(c);
+    loc.history.push({ turn: _currentTurn(c), type:'redeemed', reason: loc.faceValueGp.toLocaleString() + 'gp drawn at ' + (settlementName(c, atMarket) || 'the drawing market') });
+    _recordBankingEvent(c, 'letter-of-credit-redeemed',
+      { letterId: loc.id, faceValueGp: loc.faceValueGp, atMarketSettlementId: atMarket, bearer },
+      { narrative: 'Letter of credit redeemed: ' + loc.faceValueGp.toLocaleString() + 'gp drawn at ' + (settlementName(c, atMarket) || 'the drawing market'),
+        settlementId: atMarket, relatedEntities: _letterEntities(loc) });
+    return { ok:true, letter: loc, paid: loc.faceValueGp };
+  }
+
+  // Cancel an outstanding letter before it is drawn — refund the face value to the source account
+  // (the issue fee is forfeit). opts: { reason? }.
+  function cancelLetterOfCredit(c, letterId, opts){
+    opts = opts || {};
+    const loc = findLetterOfCredit(c, letterId);
+    if(!loc) return { ok:false, reason:'no-letter' };
+    if(loc.status !== 'outstanding') return { ok:false, reason:'not-outstanding' };
+    const acc = findBankAccount(c, loc.sourceAccountId);
+    if(acc && acc.status === 'open'){
+      try { _move(c, loc.faceValueGp, { kind:'external', label:'letter of credit' }, { kind:'bank-account', id: acc.id }, 'Letter of credit cancelled', 'letter-of-credit'); }
+      catch(e){ /* refund best-effort */ }
+      acc.history.push({ turn: _currentTurn(c), type:'letter-of-credit', reason: 'cancelled — ' + loc.faceValueGp.toLocaleString() + 'gp refunded (fee forfeit)' });
+    }
+    loc.status = 'cancelled'; loc.settledAtTurn = _currentTurn(c);
+    loc.history.push({ turn: _currentTurn(c), type:'cancelled', reason: (opts.reason || 'cancelled') + ' — ' + loc.faceValueGp.toLocaleString() + 'gp refunded (fee forfeit)' });
+    return { ok:true, letter: loc };
+  }
+
+  // ── Derived reads (pure; drive the panel) ──
+  function letterStatusLabel(loc){ if(!loc) return '—'; if(loc.status === 'redeemed') return 'redeemed'; if(loc.status === 'cancelled') return 'cancelled'; return 'outstanding'; }
+  function letterLedgerFor(c, opts){
+    opts = opts || {};
+    let letters = _letters(c);
+    if(opts.bearerId) letters = letters.filter(l => l && l.bearer && l.bearer.id === opts.bearerId);
+    const out = letters.filter(l => l && l.status === 'outstanding');
+    return { count: letters.length, outstandingCount: out.length,
+      totalOutstandingGp: out.reduce((s,l) => s + (Number(l.faceValueGp) || 0), 0),
+      redeemedCount: letters.filter(l => l.status === 'redeemed').length };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // constants
@@ -685,7 +835,12 @@
     reconcileFeudalLoans, reconcileFeudalLoan, feudalLoanForObligation,
     // B2 — commercial-loan depth (lifecycle + derived reads)
     restructureLoan, writeOffLoan, markLoanDefaulted,
-    loanStatusLabel, loanInterestDueNextMonth, loanBountyNote, loanLedgerFor
+    loanStatusLabel, loanInterestDueNextMonth, loanBountyNote, loanLedgerFor,
+    // B4/B5 (burst9) — letters of credit (loc-)
+    LOC_ISSUE_FEE_PCT, blankLetterOfCredit,
+    findLetterOfCredit, outstandingLettersOfCredit, lettersForBearer,
+    issueLetterOfCredit, redeemLetterOfCredit, cancelLetterOfCredit,
+    letterStatusLabel, letterLedgerFor
   });
 
 })(typeof window !== 'undefined' ? window : global);

@@ -237,6 +237,96 @@ if(typeof ACKS.migrateCampaign === 'function'){
 }
 
 // =============================================================================
+// G2 — the arena: recruit · resolve-and-commit · hold a game · free · events
+// =============================================================================
+section('G2 — recruitGladiator (mint a socialTier:gladiator Character → roster)');
+const offRec = ACKS.recruitGladiator({ houseRules:{}, characters:[] }, ACKS.blankGladiatorSchool({}), { name:'X' });
+ok('recruitGladiator refuses when rule OFF', offRec.ok === false && offRec.reason === 'gladiator-games-off');
+const c1 = { houseRules:{ 'gladiator-games':{ enabled:true } }, characters:[], eventLog:[], currentTurn:1 };
+const sch1 = ACKS.createGladiatorSchool(c1, { name:'Ludus', settlementId:'set-1' });
+const rec = ACKS.recruitGladiator(c1, sch1, { name:'Spartacus', gladiatorType:'netfighter', level:0, method:'buy-trained' });
+ok('recruitGladiator ok + mints a socialTier:gladiator Character', rec.ok && rec.character && rec.character.socialTier === 'gladiator');
+ok('recruit lands on campaign.characters + the school roster', c1.characters.some(x => x.id === rec.character.id) && sch1.gladiatorCharacterIds.includes(rec.character.id));
+ok('gladiator fields set (type, lanistaMorale -4, contractSchoolId, counters 0, level honored 0)',
+   rec.character.gladiatorType === 'netfighter' && rec.character.lanistaMorale === -4 && rec.character.contractSchoolId === sch1.id && rec.character.victoriesWon === 0 && rec.character.level === 0);
+ok('buy-trained cost = gp value (level 0 → 250)', rec.costGp === 250, String(rec.costGp));
+const recCand = ACKS.recruitGladiator(c1, sch1, { method:'buy-candidate', gladiatorType:'striker' });
+ok('buy-candidate costs 40gp + lifecycleState candidate', recCand.costGp === 40 && recCand.character.lifecycleState === 'candidate');
+ok('gladiator-recruited event emitted', c1.eventLog.some(e => e.event && e.event.kind === 'gladiator-recruited'));
+
+section('G2 — resolveAndCommitBout (XP + Mortal-Wounds casualties + counters)');
+function mkArena(){
+  return { houseRules:{ 'gladiator-games':{ enabled:true } }, currentTurn:3,
+    characters:[ { id:'g-a', name:'Aulus',  socialTier:'gladiator', level:1, xp:0, victoriesWon:0, boutsSurvived:0, history:[] },
+                 { id:'g-b', name:'Brutus', socialTier:'gladiator', level:2, xp:0, victoriesWon:0, boutsSurvived:0, history:[] } ],
+    bouts:[], games:[], eventLog:[] };
+}
+// roll 8 → sideA wins; high rng → merciful crowd, the defeated survives
+const A1 = mkArena();
+const r1 = ACKS.scheduleBout(A1, { sideA:{ combatantIds:['g-a'] }, sideB:{ combatantIds:['g-b'] }, kind:'to-incapacitation' });
+ok('scheduleBout ok + pushed', r1.ok && A1.bouts.length === 1);
+const cr1 = ACKS.resolveAndCommitBout(A1, r1.bout, { roll:8, rng:()=>0.99 });
+const ga1 = A1.characters.find(x => x.id === 'g-a'), gb1 = A1.characters.find(x => x.id === 'g-b');
+ok('resolveAndCommitBout ok + bout resolved + result stored', cr1.ok && r1.bout.status === 'resolved' && !!r1.bout.result);
+ok('winner XP = the defeated gp value (level 2 → 900)', ga1.xp === 900, String(ga1.xp));
+ok('winner counters: victoriesWon 1, boutsSurvived 1', ga1.victoriesWon === 1 && ga1.boutsSurvived === 1);
+ok('loser survived a merciful crowd — not deceased, boutsSurvived 1', gb1.lifecycleState !== 'deceased' && gb1.boutsSurvived === 1);
+ok('loser routed through Mortal Wounds (a wound recorded)', Array.isArray(gb1.mortalWounds) && gb1.mortalWounds.length >= 1);
+ok('bout-resolved event emitted', A1.eventLog.some(e => e.event && e.event.kind === 'bout-resolved'));
+ok('already-resolved guard', ACKS.resolveAndCommitBout(A1, r1.bout, {}).reason === 'already-resolved');
+// roll 8 (sideB survives the fight) + low rng → bloodthirsty crowd slays the defeated
+const A2 = mkArena();
+const r2 = ACKS.scheduleBout(A2, { sideA:{ combatantIds:['g-a'] }, sideB:{ combatantIds:['g-b'] }, kind:'to-incapacitation' });
+ACKS.resolveAndCommitBout(A2, r2.bout, { roll:8, rng:()=>0.01 });
+const gb2 = A2.characters.find(x => x.id === 'g-b');
+ok('bloodthirsty crowd slays the defeated survivor (RR p.27)', gb2.lifecycleState === 'deceased' && r2.bout.result.casualties[0].crowdKilled === true);
+// roll 1 → sideA slain in the fight
+const A3 = mkArena();
+const r3 = ACKS.scheduleBout(A3, { sideA:{ combatantIds:['g-a'] }, sideB:{ combatantIds:['g-b'] }, kind:'to-incapacitation' });
+ACKS.resolveAndCommitBout(A3, r3.bout, { roll:1, rng:()=>0.5 });
+const ga3 = A3.characters.find(x => x.id === 'g-a'), gb3 = A3.characters.find(x => x.id === 'g-b');
+ok('roll 1 → sideA slain (deceased); sideB wins XP (level 1 → 425)', ga3.lifecycleState === 'deceased' && gb3.victoriesWon === 1 && gb3.xp === 425, String(gb3.xp));
+// to-death bout, roll 4 → loser slain (1–5 die)
+const A4 = mkArena();
+const r4 = ACKS.scheduleBout(A4, { sideA:{ combatantIds:['g-a'] }, sideB:{ combatantIds:['g-b'] }, kind:'to-death' });
+ACKS.resolveAndCommitBout(A4, r4.bout, { roll:4, rng:()=>0.5 });
+ok('to-death roll 4 → sideA slain', A4.characters.find(x => x.id === 'g-a').lifecycleState === 'deceased' && r4.bout.result.death === true);
+
+section('G2 — holdGame (resolve every scheduled bout → gladiator-game-held)');
+const A5 = mkArena();
+A5.characters.push({ id:'g-c', name:'Caius',  socialTier:'gladiator', level:1, xp:0, victoriesWon:0, boutsSurvived:0, history:[] });
+A5.characters.push({ id:'g-d', name:'Decius', socialTier:'gladiator', level:1, xp:0, victoriesWon:0, boutsSurvived:0, history:[] });
+const g5game = ACKS.createGame(A5, { name:'Funeral Games', settlementId:'set-1' });
+ACKS.scheduleBout(A5, { gameId:g5game.id, sideA:{ combatantIds:['g-a'] }, sideB:{ combatantIds:['g-b'] }, kind:'to-incapacitation' });
+ACKS.scheduleBout(A5, { gameId:g5game.id, sideA:{ combatantIds:['g-c'] }, sideB:{ combatantIds:['g-d'] }, kind:'to-incapacitation' });
+ok('scheduleBout links bouts to game.boutIds', g5game.boutIds.length === 2);
+const hg = ACKS.holdGame(A5, g5game, { rng:()=>0.7 });
+ok('holdGame ok + resolves all + marks held', hg.ok && hg.resolved.length === 2 && g5game.status === 'held');
+ok('all the game\'s bouts resolved', A5.bouts.every(b => b.status === 'resolved'));
+ok('gladiator-game-held event emitted', A5.eventLog.some(e => e.event && e.event.kind === 'gladiator-game-held'));
+ok('holdGame already-held guard', ACKS.holdGame(A5, g5game, {}).reason === 'already-held');
+ok('holdGame refuses when rule OFF', ACKS.holdGame({ houseRules:{}, games:[], bouts:[] }, g5game, {}).reason === 'gladiator-games-off');
+
+section('G2 — freeGladiator + gladiatorsSubsystemActive (dormant-until-used)');
+const A6 = mkArena();
+A6.characters[0].victoriesWon = 10;
+const sch6 = ACKS.createGladiatorSchool(A6, { name:'L' }); sch6.gladiatorCharacterIds = ['g-a'];
+A6.characters[0].contractSchoolId = sch6.id;
+const fr = ACKS.freeGladiator(A6, 'g-a');
+ok('freeGladiator flips socialTier→independent + removes from roster', fr.ok && A6.characters[0].socialTier === 'independent' && !sch6.gladiatorCharacterIds.includes('g-a'));
+ok('freeGladiator refuses a non-gladiator', ACKS.freeGladiator({ characters:[{ id:'x', socialTier:'independent' }] }, 'x').reason === 'not-a-gladiator');
+ok('gladiatorsSubsystemActive: rule ON → true', ACKS.gladiatorsSubsystemActive({ houseRules:{ 'gladiator-games':{ enabled:true } } }));
+ok('gladiatorsSubsystemActive: rule OFF + a school → true (dormant-until-used)', ACKS.gladiatorsSubsystemActive({ houseRules:{}, gladiatorSchools:[{ id:'gld-x' }] }));
+ok('gladiatorsSubsystemActive: rule OFF + no school → false', !ACKS.gladiatorsSubsystemActive({ houseRules:{} }));
+
+section('G2 — the 3 event kinds registered (bout-resolved / game-held / recruited)');
+for(const k of ['bout-resolved', 'gladiator-game-held', 'gladiator-recruited']){
+  ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
+  ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+  ok('EVENT_WIZARD_OPTOUT has ' + k, ACKS.EVENT_WIZARD_OPTOUT.has(k));
+}
+
+// =============================================================================
 console.log('\n=============================================================');
 console.log('gladiators.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if(fail){ console.log('FAILURES:\n  ' + failures.join('\n  ')); process.exit(1); }

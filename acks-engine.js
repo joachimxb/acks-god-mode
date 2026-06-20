@@ -197,6 +197,7 @@ const ID_PREFIXES = Object.freeze({
   // (campaign.bankAccounts[]; RR p.313 custody). Resolved by acks-engine-banking.js.
   loan:                 'lon',
   bankAccount:          'bnk',
+  letterOfCredit:       'loc',           // === Banking B4/B5 (team burst9 2026-06-20) — the inter-market draw primitive (campaign.lettersOfCredit[])
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore data layer (Knowledge_Layer_Plan.md /
   // Sages_Knowledge_RAW_Survey.md §6/§16). `lore` = a first-class fact (campaign.lore[]; rumors subsume in
   // Wave B); `knowledge` = the per-knower relation (campaign.knowledge[]; character ↔ lore, the

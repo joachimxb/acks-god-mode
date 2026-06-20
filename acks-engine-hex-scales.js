@@ -1,5 +1,5 @@
 /* =============================================================================
- * acks-engine-hex-scales.js — ACKS God Mode three interlocked hex scales (HW-4)
+ * acks-engine-hex-scales.js — ACKS God Mode three interlocked hex scales (HW-4 + HW-5)
  *
  * Phase 2.5 Hex Scales & Weather Plan §2 + §5 + §7 + §10 (HW-4 — the continental
  * 24-mile layer + multi-scale map). RAW = JJ p.467 (the 16:1 nesting figure). The
@@ -30,9 +30,12 @@
  * is lazy-injected into migrateCampaign → the 6 templates + demo stay migrate-no-ops. No new
  * house rule, event kind, ID prefix, or entity kind (RAW core; the scale tier is data).
  *
- * HW-5 (full bidirectional drill-down AUTHORING of the 1.5-mile local layer — the JJ p.467
- * nesting grid into a 6-mile hex) is the follow-on: the seam (hexScaleChildCoords + the
- * 'local' scale) is built here; the authoring UI lands when a local-scale consumer needs it.
+ * HW-5 (the 1.5-mile LOCAL drill-down tier — the JJ p.467 nesting grid INTO a 6-mile hex) lands
+ * below (the second labelled section): localDrillView (the render set the map drills into),
+ * materializeLocalHex (GM authoring — a local hex bound to its regional parent, domainless so it
+ * stays out of the 6-mile economy), and aggregateRegionalCell (the derived roll-up of authored
+ * detail). The map scale switch (HW-4 ⬢/⬣) gains the third ⬡ Local tier (index.html). The seam
+ * was reserved at HW-4; HW-5 builds the authoring on it. Still additive / no migration.
  * =============================================================================
  */
 (function(global){
@@ -299,13 +302,153 @@ function materializeContinentalHex(campaign, regionKeyOrCoord, opts){
   campaign.hexes.push(hex);
   return hex;
 }
+// =============================================================================
+// HW-5 — the local (1.5-mile) drill-down tier: derivation + AUTHORING.
+//
+// The continental layer (HW-4 above) is a sparse AGGREGATION tier ABOVE the canonical 6-mile
+// hexes (rolling ~16 regional children up). The local layer is its mirror BELOW: a sparse
+// DRILL-DOWN tier, authored only where a GM wants in-hex detail (terrain-transformation
+// proportions, settlement surroundings, fine line-of-sight — §2.3). A local hex's parent is a
+// REGIONAL hex; the nesting is the same logical containment (~16:1 area, §2.2), so the cube/4
+// kernel + stored-parentHexId-wins containment already shipped (HW-4) carry the local tier
+// unchanged — this section adds the local-scoped render set (localDrillView) + the GM authoring
+// path (materializeLocalHex) + the derived roll-up of authored detail (aggregateRegionalCell).
+//
+// CRITICAL — local hexes default domainId:null (the materializeContinentalHex pattern), so they
+// are pure drill-down DETAIL, INVISIBLE to the 6-mile domain economy (which filters by domainId)
+// and to the regional map view (mapHexEntries filters hexScale==='regional'). The 6-mile parent
+// already counts the full hex's families/value; a local child must never double-count. Containment
+// is the EXPLICIT parentHexId (a local hex is authored INSIDE one regional parent's drill view).
+// Additive / no migration (hexScale/parentHexId ship on blankHex via HW-4). No new house rule,
+// event kind, ID prefix, or entity kind (the local tier is data, like the continental tier).
+// =============================================================================
+
+// localChildCoords(regionalHex): the idealized ~16 local (1.5-mile) child coords under a regional
+// hex — the JJ p.467 nesting grid the drill view shows (incl. the still-empty addable cells). []
+// for a non-regional hex / no coord. Thin scale-guarded wrapper over hexScaleChildCoords.
+function localChildCoords(regionalHex){
+  if(!regionalHex || !regionalHex.coord || hexScaleOf(regionalHex) !== 'regional') return [];
+  return hexScaleChildCoords(regionalHex.coord, 'regional') || [];
+}
+
+// localChildHexes(campaign, regionalHex): the AUTHORED local hexes under a regional parent (the
+// computed reverse index, scale-guarded). [] for a non-regional hex. hexChildHexes is the generic
+// primitive (HW-4); this names the intent + guards the tier for the UI.
+function localChildHexes(campaign, regionalHex){
+  if(!campaign || !regionalHex || hexScaleOf(regionalHex) !== 'regional') return [];
+  return hexChildHexes(campaign, regionalHex);
+}
+
+// _localHexAtCoord(campaign, coord): the authored local hex at a local-tier coord, or null. A local
+// coord rounds to exactly ONE regional parent (cube/4 is a function), so a coord match is unique
+// across parents — used for idempotent authoring + addable-cell detection.
+function _localHexAtCoord(campaign, coord){
+  if(!campaign || !coord) return null;
+  return _allHexes(campaign).find(h => h && hexScaleOf(h) === 'local' && h.coord && h.coord.q === coord.q && h.coord.r === coord.r) || null;
+}
+
+// =============================================================================
+// aggregateRegionalCell(campaign, members, regionalHex): the roll-up SUMMARY of a regional hex's
+// authored local children (the mirror of aggregateContinentalCell at the regional←local tier). NB
+// this is a DERIVED summary of authored DETAIL — NOT a canonical roll-up that feeds the economy
+// (the 6-mile parent owns the canonical families/value; local hexes are domainless detail). koppen
+// falls back to the parent's when no child sets one. Pure.
+// =============================================================================
+function aggregateRegionalCell(campaign, members, regionalHex){
+  members = (members || []).filter(h => h && h.coord);
+  const coord = (regionalHex && regionalHex.coord) ? { q: regionalHex.coord.q, r: regionalHex.coord.r } : { q:0, r:0 };
+  const terr = _mostCommon(members.map(h => _terrainBase(h.terrain)).filter(Boolean));
+  const klass = _mostCommon(members.map(h => String(h.classification || '').trim()).filter(Boolean));
+  const childKoppen = _mostCommon(members.map(h => String(h.koppen || '').trim()).filter(Boolean));
+  const parentKoppen = (regionalHex && String(regionalHex.koppen || '').trim()) || '';
+  const families = members.reduce((s, h) => s + (Number(h.families) || 0), 0);
+  const domainIds = Array.from(new Set(members.map(h => h.domainId).filter(Boolean)));
+  const settlementCount = members.filter(h => h && h.settlement).length;
+  const A = global.ACKS || {};
+  const koppen = childKoppen.value || parentKoppen || '';
+  const biome = (koppen && typeof A.biomeFromKoppen === 'function') ? A.biomeFromKoppen(koppen) : '';
+  return {
+    key: _coordKey(coord),
+    coord: coord,
+    parentHexId: (regionalHex && regionalHex.id) || null,
+    childHexIds: members.map(h => h.id),
+    childCount: members.length,
+    idealizedCount: regionalHex ? hexScaleChildCount(coord, 'regional') : 0,
+    dominantTerrain: terr.value || '',
+    terrainCounts: terr.counts,
+    classification: klass.value || '',
+    families: families,
+    koppen: koppen,
+    koppenSource: childKoppen.value ? 'children' : (parentKoppen ? 'parent' : 'none'),
+    biome: biome,
+    domainIds: domainIds,
+    settlementCount: settlementCount
+  };
+}
+
+// =============================================================================
+// §7.2 — the local drill view: what the map renders when you drill a 6-mile hex → local. The
+// idealized nesting grid (~16 cells), the authored local hexes, the still-empty (addable) cells,
+// and a derived aggregate of the authored detail. Pure; null for a non-regional parent (you can
+// only drill INTO a 6-mile hex — local is the finest tier, continental is rendered by its own cells).
+// =============================================================================
+function localDrillView(campaign, regionalHex){
+  if(!campaign || !regionalHex || !regionalHex.coord || hexScaleOf(regionalHex) !== 'regional') return null;
+  const idealized = localChildCoords(regionalHex);
+  const authored = localChildHexes(campaign, regionalHex);
+  const authoredByCoordKey = {};
+  authored.forEach(h => { if(h && h.coord) authoredByCoordKey[h.coord.q + ',' + h.coord.r] = h; });
+  const addable = idealized.filter(c => !authoredByCoordKey[c.q + ',' + c.r] && !_localHexAtCoord(campaign, c));
+  return {
+    parent: regionalHex,
+    parentHexId: regionalHex.id,
+    parentCoord: { q: regionalHex.coord.q, r: regionalHex.coord.r },
+    idealizedCoords: idealized,
+    idealizedCount: idealized.length,
+    authored: authored,
+    authoredByCoordKey: authoredByCoordKey,
+    authoredCount: authored.length,
+    addableCoords: addable,
+    aggregate: aggregateRegionalCell(campaign, authored, regionalHex)
+  };
+}
+
+// =============================================================================
+// §5.2 / §7.2 — materialize a local (1.5-mile) hex under a regional parent (the GM-authoring path,
+// HW-5). Idempotent — returns the existing local hex at `localCoord` if one is there, else creates a
+// hexScale:'local' hex bound to the parent (parentHexId = regionalParent.id — explicit, since a local
+// hex is authored INSIDE one parent's drill view). domainId defaults null (drill-down detail, OUT of
+// the 6-mile economy — the materializeContinentalHex pattern; opts.domainId overrides). Mutates
+// campaign.hexes. Returns null if `regionalParent` isn't a regional hex / no local coord. NB: any
+// hex authored via blankHex hexOpts is reconciled so the binding + scale always hold.
+// =============================================================================
+function materializeLocalHex(campaign, regionalParent, localCoord, opts){
+  if(!campaign || !regionalParent || hexScaleOf(regionalParent) !== 'regional') return null;
+  if(!localCoord || typeof localCoord.q !== 'number' || typeof localCoord.r !== 'number') return null;
+  opts = opts || {};
+  const existing = _localHexAtCoord(campaign, localCoord);
+  if(existing) return existing;
+  const A = global.ACKS || {};
+  if(typeof A.blankHex !== 'function') return null;
+  if(!Array.isArray(campaign.hexes)) campaign.hexes = [];
+  const hex = A.blankHex(Object.assign({
+    coord: { q: localCoord.q, r: localCoord.r }, hexScale: 'local', parentHexId: regionalParent.id, explored: true
+  }, opts.hexOpts || {}));
+  hex.hexScale = 'local';                                       // reconcile (a stray hexOpts can't break the tier)
+  hex.parentHexId = regionalParent.id;                          // explicit containment (§5.2 stored-wins)
+  hex.domainId = (opts.domainId !== undefined ? opts.domainId : null);  // drill-down detail — out of the economy
+  campaign.hexes.push(hex);
+  return hex;
+}
 
 Object.assign(ACKS, {
   HEX_SCALES, HEX_SCALE_MILES, HEX_SCALE_META,
   hexScaleOf, hexScaleLabel, hexScaleMiles, parentScaleOf, childScaleOf,
   hexScaleParentCoord, hexScaleChildCoords, hexScaleChildCount,
   hexParentOf, hexChildHexes, hexChildHexIds,
-  aggregateContinentalCell, continentalCellsForCampaign, materializeContinentalHex
+  aggregateContinentalCell, continentalCellsForCampaign, materializeContinentalHex,
+  // HW-5 — the local (1.5-mile) drill-down tier
+  localChildCoords, localChildHexes, localDrillView, aggregateRegionalCell, materializeLocalHex
 });
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;

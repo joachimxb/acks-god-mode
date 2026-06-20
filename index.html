@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-19-supplybase"></script>
+<script src="acks-engine-events.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
@@ -66,13 +66,13 @@
 <!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
-<script src="acks-engine-hex-scales.js?v=2026-06-13-a"></script>
+<script src="acks-engine-hex-scales.js?v=2026-06-20-burst9"></script>
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-politics.js?v=2026-06-20-burst9"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-17-voyages-v5"></script>
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
@@ -86,13 +86,13 @@
 <script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-burst9"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-treasure.js?v=2026-06-14-burst5"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-sages.js?v=2026-06-20-burst9"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
 <script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
@@ -104,7 +104,7 @@
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
-<script src="acks-engine-banking.js?v=2026-06-19-b8"></script>
+<script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -4432,11 +4432,12 @@ document.addEventListener('alpine:init', () => {
             <span x-text="L.label"></span>
           </label>
         </template>
-        <!-- map-control:scale-switcher (team agent-3, Hex Scales HW-4) — Regional (6-mile, the canonical
-             shipped view) ⇄ Continental (24-mile aggregation). Continental cells roll up ~16 regional
-             children (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); click one to drill back in. The 1.5-mile
-             Local tier is the HW-5 follow-on (drill-down authoring) — not offered here yet. -->
-        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes per cell (climate + weather are native here). Click a continental cell to drill in.">
+        <!-- map-control:scale-local (team agent-6, Hex Scales HW-5; built on the agent-3 HW-4 switcher) —
+             Local (1.5-mile drill-down) ⇄ Regional (6-mile, the canonical shipped view) ⇄ Continental
+             (24-mile aggregation). Continental cells roll up ~16 regional children; click one to drill in.
+             ⬡ Local drills INTO a 6-mile hex (pick one, or re-enter the last) to author its 1.5-mile detail
+             (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); the breadcrumb below climbs back out. -->
+        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes (climate + weather native here, click a cell to drill in); Local (1.5-mile) drills into one 6-mile hex to author its sub-hex detail.">
           <span class="text-sm font-semibold">Scale:</span>
           <template x-for="s in mapScaleOptions()" :key="s.id">
             <button @click="mapSetScale(s.id)" type="button"
@@ -4467,9 +4468,22 @@ document.addEventListener('alpine:init', () => {
         </label>
       </div>
 
-      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional/
-           local scales only — these are 6-mile concepts; the continental view has its own breadcrumb above.) -->
-      <div x-show="mapScale !== 'continental'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <!-- Local-scale breadcrumb (team agent-6, HW-5) — shown only at the 1.5-mile drill-down scale. Names
+           the 6-mile parent you drilled into + how much of its ~16-cell nesting grid you've authored; the
+           ⬢ ← Regional button climbs back out (§7.2 — "Continental ▸ Region ▸ Hex" interlace). -->
+      <div x-show="mapScale === 'local'" class="vellum border border-sky-600/60 bg-sky-50/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm" x-cloak>
+        <button @click="mapLocalBackToRegional()" class="px-2 py-0.5 border border-ink rounded hover:bg-sky-100" title="Back to the 6-mile regional view, framed on this hex">⬢ ← Regional</button>
+        <span class="font-semibold">⬡ Local view (1.5-mile)</span>
+        <template x-if="mapLocalView()">
+          <span class="opacity-80" x-text="'in ' + (window.ACKS.hexName(mapLocalView().parent) || window.ACKS.hexDisplayLabel(mapLocalView().parentCoord.q, mapLocalView().parentCoord.r)) + ' · ' + mapLocalView().authoredCount + ' of ~' + mapLocalView().idealizedCount + ' sub-hexes authored'"></span>
+        </template>
+        <span class="italic opacity-60">— click an empty cell to add detail, an authored cell to edit it</span>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional
+           scale only — these are 6-mile concepts; the continental + local drill views each have their own
+           breadcrumb above. At local scale you author sub-hexes by clicking the nesting-grid cells.) -->
+      <div x-show="mapScale === 'regional'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span class="font-semibold">Show:</span>
         <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
           <label class="flex items-center gap-1 cursor-pointer">
@@ -11825,6 +11839,48 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Character Lifecycle CL-5 (b9-lifecycle, team) — Transformations (JJ pp.94–95). Completes the
+             "what's become of this person" cluster (Wounds / Diseases / Conditions / Lifecycle above):
+             transform into a monster (a Spells save keeps/loses class abilities; an alignment-drift Death
+             save drifts them toward the new alignment over the monthly turn — success keeps their old self),
+             roll a drift save by hand, or revert. The CAUSE is a Magic stub — this is the GM verb over the
+             reserved character.transformationState. — section:char-transformation -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Transformations <span class="text-sm font-normal opacity-60">(JJ pp.94–95)</span></h4>
+              <template x-if="!cl5IsTransformed(characterEditing) && !cl4aDeathInfo(characterEditing).deceased">
+                <button @click="cl5OpenTransform(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-purple-200 hover:bg-purple-300 font-semibold" title="Transform this character into a monster (JJ pp.94–95)">🐺 Transform</button>
+              </template>
+            </div>
+            <template x-if="!cl5IsTransformed(characterEditing)">
+              <p class="text-sm italic opacity-60">Not transformed.</p>
+            </template>
+            <template x-if="cl5IsTransformed(characterEditing)">
+              <div class="space-y-1 text-sm">
+                <p class="font-semibold">🐺 Transformed into a <span x-text="cl5TxInfo(characterEditing).form"></span> <span class="font-normal opacity-70" x-text="'(' + cl5TxInfo(characterEditing).triggerLabel + ')'"></span></p>
+                <p x-text="cl5TxInfo(characterEditing).keptClassAbilities ? '✓ kept their class abilities' : '✗ lost their class abilities (the new form supersedes)'"></p>
+                <template x-if="cl5TxInfo(characterEditing).drifted">
+                  <p class="accent-red font-semibold">🧠 Drifted — now thinks &amp; feels as the beast.</p>
+                </template>
+                <template x-if="!cl5TxInfo(characterEditing).drifted && (cl5TxInfo(characterEditing).rejectedGift || cl5TxInfo(characterEditing).afterTheFlesh)">
+                  <p>🧠 Keeps their own mind <span class="opacity-60" x-text="cl5TxInfo(characterEditing).rejectedGift ? '(rejected the gift)' : '(After the Flesh)'"></span> — never drifts.</p>
+                </template>
+                <template x-if="!cl5TxInfo(characterEditing).drifted && !cl5TxInfo(characterEditing).rejectedGift && !cl5TxInfo(characterEditing).afterTheFlesh">
+                  <p>🧠 Keeps their own mind<span x-show="cl5TxInfo(characterEditing).driftSaveDueInMonths != null" x-text="' — next drift save in ' + cl5TxInfo(characterEditing).driftSaveDueInMonths + ' month' + (cl5TxInfo(characterEditing).driftSaveDueInMonths === 1 ? '' : 's')"></span> <span class="opacity-60" x-text="'(' + cl5TxInfo(characterEditing).driftSaveCount + ' save' + (cl5TxInfo(characterEditing).driftSaveCount === 1 ? '' : 's') + ' so far)'"></span></p>
+                </template>
+                <div class="flex gap-1 mt-1">
+                  <template x-if="!cl5TxInfo(characterEditing).drifted && !cl5TxInfo(characterEditing).rejectedGift && !cl5TxInfo(characterEditing).afterTheFlesh">
+                    <button @click="cl5DriftSaveNow(characterEditing)" class="text-xs px-2 py-0.5 border border-ink/40 rounded hover:bg-yellow-100" title="Roll an alignment-drift Death save now (JJ pp.94–95)">🎲 Roll a drift save</button>
+                  </template>
+                  <button @click="cl5Revert(characterEditing)" class="text-xs px-2 py-0.5 border border-ink/40 rounded hover:bg-green-100" title="Revert to the original form (a cure / dispel)">↩ Revert</button>
+                </div>
+              </div>
+            </template>
+            <p class="text-xs italic opacity-60 mt-2">A transformed character keeps their attributes but rolls a Spells save to keep their class abilities, then drifts toward the new form’s alignment — a Death save each step (success keeps their old self) advancing on the monthly turn (JJ pp.94–95).</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -14920,6 +14976,47 @@ document.addEventListener('alpine:init', () => {
         <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
       </label>
 
+      <!-- === @b9-sages (team) — SG-3: the periodic-fee retainer (a standing arrangement: priority + covered consults) === -->
+      <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef3e3">
+        <div class="font-semibold">🤝 Retainer <span class="text-xs font-normal opacity-60">· a standing arrangement — the sage is on call &amp; ordinary consults are covered (RR p.171; 500 gp/mo)</span></div>
+        <!-- this sage already retained by the inquirer? -->
+        <template x-if="sageRetainerForUI()">
+          <div class="mt-1 text-xs">
+            <span class="text-green-800 font-semibold">✓ On retainer</span>
+            — <span x-text="(sageRetainerForUI().feeGpPerMonth||0) + ' gp/mo'"></span>,
+            <span x-text="sageRetainerForUI().consultDiscount >= 1 ? 'consults free' : ('consults ' + Math.round((sageRetainerForUI().consultDiscount||0)*100) + '% off')"></span>
+            · month <span x-text="sageRetainerForUI().monthsPaid"></span>
+            <button @click="endSageRetainerUi(sageRetainerForUI().id)" class="ml-2 px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="End this retainer — no further monthly fee.">End</button>
+          </div>
+        </template>
+        <!-- offer to retain (a retainer is a client↔sage arrangement — the inquirer must differ from the sage) -->
+        <template x-if="!sageRetainerForUI() && sageConsult.clientId && sageConsult.clientId !== sageConsult.sageId">
+          <div class="mt-1 flex items-center gap-2 flex-wrap text-xs">
+            <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-20 text-xs" x-model.number="retainerFeeGp"> gp/mo</label>
+            <button @click="retainSelectedSage()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Retain this sage on a monthly fee — the first month is paid now; the Day Clock bills each month thereafter.">🤝 Retain this sage</button>
+            <span class="opacity-60">— first month now; ongoing consults become covered</span>
+          </div>
+        </template>
+        <template x-if="!sageRetainerForUI() && sageConsult.clientId && sageConsult.clientId === sageConsult.sageId">
+          <div class="mt-1 text-xs italic opacity-60">Pick a different inquirer to retain this sage (you don't retain yourself).</div>
+        </template>
+        <!-- the inquirer's other active retainers -->
+        <template x-if="clientRetainerRows().length">
+          <div class="mt-2 text-xs">
+            <div class="opacity-70 font-semibold">On retainer to <span x-text="sageConsultClientName()"></span>:</div>
+            <template x-for="ret in clientRetainerRows()" :key="ret.id">
+              <div class="flex items-center gap-2">
+                <span x-text="'• ' + ret.sageName + (ret.specialty ? (' (' + ret.specialty + ')') : '') + ' — ' + (ret.feeGpPerMonth||0) + ' gp/mo, month ' + ret.monthsPaid"></span>
+                <button @click="endSageRetainerUi(ret.id)" class="px-1.5 border border-ink rounded hover:bg-red-100" title="End this retainer.">End</button>
+              </div>
+            </template>
+          </div>
+        </template>
+        <template x-if="retainerResult && !retainerResult.ok">
+          <div class="mt-1 text-xs text-red-800" x-text="retainerResult.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + retainerResult.error)"></div>
+        </template>
+      </div>
+
       <!-- Forecast -->
       <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
         <div class="wizard-forecast-row" :class="(sageConsultForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
@@ -14973,7 +15070,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-70 mt-1">A senatorial republic is a realm whose ruler is constrained by a senate he must consult before invading, taxing, conscripting, or changing his realm's religion (RR pp.355–360). Consulting rolls <strong>2d6 per leading senator</strong> in order of influence until a majority forms (RR p.358); defying or skipping a required consultation puts the realm <em>in dispute</em> and suspends its benefits. The ruling/leading faction is always derived from live influence — never stored.</p>
     <template x-if="senateAllRows().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (The guided Senate Wizard is a later wave.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
+      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (Once a senate exists, its <strong>📜 Motions</strong> card runs the guided motion wizard.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
     </template>
   </div>
 
@@ -14993,6 +15090,44 @@ document.addEventListener('alpine:init', () => {
 
   <template x-if="senateSelected()">
     <div class="space-y-4">
+
+      <!-- @b9-politics P-5 (burst9): the 📜 Motions card — the guided Senate Wizard launcher + the
+           motion log. The flat Consult + Enact panels below are unchanged; this is the higher-level
+           guided author-and-resolve flow (open → vote → enact/reject → record). -->
+      <div class="vellum border border-ink rounded p-4">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+          <h3 class="font-bold text-lg">📜 Motions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateMotionRows().length"></span></h3>
+          <button @click="openMotionWizard(senateSelected().id)" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm">📜 Bring a motion</button>
+        </div>
+        <p class="text-sm opacity-70 mb-2">Author + resolve a motion end-to-end — open it, gather the senators' votes (2d6 each, RR p.358), and enact or reject the result. A restricted matter enacted against the senate puts the realm in dispute (RR p.359).</p>
+        <template x-if="senateMotionRows().length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No motions yet. Bring one to put a policy, an edict, or a retroactive approval to the vote.</p>
+        </template>
+        <template x-if="senateMotionRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Motion</th><th>Kind</th><th>Status</th><th class="text-right">For/Ag.</th><th>Turn</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="m in senateMotionRows()" :key="m.id">
+                <tr>
+                  <td class="font-semibold" x-text="m.subject"></td>
+                  <td class="text-xs opacity-70" x-text="m.kind"></td>
+                  <td><span class="text-xs px-1 rounded" :class="motionStatusClass(m.status)" x-text="m.status"></span></td>
+                  <td class="text-right text-xs" x-text="m.votes"></td>
+                  <td class="text-xs opacity-70" x-text="m.turn"></td>
+                  <td class="text-right">
+                    <template x-if="m.isOpen">
+                      <span class="inline-flex gap-1 justify-end">
+                        <button @click="senateResumeMotion(m.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300" title="Gather the votes + resolve">▶ Resolve</button>
+                        <button @click="senateWithdrawMotion(m.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-red-100" title="Withdraw (no vote)">×</button>
+                      </span>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
 
       <!-- Composition + the derived tally -->
       <div class="vellum border border-ink rounded p-4">
@@ -15527,6 +15662,8 @@ document.addEventListener('alpine:init', () => {
         </select>
       </label>
       <label class="flex flex-col">Initial deposit (gp)<input type="number" min="0" x-model="bankAcctInitial" class="w-28" placeholder="0"></label>
+      <label class="flex flex-col" title="Off by default — no RAW deposit interest. Set > 0 to credit a monthly return (a tooling option).">Interest (%/mo)<input type="number" min="0" step="0.1" x-model="bankAcctInterest" class="w-24" placeholder="0"></label>
+      <label class="flex items-center gap-1 self-center" title="RR p.313 — take a one-time 10% custody fee on the initial deposit"><input type="checkbox" x-model="bankAcctConsign"> Consignment (10% fee)</label>
       <button @click="bankingOpenAccount()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Open account</button>
     </div>
     <template x-if="bankingAccounts().length === 0">
@@ -15542,9 +15679,43 @@ document.addEventListener('alpine:init', () => {
               <td x-text="(acc.custodian && (acc.custodian.label || acc.custodian.kind)) || '—'"></td>
               <td class="text-right" x-text="(acc.balanceGp||0).toLocaleString() + ' gp'"></td>
               <td x-text="acc.status"></td>
-              <td>
-                <button x-show="acc.status === 'open'" @click="bankingDeposit(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
-                <button x-show="acc.status === 'open'" @click="bankingWithdraw(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+              <td class="whitespace-nowrap">
+                <button x-show="acc.status === 'open'" @click="bankOpenModal('deposit', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
+                <button x-show="acc.status === 'open'" @click="bankOpenModal('withdraw', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+                <button x-show="acc.status === 'open' && (acc.balanceGp||0) > 0" @click="bankOpenModal('issue-loc', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-xs" title="Draw a letter of credit against this account, redeemable at another market (RR p.42)">📜 Issue letter</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Letters of credit (team burst9 — B5; RR p.42, the merchant bill of exchange) -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-1">📜 Letters of Credit <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLetters().length"></span></h3>
+    <p class="text-sm opacity-70 mb-2">Draw a note against a bank account (the <strong>📜 Issue letter</strong> button on an account above), drawable at a <em>different</em> market — the gold never travels (RR p.42). Redeeming pays the bearer at the destination market, capped by that market's monthly capital pool. A reasoned tooling extension.</p>
+    <p class="text-sm opacity-70 mb-2" x-show="bankingLetters().length > 0" x-text="bankLettersLedgerText()"></p>
+    <template x-if="bankingLetters().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No letters of credit. Issue one from a bank account above.</p>
+    </template>
+    <template x-if="bankingLetters().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th class="text-right">Face</th><th>Bearer</th><th>From → To</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="loc in bankingLetters()" :key="loc.id">
+            <tr>
+              <td class="text-right font-semibold" x-text="(loc.faceValueGp||0).toLocaleString() + ' gp'"></td>
+              <td x-text="bankingPartyName(loc.bearer)"></td>
+              <td class="text-xs" x-text="(bankingMarketName(loc.issuingMarketSettlementId) || '—') + ' → ' + (bankingMarketName(loc.drawingMarketSettlementId) || '—')"></td>
+              <td x-text="bankingLetterStatus(loc)"></td>
+              <td class="whitespace-nowrap">
+                <template x-if="loc.status === 'outstanding'">
+                  <span class="inline-flex gap-1">
+                    <button @click="bankRedeemLetter(loc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs" title="Pay the bearer the face value at the destination market (RR p.42 capital pool)">Redeem</button>
+                    <button @click="bankCancelLetter(loc.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 text-xs" title="Refund the face value to the source account (the issue fee is forfeit)">Cancel</button>
+                  </span>
+                </template>
               </td>
             </tr>
           </template>
@@ -16503,6 +16674,434 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- === @b8-banking    (team) — loan modal === -->
 
+<!-- ─── burst9 (team session) — per-agent modal/overlay tail. Append your new modal/overlay
+     div right AFTER your OWN marker below (before the page script block). Disjoint anchors → clean merge. ─── -->
+<!-- === @b9-politics   (team) — senate-wizard modal === -->
+<!-- 📜 Senate Motion Wizard (Politics P-5, burst9) — the guided Action verb that authors + resolves a
+     senate motion end-to-end: open (policy / edict / dispute) → gather votes (REUSE ACKS.senateVote via
+     previewSenateMotionVote) → tally → enact / reject → record (ACKS.openSenateMotion / resolveSenateMotion).
+     Launched from the 🏛 Senate tab's 📜 Motions card. The flat Consult + Enact panels (P-2) + the
+     influence / dispute actions (P-3) are unchanged — this is the higher-level guided flow. z-index:75. -->
+<div x-show="motionWizard.open" @keydown.escape.window="if(motionWizard.open && !$event.defaultPrevented){ closeMotionWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak @click.self="closeMotionWizard()">
+  <template x-if="motionWizard.open && motionWizardSenate()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <div>
+        <h2 class="font-bold text-lg">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="motionWizardSenate().name || 'the senate'"></span></span></h2>
+        <p class="text-sm opacity-70">Author + resolve a senate motion (RR pp.355–360). Votes roll 2d6 per senator (RR p.358).</p>
+      </div>
+      <button @click="closeMotionWizard()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+
+      <!-- Step 1 — the motion -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 1</span>The motion</div>
+      <div class="grid sm:grid-cols-2 gap-3 text-sm">
+        <label class="flex flex-col">Kind
+          <select x-model="motionWizard.kind" @change="motionWizard.vote = null; motionWizard.enactDespiteRejection = false" class="w-full">
+            <option value="edict">Edict — the ruler acts (a restricted matter)</option>
+            <option value="policy">Policy — adopt a stance</option>
+            <option value="dispute" :disabled="!motionWizardDisputeOpen()" x-text="motionWizardDisputeOpen() ? 'Dispute — retroactive approval' : 'Dispute — (none open)'"></option>
+          </select>
+        </label>
+        <label class="flex flex-col">Resolution mode
+          <select x-model="motionWizard.mode" @change="motionWizard.vote = null" class="w-full">
+            <option value="per-senator">Per senator (roll each)</option>
+            <option value="by-faction">By faction (one roll each)</option>
+          </select>
+        </label>
+        <template x-if="motionWizard.kind === 'edict'">
+          <label class="flex flex-col">Matter
+            <select x-model="motionWizard.matter" @change="motionWizard.vote = null" class="w-full">
+              <template x-for="m in senateMatterOptions()" :key="'wm'+m.value"><option :value="m.value" x-text="m.label"></option></template>
+              <option value="__custom__">(other / custom…)</option>
+            </select>
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'edict' && motionWizard.matter === '__custom__'">
+          <label class="flex flex-col">Custom matter
+            <input type="text" x-model="motionWizard.customMatter" @input="motionWizard.vote = null" placeholder="e.g. ratify the treaty" class="w-full">
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'policy'">
+          <label class="flex flex-col">Policy objective
+            <select x-model="motionWizard.policyObjective" @change="motionWizard.vote = null" class="w-full">
+              <option value="">— pick an objective —</option>
+              <template x-for="o in policyObjectiveList()" :key="'wpo'+o"><option :value="o" x-text="o"></option></template>
+            </select>
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'dispute'">
+          <div class="flex flex-col text-sm">Defied topic
+            <span class="mt-1 px-2 py-1 border border-ink/30 rounded bg-red-50" x-text="motionWizardDisputeTopic()"></span></div>
+        </template>
+        <label class="flex flex-col sm:col-span-2">Title <span class="opacity-60 text-xs">(GM-facing)</span>
+          <input type="text" x-model="motionWizard.title" placeholder="e.g. Raise the salt tax" class="w-full"></label>
+      </div>
+
+      <!-- Step 2 — vote inputs -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>The vote <span class="wizard-step-hint">(modifiers, RR p.358)</span></div>
+      <template x-if="motionWizardInHoneymoon()">
+        <div class="border border-green-400 bg-green-50 rounded p-2 text-sm">🌼 Honeymoon — the senate votes for the ruler until turn <span x-text="motionWizardSenate().honeymoonUntilTurn"></span> (RR p.357). The motion passes without a roll.</div>
+      </template>
+      <template x-if="!motionWizardInHoneymoon()">
+        <div class="grid sm:grid-cols-2 gap-3 text-sm">
+          <label class="flex flex-col">Ruler's domain morale score
+            <input type="number" x-model.number="motionWizard.domainMorale" @input="motionWizard.vote = null" class="w-full"></label>
+          <label class="flex flex-col">Ruler aligns with faction
+            <select x-model="motionWizard.rulerFactionId" @change="motionWizard.vote = null" class="w-full">
+              <option value="">— none —</option>
+              <template x-for="f in senateReadout().factions" :key="'wmf'+f.id"><option :value="f.id" x-text="f.name"></option></template>
+            </select></label>
+          <label class="flex flex-col">Military loyal to the ruler
+            <select x-model="motionWizard.militaryLoyalty" @change="motionWizard.vote = null" class="w-full">
+              <option value="none">None (+0)</option><option value="third">≥ ⅓ (+1)</option><option value="all">All (+2)</option>
+            </select></label>
+          <label class="flex flex-col">Controlled independent votes
+            <input type="number" min="0" x-model.number="motionWizard.controlledIndependentVotes" @input="motionWizard.vote = null" class="w-full">
+            <span class="text-xs opacity-60" x-show="senateControlledIndependents() > 0">
+              <button type="button" @click="motionWizard.controlledIndependentVotes = senateControlledIndependents(); motionWizard.vote = null" class="underline" x-text="'use ' + senateControlledIndependents() + ' gift-controlled'"></button></span></label>
+          <label class="flex flex-col" x-show="!motionWizardAutoVoteOn()">GM outcome (auto-vote off)
+            <select x-model="motionWizard.gmOutcome" @change="motionWizard.vote = null" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        </div>
+      </template>
+      <details class="text-sm" x-show="!motionWizardInHoneymoon()">
+        <summary class="cursor-pointer opacity-70">Policy helps / hinders senator objectives (+1 helps / −2 hinders each)</summary>
+        <div class="grid sm:grid-cols-2 gap-3 mt-2">
+          <div><div class="font-semibold text-xs mb-1">Helps (+1 each)</div>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-28 overflow-y-auto border border-ink/20 rounded p-1">
+              <template x-for="o in policyObjectiveList()" :key="'wmh'+o"><label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="motionWizard.policyHelps" @change="motionWizard.vote = null"><span x-text="o"></span></label></template>
+            </div></div>
+          <div><div class="font-semibold text-xs mb-1">Hinders (−2 each)</div>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-28 overflow-y-auto border border-ink/20 rounded p-1">
+              <template x-for="o in policyObjectiveList()" :key="'wmx'+o"><label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="motionWizard.policyHinders" @change="motionWizard.vote = null"><span x-text="o"></span></label></template>
+            </div></div>
+        </div>
+      </details>
+
+      <!-- Step 3 — roll the tally -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 3</span>Gather the votes</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button @click="motionWizardRoll()" :disabled="!motionWizardCanRoll()" :class="motionWizardCanRoll() ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm" x-text="motionWizard.vote ? '⟳ Re-roll the vote' : '🗳 Roll the vote'"></button>
+        <span class="text-xs opacity-60" x-show="!motionWizardCanRoll()" x-text="motionWizardRollHint()"></span>
+      </div>
+      <template x-if="motionWizard.vote">
+        <div class="vellum border-2 rounded p-3" :class="motionWizard.vote.approved ? 'border-green-500 bg-green-50' : motionWizard.vote.outcome === 'rejected' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'">
+          <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+            <span class="font-bold">
+              <span x-show="motionWizard.vote.outcome === 'approved'" class="text-green-800">✓ Approved</span>
+              <span x-show="motionWizard.vote.outcome === 'rejected'" class="text-red-800">✗ Rejected</span>
+              <span x-show="motionWizard.vote.outcome === 'no-majority'" class="text-yellow-800">— No majority</span>
+            </span>
+            <span class="text-sm" x-text="motionWizard.vote.forVotes + ' for / ' + motionWizard.vote.againstVotes + ' against / ' + motionWizard.vote.abstainVotes + ' abstain — of ' + motionWizard.vote.totalVotes + ' (majority ' + motionWizard.vote.majorityThreshold + ')'"></span>
+          </div>
+          <p class="text-xs opacity-70 mb-1" x-show="!motionWizard.vote.autoRolled">Narrated by the GM (auto-vote off / honeymoon — no dice).</p>
+          <template x-if="motionWizard.vote.rolls.length > 0">
+            <table class="bookkeeping text-xs w-full">
+              <thead><tr><th x-text="motionWizard.vote.mode === 'by-faction' ? 'Faction' : 'Senator'"></th><th class="text-right">Votes</th><th class="text-right">2d6</th><th>Modifiers</th><th class="text-right">Adj.</th><th>Vote</th></tr></thead>
+              <tbody>
+                <template x-for="(row, i) in motionWizard.vote.rolls" :key="'wmr'+i">
+                  <tr>
+                    <td x-text="senateRollWho(row)"></td>
+                    <td class="text-right" x-text="row.votes"></td>
+                    <td class="text-right" x-text="row.bewitched ? '—' : (row.roll ? row.roll.natural : '—')"></td>
+                    <td class="opacity-80" x-text="senateRollModifiers(row)"></td>
+                    <td class="text-right" x-text="row.adjusted == null ? '—' : row.adjusted"></td>
+                    <td :class="row.vote === 'for' ? 'text-green-800 font-semibold' : row.vote === 'against' ? 'text-red-800 font-semibold' : 'opacity-60'" x-text="row.vote"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </template>
+
+      <!-- Step 4 — resolve -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 4</span>Resolve</div>
+      <template x-if="motionWizard.vote && !motionWizard.vote.approved && motionWizardRestricted() && motionWizard.kind !== 'dispute'">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="motionWizard.enactDespiteRejection"> Defy the senate — enact anyway (→ <strong>dispute</strong>, RR p.359)</label>
+      </template>
+      <p class="text-xs opacity-70" x-text="motionWizardResolveHint()"></p>
+      <div class="wizard-submit-gate">
+        <span class="wizard-submit-disabled-reason" x-text="motionWizardCommitDisabledReason()"></span>
+        <div class="flex gap-2">
+          <button @click="motionWizardTable()" :disabled="!!motionWizard.motionId || !motionWizardCanRoll()" :class="(!!motionWizard.motionId || !motionWizardCanRoll()) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-yellow-100'" class="px-3 py-1.5 border border-ink rounded text-sm" title="Table the motion to gather votes + resolve later">📋 Table it</button>
+          <button @click="motionWizardCommit()" :disabled="!motionWizardCanCommit()" :class="motionWizardCanCommit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="motionWizardCommitLabel()"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- === @b9-banking    (team) — deposit / letter-of-credit modal === -->
+<div x-show="bankModal.open" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="bankModalClose()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-5 space-y-3" @click.outside="bankModalClose()">
+    <div class="flex items-center justify-between">
+      <h3 class="font-bold text-lg" x-text="bankModalTitle()"></h3>
+      <button @click="bankModalClose()" class="text-2xl leading-none opacity-60 hover:opacity-100">&times;</button>
+    </div>
+    <p class="text-sm opacity-70" x-show="bankModalAccount()" x-text="'Account: ' + bankingPartyName(bankModalAccount() && bankModalAccount().owner) + ' · balance ' + ((bankModalAccount() && bankModalAccount().balanceGp) || 0).toLocaleString() + 'gp'"></p>
+    <label class="flex flex-col text-sm" :title="bankModal.mode === 'issue-loc' ? 'The amount drawable at the destination market' : ''">
+      <span x-text="bankModal.mode === 'issue-loc' ? 'Face value (gp)' : 'Amount (gp)'"></span>
+      <input type="number" min="1" x-model="bankModal.amount" class="w-full" placeholder="1000" @keydown.enter="bankModalCanSubmit() && bankModalSubmit()">
+    </label>
+    <label class="flex items-center gap-2 text-sm" x-show="bankModal.mode === 'deposit'">
+      <input type="checkbox" x-model="bankModal.consignment"> Consignment — take the 10% custody fee (RR p.313)
+    </label>
+    <template x-if="bankModal.mode === 'issue-loc'">
+      <div class="space-y-2">
+        <label class="flex flex-col text-sm">Drawable at (destination market)
+          <select x-model="bankModal.drawingMarketId" class="w-full">
+            <option value="">— pick a market —</option>
+            <template x-for="s in bankingSettlements()" :key="'loc-mkt-'+s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col text-sm">Issue fee (%) <input type="number" min="0" step="0.5" x-model="bankModal.feePct" class="w-24"></label>
+        <p class="text-xs opacity-60">The gold stays put — issuing debits this account (face + fee) into the banking network; redeeming pays the bearer at the destination market, capped by that market's monthly capital pool (RR p.42). A reasoned tooling extension (the merchant bill of exchange).</p>
+      </div>
+    </template>
+    <div class="flex justify-end gap-2 pt-1">
+      <button @click="bankModalClose()" class="px-3 py-1 border border-ink rounded bg-stone-100 hover:bg-stone-200 text-sm">Cancel</button>
+      <button @click="bankModalSubmit()" :disabled="!bankModalCanSubmit()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed" x-text="bankModalTitle()"></button>
+    </div>
+  </div>
+</div>
+<!-- === @b9-sages      (team) — SG-3 retainer UI is folded INTO the Consult-a-Sage modal above (the 🤝 Retainer section, per the task); state+methods at the @b9-sages domainApp marker === -->
+<!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
+<!-- ═══════════ VIEW: GLADIATORS (G2 — the arena, AXIOMS 4 pp.20–31) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'gladiators'" class="p-4 space-y-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">⚔ Gladiators</h2>
+      <span class="text-sm italic opacity-70">Run a gladiatorial school (AXIOMS 4): recruit gladiators, schedule + resolve arena bouts, and stage games. Bouts resolve abstractly (1d10, RR p.25); casualties run through the Mortal-Wounds resolver and winners earn XP equal to the defeated's value.</span>
+    </div>
+
+    <!-- rule-off banner (a school exists but the rule is disabled — data-only) -->
+    <template x-if="!gladRuleOn()">
+      <div class="vellum border border-amber-500 bg-amber-50 rounded p-3 text-sm">⚠ The <code>gladiator-games</code> house rule is off — the school below is data-only; recruiting, scheduling, and resolving bouts are disabled. Enable it in ⚙ House Rules ▸ 🌍 Cultural.</div>
+    </template>
+
+    <!-- school picker + establish-a-school form -->
+    <div class="vellum border border-ink rounded p-3 space-y-3">
+      <div class="flex flex-wrap gap-3 items-end justify-between">
+        <label class="text-sm" x-show="gladSchools().length">School
+          <select x-model="gladState.schoolId" class="ml-1 border border-ink rounded px-1 py-0.5">
+            <template x-for="s in gladSchools()" :key="s.id"><option :value="s.id" :selected="s.id === gladState.schoolId" x-text="s.name || 'Ludus'"></option></template>
+          </select>
+        </label>
+        <button x-show="gladSchools().length" @click="gladState.showNewSchool=!gladState.showNewSchool" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">＋ New school</button>
+      </div>
+      <template x-if="gladState.showNewSchool || gladSchools().length===0">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm border-t border-ink/20 pt-3">
+          <label class="flex flex-col md:col-span-2">School name
+            <input x-model="gladState.newSchool.name" placeholder="Ludus Magnus" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Settlement
+            <select x-model="gladState.newSchool.settlementId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none)</option>
+              <template x-for="st in gladSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Lanista (owner)
+            <select x-model="gladState.newSchool.lanistaId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none)</option>
+              <template x-for="ch in gladLanistaOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name"></option></template>
+            </select>
+          </label>
+          <div class="md:col-span-4">
+            <button @click="gladEstablishSchool()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400">🏟 Establish school</button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- school detail -->
+    <template x-if="gladSelectedSchool()">
+      <div class="vellum border border-ink rounded p-4 space-y-3">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 class="font-bold text-lg" x-text="gladSelectedSchool().name || 'Ludus'"></h3>
+          <span class="text-sm opacity-70" x-text="'Roster: ' + gladRoster(gladSelectedSchool()).length + ' gladiator(s)'"></span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🪖 Recruit gladiator</button>
+          <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Schedule bout</button>
+          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+        </div>
+
+        <!-- roster -->
+        <template x-if="gladRoster(gladSelectedSchool()).length">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/30">
+                <th class="py-1 pr-2">Name</th><th class="pr-2">Style</th><th class="pr-2">Rank</th><th class="pr-2">Lvl</th>
+                <th class="pr-2">Wins</th><th class="pr-2">Bouts</th><th class="pr-2">Value</th><th class="pr-2">State</th><th></th>
+              </tr></thead>
+              <tbody>
+                <template x-for="g in gladRoster(gladSelectedSchool())" :key="g.id">
+                  <tr class="border-b border-ink/10" :class="g.lifecycleState==='deceased' ? 'opacity-40' : ''">
+                    <td class="py-1 pr-2"><button @click="openCharacterEditor(g.id)" class="underline" x-text="g.name"></button></td>
+                    <td class="pr-2" x-text="gladTypeLabel(g.gladiatorType)"></td>
+                    <td class="pr-2" x-text="gladRankLabel(g)"></td>
+                    <td class="pr-2" x-text="g.level"></td>
+                    <td class="pr-2" x-text="g.victoriesWon||0"></td>
+                    <td class="pr-2" x-text="g.boutsSurvived||0"></td>
+                    <td class="pr-2" x-text="(gladGpValue(g)||0).toLocaleString()+' gp'"></td>
+                    <td class="pr-2">
+                      <span x-show="g.lifecycleState==='deceased'" class="text-red-700">☠ slain</span>
+                      <span x-show="g.lifecycleState==='incapacitated'" class="text-amber-700">🩹 wounded</span>
+                      <span x-show="g.lifecycleState==='candidate'" class="opacity-60">🎓 candidate</span>
+                      <span x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" class="text-green-700">🏅 freedom earned</span>
+                    </td>
+                    <td><button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <template x-if="!gladRoster(gladSelectedSchool()).length">
+          <p class="text-sm italic opacity-60">No gladiators yet — 🪖 Recruit one to fill the school.</p>
+        </template>
+
+        <!-- scheduled bouts -->
+        <template x-if="gladScheduledBouts(gladSelectedSchool()).length">
+          <div class="border-t border-ink/20 pt-2">
+            <div class="font-semibold text-sm mb-1">Scheduled bouts</div>
+            <template x-for="b in gladScheduledBouts(gladSelectedSchool())" :key="b.id">
+              <div class="flex items-center justify-between text-sm py-0.5 gap-2">
+                <span x-text="b.sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + b.sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + b.kind"></span>
+                <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap">▶ Resolve</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- recent results -->
+        <template x-if="gladRecentBouts(gladSelectedSchool()).length">
+          <div class="border-t border-ink/20 pt-2">
+            <div class="font-semibold text-sm mb-1">Recent results</div>
+            <template x-for="b in gladRecentBouts(gladSelectedSchool())" :key="b.id">
+              <div class="text-sm opacity-80 py-0.5" x-text="gladBoutSummary(b)"></div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- last-bout aftermath card -->
+    <template x-if="gladState.lastBout && gladState.lastBout.result">
+      <div class="vellum border-2 border-ink rounded p-3 space-y-1" x-data="{ get r(){ return gladState.lastBout.result; } }">
+        <div class="font-bold">Last bout — Side <span x-text="r.winnerSide"></span> wins <span class="opacity-60" x-text="'(1d10 '+r.d10+(r.death?' · to the death':'')+')'"></span></div>
+        <div class="text-sm" x-show="r.crowdReaction">Crowd reaction: <span class="font-semibold" x-text="r.crowdReaction"></span></div>
+        <template x-for="(cas,i) in r.casualties" :key="'c'+i">
+          <div class="text-sm" x-text="gladCombatantName(cas.characterId) + ' — ' + (cas.outcome==='slain' ? '☠ slain' : 'survived') + (cas.mortalWound && cas.mortalWound.conditionLabel ? ' (' + cas.mortalWound.conditionLabel + (cas.mortalWound.permanentWound ? ': ' + cas.mortalWound.permanentWound : '') + ')' : '')"></div>
+        </template>
+        <template x-for="(aw,i) in r.xpAwarded" :key="'x'+i">
+          <div class="text-sm text-green-800" x-text="gladCombatantName(aw.characterId) + ' +' + aw.xp + ' XP'"></div>
+        </template>
+        <div class="text-sm text-green-700" x-show="r.freedomEarned && r.freedomEarned.length" x-text="r.freedomEarned.length + ' gladiator(s) earned freedom'"></div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Gladiators G2 — recruit modal (z-70) -->
+<template x-if="gladState.recruit.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladState.recruit.open=false" @keydown.escape.window="gladState.recruit.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🪖 Recruit a gladiator</h3>
+      <label class="block text-sm">Name <input x-model="gladState.recruit.name" placeholder="(auto from style)" class="w-full border border-ink rounded px-1 py-0.5"></label>
+      <label class="block text-sm">Fighting style
+        <select x-model="gladState.recruit.gladiatorType" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="t in gladTypes()" :key="t.key"><option :value="t.key" :selected="t.key === gladState.recruit.gladiatorType" x-text="t.label + ' (' + t.latinName + ')'"></option></template>
+        </select>
+      </label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block text-sm">Method
+          <select x-model="gladState.recruit.method" class="w-full border border-ink rounded px-1 py-0.5">
+            <option value="buy-trained">Buy trained</option>
+            <option value="buy-candidate">Buy candidate (40gp)</option>
+            <option value="impress-prisoner">Impress prisoner</option>
+          </select>
+        </label>
+        <label class="block text-sm">Level (0–5) <input type="number" min="0" max="5" x-model="gladState.recruit.level" class="w-full border border-ink rounded px-1 py-0.5"></label>
+      </div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladState.recruit.thrassian"> Thrassian (+20% value, AXIOMS 4 p.29)</label>
+      <div class="flex justify-end gap-2">
+        <button @click="gladState.recruit.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitRecruit()" class="px-3 py-1 border border-ink rounded text-sm bg-green-300 hover:bg-green-400 font-semibold">🪖 Recruit</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- Gladiators G2 — schedule-bout modal (z-70) -->
+<template x-if="gladState.bout.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladState.bout.open=false" @keydown.escape.window="gladState.bout.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">⚔ Schedule a bout</h3>
+      <label class="block text-sm">Side A
+        <select x-model="gladState.bout.sideAId" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideAId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Side B
+        <select x-model="gladState.bout.sideBId" class="w-full border border-ink rounded px-1 py-0.5">
+          <template x-for="g in gladBoutRoster()" :key="g.id"><option :value="g.id" :selected="g.id === gladState.bout.sideBId" x-text="g.name + ' (L' + g.level + ')'"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Stakes
+        <select x-model="gladState.bout.kind" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="to-incapacitation">To incapacitation</option>
+          <option value="to-death">To the death (rented at 2×)</option>
+        </select>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button @click="gladState.bout.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitBout()" class="px-3 py-1 border border-ink rounded text-sm bg-green-300 hover:bg-green-400 font-semibold">⚔ Schedule</button>
+      </div>
+    </div>
+  </div>
+</template>
+<!-- === @b9-lifecycle  (team) — character transformation modal === -->
+<!-- Character Lifecycle CL-5 (team) — transform a character into a monster (JJ pp.94–95). The Spells
+     save keeps/loses class abilities; an alignment-drift Death save rides the monthly turn (success =
+     keep your old self). A lycanthrope who rejects the gift / an After-the-Flesh undead never drifts.
+     The CAUSE is a Magic stub — this is the GM verb. Over acks-engine-lifecycle.js (transformCharacter). -->
+<template x-if="cl5Modal.open">
+  <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click.self="cl5Modal.open=false" @keydown.escape.window="cl5Modal.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-4">
+      <h3 class="text-lg font-bold mb-1">🐺 Transform <span class="text-sm font-normal opacity-70">· JJ pp.94–95</span></h3>
+      <p class="text-sm opacity-70 mb-3" x-text="cl5Modal.charName + ' becomes an intelligent monster. They keep their attributes but make a Spells save to keep their class abilities, then drift toward the new form’s alignment over time — a Death save at each step (success keeps their old self).'"></p>
+      <label class="block text-sm font-semibold mb-1">New form <span class="opacity-60 font-normal">(monster name / catalog key)</span></label>
+      <input type="text" x-model="cl5Modal.form" placeholder="e.g. werewolf" class="w-full mb-3 text-sm">
+      <label class="block text-sm font-semibold mb-1">Trigger</label>
+      <select x-model="cl5Modal.trigger" class="w-full mb-3 text-sm">
+        <template x-for="t in cl5Triggers()" :key="t.id"><option :value="t.id" x-text="t.label"></option></template>
+      </select>
+      <label class="flex items-center gap-2 text-sm mb-2"><input type="checkbox" x-model="cl5Modal.reversible"> Reversible (a cure / dispel can revert it)</label>
+      <template x-if="cl5SelectedTrigger() && cl5SelectedTrigger().canReject">
+        <label class="flex items-center gap-2 text-sm mb-2"><input type="checkbox" x-model="cl5Modal.rejectedGift"> Rejects the gift — keeps their own mind, no drift (JJ p.94)</label>
+      </template>
+      <template x-if="cl5SelectedTrigger() && cl5SelectedTrigger().undeadAfterFlesh">
+        <label class="flex items-center gap-2 text-sm mb-2"><input type="checkbox" x-model="cl5Modal.afterTheFlesh"> After the Flesh — keeps their own mind, no drift (JJ p.95)</label>
+      </template>
+      <label class="block text-sm mb-4">Drift save interval (months)
+        <input type="number" min="1" x-model.number="cl5Modal.driftSaveIntervalMonths" class="w-20 text-sm ml-1">
+        <span class="block text-xs opacity-60 mt-0.5">A drift Death save falls due every N months (≈ each age/HD step). The precise per-HD trigger arrives with the Magic layer.</span>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button @click="cl5Modal.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="cl5ConfirmTransform()" :disabled="!((cl5Modal.form||'').trim())" :class="((cl5Modal.form||'').trim()) ? 'bg-purple-200 hover:bg-purple-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🐺 Transform</button>
+      </div>
+    </div>
+  </div>
+</template>
+<!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) ===
+     No separate modal: HW-5 local authoring reuses the shipped hex card (openHexDetail) for editing a
+     sub-hex + the in-toolbar Local breadcrumb (map-control:scale-local) for the drill/back nav. -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -17055,28 +17654,18 @@ return {
     const opts = { owner:{ kind:'character', id: this.bankAcctOwnerId } };
     if(this.bankAcctMarketId){ opts.marketSettlementId = this.bankAcctMarketId; opts.custodian = { kind:'bank', label:'Bank', marketSettlementId: this.bankAcctMarketId }; }
     const init = Math.round(Number(this.bankAcctInitial) || 0); if(init > 0) opts.initialDepositGp = init;
+    const intr = Number(this.bankAcctInterest) || 0; if(intr > 0) opts.depositInterestRateMonthly = intr / 100;
+    if(this.bankAcctConsign){ opts.custodyFeePctAtConsignment = 0.10; opts.consignment = true; }   // RR p.313 — 10% custody fee on the initial deposit
     const r = window.ACKS.openBankAccount(this.currentCampaign, opts);
     if(!r.ok){ this.showToast('Could not open account: ' + r.reason, 4000); return; }
-    this.bankAcctInitial = '';
+    this.bankAcctInitial = ''; this.bankAcctInterest = ''; this.bankAcctConsign = false;
     this.markDirty(); this.schedulePersist();
     this.showToast('Bank account opened.');
   },
-  bankingDeposit(accId){
-    const raw = window.prompt('Deposit how much gp?'); if(raw === null) return;
-    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
-    const r = window.ACKS.depositToBankAccount(this.currentCampaign, accId, n, {});
-    if(!r.ok){ this.showToast('Deposit failed: ' + r.reason, 4000); return; }
-    this.markDirty(); this.schedulePersist();
-    this.showToast('Deposited ' + n.toLocaleString() + 'gp.');
-  },
-  bankingWithdraw(accId){
-    const raw = window.prompt('Withdraw how much gp?'); if(raw === null) return;
-    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
-    const r = window.ACKS.withdrawFromBankAccount(this.currentCampaign, accId, n, {});
-    if(!r.ok){ this.showToast('Withdrawal failed: ' + r.reason, 4000); return; }
-    this.markDirty(); this.schedulePersist();
-    this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
-  },
+  // B5 (team burst9) — deposit/withdraw now open the unified bank modal (was prompt()-based in B1);
+  // any deep-link caller gets the modal too.
+  bankingDeposit(accId){ this.bankOpenModal('deposit', accId); },
+  bankingWithdraw(accId){ this.bankOpenModal('withdraw', accId); },
   magicItemAddKey: '', magicItemAddMakerId: '', magicItemDetailId: null,
   magicItemIdCharId: '', magicItemIdMethod: 'equip', magicItemResult: null, magicItemCatalogOpen: false,
   magicItemList(){ return (this.currentCampaign && this.currentCampaign.notableItems) || []; },
@@ -17429,6 +18018,10 @@ return {
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
+      // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
+      // Gladiators G2 (#150, burst9) — the ⚔ Gladiators top-level tab, DORMANT-UNTIL-USED (present only
+      // when gladiator-games is on OR a school already exists; the gladiator-as-Character data is ungated core).
+      ...(this.gladiatorsTabVisible() ? [{ id:'gladiators', label:'⚔ Gladiators', count: (this.currentCampaign?.gladiatorSchools||[]).length || null }] : []),
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -17826,6 +18419,394 @@ return {
             emitWizardCtxRelatedJson: '[]', emitWizardNotes: '', emitWizardCadence: 'monthly-turn',
   // #551 Wave Entity-B Chronicle Entry — freeform GM narrative attached to entities (2026-05-31)
   chronicleState: { title: '', body: '', attached: [], pickerKind: '', pickerId: '', notes: '', cadence: 'monthly-turn', editingEventId: null, returnToSubView: null },
+  // ─── burst9 (team session) — per-agent state + methods. Each builder appends its
+  //     object properties (`prop(){…},` / `stateVar: …,`) right AFTER its OWN marker line
+  //     below — disjoint anchors → clean 6-way merge. Wrap your block in a
+  //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
+  // === @b9-politics   (team) — Politics P-5 Senate Wizard: state + methods ===
+  // The 📜 Senate Motion Wizard — the guided Action verb that authors + resolves a senate motion
+  // end-to-end (open → gather votes [REUSE ACKS.senateVote] → tally → enact/reject → record). A thin
+  // UI over the P-5 engine (openSenateMotion / previewSenateMotionVote / resolveSenateMotion /
+  // withdrawSenateMotion). The flat Consult + Enact panels (P-2) and the influence/dispute actions
+  // (P-3) are unchanged — this composes them into one guided flow. Launched from the 🏛 Senate tab.
+  motionWizard: { open: false, senateId: '', motionId: null, kind: 'edict', matter: 'change-taxes',
+    customMatter: '', policyObjective: '', title: '', mode: 'per-senator', domainMorale: 0,
+    rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0, policyHelps: [],
+    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false },
+  // the senate the wizard is operating on (its own id, else the tab-selected senate)
+  motionWizardSenate(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c) return null;
+    return A.findSenate(c, this.motionWizard.senateId) || this.senateSelected();
+  },
+  motionWizardAutoVoteOn(){ return this.senateAutoVoteOn(); },
+  motionWizardDisputeOpen(){ const s = this.motionWizardSenate(); return !!(s && s.dispute != null); },
+  motionWizardDisputeTopic(){ const s = this.motionWizardSenate(); return (s && s.dispute && s.dispute.defiedTopic) || '—'; },
+  motionWizardInHoneymoon(){ const A = window.ACKS, c = this.currentCampaign, s = this.motionWizardSenate(); return !!(A && c && s && A.senateInHoneymoon(c, s)); },
+  // the resolved matter string: an edict's picked/custom matter; '' for policy/dispute (the objective /
+  // the open dispute's topic carry the subject for those kinds).
+  _motionWizardMatter(){ const w = this.motionWizard; return w.kind === 'edict' ? (w.matter === '__custom__' ? (w.customMatter || '') : w.matter) : ''; },
+  motionWizardRestricted(){ const A = window.ACKS, w = this.motionWizard; if(w.kind !== 'edict') return false; return !!(A && A.isSenateConsultationRequired && A.isSenateConsultationRequired(this._motionWizardMatter())); },
+  // the spec the engine verbs consume (openSenateMotion / previewSenateMotionVote)
+  _motionWizardSpec(){
+    const w = this.motionWizard, senate = this.motionWizardSenate();
+    return { senateId: senate ? senate.id : '', kind: w.kind, matter: this._motionWizardMatter(),
+      policyObjective: w.kind === 'policy' ? w.policyObjective : '', title: w.title, mode: w.mode,
+      domainMorale: Number(w.domainMorale) || 0, rulerFactionId: w.rulerFactionId || null,
+      militaryLoyalty: w.militaryLoyalty, controlledIndependentVotes: Number(w.controlledIndependentVotes) || 0,
+      policyHelps: (w.policyHelps || []).slice(), policyHinders: (w.policyHinders || []).slice() };
+  },
+  motionWizardCanRoll(){
+    const w = this.motionWizard;
+    if(w.kind === 'dispute') return this.motionWizardDisputeOpen();
+    if(w.kind === 'policy') return !!w.policyObjective;
+    return !!this._motionWizardMatter();   // edict
+  },
+  motionWizardRollHint(){
+    const w = this.motionWizard;
+    if(w.kind === 'dispute') return 'No dispute is open to resolve.';
+    if(w.kind === 'policy') return 'Pick a policy objective first.';
+    return 'Pick or type the matter first.';
+  },
+  // open the wizard (fresh, or resuming an existing tabled motion → loads its inputs)
+  openMotionWizard(senateId, motionId){
+    const A = window.ACKS, c = this.currentCampaign;
+    const sid = senateId || (this.senateSelected() && this.senateSelected().id);
+    if(!A || !c || !sid) return;
+    const senate = A.findSenate(c, sid);
+    if(!senate) return;
+    const inDispute = senate.dispute != null;
+    this.motionWizard = { open: true, senateId: sid, motionId: motionId || null,
+      kind: inDispute ? 'dispute' : 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '',
+      title: '', mode: 'per-senator', domainMorale: 0, rulerFactionId: '', militaryLoyalty: 'none',
+      controlledIndependentVotes: 0, policyHelps: [], policyHinders: [], gmOutcome: 'approved',
+      vote: null, rolledSpec: null, enactDespiteRejection: false };
+    if(motionId){
+      const m = A.findSenateMotion(c, sid, motionId);
+      if(m){
+        const restricted = ((A.SENATE_RESTRICTED_MATTERS || []).indexOf(m.matter) >= 0);
+        const isCustom = m.kind === 'edict' && m.matter && !restricted;
+        Object.assign(this.motionWizard, {
+          kind: m.kind, matter: isCustom ? '__custom__' : (m.matter || 'change-taxes'),
+          customMatter: isCustom ? m.matter : '', policyObjective: m.policyObjective || '',
+          title: m.title || '', mode: m.mode || 'per-senator', domainMorale: m.domainMorale || 0,
+          rulerFactionId: m.rulerFactionId || '', militaryLoyalty: m.militaryLoyalty || 'none',
+          controlledIndependentVotes: m.controlledIndependentVotes || 0,
+          policyHelps: (m.policyHelps || []).slice(), policyHinders: (m.policyHinders || []).slice() });
+      }
+    }
+  },
+  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; },
+  // Step 3 — roll the votes (REUSE the engine's senateVote via previewSenateMotionVote; pure, no event).
+  motionWizardRoll(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !this.motionWizardCanRoll()) return;
+    const w = this.motionWizard, spec = this._motionWizardSpec();
+    const honeymoon = this.motionWizardInHoneymoon();
+    const auto = this.motionWizardAutoVoteOn() && !honeymoon;
+    const res = A.previewSenateMotionVote(c, { senateId: senate.id, motion: spec,
+      rng: Math.random, autoRoll: auto, gmOutcome: honeymoon ? 'approved' : w.gmOutcome });
+    this.motionWizard.vote = res;
+    this.motionWizard.rolledSpec = spec;
+  },
+  motionWizardCanCommit(){ return !!this.motionWizard.vote; },
+  motionWizardCommitDisabledReason(){ return this.motionWizard.vote ? '' : 'Roll the vote first (Step 3).'; },
+  motionWizardCommitLabel(){
+    const w = this.motionWizard, v = w.vote;
+    if(!v) return '✓ Resolve';
+    if(w.kind === 'dispute') return v.approved ? '✓ Clear the dispute' : '⚠ Resolve (escalates)';
+    if(v.approved) return '✓ Enact with the senate’s sanction';
+    if(this.motionWizardRestricted() && w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
+    return '✗ Motion fails (stand down)';
+  },
+  motionWizardResolveHint(){
+    const w = this.motionWizard, v = w.vote;
+    if(!v) return 'Gather the votes (Step 3) before resolving.';
+    if(w.kind === 'dispute') return v.approved
+      ? 'A majority FOR grants retroactive approval — the dispute ends and benefits return (RR p.359).'
+      : 'Without a majority the dispute deepens: the against-voters seek to replace the ruler (RR p.359).';
+    if(v.approved) return 'The motion carries — it is enacted with the senate’s sanction.';
+    if(this.motionWizardRestricted()) return w.enactDespiteRejection
+      ? 'The ruler enacts a restricted matter against the senate — the realm goes into dispute (RR p.359).'
+      : 'The motion fails; the ruler stands down (no dispute).';
+    return 'The motion fails; nothing is enacted.';
+  },
+  // commit — open the motion (if fresh) + resolve it with the shown tally (the two P-5 events fire here).
+  motionWizardCommit(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !this.motionWizard.vote) return;
+    let motionId = this.motionWizard.motionId;
+    if(!motionId){
+      const m = A.openSenateMotion(c, this.motionWizard.rolledSpec || this._motionWizardSpec());
+      if(!m) return;
+      motionId = m.id; this.motionWizard.motionId = motionId;
+    }
+    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: this.motionWizard.vote,
+      enactDespiteRejection: this.motionWizard.enactDespiteRejection });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){
+      const m = r.motion;
+      this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000);
+    }
+    this.closeMotionWizard();
+  },
+  // table the motion (open it, resolve later) — only when fresh (no motionId yet)
+  motionWizardTable(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || this.motionWizard.motionId || !this.motionWizardCanRoll()) return;
+    const m = A.openSenateMotion(c, this._motionWizardSpec());
+    this.markDirty(); this.schedulePersist();
+    if(m) this.showToast('📋 Motion tabled — resolve it from the Motions list.', 4000);
+    this.closeMotionWizard();
+  },
+  // the motions log for the selected senate (newest first)
+  senateMotionRows(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return [];
+    return (A.senateMotionsForSenate(c, senate.id) || []).slice().reverse().map(m => ({
+      id: m.id, kind: m.kind,
+      subject: m.title || (m.kind === 'dispute' ? 'retroactive approval' : (m.policyObjective || m.matter || '(matter)')),
+      status: m.status, outcome: m.outcome,
+      votes: m.voteResult ? (m.voteResult.forVotes + '/' + m.voteResult.againstVotes) : '—',
+      turn: (m.resolvedAtTurn != null) ? m.resolvedAtTurn : m.openedAtTurn,
+      isOpen: m.status === 'open' }));
+  },
+  motionStatusClass(s){
+    if(s === 'enacted' || s === 'dispute-cleared') return 'bg-green-200 text-green-900';
+    if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'bg-red-200 text-red-900';
+    if(s === 'open') return 'bg-yellow-200 text-yellow-900';
+    return 'bg-gray-200';
+  },
+  senateResumeMotion(id){ const s = this.senateSelected(); if(s) this.openMotionWizard(s.id, id); },
+  senateWithdrawMotion(id){
+    const A = window.ACKS, c = this.currentCampaign, s = this.senateSelected();
+    if(!A || !c || !s) return;
+    const m = A.withdrawSenateMotion(c, { senateId: s.id, motionId: id });
+    if(m){ this.markDirty(); this.schedulePersist(); this.showToast('Motion withdrawn.', 3000); }
+  },
+  // === @b9-banking    (team) — Banking B4/B5 deposits + letters of credit: state + methods ===
+  // Open-account extras (deposit interest + the RR p.313 consignment custody fee), a unified Bank
+  // modal (deposit / withdraw / issue-letter) replacing the B1 prompt() flows, and the letters-of-
+  // credit panel (issue against an account, redeem at a different market, cancel). B1 shipped the
+  // BankAccount (bnk-) + deposit/withdraw setters; B5 adds the inter-market letter of credit (loc-).
+  bankAcctInterest: '',          // optional monthly deposit-interest % on a new account (0 = none — no RAW deposit interest)
+  bankAcctConsign: false,        // open with the RR p.313 10% consignment custody fee on the initial deposit
+  bankModal: { open:false, mode:'deposit', accountId:'', amount:'', consignment:false, drawingMarketId:'', feePct:1 },
+  bankModalAccount(){ return this.bankingAccounts().find(a => a && a.id === this.bankModal.accountId) || null; },
+  bankModalTitle(){ return ({ 'deposit':'💰 Deposit', 'withdraw':'💸 Withdraw', 'issue-loc':'📜 Issue letter of credit' })[this.bankModal.mode] || 'Bank'; },
+  bankOpenModal(mode, accountId){
+    const acc = this.bankingAccounts().find(a => a && a.id === accountId) || null;
+    let drawDefault = '';
+    if(mode === 'issue-loc'){ const others = this.bankingSettlements().filter(s => s && s.id !== (acc && acc.marketSettlementId)); if(others.length) drawDefault = others[0].id; }
+    this.bankModal = { open:true, mode, accountId, amount:'', consignment:false, drawingMarketId: drawDefault, feePct: 1 };
+  },
+  bankModalClose(){ this.bankModal.open = false; },
+  bankModalCanSubmit(){
+    const m = this.bankModal; const amt = Math.round(Number(m.amount) || 0);
+    if(amt <= 0) return false;
+    if(m.mode === 'issue-loc' && !m.drawingMarketId) return false;
+    return true;
+  },
+  bankModalSubmit(){
+    const m = this.bankModal; const amt = Math.round(Number(m.amount) || 0);
+    if(amt <= 0){ this.showToast('Enter an amount.'); return; }
+    const A = window.ACKS; let r;
+    if(m.mode === 'deposit'){ r = A.depositToBankAccount(this.currentCampaign, m.accountId, amt, { consignment: !!m.consignment }); }
+    else if(m.mode === 'withdraw'){ r = A.withdrawFromBankAccount(this.currentCampaign, m.accountId, amt, {}); }
+    else if(m.mode === 'issue-loc'){
+      if(!m.drawingMarketId){ this.showToast('Pick a destination market.'); return; }
+      r = A.issueLetterOfCredit(this.currentCampaign, { accountId: m.accountId, faceValueGp: amt, drawingMarketSettlementId: m.drawingMarketId, feePct: (Number(m.feePct) || 0) / 100 });
+    }
+    if(!r || !r.ok){ this.showToast(this.bankModalTitle() + ' failed: ' + ((r && r.reason) || '?') + ((r && r.balanceGp != null) ? (' (balance ' + r.balanceGp.toLocaleString() + 'gp)') : ((r && r.needed != null) ? (' (need ' + r.needed.toLocaleString() + 'gp)') : '')), 4500); return; }
+    this.markDirty(); this.schedulePersist(); this.bankModalClose();
+    if(m.mode === 'deposit') this.showToast('Deposited ' + amt.toLocaleString() + 'gp' + (r.custodyFeeGp ? (' (−' + r.custodyFeeGp.toLocaleString() + 'gp custody fee)') : '') + '.');
+    else if(m.mode === 'withdraw') this.showToast('Withdrew ' + amt.toLocaleString() + 'gp.');
+    else this.showToast('📜 Letter of credit issued: ' + amt.toLocaleString() + 'gp.');
+  },
+  // Letters of credit (B5)
+  bankingLetters(){ return (this.currentCampaign && this.currentCampaign.lettersOfCredit) || []; },
+  bankingLetterStatus(loc){ return window.ACKS.letterStatusLabel(loc); },
+  bankLettersLedgerText(){ const L = window.ACKS.letterLedgerFor(this.currentCampaign, {}); const parts = [L.outstandingCount + ' outstanding']; if(L.totalOutstandingGp > 0) parts.push(L.totalOutstandingGp.toLocaleString() + 'gp in transit'); if(L.redeemedCount > 0) parts.push(L.redeemedCount + ' redeemed'); return parts.join(' · '); },
+  bankRedeemLetter(letterId){
+    const loc = this.bankingLetters().find(l => l && l.id === letterId); if(!loc) return;
+    const A = window.ACKS;
+    let r = A.redeemLetterOfCredit(this.currentCampaign, letterId, {});
+    if(!r.ok && r.reason === 'over-capital-pool'){
+      if(!window.confirm('The destination market can only honor ' + (r.remaining || 0).toLocaleString() + 'gp this month (its capital pool, RR p.42), but this letter is for ' + (loc.faceValueGp || 0).toLocaleString() + 'gp. Honor it anyway (the GM overrides the pool)?')) return;
+      r = A.redeemLetterOfCredit(this.currentCampaign, letterId, { force: true });
+    }
+    if(!r.ok){ this.showToast('Redeem failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('📜 Letter redeemed: ' + (r.paid || 0).toLocaleString() + 'gp drawn at ' + (this.bankingMarketName(loc.drawingMarketSettlementId) || 'the market') + '.');
+  },
+  bankCancelLetter(letterId){
+    if(!window.confirm('Cancel this letter? The face value is refunded to the source account; the issue fee is forfeit.')) return;
+    const r = window.ACKS.cancelLetterOfCredit(this.currentCampaign, letterId, {});
+    if(!r.ok){ this.showToast('Cancel failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Letter cancelled — face value refunded.');
+  },
+  // === @b9-sages      (team) — Sages SG-3 periodic-fee retainer: state + methods ===
+  // A patron RETAINS a sage on a monthly fee (RR p.171 specialist wage, default 500 gp/mo) for
+  // priority (the sage is on call) + covered consultations. Surfaced ON the Consult-a-Sage modal
+  // (the 🤝 Retainer section near the fee). Thin Alpine layer over acks-engine-sages.js (retainSage
+  // / endSageRetainer / sageRetainerFor / sageRetainersForCharacter). The monthly bill rides the
+  // shipped slot-64 day-tick (the Day Clock / Advance Month) — no UI billing button needed.
+  retainerFeeGp: 500,
+  retainerResult: null,
+  // The active retainer between the modal's inquirer (client) and the selected sage, or null.
+  sageRetainerForUI(){
+    const A = window.ACKS;
+    if(!A || !A.sageRetainerFor) return null;
+    return A.sageRetainerFor(this.currentCampaign, this.sageConsult.clientId, this.sageConsult.sageId) || null;
+  },
+  sageConsultClientName(){
+    const id = this.sageConsult.clientId;
+    const c = id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === id) : null;
+    return (c && c.name) || 'the inquirer';
+  },
+  // Every active retainer the inquirer holds (as the client), for the modal's list.
+  clientRetainerRows(){
+    const A = window.ACKS, c = this.currentCampaign, id = this.sageConsult.clientId;
+    if(!A || !A.sageRetainersForCharacter || !id) return [];
+    const chars = (c && c.characters) || [];
+    return A.sageRetainersForCharacter(c, id)
+      .filter(r => r.clientCharacterId === id)
+      .map(r => { const s = chars.find(x => x && x.id === r.sageCharacterId); return Object.assign({}, r, { sageName: (s && s.name) || r.sageCharacterId }); });
+  },
+  retainSelectedSage(){
+    const A = window.ACKS;
+    const r = A.retainSage(this.currentCampaign, {
+      sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId,
+      feeGpPerMonth: Number(this.retainerFeeGp) || 0, specialty: this.sageConsult.specialty
+    });
+    this.retainerResult = r;
+    if(r && r.ok){ this.sageConsult.result = null; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Sage retained — the first month is paid.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + (r.error || ''))); }
+  },
+  endSageRetainerUi(id){
+    const r = window.ACKS.endSageRetainer(this.currentCampaign, id);
+    this.retainerResult = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Retainer ended.'); }
+  },
+  // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===
+  // Gladiators G2 (#150) — the ⚔ arena tab over acks-engine-gladiators.js (recruitGladiator /
+  // scheduleBout / resolveAndCommitBout / holdGame / freeGladiator; the abstract 1d10 resolver + the
+  // Mortal-Wounds aftermath live in the engine). Dormant-until-used: the tab + view show only when
+  // gladiator-games is on OR a school exists. The verbs gate on gladiator-games (refuse + toast when off).
+  gladState: { schoolId:null, showNewSchool:false,
+    newSchool:{ name:'', settlementId:'', lanistaId:'' },
+    recruit:{ open:false, schoolId:null, name:'', gladiatorType:'', level:0, method:'buy-trained', thrassian:false },
+    bout:{ open:false, schoolId:null, sideAId:'', sideBId:'', kind:'to-incapacitation' },
+    lastBout:null },
+  gladiatorsTabVisible(){ const c=this.currentCampaign; return !!(c && window.ACKS.gladiatorsSubsystemActive && window.ACKS.gladiatorsSubsystemActive(c)); },
+  gladRuleOn(){ const c=this.currentCampaign; return !!(c && window.ACKS.isHouseRuleEnabled && window.ACKS.isHouseRuleEnabled(c,'gladiator-games')); },
+  gladSchools(){ const c=this.currentCampaign; return (c && window.ACKS.gladiatorSchoolsList) ? window.ACKS.gladiatorSchoolsList(c) : []; },
+  gladSelectedSchool(){ const ss=this.gladSchools(); if(!ss.length) return null; return ss.find(s=>s && s.id===this.gladState.schoolId) || ss[0]; },
+  gladRoster(school){ const c=this.currentCampaign; return (c && school && window.ACKS.gladiatorsOfSchool) ? window.ACKS.gladiatorsOfSchool(c, school) : []; },
+  gladTypes(){ return window.ACKS.gladiatorTypes ? window.ACKS.gladiatorTypes() : []; },
+  gladTypeLabel(key){ const t=window.ACKS.findGladiatorType && window.ACKS.findGladiatorType(key); return t ? t.label : (key||'—'); },
+  gladRankLabel(ch){ return window.ACKS.gladiatorRank ? window.ACKS.gladiatorRank(ch) : ''; },
+  gladGpValue(ch){ return window.ACKS.gladiatorGpValue ? window.ACKS.gladiatorGpValue(ch, { thrassian: ch && ch.gladiatorIsThrassian }) : 0; },
+  gladEarnedFreedom(ch){ return window.ACKS.gladiatorEarnedFreedom ? window.ACKS.gladiatorEarnedFreedom(ch) : false; },
+  gladSettlementOptions(){ const c=this.currentCampaign; return (c && Array.isArray(c.settlements)) ? c.settlements.map(s=>({ id:s.id, name:s.name||s.id })) : []; },
+  gladLanistaOptions(){ const c=this.currentCampaign; return (c && Array.isArray(c.characters)) ? c.characters.filter(x=>x && x.socialTier!=='gladiator' && x.lifecycleState!=='deceased').map(x=>({ id:x.id, name:x.name })) : []; },
+  gladCombatantName(id){ const c=this.currentCampaign; const ch=(c && c.characters||[]).find(x=>x && x.id===id); return ch?ch.name:id; },
+  gladScheduledBouts(school){ const c=this.currentCampaign; return (c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school, { scheduledOnly:true }) : []; },
+  gladRecentBouts(school){ const c=this.currentCampaign; const all=(c && school && window.ACKS.boutsForSchool) ? window.ACKS.boutsForSchool(c, school) : []; return all.filter(b=>b.status==='resolved').slice(-6).reverse(); },
+  gladBoutSummary(b){ if(!b || !b.result) return ''; const win=(b.result.winnerSide==='A'?b.sideA:b.sideB).combatantIds.map(id=>this.gladCombatantName(id)).join(', '); const slain=(b.result.casualties||[]).filter(x=>x.outcome==='slain').length; return win+' won (1d10 '+b.result.d10+')'+(slain?(' · '+slain+' slain'):'')+(b.result.crowdReaction?(' · crowd '+b.result.crowdReaction):''); },
+  _gladPersist(){ try{ this.markDirty(); this.schedulePersist(); }catch(_e){} },
+  gladEstablishSchool(){
+    const c=this.currentCampaign; if(!c) return;
+    const f=this.gladState.newSchool;
+    const r=window.ACKS.createGladiatorSchool(c, { name:f.name||'New Ludus', settlementId:f.settlementId||null, lanistaCharacterId:f.lanistaId||null, foundedAtTurn:c.currentTurn||1 });
+    if(!r){ this.showToast('Could not establish a school.',3000,'error'); return; }
+    this.gladState.schoolId=r.id; this.gladState.showNewSchool=false;
+    this.gladState.newSchool={ name:'', settlementId:'', lanistaId:'' };
+    this._gladPersist(); this.showToast('School established: '+r.name,2500);
+  },
+  gladOpenRecruit(){ const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; } this.gladState.recruit={ open:true, schoolId:s.id, name:'', gladiatorType:(this.gladTypes()[0]||{}).key||'', level:0, method:'buy-trained', thrassian:false }; },
+  gladSubmitRecruit(){
+    const c=this.currentCampaign; const f=this.gladState.recruit;
+    const r=window.ACKS.recruitGladiator(c, f.schoolId, { name:f.name||undefined, gladiatorType:f.gladiatorType||null, level:parseInt(f.level,10)||0, method:f.method, thrassian:!!f.thrassian });
+    if(!r.ok){ this.showToast('Recruit failed: '+r.reason,3500,'error'); return; }
+    this.gladState.recruit.open=false; this._gladPersist();
+    this.showToast(r.character.name+' joins the school ('+(r.costGp||0).toLocaleString()+' gp value)',2800);
+  },
+  gladOpenBout(){
+    const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    const roster=this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate');
+    if(roster.length<2){ this.showToast('Recruit at least two ready gladiators first.',3500,'warn'); return; }
+    this.gladState.bout={ open:true, schoolId:s.id, sideAId:roster[0].id, sideBId:roster[1].id, kind:'to-incapacitation' };
+  },
+  gladBoutRoster(){ const s=this.gladSchools().find(x=>x && x.id===this.gladState.bout.schoolId); return this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate'); },
+  gladSubmitBout(){
+    const c=this.currentCampaign; const f=this.gladState.bout;
+    if(!f.sideAId || !f.sideBId || f.sideAId===f.sideBId){ this.showToast('Pick two different combatants.',3000,'warn'); return; }
+    const r=window.ACKS.scheduleBout(c, { sideA:{ combatantIds:[f.sideAId], kind:'gladiator' }, sideB:{ combatantIds:[f.sideBId], kind:'gladiator' }, kind:f.kind });
+    if(!r.ok){ this.showToast('Schedule failed: '+r.reason,3500,'error'); return; }
+    this.gladState.bout.open=false; this._gladPersist(); this.showToast('Bout scheduled.',2200);
+  },
+  gladResolveBout(boutId){
+    const c=this.currentCampaign;
+    const r=window.ACKS.resolveAndCommitBout(c, boutId, {});
+    if(!r.ok){ this.showToast('Resolve failed: '+r.reason,3500,'error'); return; }
+    this.gladState.lastBout={ boutId, result:r.result };
+    this._gladPersist();
+    const slain=(r.result.casualties||[]).filter(x=>x.outcome==='slain').length;
+    this.showToast('Bout resolved — Side '+r.result.winnerSide+' wins'+(slain?(', '+slain+' slain'):''),3000);
+  },
+  gladStageGame(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s) return;
+    const scheduled=this.gladScheduledBouts(s);
+    if(!scheduled.length){ this.showToast('Schedule some bouts first.',3000,'warn'); return; }
+    const g=window.ACKS.createGame(c, { name:(s.name||'The')+' Games', settlementId:s.settlementId||null, createdAtTurn:c.currentTurn||1 });
+    scheduled.forEach(b=>{ b.gameId=g.id; if(!Array.isArray(g.boutIds)) g.boutIds=[]; if(!g.boutIds.includes(b.id)) g.boutIds.push(b.id); });
+    const r=window.ACKS.holdGame(c, g, {});
+    if(!r.ok){ this.showToast('Game failed: '+r.reason,3500,'error'); return; }
+    this.gladState.lastBout=null; this._gladPersist();
+    this.showToast('Games held — '+r.resolved.length+' bout(s) fought.',3000);
+  },
+  gladFreeGladiator(ch){ const c=this.currentCampaign; const r=window.ACKS.freeGladiator(c, ch.id); if(!r.ok){ this.showToast('Cannot free: '+r.reason,3000,'warn'); return; } this._gladPersist(); this.showToast(ch.name+' wins their freedom.',2500); },
+  // === @b9-lifecycle  (team) — Lifecycle CL-5 transformation: state + methods ===
+  // Character transformation (JJ pp.94–95) over acks-engine-lifecycle.js: transform a character into a
+  // monster (a Spells save keeps/loses class abilities; an alignment-drift Death save schedule rides the
+  // monthly turn — success keeps your old self), roll a drift save by hand, or revert. The reserved
+  // character.transformationState is the ledger; the CAUSE (lycanthropy/crossbreed/ritual) is a Magic stub —
+  // this is the GM verb. The transform modal is at the @b9-lifecycle modal marker; the char-sheet
+  // Transformations section is in the Health/Lifecycle cluster (section:char-transformation).
+  cl5Modal: { open:false, charId:null, charName:'', form:'', trigger:'lycanthropy',
+    reversible:true, rejectedGift:false, afterTheFlesh:false, driftSaveIntervalMonths:12 },
+  cl5IsTransformed(ch){ const A=window.ACKS; return !!(ch && A && A.isTransformed && A.isTransformed(ch)); },
+  cl5TxInfo(ch){ const A=window.ACKS; return (ch && A && A.characterTransformationInfo) ? A.characterTransformationInfo(ch) : { transformed:false }; },
+  cl5Triggers(){ return (window.ACKS && window.ACKS.TRANSFORMATION_TRIGGERS) || []; },
+  cl5SelectedTrigger(){ const A=window.ACKS; return (A && A.transformationTriggerById) ? A.transformationTriggerById(this.cl5Modal.trigger) : null; },
+  _cl5Touch(msg){ if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist(); if(msg && this.showToast) this.showToast(msg, 3000); },
+  cl5OpenTransform(ch){ this.cl5Modal = { open:true, charId:ch.id, charName:ch.name, form:'', trigger:'lycanthropy', reversible:true, rejectedGift:false, afterTheFlesh:false, driftSaveIntervalMonths:12 }; },
+  cl5ConfirmTransform(){
+    const m=this.cl5Modal; const A=window.ACKS;
+    const st = A.transformCharacter(this.currentCampaign, m.charId, {
+      form: (m.form||'').trim(), trigger: m.trigger, reversible: m.reversible,
+      rejectedGift: m.rejectedGift, afterTheFlesh: m.afterTheFlesh,
+      driftSaveIntervalMonths: Number(m.driftSaveIntervalMonths) || 12
+    });
+    if(!st){ if(this.showToast) this.showToast('Give the new form a name first.', 3000); return; }
+    this.cl5Modal.open=false;
+    this._cl5Touch(m.charName + ' is transformed into a ' + st.form + (st.keptClassAbilities ? '' : ' — lost their class abilities') + (st.retainedSelf ? '' : ' — and their mind') + '.');
+  },
+  cl5Revert(ch){ const A=window.ACKS; const r = A.revertCharacter(this.currentCampaign, ch.id, { reason:'reverted' }); if(r) this._cl5Touch(ch.name + ' reverts from ' + r.form + ' to their original form.'); },
+  cl5DriftSaveNow(ch){
+    const A=window.ACKS; const form = (ch.transformationState && ch.transformationState.form) || 'the beast';
+    const res = A.transformationDriftSave(this.currentCampaign, ch.id);
+    if(!res) return;
+    this._cl5Touch(res.drifted ? (ch.name + ' drifts away — now thinks as a ' + form + ' (drift save ' + res.roll + ' vs ' + res.target + '+ — failed).')
+                               : (ch.name + ' holds on to their own mind (drift save ' + res.roll + ' vs ' + res.target + '+).'));
+  },
+  // === @b9-hexscales  (team) — Hex Scales HW-5 local authoring: state + methods ===
+  //     The HW-5 local-tier methods (mapLocalParentHexId / mapEnterLocalScale / mapLocalDrill /
+  //     mapLocalView / mapLocalMarkup / mapLocalAddHex / mapLocalBackToRegional) live WITH the HW-4
+  //     map-scale methods (the "agent-6 (Hex Scales HW-5)" section just after mapContinentalMarkup),
+  //     and the ⬡ Local scale button extends the HW-4 switcher (map-control:scale-local). Nothing here.
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
@@ -26793,8 +27774,11 @@ return {
   // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
   mapSvgMarkup(){
     // HW-4 (team agent-3): at the continental (24-mile) scale the map renders the aggregated region
-    // cells, not the 6-mile hexes. Branch out before the regional render. (Local 1.5-mi = HW-5.)
+    // cells, not the 6-mile hexes. Branch out before the regional render.
     if(this.mapScale === 'continental') return this.mapContinentalMarkup();
+    // HW-5 (team agent-6): at the local (1.5-mile) scale the map renders ONE 6-mile hex's drill-down —
+    // its authored sub-hexes + the addable nesting-grid cells (mapLocalMarkup), not the whole 6-mile map.
+    if(this.mapScale === 'local') return this.mapLocalMarkup();
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const entries = this.mapHexEntries();
@@ -27210,6 +28194,15 @@ return {
       if(cc){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapContinentalDrill(cc.getAttribute('data-cont-key')); }
       return;
     }
+    // HW-5 (team agent-6): at the local (1.5-mile) scale, a click on an EMPTY nesting-grid cell AUTHORS a
+    // local hex (data-local-q/r → materializeLocalHex); a click on an AUTHORED local hex inspects it.
+    if(this.mapScale === 'local'){
+      const add = (e.target && e.target.closest) ? e.target.closest('[data-local-q]') : null;
+      if(add){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapLocalAddHex(parseInt(add.getAttribute('data-local-q'),10), parseInt(add.getAttribute('data-local-r'),10)); return; }
+      const lh = (e.target && e.target.closest) ? e.target.closest('[data-hex-id]') : null;
+      if(lh){ if(this._mapDragged){ this._mapDragged = false; return; } const hex = this._mapFindHexById(lh.getAttribute('data-hex-id')); if(hex) this.openHexDetail({ domainId:null, hexIndex:-1, hex:hex, domainName:null }); }
+      return;
+    }
     const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
     if(!el) return;
     if(el.hasAttribute('data-empty-q')){
@@ -27225,6 +28218,17 @@ return {
   // on campaign load, and by the "Fit" button.
   mapResetView(){
     const A = window.ACKS;
+    // HW-5 (team agent-6): at local scale, fit to the drilled hex's nesting grid (its idealized ~16
+    // cells + any authored sub-hexes), so an empty drill still frames the addable grid.
+    if(this.mapScale === 'local'){
+      const view = this.mapLocalView();
+      if(view){
+        const pseudo = view.idealizedCoords.concat(view.authored.map(h => h.coord)).map(c => ({ coord:c }));
+        const b = A.hexMapBounds(pseudo, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
+        if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; this.schedulePersist(); return; }
+      }
+      // no valid parent in view → fall through to the regional fit below
+    }
     // HW-4 (team agent-3): at continental scale, fit to the 24-mile cells (drawn at 4× hex size, so
     // a cell overlays its children's centroid — the §7.2 interlace; the same viewBox space as regional).
     if(this.mapScale === 'continental'){
@@ -28266,6 +29270,7 @@ return {
       'apprenticeships',
       // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
       'loans', 'bankAccounts',
+      'lettersOfCredit',   // === Banking B4/B5 (team burst9 2026-06-20) — the letter-of-credit relation (loc-)
       // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
       'lore', 'knowledge',
       // === Sages SG-2 (team burst8 2026-06-19) — the multi-week SageCommission research-commission (§8.9 importer mandate)
@@ -28366,7 +29371,8 @@ return {
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
       units:'unit', armies:'army',
       researchProjects:'research project', apprenticeships:'apprenticeship',
-      loans:'loan', bankAccounts:'bank account'
+      loans:'loan', bankAccounts:'bank account',
+      lettersOfCredit:'letter of credit'   // === Banking B4/B5 (team burst9 2026-06-20)
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){
@@ -30413,9 +31419,19 @@ return {
   // Continental cells draw at 4× the regional hex size (24mi vs 6mi); a cell then sits over its
   // children's centroid (the JJ p.467 interlace — axial→pixel is linear, so 4Q@size === Q@4·size).
   MAP_CONTINENTAL_FACTOR: 4,
-  // The scale-selector options. Regional + Continental for v1; Local (1.5-mi authoring) is HW-5.
-  mapScaleOptions(){ return ['regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
-  mapSetScale(s){ if(s !== 'regional' && s !== 'continental') return; if(this.mapScale === s) return; this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist(); },
+  // The scale-selector options — fine→coarse (⬡ Local · ⬢ Regional · ⬣ Continental). HW-5 added Local.
+  mapScaleOptions(){ return ['local','regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
+  // Continental + Regional are global toggles (the whole-map view); Local is PARENT-SCOPED — clicking it
+  // drills into a chosen 6-mile hex (HW-5, mapEnterLocalScale). Switching to regional/continental clears
+  // the local parent + cancels any pending local-pick.
+  mapSetScale(s){
+    if(s === 'local'){ this.mapEnterLocalScale(); return; }
+    if(s !== 'regional' && s !== 'continental') return;
+    if(this.mapScale === s && !this.mapLocalParentHexId) return;
+    if(this.mapMode === 'select' && /1\.5-mile/.test(this._mapSelectHint || '')) this.mapEndSelect(); // cancel a pending local pick
+    this.mapLocalParentHexId = null;
+    this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist();
+  },
   // The continental render set — one aggregate per 24-mile region (engine: continentalCellsForCampaign).
   mapContinentalCells(){ return window.ACKS.continentalCellsForCampaign(this.currentCampaign); },
   // Drill from a continental cell back to the 6-mile scale, framed on that region's ~16 children (§7.2).
@@ -30458,6 +31474,93 @@ return {
       if(wmap){ const wr = wmap[c.key]; if(wr) parts.push('<polygon points="' + pts + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.5" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>'); }
       parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + (pix.y - size * 0.62).toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.8" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(c.coord.q, c.coord.r)) + '</text>');
       parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + subFs + '" fill="#3b2f1c" fill-opacity="0.6" style="pointer-events:none;user-select:none;">' + esc((c.dominantTerrain || '—') + ' · ' + c.childCount) + '</text>');
+    });
+    return parts.join('');
+  },
+  // ── agent-6 (Hex Scales HW-5) state + methods — the local (1.5-mile) drill-down tier ──
+  // Which 6-mile hex the local view is drilled into (null = not in a local drill). Transient (resets
+  // on reload, like mapScale — a drill-in exploration view, not part of the .acks.json).
+  mapLocalParentHexId: null,
+  // The regional hex currently drilled into, or null. Guards on the live scale (a drilled hex that was
+  // deleted / rescaled drops the drill).
+  mapLocalParent(){
+    if(!this.mapLocalParentHexId) return null;
+    const h = this._mapFindHexById(this.mapLocalParentHexId);
+    return (h && window.ACKS.hexScaleOf(h) === 'regional') ? h : null;
+  },
+  // The drill render set (engine: localDrillView) — idealized ~16 nesting cells + authored sub-hexes +
+  // the still-empty addable cells + a derived aggregate. null when no valid parent is in view.
+  mapLocalView(){ const p = this.mapLocalParent(); return p ? window.ACKS.localDrillView(this.currentCampaign, p) : null; },
+  // Enter the Local tier (the ⬡ button). Re-enter the last-drilled hex if it's still valid, else put the
+  // map into select mode so the GM clicks a 6-mile hex to drill into (mapClickHex → the cb → mapLocalDrill).
+  mapEnterLocalScale(){
+    if(this.mapLocalParent()){ this.mapLocalDrill(this.mapLocalParentHexId); return; }
+    const A = window.ACKS;
+    const hasRegional = (this.currentCampaign?.hexes || []).some(h => A.hexScaleOf(h) === 'regional')
+      || (this.domains || []).some(d => (d.geography?.hexes || []).some(h => A.hexScaleOf(h) === 'regional'));
+    if(!hasRegional){ this.showToast('No 6-mile hexes on the map yet — add some first, then drill into one for 1.5-mile detail.', 5000); return; }
+    this.mapBeginSelect(hexId => this.mapLocalDrill(hexId), 'Click a 6-mile hex to drill into its 1.5-mile detail.');
+    this.showToast('Click a 6-mile hex to view & author its 1.5-mile detail (or pick another scale to cancel).', 5000);
+  },
+  // Drill INTO a regional hex → the local scale, framed on its nesting grid (§7.2).
+  mapLocalDrill(hexId){
+    const A = window.ACKS, h = this._mapFindHexById(hexId);
+    if(!h || A.hexScaleOf(h) !== 'regional'){ this.showToast('Drill into a 6-mile (regional) hex to view its 1.5-mile detail.', 4000); return; }
+    this.mapEndSelect();                         // leave the pick mode if we entered via the selector
+    this.mapLocalParentHexId = hexId;
+    this.mapScale = 'local';
+    this.mapViewBox = null; this.mapResetView(); // fits to the local children / nesting grid
+    this.schedulePersist();
+  },
+  // Climb back out of the local drill → the 6-mile view, framed on the parent hex.
+  mapLocalBackToRegional(){
+    const A = window.ACKS, parent = this.mapLocalParent();
+    this.mapScale = 'regional'; this.mapLocalParentHexId = null;
+    const entry = parent ? this.mapHexEntries().find(e => e.hex.id === parent.id) : null;
+    const b = (entry) ? A.hexMapBounds([entry.hex], this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 3) : null;
+    if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+    else { this.mapViewBox = null; this.mapEnsureView(); }
+    this.schedulePersist();
+  },
+  // Author a 1.5-mile hex at an empty nesting-grid cell (the addable cells, data-local-q/r). Materializes
+  // it bound to the parent (engine: materializeLocalHex — domainless, out of the 6-mile economy), then
+  // opens the standard hex card so the GM can set its terrain/detail.
+  mapLocalAddHex(q, r){
+    const A = window.ACKS, parent = this.mapLocalParent();
+    if(!parent){ this.showToast('No 6-mile parent hex in view to add detail to.', 3000); return; }
+    const hex = A.materializeLocalHex(this.currentCampaign, parent, { q, r });
+    if(!hex){ this.showToast('Could not add the 1.5-mile hex.', 3000); return; }
+    if(this.markDirty) this.markDirty();
+    this.schedulePersist();
+    this.openHexDetail({ domainId:null, hexIndex:-1, hex:hex, domainName:null });
+    this.showToast('Added 1.5-mile detail ' + A.hexDisplayLabel(q, r) + ' — set its terrain on the hex card.', 4000);
+  },
+  // Build the local (1.5-mile) SVG markup: the AUTHORED sub-hexes (terrain fill via the active "Color by:"
+  // layer, clickable to inspect, data-hex-id) + the empty nesting-grid cells (faint dashed, clickable to
+  // author, data-local-q/r). Drawn at the regional hex size; the local coords sit at 4× the parent's, so
+  // the ~16 children fill the space one 24-mile cell would (the §7.2 interlace, one tier down).
+  mapLocalMarkup(){
+    const A = window.ACKS, size = this.MAP_HEX_SIZE;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const view = this.mapLocalView();
+    if(!view) return '';
+    const ctx = this.mapFillContext(), layer = this.mapFillLayer;
+    const sw = (size * 0.04).toFixed(2), labelFs = (size * 0.16).toFixed(1);
+    const parts = [];
+    // empty cells first (so authored hexes paint over any overlap)
+    view.addableCoords.forEach(c => {
+      const pts = A.hexPolygonPoints(c.q, c.r, size);
+      parts.push('<polygon data-local-q="' + c.q + '" data-local-r="' + c.r + '" points="' + pts + '" fill="#000000" fill-opacity="0.03" stroke="#3a4a5e" stroke-opacity="0.35" stroke-dasharray="' + (size*0.12).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="cursor:copy;"><title>Add 1.5-mile detail here (' + esc(A.hexDisplayLabel(c.q, c.r)) + ')</title></polygon>');
+    });
+    // authored sub-hexes
+    view.authored.forEach(h => {
+      if(!h.coord) return;
+      const pts = A.hexPolygonPoints(h.coord.q, h.coord.r, size);
+      const pix = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      const title = (A.hexName(h) || A.hexDisplayLabel(h.coord.q, h.coord.r)) + ' · 1.5-mile detail'
+        + (h.terrain ? ' · ' + h.terrain : '') + (h.families ? ' · ' + h.families + ' families' : '') + ' — click to edit';
+      parts.push('<polygon data-hex-id="' + esc(h.id) + '" points="' + pts + '" fill="' + A.hexFillColor(h, layer, ctx) + '" stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(title) + '</title></polygon>');
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.7" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(h.coord.q, h.coord.r)) + '</text>');
     });
     return parts.join('');
   },

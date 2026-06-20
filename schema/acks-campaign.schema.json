@@ -209,6 +209,12 @@
         "$ref": "#/$defs/lair"
       }
     },
+    "lettersOfCredit": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/letterOfCredit"
+      }
+    },
     "loans": {
       "type": "array",
       "items": {
@@ -5889,6 +5895,128 @@
         "id"
       ]
     },
+    "letterOfCredit": {
+      "title": "Letter of Credit",
+      "description": "\"letterOfCredit\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceAccountId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "bankAccount id — prefix \"bnk-\""
+        },
+        "issuer": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "bearer": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "faceValueGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "issueFeeGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "issuingMarketSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "drawingMarketSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "status": {
+          "enum": [
+            "outstanding",
+            "redeemed",
+            "cancelled",
+            null
+          ]
+        },
+        "issuedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "settledAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "lore": {
       "title": "Lore",
       "description": "\"lore\" entity",
@@ -6066,10 +6194,15 @@
                 "sage-consultation",
                 "sage-commission-started",
                 "sage-commission-resolved",
+                "sage-retainer-started",
+                "sage-retainer-ended",
+                "sage-retainer-fee-paid",
                 "senate-vote",
                 "policy-enacted",
                 "senate-influenced",
                 "senate-dispute-opened",
+                "senate-motion-opened",
+                "senate-motion-resolved",
                 "delve-foray",
                 "wilderness-foray",
                 "disease-contracted",
@@ -6078,6 +6211,8 @@
                 "condition-cleared",
                 "character-died",
                 "inheritance-resolved",
+                "character-transformed",
+                "transformation-reverted",
                 "dungeon-attuned",
                 "attunement-ended",
                 "sovereignty-established",
@@ -6110,6 +6245,10 @@
                 "bank-deposit",
                 "bank-withdrawal",
                 "loan-reconciled",
+                "loan-defaulted",
+                "loan-written-off",
+                "letter-of-credit-issued",
+                "letter-of-credit-redeemed",
                 "lore-learned",
                 "lore-shared",
                 "item-identified",
@@ -6117,7 +6256,10 @@
                 "item-appraised",
                 "generation",
                 "magic-item-commissioned",
-                "magic-item-commission-resolved"
+                "magic-item-commission-resolved",
+                "bout-resolved",
+                "gladiator-game-held",
+                "gladiator-recruited"
               ]
             },
             "id": {
@@ -6209,9 +6351,9 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 55,
-    "typedKinds": 38,
-    "eventKinds": 137,
+    "entityKinds": 56,
+    "typedKinds": 39,
+    "eventKinds": 151,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

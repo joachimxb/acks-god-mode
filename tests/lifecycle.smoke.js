@@ -790,5 +790,206 @@ section('CL-4a death — migrate-no-op (the demo carries no death fields)');
 }
 
 // =============================================================================
+// Character Lifecycle CL-5 (team) — character transformation (JJ pp.94–95). Locks: the reserved
+// transformationState shape + the trigger catalog + the isTransformed predicate; transformCharacter
+// (form required, the Spells save → keptClassAbilities, the initial alignment-drift Death save →
+// retainedSelf, the lifecycleState 'transformed' flip, the reject-the-gift / After-the-Flesh auto-retain
+// exceptions, the dead-can't-transform guard); the monthly drift clock folded into processAgingForTurn
+// (countdown → roll-when-due, success re-arms / failure drifts, the age:null subject independence, the
+// dryRun-rolls-nothing discipline, drift-emits-no-event); transformationDriftSave (the direct verb);
+// revertCharacter (clears the ledger, restores 'active', emits the revert event); the read accessor; the
+// two record-only events (registered + wizard-opt-out + validate); and the migrate-no-op (transformationState
+// is already a null reservation — the demo carries it, stays null, and the aging pass adds no tx event).
+// =============================================================================
+
+section('CL-5 transformation — data layer + catalog + predicate');
+{
+  const b = ACKS.blankCharacter({});
+  ok('blankCharacter reserves transformationState:null', b.transformationState === null);
+  ok('isTransformed(fresh) is false', ACKS.isTransformed(b) === false);
+  ok('isTransformed(null) is false', ACKS.isTransformed(null) === false);
+  ok('TRANSFORMATION_TRIGGERS catalog present (7)', Array.isArray(ACKS.TRANSFORMATION_TRIGGERS) && ACKS.TRANSFORMATION_TRIGGERS.length === 7);
+  ok('lycanthropy can be rejected; crossbreed cannot', ACKS.transformationTriggerById('lycanthropy').canReject === true && ACKS.transformationTriggerById('crossbreed').canReject === false);
+  ok('necromantic is an After-the-Flesh trigger', ACKS.transformationTriggerById('necromantic').undeadAfterFlesh === true);
+  ok('DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS is 12', ACKS.DRIFT_SAVE_DEFAULT_INTERVAL_MONTHS === 12);
+  ok('an unknown trigger id → null', ACKS.transformationTriggerById('zzz') === null);
+}
+
+section('CL-5 transformation — transformCharacter: form/trigger, Spells save, lifecycleState flip');
+{
+  const c = mkCampaign({ turn:5 });
+  const w = mkChar(c, { id:'w1', name:'Garran', savingThrows:{ paralysis:15, death:11, blast:15, implements:15, spells:14 } });
+  const st = ACKS.transformCharacter(c, 'w1', { form:'werewolf', trigger:'lycanthropy', forcedSpellsRoll:20, forcedDriftRoll:20 });
+  ok('transformCharacter returns the transformationState', !!st && st.form === 'werewolf' && st.trigger === 'lycanthropy');
+  ok('lifecycleState flips to transformed', w.lifecycleState === 'transformed');
+  ok('isTransformed(w) is now true', ACKS.isTransformed(w) === true);
+  ok('Spells save 20 vs 14+ → keeps class abilities', st.keptClassAbilities === true && st.classAbilitiesSave.roll === 20);
+  ok('initial drift 20 vs 11+ → retains self + arms the schedule at the default 12mo', st.retainedSelf === true && st.driftSave && st.driftSave.dueInMonths === 12);
+  ok('the initial drift save is recorded (initial:true)', st.alignmentDriftSaves.length === 1 && st.alignmentDriftSaves[0].initial === true);
+  ok('reversible defaults true', st.reversible === true);
+  ok('emits character-transformed (record-only, the character as subject)', c.eventLog.some(e => e.event.kind === 'character-transformed' && e.event.context.relatedEntities[0].id === 'w1'));
+}
+
+section('CL-5 transformation — the Spells save loses abilities; the initial drift fails at once');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'w2', name:'Mira', savingThrows:{ paralysis:15, death:11, blast:15, implements:15, spells:14 } });
+  // spells nat-1 → loses abilities; drift 1 → fails (the mind drifts at the moment of transformation)
+  const st = ACKS.transformCharacter(c, 'w2', { form:'wereboar', trigger:'lycanthropy', forcedSpellsRoll:1, forcedDriftRoll:1 });
+  ok('Spells natural 1 → loses class abilities (even if ≥ target by total)', st.keptClassAbilities === false);
+  ok('initial drift failed → retainedSelf:false + the schedule ends', st.retainedSelf === false && st.driftSave === null);
+  ok('a fully-drifted character is no longer a drift subject', ACKS.isTransformed(w) === true && st.alignmentDriftSaves[0].saved === false);
+}
+
+section('CL-5 transformation — guards: a form is required; the dead cannot transform');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'w3', name:'Bran' });
+  ok('no form → null (nothing transformed)', ACKS.transformCharacter(c, 'w3', { trigger:'polymorph' }) === null && w.transformationState === null);
+  ok('blank form → null', ACKS.transformCharacter(c, 'w3', { form:'   ' }) === null);
+  w.lifecycleState = 'deceased'; w.alive = false;
+  ok('a deceased character cannot be transformed', ACKS.transformCharacter(c, 'w3', { form:'wight' }) === null);
+}
+
+section('CL-5 transformation — the auto-retain exceptions (reject the gift / After the Flesh)');
+{
+  const c = mkCampaign();
+  const lyc = mkChar(c, { id:'r1', name:'Refuser' });
+  const st1 = ACKS.transformCharacter(c, 'r1', { form:'werewolf', trigger:'lycanthropy', rejectedGift:true, forcedSpellsRoll:20 });
+  ok('a lycanthrope who rejects the gift auto-retains — no drift schedule, no initial save', st1.retainedSelf === true && st1.driftSave === null && st1.rejectedGift === true && st1.alignmentDriftSaves.length === 0);
+  const undead = mkChar(c, { id:'r2', name:'Revenant' });
+  const st2 = ACKS.transformCharacter(c, 'r2', { form:'wight', trigger:'necromantic', afterTheFlesh:true, forcedSpellsRoll:20 });
+  ok('an After-the-Flesh undead auto-retains', st2.retainedSelf === true && st2.driftSave === null && st2.afterTheFlesh === true);
+  const cross = mkChar(c, { id:'r3', name:'Chimera' });
+  const st3 = ACKS.transformCharacter(c, 'r3', { form:'chimera', trigger:'crossbreed', rejectedGift:true, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  ok('rejectedGift is ignored for a non-rejectable trigger (crossbreed still drifts/saves)', st3.rejectedGift === false && st3.driftSave && st3.driftSave.dueInMonths === 12);
+}
+
+section('CL-5 transformation — the monthly drift clock (folded into processAgingForTurn)');
+{
+  const c = mkCampaign({ turn:5 });
+  // age:null + an ageless RACE — proves the drift pass is a DIFFERENT subject set than aging.
+  const w = mkChar(c, { id:'d1', name:'Drifa', race:'elf', savingThrows:{ paralysis:15, death:15, blast:15, implements:15, spells:15 } });
+  ok('the subject is age:null + ageless (not an aging subject)', w.age === null && ACKS.isAgelessRace('elf'));
+  ACKS.transformCharacter(c, 'd1', { form:'werewolf', trigger:'lycanthropy', driftSaveIntervalMonths:3, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  ok('drift armed at the chosen 3-month interval', w.transformationState.driftSave.dueInMonths === 3);
+  // month 1: counts down 3→2, no roll (RNG irrelevant) — and the aging pass surfaces out.transformations
+  const r1 = ACKS.processAgingForTurn(c, { rng: RNG_HI });
+  ok('processAgingForTurn surfaces out.transformations', r1.transformations && r1.transformations.ran === true);
+  ok('month 1: the drift save counts down 3→2, no roll', w.transformationState.driftSave.dueInMonths === 2 && w.transformationState.alignmentDriftSaves.length === 1);
+  // month 2: 2→1
+  ACKS.processAgingForTurn(c, { rng: RNG_HI });
+  ok('month 2: counts down 2→1', w.transformationState.driftSave.dueInMonths === 1);
+  // month 3: due → roll a SUCCESS (RNG_HI → nat-20) → keeps self + re-arms to 3
+  ACKS.processAgingForTurn(c, { rng: RNG_HI });
+  ok('month 3 due → success keeps self + re-arms to 3mo', w.transformationState.retainedSelf === true && w.transformationState.driftSave.dueInMonths === 3 && w.transformationState.alignmentDriftSaves.length === 2);
+}
+
+section('CL-5 transformation — a due drift save that FAILS drifts the character (schedule ends)');
+{
+  const c = mkCampaign({ turn:2 });
+  const w = mkChar(c, { id:'d2', name:'Lost', savingThrows:{ paralysis:15, death:15, blast:15, implements:15, spells:15 } });
+  ACKS.transformCharacter(c, 'd2', { form:'wereboar', trigger:'lycanthropy', driftSaveIntervalMonths:1, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  // interval 1 → due next month; RNG0 → nat-1 → the drift save FAILS
+  const r = ACKS.processAgingForTurn(c, { rng: RNG0 });
+  ok('the due drift save failed → drifted', r.transformations.drifts.length === 1 && r.transformations.drifts[0].characterId === 'd2');
+  ok('retainedSelf:false + the schedule ends (driftSave null)', w.transformationState.retainedSelf === false && w.transformationState.driftSave === null);
+  ok('a drift entry was logged for the monthly review', r.logEntries.some(l => /Transformation —/.test(l) && /drifts away/.test(l)));
+  // a fully-drifted character makes no further saves — a later month is a no-op for it
+  const before = w.transformationState.alignmentDriftSaves.length;
+  ACKS.processAgingForTurn(c, { rng: RNG0 });
+  ok('a drifted character makes no further drift saves', w.transformationState.alignmentDriftSaves.length === before);
+}
+
+section('CL-5 transformation — a drift save emits NO event (only the two bracketing kinds)');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'d3', name:'Quiet' });
+  ACKS.transformCharacter(c, 'd3', { form:'werewolf', trigger:'lycanthropy', driftSaveIntervalMonths:1, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  const afterTransform = c.eventLog.length;
+  ACKS.processAgingForTurn(c, { rng: RNG0 });   // a due drift save (fails)
+  ok('the monthly drift save adds no eventLog entry (ledger + history + log only)', c.eventLog.length === afterTransform);
+}
+
+section('CL-5 transformation — dryRun rolls nothing + mutates nothing');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'d4', name:'Preview', savingThrows:{ paralysis:15, death:15, blast:15, implements:15, spells:15 } });
+  ACKS.transformCharacter(c, 'd4', { form:'werewolf', trigger:'lycanthropy', driftSaveIntervalMonths:1, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  const dueBefore = w.transformationState.driftSave.dueInMonths;   // 1 → due this month
+  const savesBefore = w.transformationState.alignmentDriftSaves.length;
+  const logBefore = c.eventLog.length;
+  const r = ACKS.processAgingForTurn(c, { dryRun:true, rng: RNG0 });
+  ok('dryRun flags the due drift save', r.transformations.driftSaves.some(s => s.characterId === 'd4' && s.dueThisMonth === true));
+  ok('dryRun mutates nothing (no countdown, no roll, no event)', w.transformationState.driftSave.dueInMonths === dueBefore && w.transformationState.alignmentDriftSaves.length === savesBefore && c.eventLog.length === logBefore && w.transformationState.retainedSelf === true);
+}
+
+section('CL-5 transformation — transformationDriftSave (the direct verb)');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'v1', name:'Vex', savingThrows:{ paralysis:15, death:15, blast:15, implements:15, spells:15 } });
+  ACKS.transformCharacter(c, 'v1', { form:'werewolf', trigger:'lycanthropy', forcedSpellsRoll:20, forcedDriftRoll:20 });
+  const res = ACKS.transformationDriftSave(c, 'v1', { forcedRoll:1 });   // fail
+  ok('a direct drift save resolves (failed → drifted)', res && res.saved === false && res.drifted === true && w.transformationState.retainedSelf === false);
+  ok('a direct drift save on an already-drifted character → null', ACKS.transformationDriftSave(c, 'v1', { forcedRoll:20 }) === null);
+  const r2 = mkChar(c, { id:'v2', name:'Refuser2' });
+  ACKS.transformCharacter(c, 'v2', { form:'werewolf', trigger:'lycanthropy', rejectedGift:true, forcedSpellsRoll:20 });
+  ok('a direct drift save on an auto-retain (rejected gift) character → null', ACKS.transformationDriftSave(c, 'v2') === null);
+  const r3 = mkChar(c, { id:'v3', name:'Normal' });
+  ok('a direct drift save on a non-transformed character → null', ACKS.transformationDriftSave(c, 'v3') === null);
+}
+
+section('CL-5 transformation — revertCharacter');
+{
+  const c = mkCampaign({ turn:7 });
+  const w = mkChar(c, { id:'rv1', name:'Cured' });
+  ACKS.transformCharacter(c, 'rv1', { form:'werewolf', trigger:'lycanthropy', forcedSpellsRoll:20, forcedDriftRoll:20 });
+  const rev = ACKS.revertCharacter(c, 'rv1', { reason:'cured' });
+  ok('revert returns the form/trigger', rev && rev.form === 'werewolf' && rev.trigger === 'lycanthropy');
+  ok('revert clears transformationState + restores lifecycleState active', w.transformationState === null && w.lifecycleState === 'active');
+  ok('isTransformed(w) is false after revert', ACKS.isTransformed(w) === false);
+  ok('revert emits transformation-reverted', c.eventLog.some(e => e.event.kind === 'transformation-reverted' && e.event.payload.reason === 'cured'));
+  ok('reverting a non-transformed character → null', ACKS.revertCharacter(c, 'rv1') === null);
+  const dead = mkChar(c, { id:'rv2', name:'Corpse' });
+  ACKS.transformCharacter(c, 'rv2', { form:'wight', trigger:'necromantic', forcedSpellsRoll:20, forcedDriftRoll:20 });
+  dead.lifecycleState = 'deceased'; dead.alive = false;
+  ok('a deceased transformed character cannot be reverted', ACKS.revertCharacter(c, 'rv2') === null);
+}
+
+section('CL-5 transformation — characterTransformationInfo (the read accessor)');
+{
+  const c = mkCampaign();
+  const w = mkChar(c, { id:'i1', name:'Reader', savingThrows:{ paralysis:15, death:11, blast:15, implements:15, spells:14 } });
+  ok('info on a non-transformed character: { transformed:false }', ACKS.characterTransformationInfo(w).transformed === false);
+  ACKS.transformCharacter(c, 'i1', { form:'werewolf', trigger:'lycanthropy', driftSaveIntervalMonths:6, forcedSpellsRoll:20, forcedDriftRoll:20 });
+  const info = ACKS.characterTransformationInfo(w);
+  ok('info reflects form/trigger/kept/retained/reversible', info.transformed === true && info.form === 'werewolf' && info.triggerLabel === 'Lycanthropy' && info.keptClassAbilities === true && info.retainedSelf === true && info.reversible === true);
+  ok('info reports the drift schedule + the ledger count', info.driftSaveDueInMonths === 6 && info.driftSaveCount === 1 && info.lastDriftSave && info.lastDriftSave.saved === true && info.drifted === false);
+}
+
+section('CL-5 transformation — the two events are registered + wizard-opt-out + validate');
+{
+  ok('character-transformed + transformation-reverted are known event kinds', ACKS.isEventKindKnown('character-transformed') && ACKS.isEventKindKnown('transformation-reverted'));
+  ok('both are opted out of the Event Wizard (engine-owned, record-only)', !ACKS.isWizardEmittable('character-transformed') && !ACKS.isWizardEmittable('transformation-reverted'));
+  const c = mkCampaign();
+  mkChar(c, { id:'e1', name:'Valid' });
+  ACKS.transformCharacter(c, 'e1', { form:'werewolf', trigger:'lycanthropy', forcedSpellsRoll:20, forcedDriftRoll:20 });
+  ACKS.revertCharacter(c, 'e1');
+  const tx = c.eventLog.find(e => e.event.kind === 'character-transformed').event;
+  const rev = c.eventLog.find(e => e.event.kind === 'transformation-reverted').event;
+  ok('the emitted transformation events validate against their schemas', ACKS.validateEvent(tx) === true && ACKS.validateEvent(rev) === true);
+}
+
+section('CL-5 transformation — migrate-no-op (the demo carries transformationState:null)');
+{
+  require(path.join(__dirname, '..', 'acks-demo-template.js'));
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('every demo character carries transformationState:null after migrate', demo.characters.every(c => c.transformationState === null));
+  ok('no demo character is transformed', demo.characters.every(c => ACKS.isTransformed(c) === false));
+  ACKS.processAgingForTurn(demo, { rng: RNG_HI });   // no transformed characters → no drift, no tx event
+  ok('the aging+drift pass on the (untransformed) demo adds no transformation event', !demo.eventLog.some(e => e.event.kind === 'character-transformed' || e.event.kind === 'transformation-reverted'));
+}
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? '✅' : '❌') + ' lifecycle.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('   failures: ' + failures.join(' · ')); process.exit(1); }

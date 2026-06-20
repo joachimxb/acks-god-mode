@@ -269,6 +269,12 @@ const EVENT_KINDS = Object.freeze([
   // day-tick commit already applied the state): -started at commissioning, -resolved when the
   // research completes. The §528 envelope (sage = source, client = beneficiary, the commission = subject).
   'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — the periodic-fee retainer (retainSage / endSageRetainer + the slot-64
+  // monthly billing; acks-engine-sages.js). All record-only (the verb / the day-tick commit already
+  // moved the gp via GP Wave B): -started at retainer, -fee-paid each month (campaignLogHidden — the
+  // routine bill, off the Campaign Log), -ended on a voluntary end or an unpaid lapse. §528 envelope
+  // (sage = source, client = beneficiary).
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
   // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
   // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
@@ -280,6 +286,13 @@ const EVENT_KINDS = Object.freeze([
   // the dispute-lifecycle transitions (opened/escalated/cleared/abandoned/reestablished — action-discriminated).
   'senate-influenced',
   'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — the Senate-MOTION wizard (RR pp.355–360). Engine-
+  // emitted by acks-engine-politics.js (openSenateMotion / resolveSenateMotion), record-only: the
+  // verb already applied state (the motion sub-record on senate.motions[]; resolve reuses senateVote
+  // + enactPolicy + clearSenateDispute). Carries the Event.context envelope (apex hex + ruler + the
+  // voting senators). Wizard opt-out below.
+  'senate-motion-opened',
+  'senate-motion-resolved',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -312,6 +325,13 @@ const EVENT_KINDS = Object.freeze([
   // succession economy (successor + Reserve XP + Heroic Funeral + the will/heir transfer). Wizard opt-out below.
   'character-died',
   'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — character transformation (JJ pp.94–95). Record-only audit
+  // emitted by acks-engine-lifecycle.js (transformCharacter / revertCharacter). 'character-transformed'
+  // records the form + trigger + the keep-class-abilities Spells save + the initial alignment-drift Death
+  // save; 'transformation-reverted' records reverting to the original form. The monthly drift-save schedule
+  // rides processAgingForTurn (no event kind of its own — recorded on the ledger + history, the aging-arm idiom).
+  'character-transformed',
+  'transformation-reverted',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -373,6 +393,14 @@ const EVENT_KINDS = Object.freeze([
   // Record-only: reconcileFeudalLoans (acks-engine-banking.js) materializes a kind:'feudal' Loan from a
   // GIVEN F&D loan obligation (it moves no gp — the principal already moved in giveLoanObligation). ===
   'loan-reconciled',   // a shipped F&D feudal loan promoted onto the shared Loan relation (fdObligationId link)
+  // === Banking B4/B5 (team burst9 2026-06-20) — the loan-lifecycle close-out events (B2 left
+  // markLoanDefaulted/writeOffLoan history-only) + letters of credit (loc-, the inter-market draw
+  // primitive). Record-only audits — the verbs in acks-engine-banking.js already moved the gp through
+  // the GP Wave B grammar (a LoC issue/redeem rides the 'external' banking-network handle). ===
+  'loan-defaulted',          // a commercial loan called in default (stops accruing; RR p.42 bounty-hunter note)
+  'loan-written-off',        // the creditor forgives a loan's remaining balance
+  'letter-of-credit-issued', // a letter of credit drawn against a bank account (face + fee → the banking network)
+  'letter-of-credit-redeemed', // a letter of credit drawn at its destination market (network → the bearer)
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
   // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
@@ -394,7 +422,14 @@ const EVENT_KINDS = Object.freeze([
   // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
   // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
   'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
-  'magic-item-commission-resolved' // the commission's research throw resolves (item delivered | up-front lost)
+  'magic-item-commission-resolved', // the commission's research throw resolves (item delivered | up-front lost)
+  // === Gladiators G2 (team burst9 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // resolveAndCommitBout / holdGame / recruitGladiator verbs apply the state — the bout result + XP +
+  // Mortal-Wounds casualties, the game.status flip, the minted gladiator Character). Record-only audits;
+  // behind the default-OFF gladiator-games rule. Carry the Event.context envelope (settlement/school/combatants).
+  'bout-resolved',          // an abstract bout is resolved → winner/casualties/XP/crowd reaction (RAW p.25/27/28)
+  'gladiator-game-held',    // a Game/Munus is staged → all its scheduled bouts resolved (RAW p.22)
+  'gladiator-recruited'     // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -981,6 +1016,20 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { settlementId: 'string', subject: 'string', success: 'boolean', throw: 'object',
          answerText: 'string', daysRequired: 'number' }
   },
+  // === Sages SG-3 (team) === — the periodic-fee retainer (record-only). started: the standing
+  // arrangement; fee-paid: a monthly bill; ended: a voluntary end or an unpaid lapse (reason).
+  'sage-retainer-started': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', consultDiscount: 'number', specialty: 'string' }
+  },
+  'sage-retainer-fee-paid': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGp: 'number', monthsPaid: 'number' }
+  },
+  'sage-retainer-ended': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', monthsPaid: 'number', reason: 'string' }
+  },
   // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
   // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
   'senate-vote': {
@@ -1010,6 +1059,22 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { action: 'string', topic: 'string', attempts: 'number', replaceRulerCount: 'number',
          forVotes: 'number', againstVotes: 'number', hostileCount: 'number', cooldownMonths: 'number',
          reestablishAtTurn: 'number', honeymoonUntilTurn: 'number', apexDomainId: 'string', narrative: 'string' }
+  },
+  // === Politics P-5 (burst9 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A motion is tabled before the senate (kind ∈ policy|edict|dispute).
+  'senate-motion-opened': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         restricted: 'boolean', title: 'string', narrative: 'string' }
+  },
+  // A motion is resolved (votes gathered + enacted/rejected/dispute). status ∈ enacted|rejected|
+  // defied|dispute-cleared|dispute-escalated; outcome ∈ approved|rejected|no-majority.
+  'senate-motion-resolved': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         outcome: 'string', approved: 'boolean', status: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', revealedCount: 'number', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -1067,6 +1132,21 @@ const EVENT_SCHEMAS = Object.freeze({
          funeralXp: 'number', funeralGpSpent: 'number', heroic: 'boolean', transferredGp: 'number',
          bankFeeGp: 'number', bankFeePct: 'number', treasureLost: 'number', stashesTransferred: 'number',
          successorStartXp: 'number', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-5 (team) === (JJ pp.94–95; engine-emitted by acks-engine-lifecycle.js, record-only).
+  // A character is transformed into a monster: the form + trigger + the keep-class-abilities Spells save +
+  // the initial alignment-drift Death save. On transform the verb flips lifecycleState 'transformed'.
+  'character-transformed': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', keptClassAbilities: 'boolean', spellsSave: 'number',
+         spellsTarget: 'number', retainedSelf: 'boolean', rejectedGift: 'boolean', afterTheFlesh: 'boolean',
+         reversible: 'boolean', initialDriftSave: 'number', initialDriftSaved: 'boolean', narrative: 'string' }
+  },
+  // The transformation is reversed (cured / dispelled); on revert lifecycleState returns to 'active'.
+  'transformation-reverted': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', reason: 'string', keptSelf: 'boolean',
+         driftSaveCount: 'number', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -1211,6 +1291,24 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { loanId: 'string', fdObligationId: 'string' },
     O: { kind: 'string', principalGp: 'number', creditor: 'object', debtor: 'object', narrative: 'string' }
   },
+  // === Banking B4/B5 (team burst9 2026-06-20) — loan close-out + letters of credit (record-only;
+  // the verbs in acks-engine-banking.js already moved the gp through the grammar). ===
+  'loan-defaulted': {
+    R: { loanId: 'string' },
+    O: { balanceGp: 'number', debtOverXp: 'boolean', bountyTriggered: 'boolean', narrative: 'string' }
+  },
+  'loan-written-off': {
+    R: { loanId: 'string' },
+    O: { forgivenGp: 'number', reason: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-issued': {
+    R: { letterId: 'string' },
+    O: { accountId: 'string', faceValueGp: 'number', issueFeeGp: 'number', issuingMarketSettlementId: 'string', drawingMarketSettlementId: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-redeemed': {
+    R: { letterId: 'string' },
+    O: { faceValueGp: 'number', atMarketSettlementId: 'string', bearer: 'object', narrative: 'string' }
+  },
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
   // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
   'lore-learned': {
@@ -1251,6 +1349,21 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-item-commission-resolved': {
     R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
     O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
+  },
+  // === Gladiators G2 (team burst9 2026-06-20) === — record-only audit (see EVENT_KINDS). The verbs in
+  // acks-engine-gladiators.js already applied the state (the bout result + XP + Mortal-Wounds casualties).
+  'bout-resolved': {
+    R: { boutId: 'string', winnerSide: 'string' },
+    O: { gameId: 'string', kind: 'string', d10: 'number', death: 'boolean', crowdReaction: 'string',
+         casualties: 'array', xpAwarded: 'array', freedomEarned: 'array', narrative: 'string' }
+  },
+  'gladiator-game-held': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', boutCount: 'number', budgetGp: 'number', narrative: 'string' }
+  },
+  'gladiator-recruited': {
+    R: { characterId: 'string', schoolId: 'string' },
+    O: { method: 'string', gladiatorType: 'string', level: 'number', costGp: 'number', narrative: 'string' }
   }
 });
 
@@ -2898,6 +3011,12 @@ registerEventHandler('policy-enacted', applyEvent_senateAudit);
 // the dispute transition); the handler keeps the event well-formed on replay (records the narrative only).
 registerEventHandler('senate-influenced', applyEvent_senateAudit);
 registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
+// === Politics P-5 (burst9 2026-06-20) === — the Senate-motion events share the same record-only audit:
+// ACKS.openSenateMotion / resolveSenateMotion (acks-engine-politics.js) already applied the state (the
+// motion sub-record + the reused senateVote/enactPolicy/clearSenateDispute effects); the handler keeps
+// the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-motion-opened', applyEvent_senateAudit);
+registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -2939,6 +3058,16 @@ function applyEvent_lifecycleDeathAudit(campaign, event){
 }
 registerEventHandler('character-died', applyEvent_lifecycleDeathAudit);
 registerEventHandler('inheritance-resolved', applyEvent_lifecycleDeathAudit);
+// === Character Lifecycle CL-5 (team) === — transformation events share the record-only audit posture:
+// acks-engine-lifecycle.js (transformCharacter / revertCharacter) already applied the state (the
+// transformationState ledger + the lifecycleState 'transformed'/'active' flip); the handler keeps the
+// event well-formed on replay (records the narrative only). Mirrors aging / disease / death.
+function applyEvent_transformationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'transformation' } };
+}
+registerEventHandler('character-transformed', applyEvent_transformationAudit);
+registerEventHandler('transformation-reverted', applyEvent_transformationAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -3003,6 +3132,11 @@ registerEventHandler('bank-deposit', applyEvent_bankingAudit);
 registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
 // === Banking B2 (team burst8 2026-06-19) === — the feudal-loan reconcile reuses the same record-only audit.
 registerEventHandler('loan-reconciled', applyEvent_bankingAudit);
+// === Banking B4/B5 (team burst9 2026-06-20) === — loan close-out + letters of credit reuse the same record-only audit.
+registerEventHandler('loan-defaulted', applyEvent_bankingAudit);
+registerEventHandler('loan-written-off', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-issued', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-redeemed', applyEvent_bankingAudit);
 // === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
 // shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
 // keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
@@ -3037,6 +3171,18 @@ function applyEvent_generationAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'generation run' } };
 }
 registerEventHandler('generation', applyEvent_generationAudit);
+
+// === Gladiators G2 (team burst9 2026-06-20) === — #150; the bout/game/recruit events share the
+// record-only audit posture: acks-engine-gladiators.js (resolveAndCommitBout / holdGame /
+// recruitGladiator) already applied the bout result + XP + Mortal-Wounds casualties + the minted
+// Character; these handlers keep the events well-formed on replay (a no-op beyond the narrative).
+function applyEvent_gladiatorAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'gladiator event' } };
+}
+registerEventHandler('bout-resolved', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-game-held', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6081,12 +6227,20 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // consumer (the 📜 Commission modal + the Day Clock); a raw emit would record a commission the
   // sageCommissions[] state doesn't show. The GM commissions a sage via the modal, not the Wizard.
   'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — owned by retainSage / endSageRetainer / the slot-64 monthly billing
+  // (the Consult-a-Sage modal's retainer section + the Day Clock); a raw emit would record a retainer
+  // the client.sageRetainers[] state doesn't show.
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
   // === Politics P-3 (team) === — owned by the Senate tab's influence + dispute actions (acks-engine-
   // politics.js); a raw Wizard emit would record an influence/dispute the senate state doesn't show.
   'senate-influenced', 'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — owned by the Senate tab's 📜 Motion Wizard (acks-engine-
+  // politics.js openSenateMotion / resolveSenateMotion); a raw Wizard emit would record a motion the
+  // senate.motions[] state doesn't show.
+  'senate-motion-opened', 'senate-motion-resolved',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
@@ -6106,6 +6260,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // character's lifecycleState + the successor/inheritance state don't show. The GM marks a death +
   // resolves succession on the character sheet, not the Event Wizard.
   'character-died', 'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — owned by acks-engine-lifecycle.js (transformCharacter /
+  // revertCharacter); a raw Wizard emit would record a transformation the character's transformationState
+  // + lifecycleState don't show. The GM transforms / reverts a character via the character sheet, not the Wizard.
+  'character-transformed', 'transformation-reverted',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
@@ -6143,6 +6301,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Banking B2 (team burst8 2026-06-19) === — owned by acks-engine-banking.js (reconcileFeudalLoans);
   // a raw emit would record a feudal-loan link the campaign.loans[] entry doesn't actually carry.
   'loan-reconciled',
+  // === Banking B4/B5 (team burst9 2026-06-20) === — owned by acks-engine-banking.js (markLoanDefaulted /
+  // writeOffLoan + issue/redeemLetterOfCredit); a raw emit would record a default/write-off or a letter
+  // of credit the campaign.loans[] / lettersOfCredit[] + the gp don't show.
+  'loan-defaulted', 'loan-written-off', 'letter-of-credit-issued', 'letter-of-credit-redeemed',
   // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
@@ -6156,7 +6318,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // that produced nothing — the Generators tab is the real surface.
   'generation',
   // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
-  'magic-item-commissioned', 'magic-item-commission-resolved'
+  'magic-item-commissioned', 'magic-item-commission-resolved',
+  // === Gladiators G2 (team burst9 2026-06-20) === — owned by acks-engine-gladiators.js (resolveAndCommit
+  // Bout / holdGame / recruitGladiator, driven by the ⚔ Gladiators tab); a raw Event-Wizard emit would
+  // record a bout/game/recruit the bout/game/character state doesn't show.
+  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

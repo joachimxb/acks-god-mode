@@ -454,6 +454,115 @@ section('B2 commercial-loan depth — restructure / write-off / default + derive
 }
 
 // =============================================================================
+section('B4/B5 (burst9) — letters of credit (loc-) + the loan close-out events');
+// =============================================================================
+// A campaign with a 2nd market (the drawing market) + an open account for the creditor.
+function mkLoc(opts){
+  opts = opts || {};
+  const c = mkCampaign({ creditorGp: 20000 });
+  c.settlements.push({ id:'set-2', name:'Far Market', families: opts.bFamilies != null ? opts.bFamilies : 1000 });
+  const r = ACKS.openBankAccount(c, { owner:{ kind:'character', id:'chr-c' }, marketSettlementId:'set-1', initialDepositGp: opts.acctGp != null ? opts.acctGp : 8000 });
+  return { c, acct: r.account };
+}
+
+{
+  // factory / prefix / registry / schema
+  const loc0 = ACKS.blankLetterOfCredit({ faceValueGp: 500 });
+  ok('LoC id carries the loc- prefix', String(loc0.id).startsWith('loc-'));
+  ok('LoC status defaults to outstanding', loc0.status === 'outstanding');
+  ok('LoC faceValueGp set, fee defaults 0', loc0.faceValueGp === 500 && loc0.issueFeeGp === 0);
+  ok('ID_PREFIXES.letterOfCredit = loc', ACKS.ID_PREFIXES.letterOfCredit === 'loc');
+  ok('blankCampaign seeds lettersOfCredit[]', Array.isArray(ACKS.blankCampaign({}).lettersOfCredit) && ACKS.blankCampaign({}).lettersOfCredit.length === 0);
+  ok('registry has the letterOfCredit kind (📜)', !!ACKS.entityKind && !!ACKS.entityKind('letterOfCredit') && ACKS.entityKind('letterOfCredit').icon === '📜');
+  ok('registry letterOfCredit.list reads campaign.lettersOfCredit', (() => { const c = mkCampaign(); c.lettersOfCredit = [loc0]; return ACKS.entityKind('letterOfCredit').list(c).length === 1; })());
+  ok('field schema "letterOfCredit" exists + validates clean', (() => { const s = ACKS.fieldSchemaFor('letterOfCredit'); return s && ACKS.validateFieldSchema('letterOfCredit', s).ok; })());
+  // schema ⊆ factory (the global invariant, locally re-asserted)
+  const sch = ACKS.fieldSchemaFor('letterOfCredit'); const keys = new Set(Object.keys(ACKS[sch.factory]({})));
+  ok('schema "letterOfCredit" top-level fields ⊆ blankLetterOfCredit keys', sch.fields.filter(f => f.type !== 'computed').every(f => keys.has(f.name)));
+}
+
+{
+  // issue → redeem inter-market: the gold never travels (escrow via the 'external' banking network)
+  const { c, acct } = mkLoc({});
+  const purseBefore = charGp(c, 'chr-c');   // after the 8000 deposit, chr-c purse = 12000
+  const r = ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 3000, drawingMarketSettlementId:'set-2', feePct: 0.01 });
+  ok('issue ok', r.ok, r.reason);
+  ok('issue: account debited face + fee (8000 − 3030)', acct.balanceGp === 8000 - 3030, 'balance=' + acct.balanceGp);
+  ok('issue: LoC outstanding, face 3000, fee 30', r.letter.status === 'outstanding' && r.letter.faceValueGp === 3000 && r.letter.issueFeeGp === 30);
+  ok('issue: from set-1 → to set-2', r.letter.issuingMarketSettlementId === 'set-1' && r.letter.drawingMarketSettlementId === 'set-2');
+  ok('issue: bearer defaults to the account owner', r.letter.bearer && r.letter.bearer.id === 'chr-c');
+  ok('issue emits letter-of-credit-issued', eventKinds(c).includes('letter-of-credit-issued'));
+  ok('issue: the owner purse is untouched (the gold stays put)', charGp(c, 'chr-c') === purseBefore);
+  // redeem at the drawing market → the bearer is credited the face value
+  const rr = ACKS.redeemLetterOfCredit(c, r.letter.id, {});
+  ok('redeem ok', rr.ok, rr.reason);
+  ok('redeem: bearer credited the face value', charGp(c, 'chr-c') === purseBefore + 3000);
+  ok('redeem: status redeemed + settledAtTurn set', r.letter.status === 'redeemed' && r.letter.settledAtTurn != null);
+  ok('redeem emits letter-of-credit-redeemed', eventKinds(c).includes('letter-of-credit-redeemed'));
+  // escrow net: account −3030, bearer +3000 → the 30 fee is the only net cost (face is gp-neutral)
+  ok('escrow is net gp-neutral on the face (fee is the only cost)', (8000 - acct.balanceGp) - (charGp(c, 'chr-c') - purseBefore) === 30);
+  // capital used tracked at the drawing market
+  ok('redeem drew against the drawing market capital pool', ACKS.marketCapitalRemaining(c, 'set-2') === ACKS.marketCapitalPool(c, 'set-2') - 3000);
+}
+
+{
+  // the RR p.42 capital-pool gate on redemption + the force override
+  const { c, acct } = mkLoc({ acctGp: 8000, bFamilies: 50 });   // set-2 tiny → low pool
+  const pool = ACKS.marketCapitalRemaining(c, 'set-2');
+  const face = pool + 500;
+  const r = ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: face, drawingMarketSettlementId:'set-2', feePct: 0 });
+  ok('issue (over-pool face) ok', r.ok, r.reason);
+  const rr = ACKS.redeemLetterOfCredit(c, r.letter.id, {});
+  ok('redeem refused over the drawing market capital pool (RR p.42)', !rr.ok && rr.reason === 'over-capital-pool', rr.reason);
+  ok('refused redeem left the LoC outstanding', r.letter.status === 'outstanding');
+  const rf = ACKS.redeemLetterOfCredit(c, r.letter.id, { force: true });
+  ok('redeem force:true bypasses the pool', rf.ok, rf.reason);
+}
+
+{
+  // cancel before draw → face refunded to the source account (fee forfeit)
+  const { c, acct } = mkLoc({ acctGp: 8000 });
+  const r = ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 2000, drawingMarketSettlementId:'set-2', feePct: 0.01 });
+  ok('issue ok (cancel test)', r.ok && acct.balanceGp === 8000 - 2020);
+  const rc = ACKS.cancelLetterOfCredit(c, r.letter.id, {});
+  ok('cancel ok', rc.ok);
+  ok('cancel: face refunded to the account, fee forfeit', acct.balanceGp === 8000 - 20, 'balance=' + acct.balanceGp);
+  ok('cancel: status cancelled', r.letter.status === 'cancelled');
+}
+
+{
+  // refusals + lookups
+  const { c, acct } = mkLoc({ acctGp: 1000 });
+  ok('issue refused no-account', ACKS.issueLetterOfCredit(c, { accountId:'bnk-nope', faceValueGp:100, drawingMarketSettlementId:'set-2' }).reason === 'no-account');
+  ok('issue refused bad-amount', ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 0, drawingMarketSettlementId:'set-2' }).reason === 'bad-amount');
+  ok('issue refused insufficient-balance', ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 5000, drawingMarketSettlementId:'set-2' }).reason === 'insufficient-balance');
+  const a = ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 300, drawingMarketSettlementId:'set-2', feePct: 0 }).letter;
+  const b = ACKS.issueLetterOfCredit(c, { accountId: acct.id, faceValueGp: 200, drawingMarketSettlementId:'set-2', feePct: 0 }).letter;
+  ok('findLetterOfCredit', ACKS.findLetterOfCredit(c, a.id) === a);
+  ok('outstandingLettersOfCredit lists 2', ACKS.outstandingLettersOfCredit(c).length === 2);
+  ok('lettersForBearer(chr-c) = 2', ACKS.lettersForBearer(c, 'chr-c').length === 2);
+  ok('letterLedgerFor: 2 outstanding, 500 in transit', (() => { const L = ACKS.letterLedgerFor(c, {}); return L.outstandingCount === 2 && L.totalOutstandingGp === 500; })());
+  ACKS.redeemLetterOfCredit(c, a.id, { force: true });
+  ok('redeem refused not-outstanding (already redeemed)', ACKS.redeemLetterOfCredit(c, a.id, {}).reason === 'not-outstanding');
+  ok('cancel refused not-outstanding (already redeemed)', ACKS.cancelLetterOfCredit(c, a.id, {}).reason === 'not-outstanding');
+  ok('letterLedgerFor after a redeem: 1 outstanding, 1 redeemed', (() => { const L = ACKS.letterLedgerFor(c, {}); return L.outstandingCount === 1 && L.redeemedCount === 1; })());
+}
+
+{
+  // the dedicated loan close-out events (B2 left markLoanDefaulted / writeOffLoan history-only)
+  const c = mkCampaign({});
+  const r = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, creditor:{ kind:'bank', label:'Bank' }, principalGp: 1000, marketSettlementId:'set-1' });
+  ok('loan taken', r.ok);
+  const rd = ACKS.markLoanDefaulted(c, r.loan.id, {});
+  ok('markLoanDefaulted ok + status defaulted', rd.ok && r.loan.status === 'defaulted');
+  ok('markLoanDefaulted emits loan-defaulted', eventKinds(c).includes('loan-defaulted'));
+  const r2 = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, creditor:{ kind:'bank' }, principalGp: 500, marketSettlementId:'set-1' });
+  const rw = ACKS.writeOffLoan(c, r2.loan.id, { reason:'bad debt' });
+  ok('writeOffLoan ok + status written-off', rw.ok && r2.loan.status === 'written-off');
+  ok('writeOffLoan emits loan-written-off', eventKinds(c).includes('loan-written-off'));
+}
+
+// =============================================================================
 console.log('\n=============================================');
 console.log('banking.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
