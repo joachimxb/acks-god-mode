@@ -16503,6 +16503,15 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- === @b8-banking    (team) — loan modal === -->
 
+<!-- ─── burst9 (team session) — per-agent modal/overlay tail. Append your new modal/overlay
+     div right AFTER your OWN marker below (before the page script block). Disjoint anchors → clean merge. ─── -->
+<!-- === @b9-politics   (team) — senate-wizard modal === -->
+<!-- === @b9-banking    (team) — deposit / letter-of-credit modal === -->
+<!-- === @b9-sages      (team) — sage retainer / commission modal === -->
+<!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
+<!-- === @b9-lifecycle  (team) — character transformation modal === -->
+<!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) === -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -17429,6 +17438,7 @@ return {
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
       { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
+      // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -17826,6 +17836,16 @@ return {
             emitWizardCtxRelatedJson: '[]', emitWizardNotes: '', emitWizardCadence: 'monthly-turn',
   // #551 Wave Entity-B Chronicle Entry — freeform GM narrative attached to entities (2026-05-31)
   chronicleState: { title: '', body: '', attached: [], pickerKind: '', pickerId: '', notes: '', cadence: 'monthly-turn', editingEventId: null, returnToSubView: null },
+  // ─── burst9 (team session) — per-agent state + methods. Each builder appends its
+  //     object properties (`prop(){…},` / `stateVar: …,`) right AFTER its OWN marker line
+  //     below — disjoint anchors → clean 6-way merge. Wrap your block in a
+  //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
+  // === @b9-politics   (team) — Politics P-5 Senate Wizard: state + methods ===
+  // === @b9-banking    (team) — Banking B4/B5 deposits + letters of credit: state + methods ===
+  // === @b9-sages      (team) — Sages SG-3 periodic-fee commissions: state + methods ===
+  // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===
+  // === @b9-lifecycle  (team) — Lifecycle CL-5 transformation: state + methods ===
+  // === @b9-hexscales  (team) — Hex Scales HW-5 local authoring: state + methods ===
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
