@@ -14973,7 +14973,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-70 mt-1">A senatorial republic is a realm whose ruler is constrained by a senate he must consult before invading, taxing, conscripting, or changing his realm's religion (RR pp.355–360). Consulting rolls <strong>2d6 per leading senator</strong> in order of influence until a majority forms (RR p.358); defying or skipping a required consultation puts the realm <em>in dispute</em> and suspends its benefits. The ruling/leading faction is always derived from live influence — never stored.</p>
     <template x-if="senateAllRows().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (The guided Senate Wizard is a later wave.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
+      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (Once a senate exists, its <strong>📜 Motions</strong> card runs the guided motion wizard.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
     </template>
   </div>
 
@@ -14993,6 +14993,44 @@ document.addEventListener('alpine:init', () => {
 
   <template x-if="senateSelected()">
     <div class="space-y-4">
+
+      <!-- @b9-politics P-5 (burst9): the 📜 Motions card — the guided Senate Wizard launcher + the
+           motion log. The flat Consult + Enact panels below are unchanged; this is the higher-level
+           guided author-and-resolve flow (open → vote → enact/reject → record). -->
+      <div class="vellum border border-ink rounded p-4">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+          <h3 class="font-bold text-lg">📜 Motions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateMotionRows().length"></span></h3>
+          <button @click="openMotionWizard(senateSelected().id)" class="px-3 py-1 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm">📜 Bring a motion</button>
+        </div>
+        <p class="text-sm opacity-70 mb-2">Author + resolve a motion end-to-end — open it, gather the senators' votes (2d6 each, RR p.358), and enact or reject the result. A restricted matter enacted against the senate puts the realm in dispute (RR p.359).</p>
+        <template x-if="senateMotionRows().length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No motions yet. Bring one to put a policy, an edict, or a retroactive approval to the vote.</p>
+        </template>
+        <template x-if="senateMotionRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Motion</th><th>Kind</th><th>Status</th><th class="text-right">For/Ag.</th><th>Turn</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="m in senateMotionRows()" :key="m.id">
+                <tr>
+                  <td class="font-semibold" x-text="m.subject"></td>
+                  <td class="text-xs opacity-70" x-text="m.kind"></td>
+                  <td><span class="text-xs px-1 rounded" :class="motionStatusClass(m.status)" x-text="m.status"></span></td>
+                  <td class="text-right text-xs" x-text="m.votes"></td>
+                  <td class="text-xs opacity-70" x-text="m.turn"></td>
+                  <td class="text-right">
+                    <template x-if="m.isOpen">
+                      <span class="inline-flex gap-1 justify-end">
+                        <button @click="senateResumeMotion(m.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300" title="Gather the votes + resolve">▶ Resolve</button>
+                        <button @click="senateWithdrawMotion(m.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-red-100" title="Withdraw (no vote)">×</button>
+                      </span>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
 
       <!-- Composition + the derived tally -->
       <div class="vellum border border-ink rounded p-4">
@@ -16506,6 +16544,163 @@ document.addEventListener('alpine:init', () => {
 <!-- ─── burst9 (team session) — per-agent modal/overlay tail. Append your new modal/overlay
      div right AFTER your OWN marker below (before the page script block). Disjoint anchors → clean merge. ─── -->
 <!-- === @b9-politics   (team) — senate-wizard modal === -->
+<!-- 📜 Senate Motion Wizard (Politics P-5, burst9) — the guided Action verb that authors + resolves a
+     senate motion end-to-end: open (policy / edict / dispute) → gather votes (REUSE ACKS.senateVote via
+     previewSenateMotionVote) → tally → enact / reject → record (ACKS.openSenateMotion / resolveSenateMotion).
+     Launched from the 🏛 Senate tab's 📜 Motions card. The flat Consult + Enact panels (P-2) + the
+     influence / dispute actions (P-3) are unchanged — this is the higher-level guided flow. z-index:75. -->
+<div x-show="motionWizard.open" @keydown.escape.window="if(motionWizard.open && !$event.defaultPrevented){ closeMotionWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak @click.self="closeMotionWizard()">
+  <template x-if="motionWizard.open && motionWizardSenate()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <div>
+        <h2 class="font-bold text-lg">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="motionWizardSenate().name || 'the senate'"></span></span></h2>
+        <p class="text-sm opacity-70">Author + resolve a senate motion (RR pp.355–360). Votes roll 2d6 per senator (RR p.358).</p>
+      </div>
+      <button @click="closeMotionWizard()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+
+      <!-- Step 1 — the motion -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 1</span>The motion</div>
+      <div class="grid sm:grid-cols-2 gap-3 text-sm">
+        <label class="flex flex-col">Kind
+          <select x-model="motionWizard.kind" @change="motionWizard.vote = null; motionWizard.enactDespiteRejection = false" class="w-full">
+            <option value="edict">Edict — the ruler acts (a restricted matter)</option>
+            <option value="policy">Policy — adopt a stance</option>
+            <option value="dispute" :disabled="!motionWizardDisputeOpen()" x-text="motionWizardDisputeOpen() ? 'Dispute — retroactive approval' : 'Dispute — (none open)'"></option>
+          </select>
+        </label>
+        <label class="flex flex-col">Resolution mode
+          <select x-model="motionWizard.mode" @change="motionWizard.vote = null" class="w-full">
+            <option value="per-senator">Per senator (roll each)</option>
+            <option value="by-faction">By faction (one roll each)</option>
+          </select>
+        </label>
+        <template x-if="motionWizard.kind === 'edict'">
+          <label class="flex flex-col">Matter
+            <select x-model="motionWizard.matter" @change="motionWizard.vote = null" class="w-full">
+              <template x-for="m in senateMatterOptions()" :key="'wm'+m.value"><option :value="m.value" x-text="m.label"></option></template>
+              <option value="__custom__">(other / custom…)</option>
+            </select>
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'edict' && motionWizard.matter === '__custom__'">
+          <label class="flex flex-col">Custom matter
+            <input type="text" x-model="motionWizard.customMatter" @input="motionWizard.vote = null" placeholder="e.g. ratify the treaty" class="w-full">
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'policy'">
+          <label class="flex flex-col">Policy objective
+            <select x-model="motionWizard.policyObjective" @change="motionWizard.vote = null" class="w-full">
+              <option value="">— pick an objective —</option>
+              <template x-for="o in policyObjectiveList()" :key="'wpo'+o"><option :value="o" x-text="o"></option></template>
+            </select>
+          </label>
+        </template>
+        <template x-if="motionWizard.kind === 'dispute'">
+          <div class="flex flex-col text-sm">Defied topic
+            <span class="mt-1 px-2 py-1 border border-ink/30 rounded bg-red-50" x-text="motionWizardDisputeTopic()"></span></div>
+        </template>
+        <label class="flex flex-col sm:col-span-2">Title <span class="opacity-60 text-xs">(GM-facing)</span>
+          <input type="text" x-model="motionWizard.title" placeholder="e.g. Raise the salt tax" class="w-full"></label>
+      </div>
+
+      <!-- Step 2 — vote inputs -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>The vote <span class="wizard-step-hint">(modifiers, RR p.358)</span></div>
+      <template x-if="motionWizardInHoneymoon()">
+        <div class="border border-green-400 bg-green-50 rounded p-2 text-sm">🌼 Honeymoon — the senate votes for the ruler until turn <span x-text="motionWizardSenate().honeymoonUntilTurn"></span> (RR p.357). The motion passes without a roll.</div>
+      </template>
+      <template x-if="!motionWizardInHoneymoon()">
+        <div class="grid sm:grid-cols-2 gap-3 text-sm">
+          <label class="flex flex-col">Ruler's domain morale score
+            <input type="number" x-model.number="motionWizard.domainMorale" @input="motionWizard.vote = null" class="w-full"></label>
+          <label class="flex flex-col">Ruler aligns with faction
+            <select x-model="motionWizard.rulerFactionId" @change="motionWizard.vote = null" class="w-full">
+              <option value="">— none —</option>
+              <template x-for="f in senateReadout().factions" :key="'wmf'+f.id"><option :value="f.id" x-text="f.name"></option></template>
+            </select></label>
+          <label class="flex flex-col">Military loyal to the ruler
+            <select x-model="motionWizard.militaryLoyalty" @change="motionWizard.vote = null" class="w-full">
+              <option value="none">None (+0)</option><option value="third">≥ ⅓ (+1)</option><option value="all">All (+2)</option>
+            </select></label>
+          <label class="flex flex-col">Controlled independent votes
+            <input type="number" min="0" x-model.number="motionWizard.controlledIndependentVotes" @input="motionWizard.vote = null" class="w-full">
+            <span class="text-xs opacity-60" x-show="senateControlledIndependents() > 0">
+              <button type="button" @click="motionWizard.controlledIndependentVotes = senateControlledIndependents(); motionWizard.vote = null" class="underline" x-text="'use ' + senateControlledIndependents() + ' gift-controlled'"></button></span></label>
+          <label class="flex flex-col" x-show="!motionWizardAutoVoteOn()">GM outcome (auto-vote off)
+            <select x-model="motionWizard.gmOutcome" @change="motionWizard.vote = null" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        </div>
+      </template>
+      <details class="text-sm" x-show="!motionWizardInHoneymoon()">
+        <summary class="cursor-pointer opacity-70">Policy helps / hinders senator objectives (+1 helps / −2 hinders each)</summary>
+        <div class="grid sm:grid-cols-2 gap-3 mt-2">
+          <div><div class="font-semibold text-xs mb-1">Helps (+1 each)</div>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-28 overflow-y-auto border border-ink/20 rounded p-1">
+              <template x-for="o in policyObjectiveList()" :key="'wmh'+o"><label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="motionWizard.policyHelps" @change="motionWizard.vote = null"><span x-text="o"></span></label></template>
+            </div></div>
+          <div><div class="font-semibold text-xs mb-1">Hinders (−2 each)</div>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-28 overflow-y-auto border border-ink/20 rounded p-1">
+              <template x-for="o in policyObjectiveList()" :key="'wmx'+o"><label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="motionWizard.policyHinders" @change="motionWizard.vote = null"><span x-text="o"></span></label></template>
+            </div></div>
+        </div>
+      </details>
+
+      <!-- Step 3 — roll the tally -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 3</span>Gather the votes</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button @click="motionWizardRoll()" :disabled="!motionWizardCanRoll()" :class="motionWizardCanRoll() ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm" x-text="motionWizard.vote ? '⟳ Re-roll the vote' : '🗳 Roll the vote'"></button>
+        <span class="text-xs opacity-60" x-show="!motionWizardCanRoll()" x-text="motionWizardRollHint()"></span>
+      </div>
+      <template x-if="motionWizard.vote">
+        <div class="vellum border-2 rounded p-3" :class="motionWizard.vote.approved ? 'border-green-500 bg-green-50' : motionWizard.vote.outcome === 'rejected' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'">
+          <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+            <span class="font-bold">
+              <span x-show="motionWizard.vote.outcome === 'approved'" class="text-green-800">✓ Approved</span>
+              <span x-show="motionWizard.vote.outcome === 'rejected'" class="text-red-800">✗ Rejected</span>
+              <span x-show="motionWizard.vote.outcome === 'no-majority'" class="text-yellow-800">— No majority</span>
+            </span>
+            <span class="text-sm" x-text="motionWizard.vote.forVotes + ' for / ' + motionWizard.vote.againstVotes + ' against / ' + motionWizard.vote.abstainVotes + ' abstain — of ' + motionWizard.vote.totalVotes + ' (majority ' + motionWizard.vote.majorityThreshold + ')'"></span>
+          </div>
+          <p class="text-xs opacity-70 mb-1" x-show="!motionWizard.vote.autoRolled">Narrated by the GM (auto-vote off / honeymoon — no dice).</p>
+          <template x-if="motionWizard.vote.rolls.length > 0">
+            <table class="bookkeeping text-xs w-full">
+              <thead><tr><th x-text="motionWizard.vote.mode === 'by-faction' ? 'Faction' : 'Senator'"></th><th class="text-right">Votes</th><th class="text-right">2d6</th><th>Modifiers</th><th class="text-right">Adj.</th><th>Vote</th></tr></thead>
+              <tbody>
+                <template x-for="(row, i) in motionWizard.vote.rolls" :key="'wmr'+i">
+                  <tr>
+                    <td x-text="senateRollWho(row)"></td>
+                    <td class="text-right" x-text="row.votes"></td>
+                    <td class="text-right" x-text="row.bewitched ? '—' : (row.roll ? row.roll.natural : '—')"></td>
+                    <td class="opacity-80" x-text="senateRollModifiers(row)"></td>
+                    <td class="text-right" x-text="row.adjusted == null ? '—' : row.adjusted"></td>
+                    <td :class="row.vote === 'for' ? 'text-green-800 font-semibold' : row.vote === 'against' ? 'text-red-800 font-semibold' : 'opacity-60'" x-text="row.vote"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </template>
+
+      <!-- Step 4 — resolve -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 4</span>Resolve</div>
+      <template x-if="motionWizard.vote && !motionWizard.vote.approved && motionWizardRestricted() && motionWizard.kind !== 'dispute'">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="motionWizard.enactDespiteRejection"> Defy the senate — enact anyway (→ <strong>dispute</strong>, RR p.359)</label>
+      </template>
+      <p class="text-xs opacity-70" x-text="motionWizardResolveHint()"></p>
+      <div class="wizard-submit-gate">
+        <span class="wizard-submit-disabled-reason" x-text="motionWizardCommitDisabledReason()"></span>
+        <div class="flex gap-2">
+          <button @click="motionWizardTable()" :disabled="!!motionWizard.motionId || !motionWizardCanRoll()" :class="(!!motionWizard.motionId || !motionWizardCanRoll()) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-yellow-100'" class="px-3 py-1.5 border border-ink rounded text-sm" title="Table the motion to gather votes + resolve later">📋 Table it</button>
+          <button @click="motionWizardCommit()" :disabled="!motionWizardCanCommit()" :class="motionWizardCanCommit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="motionWizardCommitLabel()"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- === @b9-banking    (team) — deposit / letter-of-credit modal === -->
 <!-- === @b9-sages      (team) — sage retainer / commission modal === -->
 <!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
@@ -17841,6 +18036,166 @@ return {
   //     below — disjoint anchors → clean 6-way merge. Wrap your block in a
   //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
   // === @b9-politics   (team) — Politics P-5 Senate Wizard: state + methods ===
+  // The 📜 Senate Motion Wizard — the guided Action verb that authors + resolves a senate motion
+  // end-to-end (open → gather votes [REUSE ACKS.senateVote] → tally → enact/reject → record). A thin
+  // UI over the P-5 engine (openSenateMotion / previewSenateMotionVote / resolveSenateMotion /
+  // withdrawSenateMotion). The flat Consult + Enact panels (P-2) and the influence/dispute actions
+  // (P-3) are unchanged — this composes them into one guided flow. Launched from the 🏛 Senate tab.
+  motionWizard: { open: false, senateId: '', motionId: null, kind: 'edict', matter: 'change-taxes',
+    customMatter: '', policyObjective: '', title: '', mode: 'per-senator', domainMorale: 0,
+    rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0, policyHelps: [],
+    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false },
+  // the senate the wizard is operating on (its own id, else the tab-selected senate)
+  motionWizardSenate(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c) return null;
+    return A.findSenate(c, this.motionWizard.senateId) || this.senateSelected();
+  },
+  motionWizardAutoVoteOn(){ return this.senateAutoVoteOn(); },
+  motionWizardDisputeOpen(){ const s = this.motionWizardSenate(); return !!(s && s.dispute != null); },
+  motionWizardDisputeTopic(){ const s = this.motionWizardSenate(); return (s && s.dispute && s.dispute.defiedTopic) || '—'; },
+  motionWizardInHoneymoon(){ const A = window.ACKS, c = this.currentCampaign, s = this.motionWizardSenate(); return !!(A && c && s && A.senateInHoneymoon(c, s)); },
+  // the resolved matter string: an edict's picked/custom matter; '' for policy/dispute (the objective /
+  // the open dispute's topic carry the subject for those kinds).
+  _motionWizardMatter(){ const w = this.motionWizard; return w.kind === 'edict' ? (w.matter === '__custom__' ? (w.customMatter || '') : w.matter) : ''; },
+  motionWizardRestricted(){ const A = window.ACKS, w = this.motionWizard; if(w.kind !== 'edict') return false; return !!(A && A.isSenateConsultationRequired && A.isSenateConsultationRequired(this._motionWizardMatter())); },
+  // the spec the engine verbs consume (openSenateMotion / previewSenateMotionVote)
+  _motionWizardSpec(){
+    const w = this.motionWizard, senate = this.motionWizardSenate();
+    return { senateId: senate ? senate.id : '', kind: w.kind, matter: this._motionWizardMatter(),
+      policyObjective: w.kind === 'policy' ? w.policyObjective : '', title: w.title, mode: w.mode,
+      domainMorale: Number(w.domainMorale) || 0, rulerFactionId: w.rulerFactionId || null,
+      militaryLoyalty: w.militaryLoyalty, controlledIndependentVotes: Number(w.controlledIndependentVotes) || 0,
+      policyHelps: (w.policyHelps || []).slice(), policyHinders: (w.policyHinders || []).slice() };
+  },
+  motionWizardCanRoll(){
+    const w = this.motionWizard;
+    if(w.kind === 'dispute') return this.motionWizardDisputeOpen();
+    if(w.kind === 'policy') return !!w.policyObjective;
+    return !!this._motionWizardMatter();   // edict
+  },
+  motionWizardRollHint(){
+    const w = this.motionWizard;
+    if(w.kind === 'dispute') return 'No dispute is open to resolve.';
+    if(w.kind === 'policy') return 'Pick a policy objective first.';
+    return 'Pick or type the matter first.';
+  },
+  // open the wizard (fresh, or resuming an existing tabled motion → loads its inputs)
+  openMotionWizard(senateId, motionId){
+    const A = window.ACKS, c = this.currentCampaign;
+    const sid = senateId || (this.senateSelected() && this.senateSelected().id);
+    if(!A || !c || !sid) return;
+    const senate = A.findSenate(c, sid);
+    if(!senate) return;
+    const inDispute = senate.dispute != null;
+    this.motionWizard = { open: true, senateId: sid, motionId: motionId || null,
+      kind: inDispute ? 'dispute' : 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '',
+      title: '', mode: 'per-senator', domainMorale: 0, rulerFactionId: '', militaryLoyalty: 'none',
+      controlledIndependentVotes: 0, policyHelps: [], policyHinders: [], gmOutcome: 'approved',
+      vote: null, rolledSpec: null, enactDespiteRejection: false };
+    if(motionId){
+      const m = A.findSenateMotion(c, sid, motionId);
+      if(m){
+        const restricted = ((A.SENATE_RESTRICTED_MATTERS || []).indexOf(m.matter) >= 0);
+        const isCustom = m.kind === 'edict' && m.matter && !restricted;
+        Object.assign(this.motionWizard, {
+          kind: m.kind, matter: isCustom ? '__custom__' : (m.matter || 'change-taxes'),
+          customMatter: isCustom ? m.matter : '', policyObjective: m.policyObjective || '',
+          title: m.title || '', mode: m.mode || 'per-senator', domainMorale: m.domainMorale || 0,
+          rulerFactionId: m.rulerFactionId || '', militaryLoyalty: m.militaryLoyalty || 'none',
+          controlledIndependentVotes: m.controlledIndependentVotes || 0,
+          policyHelps: (m.policyHelps || []).slice(), policyHinders: (m.policyHinders || []).slice() });
+      }
+    }
+  },
+  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; },
+  // Step 3 — roll the votes (REUSE the engine's senateVote via previewSenateMotionVote; pure, no event).
+  motionWizardRoll(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !this.motionWizardCanRoll()) return;
+    const w = this.motionWizard, spec = this._motionWizardSpec();
+    const honeymoon = this.motionWizardInHoneymoon();
+    const auto = this.motionWizardAutoVoteOn() && !honeymoon;
+    const res = A.previewSenateMotionVote(c, { senateId: senate.id, motion: spec,
+      rng: Math.random, autoRoll: auto, gmOutcome: honeymoon ? 'approved' : w.gmOutcome });
+    this.motionWizard.vote = res;
+    this.motionWizard.rolledSpec = spec;
+  },
+  motionWizardCanCommit(){ return !!this.motionWizard.vote; },
+  motionWizardCommitDisabledReason(){ return this.motionWizard.vote ? '' : 'Roll the vote first (Step 3).'; },
+  motionWizardCommitLabel(){
+    const w = this.motionWizard, v = w.vote;
+    if(!v) return '✓ Resolve';
+    if(w.kind === 'dispute') return v.approved ? '✓ Clear the dispute' : '⚠ Resolve (escalates)';
+    if(v.approved) return '✓ Enact with the senate’s sanction';
+    if(this.motionWizardRestricted() && w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
+    return '✗ Motion fails (stand down)';
+  },
+  motionWizardResolveHint(){
+    const w = this.motionWizard, v = w.vote;
+    if(!v) return 'Gather the votes (Step 3) before resolving.';
+    if(w.kind === 'dispute') return v.approved
+      ? 'A majority FOR grants retroactive approval — the dispute ends and benefits return (RR p.359).'
+      : 'Without a majority the dispute deepens: the against-voters seek to replace the ruler (RR p.359).';
+    if(v.approved) return 'The motion carries — it is enacted with the senate’s sanction.';
+    if(this.motionWizardRestricted()) return w.enactDespiteRejection
+      ? 'The ruler enacts a restricted matter against the senate — the realm goes into dispute (RR p.359).'
+      : 'The motion fails; the ruler stands down (no dispute).';
+    return 'The motion fails; nothing is enacted.';
+  },
+  // commit — open the motion (if fresh) + resolve it with the shown tally (the two P-5 events fire here).
+  motionWizardCommit(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !this.motionWizard.vote) return;
+    let motionId = this.motionWizard.motionId;
+    if(!motionId){
+      const m = A.openSenateMotion(c, this.motionWizard.rolledSpec || this._motionWizardSpec());
+      if(!m) return;
+      motionId = m.id; this.motionWizard.motionId = motionId;
+    }
+    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: this.motionWizard.vote,
+      enactDespiteRejection: this.motionWizard.enactDespiteRejection });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok){
+      const m = r.motion;
+      this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000);
+    }
+    this.closeMotionWizard();
+  },
+  // table the motion (open it, resolve later) — only when fresh (no motionId yet)
+  motionWizardTable(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || this.motionWizard.motionId || !this.motionWizardCanRoll()) return;
+    const m = A.openSenateMotion(c, this._motionWizardSpec());
+    this.markDirty(); this.schedulePersist();
+    if(m) this.showToast('📋 Motion tabled — resolve it from the Motions list.', 4000);
+    this.closeMotionWizard();
+  },
+  // the motions log for the selected senate (newest first)
+  senateMotionRows(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return [];
+    return (A.senateMotionsForSenate(c, senate.id) || []).slice().reverse().map(m => ({
+      id: m.id, kind: m.kind,
+      subject: m.title || (m.kind === 'dispute' ? 'retroactive approval' : (m.policyObjective || m.matter || '(matter)')),
+      status: m.status, outcome: m.outcome,
+      votes: m.voteResult ? (m.voteResult.forVotes + '/' + m.voteResult.againstVotes) : '—',
+      turn: (m.resolvedAtTurn != null) ? m.resolvedAtTurn : m.openedAtTurn,
+      isOpen: m.status === 'open' }));
+  },
+  motionStatusClass(s){
+    if(s === 'enacted' || s === 'dispute-cleared') return 'bg-green-200 text-green-900';
+    if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'bg-red-200 text-red-900';
+    if(s === 'open') return 'bg-yellow-200 text-yellow-900';
+    return 'bg-gray-200';
+  },
+  senateResumeMotion(id){ const s = this.senateSelected(); if(s) this.openMotionWizard(s.id, id); },
+  senateWithdrawMotion(id){
+    const A = window.ACKS, c = this.currentCampaign, s = this.senateSelected();
+    if(!A || !c || !s) return;
+    const m = A.withdrawSenateMotion(c, { senateId: s.id, motionId: id });
+    if(m){ this.markDirty(); this.schedulePersist(); this.showToast('Motion withdrawn.', 3000); }
+  },
   // === @b9-banking    (team) — Banking B4/B5 deposits + letters of credit: state + methods ===
   // === @b9-sages      (team) — Sages SG-3 periodic-fee commissions: state + methods ===
   // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===

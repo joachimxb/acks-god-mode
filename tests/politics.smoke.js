@@ -702,6 +702,167 @@ section('P-3 — dispute: abandon government + re-establish (RR p.359)');
 })();
 
 // =============================================================================
+section('P-5 — motion layer: events + exports registered (burst9)');
+// =============================================================================
+ok('EVENT_KINDS has senate-motion-opened', ACKS.EVENT_KINDS.indexOf('senate-motion-opened') >= 0);
+ok('EVENT_KINDS has senate-motion-resolved', ACKS.EVENT_KINDS.indexOf('senate-motion-resolved') >= 0);
+ok('EVENT_SCHEMAS has both motion kinds', !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['senate-motion-opened'] && ACKS.EVENT_SCHEMAS['senate-motion-resolved']));
+for(const fn of ['blankSenateMotion','openSenateMotion','previewSenateMotionVote','resolveSenateMotion','withdrawSenateMotion','senateMotionsForSenate','findSenateMotion','senateInHoneymoon']){
+  ok('export ' + fn, typeof ACKS[fn] === 'function');
+}
+ok('SENATE_MOTION_KINDS = [policy, edict, dispute]', JSON.stringify(ACKS.SENATE_MOTION_KINDS) === JSON.stringify(['policy','edict','dispute']));
+
+// =============================================================================
+section('P-5 — blankSenateMotion + the no-factory-drift guard');
+// =============================================================================
+(function(){
+  const m = ACKS.blankSenateMotion({ id:'x-m1', senateId:'sen-1', kind:'edict', matter:'change-taxes', title:'T' });
+  ok('keeps opts + defaults', m.id==='x-m1' && m.kind==='edict' && m.matter==='change-taxes' && m.status==='open' && m.outcome===null && m.voteResult===null);
+  ok('arrays fresh', Array.isArray(m.policyHelps) && Array.isArray(m.revealedSenatorshipIds) && Array.isArray(m.history));
+  ok('unknown kind → edict', ACKS.blankSenateMotion({ kind:'bogus' }).kind === 'edict');
+  // the load-bearing guard: a motion is a SUB-RECORD, NOT on blankSenate (so the schema⊆factory +
+  // migrate-no-op invariants are untouched — motions are never lazy-injected into migrateCampaign).
+  const sen = ACKS.blankSenate({});
+  ok('blankSenate does NOT carry motions / _motionSeq', !('motions' in sen) && !('_motionSeq' in sen));
+})();
+
+// =============================================================================
+section('P-5 — openSenateMotion (table it; init-on-write; event)');
+// =============================================================================
+(function(){
+  const c = fixture();
+  const m = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'edict', matter:'change-taxes', title:'Raise the salt tax' });
+  ok('mints a senate-scoped, prefix-free id', m.id === 'sen-1-m1');
+  ok('status open + restricted stamped + openedAtTurn', m.status==='open' && m.restricted===true && m.openedAtTurn===(c.currentTurn||1));
+  ok('motions[] init-on-write on the senate', Array.isArray(c.senates[0].motions) && c.senates[0].motions.length===1 && c.senates[0]._motionSeq===1);
+  ok('senate-motion-opened emitted', (c.eventLog||[]).some(e=>e.event && e.event.kind==='senate-motion-opened'));
+  // a second motion increments the seq; a policy motion is unrestricted
+  const m2 = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'policy', policyObjective:'make-peace' });
+  ok('second motion → -m2, restricted=false (policy)', m2.id==='sen-1-m2' && m2.restricted===false);
+  ok('lookups (find + all + openOnly)', ACKS.findSenateMotion(c,'sen-1','sen-1-m2').id==='sen-1-m2'
+    && ACKS.senateMotionsForSenate(c,'sen-1').length===2 && ACKS.senateMotionsForSenate(c,'sen-1',{openOnly:true}).length===2);
+  ok('openSenateMotion on a missing senate → null', ACKS.openSenateMotion(c, { senateId:'sen-none' }) === null);
+})();
+
+// =============================================================================
+section('P-5 — previewSenateMotionVote (pure; reuses senateVote)');
+// =============================================================================
+(function(){
+  const c = fixture();
+  const m = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'edict', matter:'change-taxes' });
+  const before = (c.eventLog||[]).length;
+  const v = ACKS.previewSenateMotionVote(c, { senateId:'sen-1', motionId:m.id, rng: rngConst(0.99) });
+  ok('preview returns a tally (approved on high rng)', v && v.outcome==='approved' && v.forVotes >= v.majorityThreshold);
+  ok('preview is PURE (no event, motion untouched)', (c.eventLog||[]).length===before && m.voteResult===null && m.status==='open');
+  // an inline transient spec works too (the wizard's roll-before-open path)
+  const v2 = ACKS.previewSenateMotionVote(c, { senateId:'sen-1', motion:{ kind:'edict', matter:'invade-realm', mode:'per-senator' }, rng: rngConst(0.01) });
+  ok('preview on a transient spec → against', v2 && v2.outcome==='rejected');
+  ok('preview on a missing senate → null', ACKS.previewSenateMotionVote(c, { senateId:'sen-none', motionId:m.id }) === null);
+})();
+
+// =============================================================================
+section('P-5 — resolveSenateMotion (the terminal verb — enact / reject / defy)');
+// =============================================================================
+(function(){
+  // edict approved → enacted (enactPolicy ran, no new dispute), event emitted, the SHOWN tally recorded
+  const c = fixture();
+  const m = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'edict', matter:'change-taxes' });
+  const v = ACKS.previewSenateMotionVote(c, { senateId:'sen-1', motionId:m.id, rng: rngConst(0.99) });
+  const r = ACKS.resolveSenateMotion(c, { senateId:'sen-1', motionId:m.id, voteResult:v, rulerCharacterId:'chr-r' });
+  ok('edict approved → enacted', r.ok && r.motion.status==='enacted' && r.motion.outcome==='approved' && r.enact && r.enact.outcome==='enacted');
+  ok('the SHOWN tally is recorded (no re-roll at commit)', r.motion.voteResult === v);
+  ok('no dispute on a sanctioned enact', ACKS.findSenate(c,'sen-1').dispute == null);
+  ok('senate-motion-resolved emitted with the context envelope', (c.eventLog||[]).some(e=>e.event && e.event.kind==='senate-motion-resolved'
+    && (e.event.context.relatedEntities||[]).some(x=>x.kind==='domain')));
+  ok('re-resolving a closed motion is guarded', ACKS.resolveSenateMotion(c, { senateId:'sen-1', motionId:m.id }).reason === 'not-open');
+
+  // edict rejected + defy → defied + the realm in dispute
+  const c2 = fixture();
+  const m2 = ACKS.openSenateMotion(c2, { senateId:'sen-1', kind:'edict', matter:'invade-realm' });
+  const v2 = ACKS.previewSenateMotionVote(c2, { senateId:'sen-1', motionId:m2.id, rng: rngConst(0.01) });
+  const r2 = ACKS.resolveSenateMotion(c2, { senateId:'sen-1', motionId:m2.id, voteResult:v2, enactDespiteRejection:true, rulerCharacterId:'chr-r' });
+  ok('rejected + defy → defied + dispute', r2.motion.status==='defied' && r2.motion.outcome==='rejected' && ACKS.findSenate(c2,'sen-1').dispute != null);
+
+  // edict rejected, NOT defied → rejected, no dispute
+  const c3 = fixture();
+  const m3 = ACKS.openSenateMotion(c3, { senateId:'sen-1', kind:'edict', matter:'invade-realm' });
+  const v3 = ACKS.previewSenateMotionVote(c3, { senateId:'sen-1', motionId:m3.id, rng: rngConst(0.01) });
+  const r3 = ACKS.resolveSenateMotion(c3, { senateId:'sen-1', motionId:m3.id, voteResult:v3 });
+  ok('rejected, no defy → rejected + no dispute', r3.motion.status==='rejected' && ACKS.findSenate(c3,'sen-1').dispute == null);
+
+  // policy approved → enacted, objective recorded, never disputed (unrestricted)
+  const c4 = fixture();
+  const m4 = ACKS.openSenateMotion(c4, { senateId:'sen-1', kind:'policy', policyObjective:'make-peace' });
+  const v4 = ACKS.previewSenateMotionVote(c4, { senateId:'sen-1', motionId:m4.id, rng: rngConst(0.99) });
+  const r4 = ACKS.resolveSenateMotion(c4, { senateId:'sen-1', motionId:m4.id, voteResult:v4 });
+  ok('policy approved → enacted + objective recorded + no dispute', r4.motion.status==='enacted' && r4.motion.policyObjective==='make-peace' && ACKS.findSenate(c4,'sen-1').dispute == null);
+
+  // resolve rolls its OWN vote when none is passed (the headless / convenience path)
+  const c5 = fixture();
+  const m5 = ACKS.openSenateMotion(c5, { senateId:'sen-1', kind:'edict', matter:'change-taxes' });
+  const r5 = ACKS.resolveSenateMotion(c5, { senateId:'sen-1', motionId:m5.id, rng: rngConst(0.99), rulerCharacterId:'chr-r' });
+  ok('resolve without a passed voteResult rolls its own', r5.ok && r5.vote && r5.motion.voteResult && r5.motion.status==='enacted');
+
+  // guards
+  ok('resolve on a missing senate → no-senate', ACKS.resolveSenateMotion(fixture(), { senateId:'sen-none' }).reason==='no-senate');
+  ok('resolve on a missing motion → no-motion', ACKS.resolveSenateMotion(fixture(), { senateId:'sen-1', motionId:'nope' }).reason==='no-motion');
+})();
+
+// =============================================================================
+section('P-5 — dispute motions (clear vs escalate) + reveal-on-2');
+// =============================================================================
+(function(){
+  // dispute approved → cleared + benefits restored
+  const c = fixture();
+  ACKS.setSenateDispute(c, 'sen-1', { topic:'change-taxes', turn:5 });
+  const m = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'dispute' });
+  const v = ACKS.previewSenateMotionVote(c, { senateId:'sen-1', motionId:m.id, rng: rngConst(0.99) });
+  const r = ACKS.resolveSenateMotion(c, { senateId:'sen-1', motionId:m.id, voteResult:v, rulerCharacterId:'chr-r' });
+  ok('dispute approved → cleared + benefits restored', r.motion.status==='dispute-cleared'
+    && ACKS.findSenate(c,'sen-1').dispute == null && ACKS.senateBenefitsActive(c, c.domains[0])===true);
+
+  // dispute rejected → escalates (attempts bumped + replace-ruler stamped on against-voters)
+  const c2 = fixture();
+  ACKS.setSenateDispute(c2, 'sen-1', { topic:'change-taxes', turn:5 });
+  const before = ACKS.findSenate(c2,'sen-1').dispute.attempts;
+  const m2 = ACKS.openSenateMotion(c2, { senateId:'sen-1', kind:'dispute' });
+  const v2 = ACKS.previewSenateMotionVote(c2, { senateId:'sen-1', motionId:m2.id, rng: rngConst(0.01) });
+  const r2 = ACKS.resolveSenateMotion(c2, { senateId:'sen-1', motionId:m2.id, voteResult:v2, rulerCharacterId:'chr-r' });
+  ok('dispute rejected → escalated (attempts bumped)', r2.motion.status==='dispute-escalated' && ACKS.findSenate(c2,'sen-1').dispute.attempts === before+1);
+  ok('escalate stamps replace-ruler on against-voters', r2.dispute.replaceRulerSenatorships.length > 0
+    && ACKS.findSenatorship(c2, r2.dispute.replaceRulerSenatorships[0]).policyObjectives.indexOf('replace-ruler') >= 0);
+
+  // reveal-on-an-unmodified-2: a secretly-bribed senator who rolls a natural 2 reveals it + implicates the ruler
+  const c3 = fixture();
+  c3.senatorships.find(s=>s.id==='snr-4').influenceModifiers = [{ kind:'bribe', value:3, byCharacterId:'chr-r' }];
+  const m3 = ACKS.openSenateMotion(c3, { senateId:'sen-1', kind:'edict', matter:'change-taxes' });
+  const v3 = ACKS.previewSenateMotionVote(c3, { senateId:'sen-1', motionId:m3.id, rng: rngConst(0.01) });   // natural 2
+  const r3 = ACKS.resolveSenateMotion(c3, { senateId:'sen-1', motionId:m3.id, voteResult:v3, rulerCharacterId:'chr-r' });
+  ok('reveal-on-2: bribed senator revealed + recorded on the motion + ruler implicated',
+    r3.motion.revealedSenatorshipIds.indexOf('snr-4') >= 0
+    && ACKS.findSenatorship(c3,'snr-4').isSecretInfluence === false
+    && c3.characters.find(ch=>ch.id==='chr-r').implicatedInBribery === true);
+})();
+
+// =============================================================================
+section('P-5 — withdraw + honeymoon');
+// =============================================================================
+(function(){
+  const c = fixture();
+  const m = ACKS.openSenateMotion(c, { senateId:'sen-1', kind:'edict', matter:'change-taxes' });
+  const w = ACKS.withdrawSenateMotion(c, { senateId:'sen-1', motionId:m.id });
+  ok('withdraw an open motion → withdrawn', w && w.status==='withdrawn');
+  ok('resolve a withdrawn motion is guarded', ACKS.resolveSenateMotion(c, { senateId:'sen-1', motionId:m.id }).reason==='not-open');
+  ok('withdraw a non-open motion → null', ACKS.withdrawSenateMotion(c, { senateId:'sen-1', motionId:m.id }) === null);
+  ok('openOnly excludes the withdrawn', ACKS.senateMotionsForSenate(c,'sen-1',{openOnly:true}).length===0);
+  // honeymoon (RR p.357 — all vote for the ruler)
+  const c2 = fixture(); c2.senates[0].honeymoonUntilTurn = 8;
+  ok('senateInHoneymoon true within the window (turn 5 ≤ 8)', ACKS.senateInHoneymoon(c2, c2.senates[0], 5) === true);
+  ok('senateInHoneymoon false past the window (turn 9)', ACKS.senateInHoneymoon(c2, c2.senates[0], 9) === false);
+  ok('no honeymoon field → false', ACKS.senateInHoneymoon(c, c.senates[0]) === false);
+})();
+
+// =============================================================================
 section('Importer wiring (index.html SIMPLE_ID_COLLECTIONS — §8.9 mandate)');
 // =============================================================================
 (function(){
