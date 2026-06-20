@@ -75,6 +75,7 @@ const ACKS = global.ACKS;
 // Call-time aliases (resolve on global.ACKS at invocation — sibling load order irrelevant).
 const lookupMarketClass            = (...a) => ACKS.lookupMarketClass(...a);
 const customClassCoreClassMapping  = (...a) => (typeof ACKS.customClassCoreClassMapping === 'function' ? ACKS.customClassCoreClassMapping(...a) : null);
+const isHouseRuleEnabled           = (...a) => (typeof ACKS.isHouseRuleEnabled === 'function' ? ACKS.isHouseRuleEnabled(...a) : false);
 
 // The six core demographic buckets, in canonical order (JJ p.214).
 const DEMOGRAPHIC_BUCKETS = Object.freeze(['fighter','crusader','thief','mage','explorer','venturer']);
@@ -898,6 +899,163 @@ function domainRuralDemographics(campaign, domain){
   };
 }
 
+// ── SD-2b: AUTO-GENERATION — fill open roster slots from the NPC generator (plan §7, §11) ──────────
+// The generator-fed half of SD-2. SD-1/SD-2a made the roster legible + hand-fillable; SD-2b lets the
+// tool MINT the notable NPCs an open slot expects, via the shipped generateNPC (Phase 4.8, burst8) —
+// auto-homed + bucketed so they reconcile straight back into the roster (the SAME accessors). RAW-default
+// polarity (CLAUDE §6): minting is gated behind `demographics-auto-generate` (default OFF) layered ON TOP
+// of `living-census` (the deep tier) + requires the generator present. The rank-and-file stay COUNTS —
+// only the NOTABLE tier (high-level casters / captains / guild leaders) individuates (plan §7), so the
+// bulk fills a level FLOOR, capped, highest-level-first; a targeted verb fills one chosen (bucket, level)
+// slot. DERIVE-DON'T-STORE holds: a minted NPC is a normal Character (home pointer + bucket) — no new
+// stored surface, no new entity/prefix/event (generateNPC emits the shipped `generation` event).
+
+// The gate — generator present + both rules on (plan §9: auto-gen is "an active behavior on top of an
+// opt-in feature; requires the NPC generator + living-census"). → {ok, reason}. The verbs refuse with
+// the reason (defensive — a scripted/integrator call can't mint past the gate); the UI mirrors it.
+function demographicAutoGenStatus(campaign){
+  if(typeof ACKS.generateNPC !== 'function') return { ok:false, reason:'no-generator' };
+  if(!isHouseRuleEnabled(campaign, 'living-census')) return { ok:false, reason:'living-census-off' };
+  if(!isHouseRuleEnabled(campaign, 'demographics-auto-generate')) return { ok:false, reason:'auto-generate-off' };
+  return { ok:true, reason:'' };
+}
+
+// Mint ONE resident for a slot via the shipped generateNPC + land it. slot: { bucket, level,
+// homeSettlementId? (urban — generateNPC homes it), hexId? (rural — → currentHexId), homeHexId? (rural
+// home), homeDomainId? (realm-court home), currentDomainId? }. Passing `bucket` (NOT class) lets
+// generateNPC resolve the class via its own tested _BUCKET_TO_CLASS_KEY (identity for the six cores),
+// so the minted NPC buckets straight back to `bucket` via coreBucketForCharacter. opts.rng/seed thread a
+// deterministic stream for tests; the browser default (Math.random) is fine for a one-shot GM action.
+function _generateResident(campaign, slot, opts){
+  opts = opts || {};
+  if(typeof ACKS.generateNPC !== 'function') return null;
+  const ctx = {
+    bucket: slot.bucket,
+    targetLevel: Math.max(1, Number(slot.level) || 1),
+    controlledBy: 'gm', socialTier: 'independent',
+    settlementId: slot.homeSettlementId || null,   // generateNPC sets homeSettlementId from this
+    hexId: slot.hexId || null,                      // → currentHexId (a rural NPC stands in its hex)
+    domainId: slot.currentDomainId || null          // → currentDomainId (geographic, NOT a home pointer)
+  };
+  const proposal = ACKS.generateNPC(campaign, ctx, { rng: opts.rng, seed: opts.seed });
+  if(!proposal || !proposal.character) return null;
+  const c = proposal.character;
+  // the home pointers generateNPC does not set from ctx (it homes only via settlementId):
+  if(slot.homeHexId)    c.homeHexId    = slot.homeHexId;     // the rural roster reads homeHexId
+  if(slot.homeDomainId) c.homeDomainId = slot.homeDomainId;  // the realm command structure reads homeDomainId
+  if(typeof ACKS.landGeneratedNPC === 'function') ACKS.landGeneratedNPC(campaign, proposal, opts);
+  else { if(!Array.isArray(campaign.characters)) campaign.characters = []; campaign.characters.push(c); }
+  return c;
+}
+
+// The open NOTABLE slots of a settlement's roster — open > 0, level ≥ minLevel — highest-level-first
+// (the most notable first), then canonical bucket order. Pure read over demographicDelta.
+function demographicOpenNotableSlots(campaign, settlement, opts){
+  opts = opts || {};
+  const minLevel = (opts.minLevel != null) ? Number(opts.minLevel) : 1;
+  const delta = demographicDelta(campaign, settlement);
+  if(!delta) return [];
+  const slots = [];
+  delta.byLevel.forEach(row => {
+    if(row.level < minLevel) return;
+    DEMOGRAPHIC_BUCKETS.forEach(b => { const cell = row[b]; if(cell && cell.open > 0) slots.push({ bucket:b, level:row.level, open:cell.open }); });
+  });
+  slots.sort((a, b) => b.level - a.level || DEMOGRAPHIC_BUCKETS.indexOf(a.bucket) - DEMOGRAPHIC_BUCKETS.indexOf(b.bucket));
+  return slots;
+}
+
+// TARGETED — mint one NPC for a chosen (bucket, level) urban slot ("fill a chosen Mage-5", plan §11).
+function fillDemographicSlot(campaign, settlement, bucket, level, opts){
+  const gate = demographicAutoGenStatus(campaign);
+  if(!gate.ok) return { ok:false, reason:gate.reason, character:null };
+  if(!settlement || !settlement.id) return { ok:false, reason:'no-settlement', character:null };
+  if(DEMOGRAPHIC_BUCKETS.indexOf(bucket) < 0) return { ok:false, reason:'bad-bucket', character:null };
+  const c = _generateResident(campaign, { bucket, level, homeSettlementId: settlement.id }, opts);
+  return c ? { ok:true, character:c } : { ok:false, reason:'generate-failed', character:null };
+}
+
+// BULK — fill a settlement's open notable slots (level ≥ minLevel, default 5 = the high-level notables;
+// the rank-and-file stay counts), highest-level-first, up to maxToFill (default 8). → {ok, created[]}.
+function autoFillSettlementRoster(campaign, settlement, opts){
+  opts = opts || {};
+  const gate = demographicAutoGenStatus(campaign);
+  if(!gate.ok) return { ok:false, reason:gate.reason, created:[] };
+  if(!settlement || !settlement.id) return { ok:false, reason:'no-settlement', created:[] };
+  const minLevel  = (opts.minLevel  != null) ? Number(opts.minLevel)  : 5;
+  const maxToFill = (opts.maxToFill != null) ? Number(opts.maxToFill) : 8;
+  const slots = demographicOpenNotableSlots(campaign, settlement, { minLevel });
+  const created = [];
+  for(const s of slots){
+    for(let k = 0; k < s.open && created.length < maxToFill; k++){
+      const c = _generateResident(campaign, { bucket:s.bucket, level:s.level, homeSettlementId: settlement.id }, opts);
+      if(c) created.push(c);
+    }
+    if(created.length >= maxToFill) break;
+  }
+  return { ok:true, created, filled: created.length, minLevel, maxToFill };
+}
+
+// REALM ENTOURAGE — mint a court entourage office (magister / guildmaster / annalist) the realm command
+// structure expects but has open. ONLY the entourage offices auto-fill (the ruler + magistrates are
+// appointed via their own UIs); the minted NPC is homed to the realm (homeDomainId) at the office's
+// expected level + bucket, so realmCommandStructure picks it up greedily. → {ok, character}.
+function fillRealmOffice(campaign, domain, officeKey, opts){
+  const gate = demographicAutoGenStatus(campaign);
+  if(!gate.ok) return { ok:false, reason:gate.reason, character:null };
+  if(!domain || !domain.id) return { ok:false, reason:'no-domain', character:null };
+  const off = REALM_OFFICES.find(o => o.key === officeKey);
+  if(!off || off.mapsTo !== null || !off.bucket) return { ok:false, reason:'not-an-entourage-office', character:null };
+  const rc = realmCommandStructure(campaign, domain.id);
+  const rulerLevel = (rc && rc.rulerLevel) || realmRulerLevel(rc && rc.title);
+  const lvl = realmOfficeLevel(off, rulerLevel);
+  const c = _generateResident(campaign, { bucket:off.bucket, level:lvl, homeDomainId: domain.id, currentDomainId: domain.id }, opts);
+  return c ? { ok:true, character:c } : { ok:false, reason:'generate-failed', character:null };
+}
+function autoFillRealmEntourage(campaign, domain, opts){
+  const gate = demographicAutoGenStatus(campaign);
+  if(!gate.ok) return { ok:false, reason:gate.reason, created:[] };
+  if(!domain || !domain.id) return { ok:false, reason:'no-domain', created:[] };
+  const rc = realmCommandStructure(campaign, domain.id);
+  if(!rc) return { ok:false, reason:'no-realm', created:[] };
+  const created = [];
+  rc.offices.filter(o => !o.filled && o.mapsTo === 'entourage' && o.bucket).forEach(o => {
+    const r = fillRealmOffice(campaign, domain, o.key, opts);
+    if(r.ok && r.character) created.push(r.character);
+  });
+  return { ok:true, created, filled: created.length };
+}
+
+// COUNTRYSIDE — fill a domain's open rural notable slots, homing each to a rural hex (round-robin) via
+// homeHexId (the SD-4-deferred auto-fill: SD-4 ships the expectation, SD-2b mints). level ≥ minLevel
+// (default 2 — the rural template tops at L4; skip the L1 flood), up to maxToFill (default 8). → {ok, created[]}.
+function autoFillDomainCountryside(campaign, domain, opts){
+  opts = opts || {};
+  const gate = demographicAutoGenStatus(campaign);
+  if(!gate.ok) return { ok:false, reason:gate.reason, created:[] };
+  if(!domain || !domain.id) return { ok:false, reason:'no-domain', created:[] };
+  const ruralHexes = _domainRuralHexes(campaign, domain);
+  if(!ruralHexes.length) return { ok:false, reason:'no-rural-hexes', created:[] };
+  const minLevel  = (opts.minLevel  != null) ? Number(opts.minLevel)  : 2;
+  const maxToFill = (opts.maxToFill != null) ? Number(opts.maxToFill) : 8;
+  const agg = domainRuralDemographics(campaign, domain);
+  const slots = [];
+  agg.byLevel.forEach(row => {
+    if(row.level < minLevel) return;
+    DEMOGRAPHIC_BUCKETS.forEach(b => { if(row[b] && row[b].open > 0) slots.push({ bucket:b, level:row.level, open:row[b].open }); });
+  });
+  slots.sort((a, b) => b.level - a.level || DEMOGRAPHIC_BUCKETS.indexOf(a.bucket) - DEMOGRAPHIC_BUCKETS.indexOf(b.bucket));
+  const created = []; let hi = 0;
+  for(const s of slots){
+    for(let k = 0; k < s.open && created.length < maxToFill; k++){
+      const hex = ruralHexes[hi % ruralHexes.length]; hi++;
+      const c = _generateResident(campaign, { bucket:s.bucket, level:s.level, hexId: hex.id, homeHexId: hex.id, currentDomainId: domain.id }, opts);
+      if(c) created.push(c);
+    }
+    if(created.length >= maxToFill) break;
+  }
+  return { ok:true, created, filled: created.length };
+}
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
@@ -921,7 +1079,12 @@ Object.assign(ACKS, {
   CIVILIZED_CELL_BUCKET, bucketForCivilizedCell, groundCivilizedEncounter,
   // SD-3 — the realm command structure (T1, plan §5/§11; gated by `living-census`)
   TITLE_RULER_LEVEL, TITLE_LABELS, REALM_OFFICES,
-  realmRulerLevel, realmOfficeLevel, realmCommandStructure
+  realmRulerLevel, realmOfficeLevel, realmCommandStructure,
+  // SD-2b — auto-generation (the generator-fed roster fill; gated on living-census + demographics-auto-generate)
+  demographicAutoGenStatus, demographicOpenNotableSlots,
+  fillDemographicSlot, autoFillSettlementRoster,
+  fillRealmOffice, autoFillRealmEntourage,
+  autoFillDomainCountryside
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }
