@@ -24,8 +24,32 @@
 
   const ACKS = global.ACKS = global.ACKS || {};
 
+  // §15.5 self-registration kernel (Architecture §9.4) — the entity registry is an accumulating
+  // store seeded with the legacy set. A new module self-registers its kind from its own file via
+  // ACKS.registerEntityKind(entry) instead of editing this central literal (the team-session
+  // append-target this slice removes). The seed below carries the EXACT pre-refactor content + order.
+  const ENTITY_KINDS_LIST = [];   // accumulating store (mutable; grows via registerEntityKind)
+  const ENTITY_KINDS = {};        // kind → entry index (built by registerEntityKind, was a for-loop)
+
+  function _entityKindSig(e){
+    return JSON.stringify({ kind: e.kind, label: e.label, pluralLabel: e.pluralLabel,
+      icon: e.icon, addressable: e.addressable, chronicleable: e.chronicleable });
+  }
+  function registerEntityKind(entry){
+    if(!entry || !entry.kind) return;                      // falsy-safe no-op
+    const kind = entry.kind, existing = ENTITY_KINDS[kind];
+    if(existing){                                          // idempotent / conflict-keeps-original
+      if(_entityKindSig(existing) !== _entityKindSig(entry)){
+        try { console.warn('registerEntityKind: "' + kind + '" already registered with different metadata; keeping the original'); } catch(_e){}
+      }
+      return;
+    }
+    ENTITY_KINDS_LIST.push(entry);
+    ENTITY_KINDS[kind] = entry;
+  }
+
   // Ordered for picker presentation — primary narrative anchors first, sub-entities last.
-  const ENTITY_KINDS_LIST = [
+  const ENTITY_KINDS_SEED = [
     // ── PRIMARY NARRATIVE ANCHORS ──
     { kind: 'character', label: 'Character', pluralLabel: 'Characters', icon: '🧙',
       addressable: true, chronicleable: true,
@@ -489,14 +513,12 @@
       find: (c, id) => ((c && c.lore) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.text) || (obj && obj.topic) || (obj && obj.id) || '(lore)' }
   ];
-
-  // Build lookup table
-  const ENTITY_KINDS = {};
-  for(const entry of ENTITY_KINDS_LIST){ ENTITY_KINDS[entry.kind] = entry; }
+  ENTITY_KINDS_SEED.forEach(registerEntityKind);   // seed the stores byte-identically (order preserved)
 
   // ── PUBLIC API ──
 
   function entityKinds(){ return ENTITY_KINDS_LIST.slice(); }
+  function registeredEntityKinds(){ return ENTITY_KINDS_LIST.slice(); }   // §15.5 kernel-convention accessor
   function entityKind(kind){ return ENTITY_KINDS[kind] || null; }
   function chronicleableEntityKinds(){ return ENTITY_KINDS_LIST.filter(k => k.chronicleable); }
 
@@ -522,6 +544,8 @@
   Object.assign(ACKS, {
     ENTITY_KINDS,
     ENTITY_KINDS_LIST,
+    registerEntityKind,
+    registeredEntityKinds,
     entityKinds,
     entityKind,
     chronicleableEntityKinds,
