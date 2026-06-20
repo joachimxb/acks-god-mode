@@ -1225,6 +1225,269 @@
     return { ok:true, senate };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // P-5 — the Senate MOTION layer (the guided Senate Wizard's engine; burst9 2026-06-20).
+  //       Spec: Phase_4_Politics_Plan.md §5.2–§5.4 + §7 + §14 P-5; the lane brief.
+  //       A MOTION is the discrete deliberative item a GM authors + resolves end-to-end:
+  //       open (a policy stance / an edict / a dispute) → gather votes (REUSE senateVote) →
+  //       tally → enact / reject → record + apply. It is a thin ORCHESTRATOR over the
+  //       SHIPPED P-2/P-3 verbs (senateVote · applyInfluenceReveals · enactPolicy ·
+  //       clearSenateDispute) — NOTHING here re-rolls or re-implements the 2d6 stack.
+  //       A motion is a SUB-RECORD on senate.motions[] (init-on-write, read defensively,
+  //       NOT on blankSenate — the P-3 senate.independentGifts[] discipline), so the
+  //       field-schema / registry / migrate-no-op invariants stay untouched and there is
+  //       NO new entity / prefix / collection / house rule. Two record-only events
+  //       (senate-motion-opened / senate-motion-resolved): the verb applies state + emits
+  //       the already-applied event; the events.js handler is a record-only audit (the
+  //       favor-duty / P-2 / P-3 precedent).
+  //   ⚠ Wave-label note: this is the plan's "P-5 (UI + the Senate Wizard)". The plan's
+  //     §5.2 frames the Senate Wizard as the GENERATIVE wizard (materialize a senate's 7
+  //     RAW steps); the lane brief re-scopes P-5 to the MOTION (Action) wizard — the guided
+  //     author-and-resolve-a-vote flow the Senate tab still lacked. Generation stays the
+  //     free-form Inspector ▸ Create path + a later wave. The standalone senateVote /
+  //     enactPolicy panels (P-2) + the dispute / influence actions (P-3) are UNTOUCHED — the
+  //     motion is the higher-level flow that composes them.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const SENATE_MOTION_KINDS = Object.freeze(['policy', 'edict', 'dispute']);
+
+  function _senateMotions(senate){ return (senate && Array.isArray(senate.motions)) ? senate.motions : []; }
+
+  // A motion sub-record (NOT a campaign entity — no prefix / field-schema / registry; the
+  // senate.history-entry shape). The id is senate-scoped + prefix-free (openSenateMotion mints
+  // `senate.id + '-m' + seq`); a caller may pass opts.id for a deterministic test.
+  function blankSenateMotion(opts = {}){
+    return {
+      id: opts.id || null,
+      senateId: opts.senateId || null,
+      kind: SENATE_MOTION_KINDS.indexOf(opts.kind) >= 0 ? opts.kind : 'edict',
+      matter: opts.matter || '',                          // restricted-matter key | free text | '' (a pure policy stance)
+      policyObjective: opts.policyObjective || '',        // a POLICY_OBJECTIVES key (kind 'policy'); '' otherwise
+      title: opts.title || '',
+      description: opts.description || '',
+      restricted: !!opts.restricted,                      // derived (isSenateConsultationRequired); stamped at open
+      mode: opts.mode === 'by-faction' ? 'by-faction' : 'per-senator',
+      policyHelps: Array.isArray(opts.policyHelps) ? opts.policyHelps.slice() : [],
+      policyHinders: Array.isArray(opts.policyHinders) ? opts.policyHinders.slice() : [],
+      rulerFactionId: opts.rulerFactionId || null,
+      militaryLoyalty: opts.militaryLoyalty || 'none',
+      domainMorale: Number(opts.domainMorale) || 0,
+      controlledIndependentVotes: Math.max(0, Number(opts.controlledIndependentVotes) || 0),
+      openedAtTurn: (opts.openedAtTurn != null) ? opts.openedAtTurn : null,
+      status: opts.status || 'open',                      // open | enacted | rejected | defied | dispute-cleared | dispute-escalated | withdrawn
+      outcome: opts.outcome || null,                      // approved | rejected | no-majority | null
+      voteResult: opts.voteResult || null,                // the recorded senateVote tally (rolls + counts)
+      enactDespiteRejection: !!opts.enactDespiteRejection,
+      revealedSenatorshipIds: Array.isArray(opts.revealedSenatorshipIds) ? opts.revealedSenatorshipIds.slice() : [],
+      resolvedAtTurn: (opts.resolvedAtTurn != null) ? opts.resolvedAtTurn : null,
+      history: Array.isArray(opts.history) ? opts.history : []
+    };
+  }
+
+  // ── Lookups ──
+  function senateMotionsForSenate(campaign, senateId, opts){
+    opts = opts || {};
+    let rows = _senateMotions(findSenate(campaign, senateId)).slice();
+    if(opts.openOnly) rows = rows.filter(m => m && m.status === 'open');
+    return rows;
+  }
+  function findSenateMotion(campaign, senateId, motionId){
+    if(!motionId) return null;
+    return _senateMotions(findSenate(campaign, senateId)).find(m => m && m.id === motionId) || null;
+  }
+
+  // A human label for a motion's subject (the narrative + the UI).
+  function _motionMatterLabel(motion){
+    if(!motion) return 'a matter';
+    if(motion.kind === 'dispute') return 'a retroactive approval';
+    if(motion.policyObjective) return 'the policy “' + motion.policyObjective + '”';
+    return motion.matter || motion.title || 'a matter';
+  }
+
+  // Open a motion (table it). Mints the sub-record on senate.motions[] (init-on-write), stamps
+  // the derived `restricted`, emits 'senate-motion-opened'. Returns the motion (or null).
+  //   opts: { senateId|senate, kind, matter, policyObjective, title, description, mode,
+  //           policyHelps[], policyHinders[], rulerFactionId, militaryLoyalty, domainMorale,
+  //           controlledIndependentVotes, rulerCharacterId, turn, emit:false }
+  function openSenateMotion(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    if(!Array.isArray(senate.motions)) senate.motions = [];            // init-on-write (NOT on blankSenate)
+    const seq = (senate._motionSeq = (Number(senate._motionSeq) || 0) + 1);
+    const turn = _turnOf(campaign, opts);
+    const matter = opts.matter || '';
+    const motion = blankSenateMotion(Object.assign({}, opts, {
+      id: senate.id + '-m' + seq, senateId: senate.id,
+      restricted: isSenateConsultationRequired(matter),
+      openedAtTurn: turn, status: 'open'
+    }));
+    motion.history.push({ turn, type: 'opened' });
+    senate.motions.push(motion);
+    if(opts.emit !== false){
+      _emitPoliticsEvent(campaign, 'senate-motion-opened', {
+        senateId: senate.id, motionId: motion.id, kind: motion.kind,
+        matter: motion.matter, policyObjective: motion.policyObjective, restricted: motion.restricted,
+        title: motion.title,
+        narrative: 'A motion is brought before the ' + (senate.name || 'senate') + ': ' +
+          (motion.title || _motionMatterLabel(motion)) + '.'
+      }, senate, opts.rulerCharacterId, []);
+    }
+    return motion;
+  }
+
+  // The vote inputs a motion feeds to senateVote (shared by preview + resolve; opts override the
+  // motion's stored inputs). A 'dispute' motion votes on the senate's defied topic (retroactive approval).
+  function _motionVoteOpts(campaign, senate, motion, opts){
+    opts = opts || {};
+    return {
+      senate, senateId: senate.id,
+      matter: motion.kind === 'dispute'
+        ? ('retroactive approval of ' + ((senate.dispute && senate.dispute.defiedTopic) || motion.matter || 'a restricted matter'))
+        : (motion.matter || motion.policyObjective || ''),
+      mode: opts.mode || motion.mode || 'per-senator',
+      rulerCharacterId: opts.rulerCharacterId,
+      domainMorale: (opts.domainMorale != null) ? opts.domainMorale : motion.domainMorale,
+      rulerFactionId: (opts.rulerFactionId !== undefined) ? opts.rulerFactionId : motion.rulerFactionId,
+      militaryLoyalty: opts.militaryLoyalty || motion.militaryLoyalty,
+      controlledIndependentVotes: (opts.controlledIndependentVotes != null) ? opts.controlledIndependentVotes : motion.controlledIndependentVotes,
+      policyHelps: (opts.policyHelps || motion.policyHelps || []).slice(),
+      policyHinders: (opts.policyHinders || motion.policyHinders || []).slice()
+    };
+  }
+
+  // A PURE preview vote on a motion (or a passed transient motion spec) — the wizard's roll / ⟳
+  // step. REUSES senateVote(emit:false): never mutates, emits nothing. Returns the tally (or null).
+  //   opts: { senateId|senate, motion | motionId, rng, autoRoll, gmOutcome, + any vote override }
+  function previewSenateMotionVote(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    const motion = opts.motion || findSenateMotion(campaign, senate.id, opts.motionId);
+    if(!motion) return null;
+    return senateVote(campaign, Object.assign(_motionVoteOpts(campaign, senate, motion, opts), {
+      rng: opts.rng, autoRoll: opts.autoRoll, gmOutcome: opts.gmOutcome, emit: false
+    }));
+  }
+
+  // Resolve an open motion end-to-end (the terminal verb): take the wizard's already-rolled
+  // voteResult (or roll one — emit:false, the motion event is the audit), apply influence reveals,
+  // then enact / reject (policy + edict, via enactPolicy) OR clear / escalate (dispute, via
+  // clearSenateDispute + the RR p.359 escalate) — all over the SHIPPED P-2/P-3 verbs — record the
+  // outcome on the motion, and emit 'senate-motion-resolved'.
+  //   opts: { senateId|senate, motionId|motion, voteResult, rng, autoRoll, gmOutcome,
+  //           enactDespiteRejection, rulerCharacterId, turn, emit:false, + vote overrides }
+  //   Returns { ok, motion, vote, reveals, enact?, dispute? } (or { ok:false, reason }).
+  function resolveSenateMotion(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const motion = opts.motion || findSenateMotion(campaign, senate.id, opts.motionId);
+    if(!motion) return { ok:false, reason:'no-motion' };
+    if(motion.status !== 'open') return { ok:false, reason:'not-open', motion };
+    const turn = _turnOf(campaign, opts);
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const rulerId = opts.rulerCharacterId || (apex && apex.rulerCharacterId) || null;
+
+    // 1) the vote — the wizard's shown tally, else roll one (emit:false; the motion event is the audit).
+    const vote = opts.voteResult || senateVote(campaign, Object.assign(_motionVoteOpts(campaign, senate, motion, opts), {
+      rng: opts.rng, autoRoll: opts.autoRoll, gmOutcome: opts.gmOutcome, emit: false, rulerCharacterId: rulerId
+    }));
+    motion.voteResult = vote;
+    motion.outcome = vote ? vote.outcome : 'no-majority';
+    const approved = !!(vote && vote.approved);
+
+    // 2) reveal-on-an-unmodified-2 (a bribed/intimidated/seduced senator implicates the ruler — P-3).
+    let reveals = { revealed: [] };
+    try { reveals = applyInfluenceReveals(campaign, vote, { rulerCharacterId: rulerId, turn }) || reveals; } catch(e){}
+    motion.revealedSenatorshipIds = (reveals.revealed || []).slice();
+
+    // 3) apply the kind-appropriate effect over the shipped verbs.
+    let enact = null, dispute = null;
+    motion.enactDespiteRejection = !!opts.enactDespiteRejection;
+    if(motion.kind === 'dispute'){
+      if(senate.dispute == null){ motion.status = 'rejected'; }                 // nothing to clear
+      else if(approved){
+        clearSenateDispute(campaign, senate.id, { turn, resolution: 'approved' });
+        motion.status = 'dispute-cleared'; dispute = { outcome: 'cleared' };
+      } else {
+        // escalate: bump attempts + stamp 'replace-ruler' on the against-voters (RR p.359; the P-3 shape —
+        // duplicated rather than re-rolled via resolveDisputeByConsult so the wizard keeps its rolled tally).
+        senate.dispute.attempts = (senate.dispute.attempts || 1) + 1;
+        const hostile = [];
+        for(const row of (vote && vote.rolls) || []){
+          if(!row || row.vote !== 'against' || !row.senatorshipId) continue;
+          const s = findSenatorship(campaign, row.senatorshipId);
+          if(!s) continue;
+          if(!Array.isArray(s.policyObjectives)) s.policyObjectives = [];
+          if(s.policyObjectives.indexOf('replace-ruler') < 0){ s.policyObjectives.push('replace-ruler'); hostile.push(s.id); }
+        }
+        if(!Array.isArray(senate.history)) senate.history = [];
+        senate.history.push({ turn, type: 'dispute-escalated', topic: (senate.dispute && senate.dispute.defiedTopic) || motion.matter, attempts: senate.dispute.attempts });
+        motion.status = 'dispute-escalated';
+        dispute = { outcome: 'escalated', attempts: senate.dispute.attempts, replaceRulerSenatorships: hostile };
+      }
+    } else {
+      // policy / edict — enact on approval; on a rejection the ruler may defy (→ dispute) or stand down.
+      if(approved){
+        enact = enactPolicy(campaign, { senate, senateId: senate.id, matter: motion.matter, consulted: true, approved: true, rulerCharacterId: rulerId, turn, emit: false });
+        motion.status = (enact && enact.cleared) ? 'dispute-cleared' : 'enacted';
+      } else if(opts.enactDespiteRejection){
+        enact = enactPolicy(campaign, { senate, senateId: senate.id, matter: motion.matter, consulted: true, approved: false, rulerCharacterId: rulerId, turn, emit: false });
+        motion.status = (enact && enact.disputed) ? 'defied' : 'enacted';
+      } else {
+        motion.status = 'rejected';
+      }
+    }
+
+    motion.resolvedAtTurn = turn;
+    if(!Array.isArray(motion.history)) motion.history = [];
+    motion.history.push({ turn, type: 'resolved', outcome: motion.outcome, status: motion.status });
+
+    if(opts.emit !== false){
+      _emitPoliticsEvent(campaign, 'senate-motion-resolved', {
+        senateId: senate.id, motionId: motion.id, kind: motion.kind,
+        matter: motion.matter, policyObjective: motion.policyObjective,
+        outcome: motion.outcome, approved, status: motion.status,
+        forVotes: vote ? vote.forVotes : 0, againstVotes: vote ? vote.againstVotes : 0,
+        abstainVotes: vote ? vote.abstainVotes : 0, totalVotes: vote ? vote.totalVotes : 0,
+        majorityThreshold: vote ? vote.majorityThreshold : 0,
+        revealedCount: motion.revealedSenatorshipIds.length,
+        narrative: 'The ' + (senate.name || 'senate') + ' resolves ' + _motionMatterLabel(motion) + ' — ' +
+          (motion.status === 'enacted' ? 'enacted with the senate’s sanction.' :
+           motion.status === 'defied' ? 'the ruler defies the senate (→ dispute).' :
+           motion.status === 'dispute-cleared' ? 'the dispute ends.' :
+           motion.status === 'dispute-escalated' ? 'the dispute deepens.' :
+           'rejected.')
+      }, senate, rulerId, (vote && vote.rolls) || []);
+    }
+    return { ok:true, motion, vote, reveals, enact, dispute };
+  }
+
+  // Withdraw an open motion (a GM correction — table it without a vote). No event (the 'opened'
+  // record stands); stamps the motion history. Returns the motion (or null when not open).
+  function withdrawSenateMotion(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    const motion = opts.motion || findSenateMotion(campaign, (senate && senate.id) || opts.senateId, opts.motionId);
+    if(!motion || motion.status !== 'open') return null;
+    const turn = _turnOf(campaign, opts);
+    motion.status = 'withdrawn';
+    motion.resolvedAtTurn = turn;
+    if(!Array.isArray(motion.history)) motion.history = [];
+    motion.history.push({ turn, type: 'withdrawn' });
+    return motion;
+  }
+
+  // Is the senate in its post-establishment honeymoon (RR p.357 — all vote for the ruler)? The
+  // wizard reads this to default a motion to auto-approve. (senateVote itself is honeymoon-agnostic
+  // — the UI passes autoRoll:false + gmOutcome:'approved' during the window.)
+  function senateInHoneymoon(campaign, senate, turn){
+    if(!senate || senate.honeymoonUntilTurn == null) return false;
+    const t = (turn != null) ? turn : ((campaign && campaign.currentTurn) || 1);
+    return t <= senate.honeymoonUntilTurn;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
@@ -1247,7 +1510,12 @@
     // P-3 — influence actions + the dispute-lifecycle extensions (burst8)
     bribeSenator, intimidateSenator, seduceSenator, flipSocialInfluence, applyInfluenceReveals,
     giftIndependentSenators, controlledIndependentVotesFor,
-    resolveDisputeByConsult, abandonSenatorialGovernment, canReestablishSenate, reestablishSenate
+    resolveDisputeByConsult, abandonSenatorialGovernment, canReestablishSenate, reestablishSenate,
+    // P-5 — the motion layer (the guided Senate Wizard's engine; burst9)
+    SENATE_MOTION_KINDS, blankSenateMotion,
+    senateMotionsForSenate, findSenateMotion,
+    openSenateMotion, previewSenateMotionVote, resolveSenateMotion, withdrawSenateMotion,
+    senateInHoneymoon
   });
 
 })(typeof window !== 'undefined' ? window : global);

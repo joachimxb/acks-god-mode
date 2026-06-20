@@ -280,6 +280,13 @@ const EVENT_KINDS = Object.freeze([
   // the dispute-lifecycle transitions (opened/escalated/cleared/abandoned/reestablished — action-discriminated).
   'senate-influenced',
   'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — the Senate-MOTION wizard (RR pp.355–360). Engine-
+  // emitted by acks-engine-politics.js (openSenateMotion / resolveSenateMotion), record-only: the
+  // verb already applied state (the motion sub-record on senate.motions[]; resolve reuses senateVote
+  // + enactPolicy + clearSenateDispute). Carries the Event.context envelope (apex hex + ruler + the
+  // voting senators). Wizard opt-out below.
+  'senate-motion-opened',
+  'senate-motion-resolved',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -1025,6 +1032,22 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { action: 'string', topic: 'string', attempts: 'number', replaceRulerCount: 'number',
          forVotes: 'number', againstVotes: 'number', hostileCount: 'number', cooldownMonths: 'number',
          reestablishAtTurn: 'number', honeymoonUntilTurn: 'number', apexDomainId: 'string', narrative: 'string' }
+  },
+  // === Politics P-5 (burst9 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A motion is tabled before the senate (kind ∈ policy|edict|dispute).
+  'senate-motion-opened': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         restricted: 'boolean', title: 'string', narrative: 'string' }
+  },
+  // A motion is resolved (votes gathered + enacted/rejected/dispute). status ∈ enacted|rejected|
+  // defied|dispute-cleared|dispute-escalated; outcome ∈ approved|rejected|no-majority.
+  'senate-motion-resolved': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         outcome: 'string', approved: 'boolean', status: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', revealedCount: 'number', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -2946,6 +2969,12 @@ registerEventHandler('policy-enacted', applyEvent_senateAudit);
 // the dispute transition); the handler keeps the event well-formed on replay (records the narrative only).
 registerEventHandler('senate-influenced', applyEvent_senateAudit);
 registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
+// === Politics P-5 (burst9 2026-06-20) === — the Senate-motion events share the same record-only audit:
+// ACKS.openSenateMotion / resolveSenateMotion (acks-engine-politics.js) already applied the state (the
+// motion sub-record + the reused senateVote/enactPolicy/clearSenateDispute effects); the handler keeps
+// the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-motion-opened', applyEvent_senateAudit);
+registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -6152,6 +6181,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Politics P-3 (team) === — owned by the Senate tab's influence + dispute actions (acks-engine-
   // politics.js); a raw Wizard emit would record an influence/dispute the senate state doesn't show.
   'senate-influenced', 'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — owned by the Senate tab's 📜 Motion Wizard (acks-engine-
+  // politics.js openSenateMotion / resolveSenateMotion); a raw Wizard emit would record a motion the
+  // senate.motions[] state doesn't show.
+  'senate-motion-opened', 'senate-motion-resolved',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
