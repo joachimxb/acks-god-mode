@@ -35,16 +35,25 @@
  *    RANGES (a higher die → a more valuable piece, monotone — the RAW intent),
  *    and flags the exact per-band distribution as a future data-refinement. Treasure
  *    is high-variance by design — average-faithfulness is the right bar.
- *  • Only the CLASSIC mode table ships (the RAW default). Heroic/Gritty are the
- *    same shape (a data add, TT pp.20–21) — reserved, fall back to Classic.
+ *  • All three modes SHARE one value table (the RAW "equal total value per type"
+ *    invariant). The MODE governs two post-roll transforms, NOT a different table (T5):
+ *    (a) coin WEIGHT — Heroic/Gritty push value one denomination step DOWN (≈×6 heavier
+ *    at TT R, same gp); (b) magic RESOLUTION — Classic by TYPE, Heroic/Gritty by RARITY
+ *    (Gritty makes Legendary much rarer). 🔧 The exact TT pp.20–21 per-row dice + the
+ *    per-tier rarity COUNTS are a flagged data-refinement (a single derived rarity per
+ *    row, not the RAW per-tier spread); the mechanism (equal value, heavier coin,
+ *    by-rarity) is faithful.
  *  • The SPECIAL_TREASURE sub-tables are representative (the survey gives examples,
  *    not the full TT pp.23–25 transcription): the MECHANISM is faithful (lot →
  *    substitute an RR-Ch.8-congruent trade good with base value + stone weight;
  *    captives at the top of ep/pp/regalia), the exact good list is a flagged
  *    data-refinement.
- *  • Magic-component gp in the hoard total is the row's stated magic AVG gp when
- *    any slot rolled (a coarse estimate — the real value lands when #143 fills the
- *    slots). T1/T2 magic is GM-fill placeholder.
+ *  • Magic slots resolve against the SHIPPED Magic-Items #143 catalog (T4): each slot
+ *    becomes a real NotableItem (the catalog's `intrinsic` shape — rarity / baseCost /
+ *    charges / page-ref) via the shipped promoteLineFromCatalog. magicEstGp is the SUM
+ *    of the resolved items' apparent values. If #143 isn't loaded (treasure standalone),
+ *    resolution is empty + the materializer falls back to GM-fill placeholder `magical`
+ *    lines. Treasure NEVER edits #143 (read-only consume).
  *
  * ⚠ IP (CLAUDE §13.6): these are table STRUCTURES + numeric facts (percentages,
  * dice, value rungs, the A–R rows) — facts, reorganized to JSON, NOT the Treasure
@@ -224,12 +233,15 @@
   const TREASURE_TYPE_LETTERS = Object.freeze(Object.keys(TREASURE_TYPE_TABLE_CLASSIC));
 
   // Treasure modes (TT pp.19–21; survey §6.2 / §7). A campaign SETTING, not a house
-  // rule. v1 ships Classic; Heroic/Gritty are reserved (same shape — fall back to Classic).
+  // rule. All three SHARE one value table (RAW: equal total value per type); the mode
+  // applies two post-roll transforms in generateHoard (T5) — coin demotion (heavier) +
+  // by-rarity magic — NOT a different value table. So heroic/gritty point at the Classic
+  // table by design (the exact per-row dice are a flagged data-refinement, header note).
   const TREASURE_MODES = Object.freeze(['classic', 'heroic', 'gritty']);
   const TREASURE_TYPE_TABLES = Object.freeze({
     classic: TREASURE_TYPE_TABLE_CLASSIC,
-    heroic:  TREASURE_TYPE_TABLE_CLASSIC,  // reserved (TT pp.20–21 data add)
-    gritty:  TREASURE_TYPE_TABLE_CLASSIC   // reserved
+    heroic:  TREASURE_TYPE_TABLE_CLASSIC,  // shared value table; mode = coin-weight + by-rarity transforms
+    gritty:  TREASURE_TYPE_TABLE_CLASSIC
   });
 
   // ── Gem value tiers (TT p.22; survey §6.3) ──
@@ -385,6 +397,114 @@
     return { slots: out, estGp: out.length ? (magicSpec.avgGp || 0) : 0 };
   }
 
+  // ── Mode transforms — Heroic/Gritty (TT pp.20–21; survey §6.2) — T5 ──────────
+  // Heroic/Gritty keep the SAME total value per row (the value tables are shared) but
+  // (a) push coin value DOWN the denomination ladder (heavier) and (b) roll magic BY
+  // RARITY not by type. `mode` governs these post-roll transforms in generateHoard.
+  const COIN_DEMOTE_ONE = Object.freeze({ pp:'gp', gp:'ep', ep:'sp', sp:'cp', cp:'cp' });
+  function _modeIsByRarity(mode){ return mode === 'heroic' || mode === 'gritty'; }
+  // Move each denomination's VALUE down `steps` rungs, preserving total gp (new count :=
+  // value ÷ the lower denom's gp). Mutates + returns the coins map. heroic/gritty = 1 step
+  // → ~×6 heavier at TT R (the RAW weight consequence; exact per-row dice flagged).
+  function _demoteCoins(coins, steps){
+    const V = _A().COIN_GP_VALUE || { cp:0.01, sp:0.1, ep:0.5, gp:1, pp:5 };
+    const n = Math.max(0, steps || 0);
+    if(!n) return coins;
+    const out = { cp:0, sp:0, ep:0, gp:0, pp:0 };
+    for(const d of COIN_DENOMINATIONS){
+      const c = coins[d] || 0; if(!c) continue;
+      let denom = d; for(let i = 0; i < n; i++) denom = COIN_DEMOTE_ONE[denom];
+      out[denom] += Math.round((c * (V[d] || 0)) / (V[denom] || 1));
+    }
+    for(const d of COIN_DENOMINATIONS) coins[d] = out[d];
+    return coins;
+  }
+
+  // ── Magic-slot resolution against the SHIPPED Magic-Items #143 catalog — T4 ──
+  // Treasure EMITS slot requests; #143's catalog says what a magic item IS. Read-only:
+  // we call ACKS.magicItemCatalog() + promoteLineFromCatalog, never edit #143. Cursed
+  // entries are excluded from random rolls (RAW's `^` cursed items are placed by hand,
+  // not the default roll). If the catalog isn't loaded, resolution returns [] and the
+  // materializer falls back to GM-fill placeholders.
+  let _magicPoolCache = null;
+  function _magicPoolAll(){
+    const A = _A();
+    if(_magicPoolCache && _magicPoolCache.src === A.MAGIC_ITEM_CATALOG) return _magicPoolCache.all;
+    const all = (typeof A.magicItemCatalog === 'function') ? A.magicItemCatalog() : [];
+    const usable = all.filter(e => e && !e.cursed);
+    _magicPoolCache = { src: A.MAGIC_ITEM_CATALOG, all: usable };
+    return usable;
+  }
+  function _magicPoolForCategory(cat){
+    const all = _magicPoolAll();
+    if(cat === 'potion') return all.filter(e => e.kind === 'potion');
+    if(cat === 'scroll') return all.filter(e => e.kind === 'scroll');
+    if(cat === 'weapon-or-armor') return all.filter(e => e.kind === 'magic-weapon' || e.kind === 'magic-armor');
+    return all; // 'any'
+  }
+  const _RARITY_ORDER = Object.freeze(['common','uncommon','rare','very-rare','legendary']);
+  function _magicPoolForRarity(rarity){
+    const all = _magicPoolAll();
+    const exact = all.filter(e => e.rarity === rarity);
+    if(exact.length) return exact;
+    const idx = _RARITY_ORDER.indexOf(rarity);
+    for(let d = 1; d < _RARITY_ORDER.length; d++){
+      const lo = (idx - d >= 0) ? all.filter(e => e.rarity === _RARITY_ORDER[idx - d]) : [];
+      if(lo.length) return lo;
+      const hi = (idx + d < _RARITY_ORDER.length) ? all.filter(e => e.rarity === _RARITY_ORDER[idx + d]) : [];
+      if(hi.length) return hi;
+    }
+    return all;
+  }
+  function _pickEntry(pool, rng){
+    if(!pool || !pool.length) return null;
+    const r = rng || Math.random;
+    return pool[Math.min(pool.length - 1, Math.floor((r() || 0) * pool.length))];
+  }
+  // Per-item rarity draw (by-rarity mode): a spread CENTERED on the row's baseRarity, so
+  // a rich hoard yields a mix (some common, some rare, occasionally legendary) rather than
+  // one flat tier. Heroic spreads ~symmetrically (reaches Legendary on the tail); Gritty
+  // biases DOWN — Legendary almost never, more low-rarity items (survey §6.2). 🔧 the
+  // spread weights are calibrated tooling, NOT the RAW per-tier counts (header note).
+  function _drawRarity(baseRarity, mode, rng){
+    const r = (rng || Math.random)();
+    const baseIdx = Math.max(0, _RARITY_ORDER.indexOf(baseRarity));
+    let shift;
+    if(mode === 'gritty') shift = r < 0.45 ? 0 : r < 0.80 ? -1 : r < 0.95 ? 1 : -2;             // Legendary almost never
+    else                  shift = r < 0.40 ? 0 : r < 0.65 ? -1 : r < 0.88 ? 1 : r < 0.97 ? 2 : -2; // Heroic — full spread
+    let idx = baseIdx + shift;
+    if(idx < 0) idx = 0; if(idx > _RARITY_ORDER.length - 1) idx = _RARITY_ORDER.length - 1;
+    return _RARITY_ORDER[idx];
+  }
+  // Resolve the rolled magicSlots → a FLAT list of catalog-backed item descriptors (one
+  // per item). Classic = by category (type); Heroic/Gritty = by rarity (the per-item
+  // rarity drawn around the row's avg-per-item value). The materializer mints these.
+  function _resolveMagicItems(magicSlots, mode, avgGp, rng){
+    const A = _A();
+    if(!Array.isArray(magicSlots) || !magicSlots.length) return [];
+    if(typeof A.magicItemCatalog !== 'function' || !_magicPoolAll().length) return [];
+    const byRarity = _modeIsByRarity(mode);
+    const totalCount = magicSlots.reduce((s, x) => s + (x.count || 0), 0) || 1;
+    const perItemGp = (Number(avgGp) || 0) / totalCount;
+    const baseRarity = (typeof A.magicItemRarity === 'function') ? A.magicItemRarity(perItemGp) : 'uncommon';
+    const out = [];
+    for(const slot of magicSlots){
+      const n = Math.max(1, slot.count || 1);
+      for(let i = 0; i < n; i++){
+        let entry;
+        if(byRarity){
+          const rar = _drawRarity(baseRarity, mode, rng);
+          entry = _pickEntry(_magicPoolForRarity(rar), rng);
+        } else {
+          entry = _pickEntry(_magicPoolForCategory(slot.category), rng);
+        }
+        if(entry) out.push({ key: entry.key, name: entry.name, kind: entry.kind, rarity: entry.rarity,
+          apparentValue: entry.apparentValue, baseCost: entry.baseCost, category: slot.category });
+      }
+    }
+    return out;
+  }
+
   // generateHoard(opts) — the core roll.
   // opts = { treasureType:'A'..'R', mode?, rng? } → a hoard object:
   //   { treasureType, mode, accumulation,
@@ -402,7 +522,7 @@
     const hoard = {
       treasureType: letter, mode: mode, accumulation: row ? row.accum : '',
       coins: { cp:0, sp:0, ep:0, gp:0, pp:0 },
-      gems: [], jewelry: [], magicSlots: [], magicEstGp: 0,
+      gems: [], jewelry: [], magicSlots: [], magicItems: [], magicEstGp: 0,
       specialTreasures: [], captives: [], totals: null
     };
     if(!row){ hoard.totals = _hoardTotals(hoard); return hoard; }
@@ -412,6 +532,10 @@
       const cell = row.coins[d];
       if(cell && _gate(cell.pct, rng)) hoard.coins[d] = _rollMult(cell.dice, COIN_LOT_MULT, rng);
     }
+    // T5 — Heroic/Gritty push coin value DOWN one denomination step (same total gp,
+    // markedly heavier). A pure post-roll redistribution (no rng) so gems/jewelry below
+    // roll identically across modes; Classic = no shift.
+    if(_modeIsByRarity(mode)) _demoteCoins(hoard.coins, 1);
     // Gems.
     if(row.gems && _gate(row.gems.pct, rng)){
       const n = Math.max(1, _roll(row.gems.dice, rng));
@@ -422,9 +546,15 @@
       const n = Math.max(1, _roll(row.jewelry.dice, rng));
       for(let i = 0; i < n; i++) hoard.jewelry.push({ tier: row.jewelry.tier, valueGp: rollJewelryValue(row.jewelry.tier, rng) });
     }
-    // Magic (slot requests; #143 fills, else GM-fill placeholder).
+    // Magic slot requests (TT pp.29–31) — count/category rolled here.
     const mg = _rollMagic(row.magic, rng);
     hoard.magicSlots = mg.slots; hoard.magicEstGp = mg.estGp;
+    // T4 — resolve the slots against the #143 catalog → real item descriptors (one per
+    // item): Classic by TYPE, Heroic/Gritty by RARITY. Resolved LAST so the coin/gem/
+    // jewelry rolls above are byte-identical regardless of #143; empty if #143 isn't
+    // loaded (the materializer then writes GM-fill placeholders).
+    hoard.magicItems = _resolveMagicItems(hoard.magicSlots, mode, (row.magic && row.magic.avgGp) || 0, rng);
+    if(hoard.magicItems.length) hoard.magicEstGp = hoard.magicItems.reduce((s, m) => s + (m.apparentValue || 0), 0);
 
     hoard.totals = _hoardTotals(hoard);
     return hoard;
@@ -589,18 +719,36 @@
       });
     }
 
-    // 3) Magic slots → placeholder `magical` lines promoted to notableItems[] (#143 fills later).
+    // 3) Magic items → notableItems[] (T4). The hoard's resolved magicItems[] (filled
+    //    against #143's catalog at roll time) mint as real NotableItems via the shipped
+    //    promoteLineFromCatalog (kind + baseCatalogKey + the #143 `intrinsic` shape). If
+    //    #143 wasn't loaded, magicItems[] is empty → fall back to GM-fill placeholders
+    //    over the raw magicSlots. NEVER edits #143 (read-only consume).
     const notables = [];
-    if(Array.isArray(hoard.magicSlots) && hoard.magicSlots.length && A.depositToStash && A.promoteLineToNotableItem){
+    const resolved = Array.isArray(hoard.magicItems) ? hoard.magicItems : [];
+    function _depositMagicLine(name, notes){
+      const line = blankStashItem(notes ? { facets:['magical'], name, notes } : { facets:['magical'], name });
+      A.depositToStash(campaign, stash.id, [line], { atTurn, reason:'treasure-generated-magic',
+        source:{ kind:'treasure', id: opts.lairId || null, label:'generated hoard (magic)' } });
+      return stash.items[stash.items.length - 1];   // the deposited copy is the last line
+    }
+    if(resolved.length && A.depositToStash && typeof A.promoteLineFromCatalog === 'function'){
+      for(const mi of resolved){
+        const placed = _depositMagicLine(mi.name);
+        const ni = A.promoteLineFromCatalog(campaign, placed, mi.key, { name: mi.name });
+        if(ni){
+          ni.intrinsic = ni.intrinsic || {};
+          ni.intrinsic.source = 'treasure-generated';     // provenance (the smoke + the doc-pass read this)
+          ni.intrinsic.filledFromCatalog = true;
+          notables.push(ni);
+        }
+      }
+    } else if(Array.isArray(hoard.magicSlots) && hoard.magicSlots.length && A.depositToStash && A.promoteLineToNotableItem){
+      // Fallback — #143 not loaded: GM-fill placeholder `magical` lines (the pre-T4 path).
       for(const slot of hoard.magicSlots){
         const n = Math.max(1, slot.count || 1);
         for(let i = 0; i < n; i++){
-          const line = blankStashItem({ facets:['magical'], name: _magicSlotName(slot.category),
-            notes: 'GM-fill — roll on the Magic Items #143 catalog' });
-          A.depositToStash(campaign, stash.id, [line], { atTurn, reason:'treasure-generated-magic',
-            source:{ kind:'treasure', id: opts.lairId || null, label:'generated hoard (magic)' } });
-          // The deposited copy is the last line in the stash; promote it.
-          const placed = stash.items[stash.items.length - 1];
+          const placed = _depositMagicLine(_magicSlotName(slot.category), 'GM-fill — roll on the Magic Items #143 catalog');
           const ni = A.promoteLineToNotableItem(campaign, placed, {
             kind: _magicSlotKind(slot.category), name: _magicSlotName(slot.category),
             intrinsic: { rarityHint: null, category: slot.category, source:'treasure-generated', filledBy143:false }
@@ -691,7 +839,8 @@
           totalGp: Math.round(totals.gp), totalStone: Math.round(totals.stone * 100) / 100,
           stashId: stash ? stash.id : null, lairId: opts.lairId || null,
           coins: hoard.coins, gemCount: (hoard.gems || []).length, jewelryCount: (hoard.jewelry || []).length,
-          magicSlotCount: (hoard.magicSlots || []).length, captiveCount: (captives || []).length,
+          magicSlotCount: (hoard.magicSlots || []).length, magicItemCount: (hoard.magicItems || []).length,
+          captiveCount: (captives || []).length,
           narrative: _hoardNarrative(hoard, totals)
         }
       });
@@ -728,7 +877,8 @@
     if((hoard.gems || []).length) bits.push((hoard.gems.length) + ' gem' + (hoard.gems.length > 1 ? 's' : ''));
     if((hoard.jewelry || []).length) bits.push((hoard.jewelry.length) + ' piece' + (hoard.jewelry.length > 1 ? 's' : '') + ' of jewelry');
     if((hoard.specialTreasures || []).length) bits.push((hoard.specialTreasures.length) + ' special treasure' + (hoard.specialTreasures.length > 1 ? 's' : ''));
-    if((hoard.magicSlots || []).length) bits.push((hoard.magicSlots.length) + ' magic item' + (hoard.magicSlots.length > 1 ? 's' : ''));
+    const magicN = (hoard.magicItems || []).length || (hoard.magicSlots || []).reduce((s, x) => s + (x.count || 0), 0);
+    if(magicN) bits.push(magicN + ' magic item' + (magicN > 1 ? 's' : ''));
     if((hoard.captives || []).length) bits.push((hoard.captives.length) + ' captive' + (hoard.captives.length > 1 ? 's' : ''));
     return 'Generated a Type-' + (hoard.treasureType || '?') + ' hoard (~' +
       Math.round(totals.gp).toLocaleString() + ' gp): ' + (bits.length ? bits.join(', ') : 'empty') + '.';
