@@ -272,6 +272,42 @@ r1.camp.domains.forEach((d1) => {
 });
 check('a different seed changes population/morale outcomes', anyDiff);
 
+console.log('--- (d) Passive-investment payout survives the load-time reconcile (canonical-setter bug) ---');
+// Regression for the confirmed bug: processPassiveInvestmentsForTurn wrote domain.treasury.gp
+// DIRECTLY, bypassing the treasury stash — so the load-time reconcileTreasuryScalars pass
+// (scalar := stash sum) silently clobbered the payout (the gp vanished on reload: 23895 → 23595).
+// The fix routes the payout through _applyDomainTreasuryDelta (deposits to the stash + keeps the
+// scalar in lockstep). Synthetic round-trip first, then end-to-end on the demo.
+const psCamp = { schemaVersion:2, currentTurn:3, houseRules:{}, characters:[], settlements:[], hexes:[], rumors:[], stashes:[], passiveInvestments:[],
+  domains:[ mkDomain({ id:'dom-ps', name:'Passiveton', treasury:{ gp:1000 },
+    geography:{ controlledHexes:1, hexes:[ { id:'hex-ps', valuePerFamily:6, landImprovementBonus:0, families:100 } ] } }) ] };
+ACKS.migrateAllDomainTreasuries(psCamp);
+const psDom = psCamp.domains[0];
+check('synthetic domain materialized a treasury stash', !!psDom.treasuryStashId);
+check('treasury stash sum == scalar at start (1000)', ACKS.domainTreasuryGp(psCamp, psDom.id) === 1000 && (psDom.treasury.gp||0) === 1000,
+  'stash ' + ACKS.domainTreasuryGp(psCamp, psDom.id) + ' / scalar ' + (psDom.treasury && psDom.treasury.gp));
+psCamp.passiveInvestments = [{ id:'inv-ps', enabled:true, name:'Brewery', type:'commerce', riskTier:'balanced', capital:30000, destinationDomainId:'dom-ps', ownerCharacterId:null }];
+const psGp = ACKS.passiveInvestmentMonthlyGp(psCamp.passiveInvestments[0]); // 30000 × 1% = 300
+check('passiveInvestmentMonthlyGp = 300 (sanity)', psGp === 300, 'got ' + psGp);
+const psRes = ACKS.processPassiveInvestmentsForTurn(psCamp);
+check('payout reported (totalGp 300)', psRes.totalGp === 300, 'got ' + psRes.totalGp);
+check('passive payout credited the scalar (1300)', (psDom.treasury.gp||0) === 1300, 'got ' + (psDom.treasury && psDom.treasury.gp));
+check('passive payout ALSO deposited to the treasury stash — lockstep (1300)', ACKS.domainTreasuryGp(psCamp, psDom.id) === 1300, 'got ' + ACKS.domainTreasuryGp(psCamp, psDom.id));
+// THE REGRESSION: the load-time reconcile must NOT clobber the payout.
+const psDrift = ACKS.reconcileTreasuryScalars(psCamp);
+check('passive payout SURVIVES reconcileTreasuryScalars (the reload round-trip — was the bug)', (psDom.treasury.gp||0) === 1300, 'got ' + (psDom.treasury && psDom.treasury.gp));
+check('reconcile is a no-op after the canonical-setter payout (0 domains drifted)', psDrift === 0, 'got ' + psDrift);
+
+// End-to-end on the demo: its domains materialize treasury stashes (v0.17.0 always-on), so the
+// load-time reconcile is REAL — re-running it must not drop the demo's passive payout (Saltspur 300).
+check('demo domains materialized treasury stashes (reconcile is real)', r1.camp.domains.every(d => !!d.treasuryStashId));
+ACKS.reconcileTreasuryScalars(r1.camp);
+Object.keys(ORACLE.expected).forEach(id => {
+  const d = r1.camp.domains.find(x => x.id === id);
+  const want = ORACLE.invariants[id].treasuryGp + ORACLE.expected[id].monthlyNet + (passiveByDomain[id]||0);
+  check('treasury SURVIVES the load-time reconcile for ' + ORACLE.expected[id].name + ' (= ' + want + ')', d && (d.treasury.gp||0) === want, d && ('got ' + d.treasury.gp));
+});
+
 console.log('\n=============================================');
 console.log('economy.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');

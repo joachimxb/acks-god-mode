@@ -39,7 +39,7 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-18-constructionwiz"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-19-demogautogen"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
@@ -100,7 +100,7 @@
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
+<script src="acks-engine-demographics.js?v=2026-06-19-demogautogen"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
@@ -5272,6 +5272,9 @@ document.addEventListener('alpine:init', () => {
                                 <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
                               </template>
                               <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                              <template x-if="demoAutoGenOn() && r[b].open>0">
+                                <button class="ml-1 text-xs underline opacity-50 hover:opacity-100" @click="demoFillSlot(b, r.level)" :title="'✨ Generate a '+b+' L'+r.level+' (fills this open slot)'">✨</button>
+                              </template>
                             </td>
                           </template>
                         </tr>
@@ -5341,7 +5344,17 @@ document.addEventListener('alpine:init', () => {
                     </select>
                     <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!demoAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!demoAssignPick" @click="demoAssignResident()">🏠 Home here</button>
                   </div>
-                  <p class="text-sm opacity-60 italic mt-1">Recruited hirelings auto-home to the market they're hired in. The realm/rural tiers + opt-in auto-fill (needs the NPC generator) arrive with SD-3+.</p>
+                  <!-- SD-2b — opt-in auto-generation: mint the notable open slots from the NPC generator
+                       (gated on living-census + demographics-auto-generate). The rank-and-file stay counts. -->
+                  <template x-if="demoAutoGenOn()">
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                      <span class="text-sm font-semibold">✨ Auto-fill notables:</span>
+                      <label class="text-sm">L≥ <input type="number" min="1" max="14" class="ed-input text-sm" style="width:4rem" x-model.number="demoFillMinLevel"></label>
+                      <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="demoAutoFill()">✨ Generate notable residents</button>
+                      <span class="text-sm opacity-60" x-text="demoOpenNotableCount() + ' open notable slot(s)'"></span>
+                    </div>
+                  </template>
+                  <p class="text-sm opacity-60 italic mt-1">Recruited hirelings auto-home to the market they're hired in. Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint the notable open slots; or click a cell's ✨ to fill one chosen slot.</p>
                 </div>
 
                 <!-- SD-5a — the emergent reads: service legibility + the world-people query (plan §8). -->
@@ -5529,7 +5542,16 @@ document.addEventListener('alpine:init', () => {
                   </select>
                   <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
                 </div>
-                <p class="text-sm opacity-60 italic mt-1">Opt-in auto-fill (mint a robber band / hedge wizard / friars to fill the roster) waits on the NPC generator — SD-4 ships the expectation + reconciliation; place NPCs by hand for now.</p>
+                <!-- SD-2b — opt-in auto-generation: mint the open countryside notable slots (homed to the
+                     domain's rural hexes, round-robin). The rank-and-file stay counts. -->
+                <template x-if="demoAutoGenOn()">
+                  <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    <span class="text-sm font-semibold">✨ Auto-fill countryside:</span>
+                    <label class="text-sm">L≥ <input type="number" min="1" max="4" class="ed-input text-sm" style="width:4rem" x-model.number="ruralFillMinLevel"></label>
+                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="ruralAutoFill()">✨ Generate countryside residents</button>
+                  </div>
+                </template>
+                <p class="text-sm opacity-60 italic mt-1">Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint hedge wizards / friars / retired veterans into the open rural slots; or place NPCs by hand with a <strong>Home hex</strong>.</p>
               </div>
             </div>
           </template>
@@ -6933,6 +6955,9 @@ document.addEventListener('alpine:init', () => {
                             </span>
                           </template>
                           <template x-if="!o.holder"><span class="opacity-50 italic">— open —</span></template>
+                          <template x-if="demoAutoGenOn() && !o.holder && o.mapsTo==='entourage'">
+                            <button class="ml-1 text-xs underline opacity-50 hover:opacity-100" @click="realmFillOffice(o.key)" :title="'✨ Generate the '+o.label">✨</button>
+                          </template>
                         </td>
                       </tr>
                     </template>
@@ -6948,8 +6973,12 @@ document.addEventListener('alpine:init', () => {
                   </template>
                 </select>
                 <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!realmAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!realmAssignPick" @click="realmAssignEntourage()">🏛 Home to realm</button>
+                <!-- SD-2b — mint the open court entourage offices (magister / guildmaster / annalist). -->
+                <template x-if="demoAutoGenOn() && realmCensus().offices.some(o=>!o.filled && o.mapsTo==='entourage')">
+                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="realmAutoFill()">✨ Generate the court entourage</button>
+                </template>
               </div>
-              <p class="text-sm opacity-60 italic mt-1">The ruler + magistrates fill from the domain's assignments; the magister / guildmaster / annalist fill from NPCs homed to the realm. Rank-and-file (guards, apprentices) stay counts.</p>
+              <p class="text-sm opacity-60 italic mt-1">The ruler + magistrates fill from the domain's assignments; the magister / guildmaster / annalist fill from NPCs homed to the realm (or ✨ auto-fill with Living census + Auto-generate residents on). Rank-and-file (guards, apprentices) stay counts.</p>
               <template x-if="realmCensus().entourageOther.length>0">
                 <div class="mt-1 text-sm">
                   <span class="font-semibold">Additional retainers:</span>
@@ -28761,6 +28790,19 @@ return {
     return window.ACKS.findResidents(C, q);
   },
   demoOpenResident(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(c) this.openCharacterEditor(c); },
+  // SD-2b — opt-in auto-generation: mint the notable open slots from the NPC generator (gated on
+  // living-census + demographics-auto-generate + the generator present). The roster READ is always-on;
+  // only the MINT is gated. Each minted NPC is a normal generated Character, reconciled by the SAME accessors.
+  demoAutoGenOn(){ return this.isHouseRuleEnabled('living-census') && this.isHouseRuleEnabled('demographics-auto-generate') && typeof window.ACKS.generateNPC==='function'; },
+  demoFillMinLevel: 5,
+  demoOpenNotableCount(){ const s=this.demoSettlement(); if(!s) return 0; return window.ACKS.demographicOpenNotableSlots(this.currentCampaign, s, {minLevel: Math.max(1, Number(this.demoFillMinLevel)||1)}).reduce((n,x)=>n+x.open, 0); },
+  _afterAutoFill(r, noun){ if(!r || !r.ok){ this.showToast('Auto-fill unavailable'+(r&&r.reason?(' ('+r.reason+')'):'')); return false; } const n=(r.created&&r.created.length)||0; this.markDirty(); this.schedulePersist(); this.showToast(n>0 ? ('✨ Generated '+n+' '+noun+(n===1?'':'s')) : 'No open notable slots to fill — lower the L≥ floor'); return true; },
+  demoAutoFill(){ const s=this.demoSettlement(); if(!s) return; this._afterAutoFill(window.ACKS.autoFillSettlementRoster(this.currentCampaign, s, {minLevel: Math.max(1, Number(this.demoFillMinLevel)||5)}), 'resident'); },
+  demoFillSlot(bucket, level){ const s=this.demoSettlement(); if(!s) return; const r=window.ACKS.fillDemographicSlot(this.currentCampaign, s, bucket, level); this._afterAutoFill((r && r.ok) ? {ok:true, created:[r.character]} : r, bucket+' L'+level); },
+  realmFillOffice(officeKey){ const d=this.selectedDomain; if(!d) return; const r=window.ACKS.fillRealmOffice(this.currentCampaign, d, officeKey); this._afterAutoFill((r && r.ok) ? {ok:true, created:[r.character]} : r, 'court official'); },
+  realmAutoFill(){ const d=this.selectedDomain; if(!d) return; this._afterAutoFill(window.ACKS.autoFillRealmEntourage(this.currentCampaign, d, {}), 'court official'); },
+  ruralFillMinLevel: 2,
+  ruralAutoFill(){ const d=this.selectedDomain; if(!d) return; this._afterAutoFill(window.ACKS.autoFillDomainCountryside(this.currentCampaign, d, {minLevel: Math.max(1, Number(this.ruralFillMinLevel)||2)}), 'countryside resident'); },
   // SD-3 — the realm command structure (T1; gated on the living-census house rule). Domain-scoped:
   // the realm's expected leveled offices reconciled against its actual holders (ruler + magistrates +
   // homeDomainId entourage + vassal lords). The accessor is pure; the UI shows it only when the rule is on.
