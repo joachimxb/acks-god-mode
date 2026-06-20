@@ -25,3 +25,9 @@ jobs:
       # in this repo).
       - name: Doc-drift lint (public docs vs engine)
         run: npm run lint:docs
+      # Engine module-boundary backstop: the engine is N IIFE modules; a module-private helper
+      # (leading-underscore, not exported) is reachable from another module only as ACKS._x. A BARE
+      # `_x(` cross-module call is a latent ReferenceError (the `_ruralHexes` bug class). Fails CI on
+      # exactly that shape. (Deferred_Followons §5 / Architecture §9.)
+      - name: Engine cross-module-private lint
+        run: npm run lint:engine
