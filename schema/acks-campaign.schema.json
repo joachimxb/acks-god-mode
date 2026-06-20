@@ -3369,12 +3369,212 @@
     },
     "settlementVisit": {
       "title": "Settlement Visit",
-      "description": "\"settlementVisit\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"settlementVisit\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "partyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "party id — prefix \"prt-\""
+        },
+        "participantCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "mode": {
+          "enum": [
+            "holed-up",
+            "wandering",
+            "looking-for-trouble",
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "departed",
+            null
+          ]
+        },
+        "incidents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "incidentKey": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cite": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roll": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "afterDark": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "dayInMonth": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "turn": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "reactionCall": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "tone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "diseaseExposure": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "combatRisk": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "rumor": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "rewardGp": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "gp amount"
+              },
+              "affectedCharacterId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              },
+              "resolved": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "eventId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "arrivedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "arrivedAtDayInMonth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "departedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
         }
       },
       "required": [
@@ -6139,6 +6339,7 @@
                 "construction-repair-started",
                 "construction-demolished",
                 "follower-arrival",
+                "follower-families-arrived",
                 "journey-start",
                 "journey-day-tick",
                 "journey-arrived",
@@ -6212,8 +6413,11 @@
                 "oligarchy-established",
                 "oligarchy-dissolved",
                 "oligarchy-decision",
+                "senate-materialized",
                 "delve-foray",
                 "wilderness-foray",
+                "settlement-visited",
+                "urban-incident",
                 "disease-contracted",
                 "disease-recovered",
                 "condition-applied",
@@ -6260,6 +6464,7 @@
                 "letter-of-credit-redeemed",
                 "lore-learned",
                 "lore-shared",
+                "rumor-promoted",
                 "item-identified",
                 "item-charge-spent",
                 "item-appraised",
@@ -6271,7 +6476,10 @@
                 "gladiator-recruited",
                 "gladiator-trained",
                 "gladiator-uprising",
-                "game-sponsored"
+                "game-sponsored",
+                "magic-item-appraised",
+                "magic-item-sold",
+                "bout-round"
               ]
             },
             "id": {
@@ -6364,8 +6572,8 @@
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
     "entityKinds": 56,
-    "typedKinds": 39,
-    "eventKinds": 163,
+    "typedKinds": 40,
+    "eventKinds": 171,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

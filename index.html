@@ -39,16 +39,16 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-20-burst10"></script>
-<script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
+<script src="acks-engine.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-entities.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-economy.js?v=2026-06-20-burst10"></script>
-<script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-entity-registry.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-field-schemas.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-events.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
@@ -70,7 +70,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-politics.js?v=2026-06-20-burst11"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
@@ -78,15 +78,15 @@
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
-<script src="acks-engine-delves.js?v=2026-06-14-a"></script>
+<script src="acks-engine-delves.js?v=2026-06-20-burst11"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- Phase 4 Construction Wave C — Follower Attraction (RR p.334): the stronghold-completion attraction sibling of the sanctum's apprentices. Late-binds strongholdValue / rulerCharacter / blankCharacter / blankGroup. -->
-<script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
+<script src="acks-engine-followers.js?v=2026-06-20-burst11"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-burst11"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -95,7 +95,7 @@
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-19-b8w2"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-20-burst11"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
@@ -105,7 +105,7 @@
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
-<script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
