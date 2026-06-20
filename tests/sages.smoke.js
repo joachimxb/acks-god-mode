@@ -327,6 +327,149 @@ ok('findSageCommission resolves by id', ACKS.findSageCommission(abc, ar.commissi
 ok('sageCommissionsForCharacter finds by sage OR client', ACKS.sageCommissionsForCharacter(abc, 'chr-cli').length === 1 && ACKS.sageCommissionsForCharacter(abc, 'chr-sage').length === 1);
 
 // =============================================================================
+section('SG-3 — exports + event registration (the periodic-fee retainer)');
+// =============================================================================
+['retainSage','endSageRetainer','sageRetainerFor','sageRetainersForCharacter','isSageRetained','retainerConsultFee']
+  .forEach(k => ok('ACKS.' + k + ' exported', typeof ACKS[k] === 'function'));
+['sage-retainer-started','sage-retainer-ended','sage-retainer-fee-paid'].forEach(k => {
+  ok(k + ' is a known event kind', ACKS.isEventKindKnown(k));
+  ok(k + ' opts out of the Event Wizard', ACKS.isWizardEmittable && !ACKS.isWizardEmittable(k));
+  ok(k + ' schema requires sageRetainerId + sage + client', (() => { const s = ACKS.EVENT_SCHEMAS[k]; return s && s.R && s.R.sageRetainerId === 'string' && s.R.sageCharacterId === 'string' && s.R.clientCharacterId === 'string'; })());
+});
+ok('SG-3 adds NO new id prefix (reuses sag-)', !(ACKS.ID_PREFIXES && ACKS.ID_PREFIXES.sageRetainer));
+
+// =============================================================================
+section('SG-3 — retainSage (the standing arrangement; first month upfront)');
+// =============================================================================
+let rc = camp([specialist(), client({ coins:{gp:2000} })]);
+let rr = ACKS.retainSage(rc, { sageId:'chr-sage', clientId:'chr-cli' });
+ok('retain ok', rr.ok === true);
+ok('retainer recorded on the CLIENT (client.sageRetainers[])', Array.isArray(rc.characters.find(x=>x.id==='chr-cli').sageRetainers) && rc.characters.find(x=>x.id==='chr-cli').sageRetainers.length === 1);
+ok('retainer id reuses the sag- prefix', String(rr.retainer.id).slice(0,4) === 'sag-');
+ok('status active · monthsPaid 1 · default fee 500 (RR p.171 wage) · discount 1 (free consults)', rr.retainer.status === 'active' && rr.retainer.monthsPaid === 1 && rr.retainer.feeGpPerMonth === 500 && rr.retainer.consultDiscount === 1);
+ok('startedAtOrd 1 (turn 1 day 1) → nextBillOrd 31', rr.retainer.startedAtOrd === 1 && rr.retainer.nextBillOrd === 31);
+ok('specialty snapshot from the sage', rr.retainer.specialty === 'history');
+ok('first month debited upfront 2000 → 1500', rc.characters.find(x=>x.id==='chr-cli').coins.gp === 1500, 'got ' + rc.characters.find(x=>x.id==='chr-cli').coins.gp);
+ok('two events: started + fee child', rc.eventLog.length === 2);
+const rev = rc.eventLog[0].event;
+ok('started kind = sage-retainer-started, applied, day-stamped', rev.kind === 'sage-retainer-started' && rev.status === 'applied' && rev.appliedAtTurn === 1 && rev.appliedAtDay === 1);
+ok('started §528 envelope (sage source, client beneficiary)', (rev.context.relatedEntities||[]).some(e=>e.id==='chr-sage'&&e.role==='source') && (rev.context.relatedEntities||[]).some(e=>e.id==='chr-cli'&&e.role==='beneficiary'));
+ok('started payload carries the terms', rev.payload.sageRetainerId === rr.retainer.id && rev.payload.feeGpPerMonth === 500 && rev.payload.consultDiscount === 1);
+const rfee = rc.eventLog[1].event;
+ok('fee child = wealth-transfer under the parent (campaignLogHidden)', rfee.kind === 'wealth-transfer' && rfee.parentEventId === rev.id && rfee.campaignLogHidden === true && rfee.payload.amount === 500);
+// custom terms
+let rc2 = camp([specialist(), client({ coins:{gp:2000} })]);
+let rr2 = ACKS.retainSage(rc2, { sageId:'chr-sage', clientId:'chr-cli', feeGpPerMonth:300, consultDiscount:0.5 });
+ok('custom feeGpPerMonth + consultDiscount honored, debited 300', rr2.retainer.feeGpPerMonth === 300 && rr2.retainer.consultDiscount === 0.5 && rc2.characters.find(x=>x.id==='chr-cli').coins.gp === 1700);
+// guards
+ok('self-retain refused', ACKS.retainSage(camp([scholar()]), { sageId:'chr-sch', clientId:'chr-sch' }).error === 'self-retain');
+ok('already-retained refused (no second debit)', (() => { const c = camp([specialist(), client({coins:{gp:2000}})]); ACKS.retainSage(c, {sageId:'chr-sage', clientId:'chr-cli'}); const again = ACKS.retainSage(c, {sageId:'chr-sage', clientId:'chr-cli'}); return again.error === 'already-retained' && c.characters.find(x=>x.id==='chr-cli').coins.gp === 1500; })());
+ok('not-a-sage refused', ACKS.retainSage(camp([{id:'chr-pl',proficiencies:[]}, client({coins:{gp:2000}})]), { sageId:'chr-pl', clientId:'chr-cli' }).error === 'not-a-sage');
+ok('unknown sage → unknown-sage', ACKS.retainSage(camp([client({coins:{gp:2000}})]), { sageId:'nope', clientId:'chr-cli' }).error === 'unknown-sage');
+ok('no campaign → ok:false', ACKS.retainSage(null, {}).ok === false);
+// insufficient funds aborts (nothing created)
+let rcPoor = camp([specialist(), client({ id:'chr-poor', coins:{gp:10} })]);
+let rIns = ACKS.retainSage(rcPoor, { sageId:'chr-sage', clientId:'chr-poor' });
+ok('insufficient funds → ok:false insufficient-funds', rIns.ok === false && rIns.error === 'insufficient-funds');
+ok('insufficient funds → nothing created, no events, no gp moved', !(rcPoor.characters.find(x=>x.id==='chr-poor').sageRetainers||[]).length && rcPoor.eventLog.length === 0 && rcPoor.characters.find(x=>x.id==='chr-poor').coins.gp === 10);
+// fee 0 → only the started event
+let rcFree = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(rcFree, { sageId:'chr-sage', clientId:'chr-cli', feeGpPerMonth:0 });
+ok('feeGpPerMonth 0 → only the started event (no fee child)', rcFree.eventLog.length === 1 && rcFree.eventLog[0].event.kind === 'sage-retainer-started');
+
+// =============================================================================
+section('SG-3 — a retainer discounts/covers consultSage (the priority/discount benefit)');
+// =============================================================================
+let dc1 = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(dc1, { sageId:'chr-sage', clientId:'chr-cli' });   // discount 1 = free consults
+let beforeGp = dc1.characters.find(x=>x.id==='chr-cli').coins.gp;   // 1500
+let beforeLog = dc1.eventLog.length;
+ACKS.consultSage(dc1, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', feeGp:50, rng: rng(0.1) });
+ok('retained consult: fee waived → no gp moved', dc1.characters.find(x=>x.id==='chr-cli').coins.gp === beforeGp);
+ok('retained consult: payload coveredByRetainer + baseFeeGp 50 + feeGp 0 + retainerId', (() => { const ev = dc1.eventLog[beforeLog].event; return ev.payload.coveredByRetainer === true && ev.payload.baseFeeGp === 50 && ev.payload.feeGp === 0 && !!ev.payload.retainerId; })());
+ok('retained consult: only the parent event (no fee child)', dc1.eventLog.length === beforeLog + 1);
+// half discount
+let dc2 = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(dc2, { sageId:'chr-sage', clientId:'chr-cli', consultDiscount:0.5 });
+let g2 = dc2.characters.find(x=>x.id==='chr-cli').coins.gp;
+ACKS.consultSage(dc2, { sageId:'chr-sage', clientId:'chr-cli', subject:'history', feeGp:40, rng: rng(0.1) });
+ok('half-discount retainer → fee 20 of 40', dc2.characters.find(x=>x.id==='chr-cli').coins.gp === g2 - 20, 'got ' + dc2.characters.find(x=>x.id==='chr-cli').coins.gp);
+// ignoreRetainer forces the full fee
+let dc3 = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(dc3, { sageId:'chr-sage', clientId:'chr-cli' });
+let g3 = dc3.characters.find(x=>x.id==='chr-cli').coins.gp;
+ACKS.consultSage(dc3, { sageId:'chr-sage', clientId:'chr-cli', subject:'history', feeGp:30, ignoreRetainer:true, rng: rng(0.1) });
+ok('opts.ignoreRetainer → full fee charged despite the retainer', dc3.characters.find(x=>x.id==='chr-cli').coins.gp === g3 - 30);
+// no retainer → the shipped SG-1 path unchanged
+let dc4 = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.consultSage(dc4, { sageId:'chr-sage', clientId:'chr-cli', subject:'history', feeGp:30, rng: rng(0.1) });
+ok('no retainer → coveredByRetainer false, baseFeeGp == feeGp', dc4.eventLog[0].event.payload.coveredByRetainer === false && dc4.eventLog[0].event.payload.baseFeeGp === 30 && dc4.eventLog[0].event.payload.feeGp === 30);
+// the modal preview helper
+let dc5 = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(dc5, { sageId:'chr-sage', clientId:'chr-cli', consultDiscount:0.25 });
+const rcf = ACKS.retainerConsultFee(dc5, 'chr-cli', 'chr-sage', 100);
+ok('retainerConsultFee: covered, 75 of 100 at 0.25 discount', rcf.covered === true && rcf.feeGp === 75 && rcf.baseFeeGp === 100 && rcf.discount === 0.25);
+ok('retainerConsultFee: no retainer → not covered, base fee', ACKS.retainerConsultFee(camp([scholar()]), 'chr-sch', 'chr-x', 60).covered === false && ACKS.retainerConsultFee(camp([scholar()]), 'chr-sch', 'chr-x', 60).feeGp === 60);
+
+// =============================================================================
+section('SG-3 — lookups + endSageRetainer');
+// =============================================================================
+let lc = camp([specialist(), client({ coins:{gp:2000} })]);
+let lr = ACKS.retainSage(lc, { sageId:'chr-sage', clientId:'chr-cli' });
+ok('sageRetainerFor finds the active retainer', ACKS.sageRetainerFor(lc, 'chr-cli', 'chr-sage') === lr.retainer);
+ok('isSageRetained true for a retained sage', ACKS.isSageRetained(lc, 'chr-sage') === true);
+ok('isSageRetained false otherwise', ACKS.isSageRetained(lc, 'chr-cli') === false);
+ok('sageRetainersForCharacter finds by client OR sage', ACKS.sageRetainersForCharacter(lc, 'chr-cli').length === 1 && ACKS.sageRetainersForCharacter(lc, 'chr-sage').length === 1);
+ACKS.endSageRetainer(lc, lr.retainer.id);
+ok('endSageRetainer → status ended', lr.retainer.status === 'ended');
+ok('ended retainer drops from sageRetainerFor / isSageRetained / -ForCharacter', ACKS.sageRetainerFor(lc, 'chr-cli', 'chr-sage') === null && ACKS.isSageRetained(lc, 'chr-sage') === false && ACKS.sageRetainersForCharacter(lc, 'chr-cli').length === 0);
+ok('end emits sage-retainer-ended', !!lc.eventLog.find(e=>e.event.kind==='sage-retainer-ended'));
+ok('re-end refused (not-active)', ACKS.endSageRetainer(lc, lr.retainer.id).error === 'not-active');
+ok('end unknown → unknown-retainer', ACKS.endSageRetainer(lc, 'sag-nope').error === 'unknown-retainer');
+ok('end by {clientId,sageId} selector', (() => { const c = camp([specialist(), client({coins:{gp:2000}})]); ACKS.retainSage(c, {sageId:'chr-sage', clientId:'chr-cli'}); const r = ACKS.endSageRetainer(c, {clientId:'chr-cli', sageId:'chr-sage'}); return r.ok === true && r.retainer.status === 'ended'; })());
+
+// =============================================================================
+section('SG-3 — monthly billing rides the slot-64 consumer (direct + orchestrator + lapse)');
+// =============================================================================
+// direct: a retainer started turn 1 day 1 (nextBillOrd 31) bills at turn 2 day 1 (ord 31)
+let bc = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(bc, { sageId:'chr-sage', clientId:'chr-cli' });   // 2000 → 1500 (month 1, upfront)
+ok('propose BEFORE the bill is due → 0 retainer-bill records', ACKS.proposeSageCommissionDay(bc, { dayInMonth: 5 }).pendingRecords.filter(r=>r.kind==='sage-retainer-bill').length === 0);
+bc.currentTurn = 2; bc.currentDayInMonth = 1;   // nowOrd 31 = nextBillOrd
+let bp = ACKS.proposeSageCommissionDay(bc, { dayInMonth: 1 });
+let billRecs = bp.pendingRecords.filter(r=>r.kind==='sage-retainer-bill');
+ok('propose ON the bill day → 1 retainer-bill record (forOrd 31)', billRecs.length === 1 && billRecs[0].forOrd === 31);
+ok('propose → 1 TRANSIENT review notable (sage-retainer)', bp.notableEvents.some(e => e.transient === true && e.type === 'sage-retainer'));
+ACKS.commitSageCommissionRecord(bc, billRecs[0]);
+const retB = bc.characters.find(x=>x.id==='chr-cli').sageRetainers[0];
+ok('commit → month 2 billed (1500 → 1000) · monthsPaid 2 · nextBillOrd 61', bc.characters.find(x=>x.id==='chr-cli').coins.gp === 1000 && retB.monthsPaid === 2 && retB.nextBillOrd === 61);
+let fpEv = bc.eventLog.find(e=>e.event.kind==='sage-retainer-fee-paid');
+ok('commit emits sage-retainer-fee-paid (campaignLogHidden — routine bill)', !!fpEv && fpEv.event.campaignLogHidden === true);
+ok('fee-paid has its GP-Wave-B child under it', !!bc.eventLog.find(e=>e.event.kind==='wealth-transfer' && e.event.parentEventId === fpEv.event.id));
+// idempotent (re-commit the same record → no double-bill)
+let gpBefore = bc.characters.find(x=>x.id==='chr-cli').coins.gp;
+ACKS.commitSageCommissionRecord(bc, billRecs[0]);
+ok('commit idempotent (forOrd guard — no double-bill)', bc.characters.find(x=>x.id==='chr-cli').coins.gp === gpBefore && retB.monthsPaid === 2);
+// orchestrator: proves the slot-64 consumer routes retainer records
+let roc = camp([specialist(), client({ coins:{gp:2000} })]);
+ACKS.retainSage(roc, { sageId:'chr-sage', clientId:'chr-cli' });
+roc.currentTurn = 2; roc.currentDayInMonth = 1;
+let oprop = ACKS.proposeDayTick(roc, 2, { force:true });   // ticks day 2 (ord 32 ≥ 31) → bills
+ok('orchestrator surfaces the retainer-bill via slot-64', oprop.pendingRecords.some(r => r.consumer === 'sage-commission' && r.kind === 'sage-retainer-bill'));
+ACKS.commitDayTick(roc, oprop);
+ok('orchestrator commit bills the retainer', roc.characters.find(x=>x.id==='chr-cli').sageRetainers[0].monthsPaid === 2 && !!roc.eventLog.find(e=>e.event.kind==='sage-retainer-fee-paid'));
+// lapse: a client who can no longer pay → the retainer lapses
+let lpc = camp([specialist(), client({ coins:{gp:510} })]);
+ACKS.retainSage(lpc, { sageId:'chr-sage', clientId:'chr-cli' });   // 510 → 10 (month 1)
+lpc.currentTurn = 2; lpc.currentDayInMonth = 1;
+let lprop = ACKS.proposeSageCommissionDay(lpc, { dayInMonth: 1 });
+ACKS.commitSageCommissionRecord(lpc, lprop.pendingRecords.find(r=>r.kind==='sage-retainer-bill'));
+const retL = lpc.characters.find(x=>x.id==='chr-cli').sageRetainers[0];
+ok('unpaid bill → retainer lapses (status lapsed, reason unpaid)', retL.status === 'lapsed' && retL.endedReason === 'unpaid');
+ok('lapse → no gp moved (still 10), no fee-paid event, an ended event reason unpaid', lpc.characters.find(x=>x.id==='chr-cli').coins.gp === 10 && !lpc.eventLog.find(e=>e.event.kind==='sage-retainer-fee-paid') && !!lpc.eventLog.find(e=>e.event.kind==='sage-retainer-ended' && e.event.payload.reason==='unpaid'));
+ok('a lapsed retainer no longer discounts consultSage', ACKS.consultSage(lpc, { sageId:'chr-sage', clientId:'chr-cli', subject:'history', feeGp:0, rng: rng(0.1) }).event.payload.coveredByRetainer === false);
+
+// =============================================================================
 section('Team-session invariants — record-only, no migrate inject, no blankCharacter field');
 // =============================================================================
 ok('SG-1 record-only: migrate injects no sage-consultation collection', (() => {
@@ -344,6 +487,15 @@ ok('blankCharacter carries no sageSpecialty (defensive read; init-on-write)', ((
   if(typeof ACKS.blankCharacter !== 'function') return true;
   const bc = ACKS.blankCharacter();
   return !('sageSpecialty' in bc);
+})());
+ok('SG-3: blankCharacter carries no sageRetainers (a character field, defensive read; init-on-write)', (() => {
+  if(typeof ACKS.blankCharacter !== 'function') return true;
+  return !('sageRetainers' in ACKS.blankCharacter());
+})());
+ok('SG-3: migrate injects no sageRetainers collection (the retainer is a character field, not a campaign collection)', (() => {
+  if(typeof ACKS.migrateCampaign !== 'function') return true;
+  const bare = ACKS.migrateCampaign({ schemaVersion:2, characters:[] });
+  return !('sageRetainers' in bare);
 })());
 
 // =============================================================================
