@@ -863,18 +863,14 @@ section('P-5 — withdraw + honeymoon');
 })();
 
 // =============================================================================
-section('Importer wiring (index.html SIMPLE_ID_COLLECTIONS — §8.9 mandate)');
+section('Importer wiring (§8.9 mandate — senate collections are importable)');
 // =============================================================================
-(function(){
-  let html = '';
-  try { html = fs.readFileSync(path.join(REPO, 'index.html'), 'utf8'); } catch(e){ ok('index.html readable', false, e.message); return; }
-  const m = html.match(/const SIMPLE_ID_COLLECTIONS = \[([\s\S]*?)\];/);
-  ok('SIMPLE_ID_COLLECTIONS block found', !!m);
-  const block = m ? m[1] : '';
-  for(const name of ['senates','factions','senatorships']){
-    ok("importer walks '" + name + "'", new RegExp("'" + name + "'").test(block));
-  }
-})();
+// The importer's SIMPLE_ID_COLLECTIONS is now DERIVED from the §15.5 collection registry
+// (index.html: window.ACKS.importableCollections()), so the §8.9 importer mandate is satisfied
+// by registering each collection as importable — no edit to an index.html importer literal.
+for(const name of ['senates','factions','senatorships']){
+  ok("importer walks '" + name + "' (registered importable in the §15.5 collection registry)", ACKS.importableCollections().includes(name));
+}
 
 // =============================================================================
 section('P-1 GUARD — templates + demo STAY migrate-no-ops (no senate-collection lazy-inject)');

@@ -36,7 +36,7 @@ const ID_PREFIXES = new Proxy({}, { get(_, key){ return (global.ACKS.ID_PREFIXES
 
 function blankCampaign(opts={}){
   const name = opts.name || 'New Campaign';
-  return {
+  const c = {
     schemaVersion: SCHEMA_VERSION,
     kind: 'campaign',
     id: opts.id || newId(ID_PREFIXES.campaign),
@@ -49,117 +49,23 @@ function blankCampaign(opts={}){
     houseRules: opts.houseRules || {},
     // Reserved for Phase 6 Claude integration
     campaignContext: opts.campaignContext || { theme:'', tone:'', season:'', aiNotes:'' },
-    // Collections
-    domains: opts.domains || [],
-    characters: opts.characters || [],
-    parties: opts.parties || [],
-    ventures: opts.ventures || [],
-    passiveInvestments: opts.passiveInvestments || [],
-    // campaign.log[] removed 2026-05-28 (Foundation #234). The Campaign Log view now
-    // derives from eventLog. migrateCampaign drops any legacy log array on load.
-    // Reserved for Phase 2.8 Rumors, Phase 4 Religion, Phase 4 Banking
-    deities: opts.deities || [],
-    banks: opts.banks || [],
-    loans: opts.loans || [],
-    // Turn Cycle v2 (Foundation #178) — typed-event inbox + immutable history.
-    // pendingEvents are submitted by GM / players / tools / agents and await resolution at Advance Month.
-    // eventLog is append-only history of everything that has been applied or rejected, with attribution.
+    // Turn Cycle v2 (Foundation #178) — typed-event inbox + immutable history. These are the event
+    // inbox/log (NOT id-collections), so they stay explicit here rather than in the §15.5 registry.
+    // campaign.log[] was removed 2026-05-28 (Foundation #234); the Campaign Log view derives from eventLog.
     pendingEvents: opts.pendingEvents || [],
     eventLog: opts.eventLog || [],
-    // Top-Level Collections Refactor (Foundation #193) — hexes, settlements, rumors live here.
-    // Each entry carries a reference id back to its parent (Hex.domainId, Settlement.hexId).
-    // Rumors carry a reach[] array of {settlementId, apparentLevel, gainedAtTurn, distortedText} entries.
-    // liftToTopLevelCollections() populates these from legacy nested storage on load (idempotent).
-    hexes: opts.hexes || [],
-    settlements: opts.settlements || [],
-    rumors: opts.rumors || [],
-    // Phase 2.95 Stash A (2026-05-29) — Stash subsystem top-level collection.
-    // Always-on core (the inventory-stash-system toggle was removed v0.17.0); the
-    // Domain Treasury and every party camp materialize into this array on load.
-    stashes: opts.stashes || [],
-    // Wave A relation collections (Architecture.md §3.5 — landed alongside Stash A).
-    // These are empty containers in commit 2; setters / accessors / migrations
-    // land in later commits per the wave plan. Each carries its own history[].
-    henchmanships: opts.henchmanships || [],
-    specialistContracts: opts.specialistContracts || [],
-    hirelingContracts: opts.hirelingContracts || [],
-    magistracies: opts.magistracies || [],
-    vassalages: opts.vassalages || [],
-    tributaryAgreements: opts.tributaryAgreements || [],
-    // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation
-    // relation collection (RR pp.345–348). Populated by the monthly turn's auto-roll
-    // (default-ON favor-duty-auto-roll) or by Inspector Create. Lazy-defaulted on load.
-    favorDutyObligations: opts.favorDutyObligations || [],
-    // Wave B.5 (Architecture.md §3.7) — Notable items + custody. Empty containers in
-    // commit 2; setters / promote-to-notable / custody-transfer land in B.5.2.
-    // Gated by notable-items-tracking house rule (default OFF until UI ships).
-    notableItems: opts.notableItems || [],
-    itemCustody: opts.itemCustody || [],
-    // #442 (Architecture.md §2.4) — Group entity: count-level abstraction for kobold
-    // packs, bandit gangs, abstract militia, and future DaW Units. Empty by default;
-    // the data layer is a benign no-op until Phase 3 Military surfaces it.
-    groups: opts.groups || [],
-    // 2026-05-30 post-survey reservations — additive optional collections + fields.
-    // None are functional yet; consumer subsystems ship in v1.0. See Data_Dictionary §13.2.
     // Calendar day-tick pipeline (#478) — global day clock; 1 means start-of-month.
-    currentDayInMonth: opts.currentDayInMonth || 1,
-    // Phase 2.5 Journeys (#475) — day-tick consumer entity (sole entity in this collection
-    // is the Journey; Journey day records nest as journey.dayRecords[]).
-    journeys: opts.journeys || [],
-    // Phase 2.95 Outposts (#395) — persistent located containers (formerly "Camps").
-    outposts: opts.outposts || [],
-    // Phase 3.5 Delves — Dungeon as first-class entity (separate from Lair); Abstract
-    // Dungeons + Sanctum Attunement both reference. Distinct from hex.dungeons[] legacy nested data.
-    dungeons: opts.dungeons || [],
-    // Wave E (Architecture.md §3.5) — Religion + Sanctums relation entities
-    congregations: opts.congregations || [],
-    divineFavors:  opts.divineFavors  || [],
-    attunements:   opts.attunements   || [],
-    // Wave F (Architecture.md §3.5) — Settlement Adventures relation entity
-    settlementVisits: opts.settlementVisits || [],
-    // Wave D + Phase 6 Codes shared — Oath relation entity (Architecture.md §3.5 Wave D)
-    oaths: opts.oaths || [],
-    // Phase 5 Domain Variants (gap K) — domain incursion event log
-    vagaryOfIncursionEvents: opts.vagaryOfIncursionEvents || [],
-    // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
-    projects:       opts.projects       || [],
-    constructibles: opts.constructibles || [],
-    // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed
-    // entities (the RAW-core layer). Lifted from legacy nested hex.lairs[] by migrateCampaign.
-    lairs: opts.lairs || [],
-    // === Hijinks HJ-1 (team) === Phase 2.7 (RR pp.360–370) — hijink attempts (campaign.hijinks[]),
-    // each a day-tick-driven lifecycle (plan → perform → lay low). Read defensively everywhere
-    // (campaign.hijinks ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
-    hijinks: opts.hijinks || [],
-    // === Hijinks HJ-2 (team 2026-06-13) === Phase 2.7 (RR pp.358–362) — criminal syndicates
-    // (campaign.syndicates[]); a boss runs hijinks + collects tribute. Read defensively
-    // everywhere (campaign.syndicates ?? []); NOT lazy-injected by migrateCampaign (no-op).
-    syndicates: opts.syndicates || [],
-    // Magic Research (AD-M1, 2026-06-15) — Research Projects (the Arcane-Domain consumer; RR pp.388–393).
-    // Also lazy-defaulted on load (lazyDefaultV1ScopeReservations) so old saves backfill; the sibling of attunements.
-    researchProjects: opts.researchProjects || [],
-    // Sanctums AD-B (2026-06-15) — the apprenticeship relation (apr-): an L0 apprentice studies under a
-    // sanctum-owning master (RR p.386). Companions (L1+) reuse henchmanships; this is the L0 schooling
-    // track. Also lazy-defaulted on load (lazyDefaultV1ScopeReservations) so old saves backfill.
-    apprenticeships: opts.apprenticeships || [],
-    // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148). The shared Loan relation (RR p.42
-    // commercial credit) + the BankAccount relation (RR p.313 custody; also a GP Wave B wealth-handle).
-    // Lazy-defaulted on load too; the F&D feudal-loan reconcile onto the shared Loan is B2.
-    loans: opts.loans || [],
-    bankAccounts: opts.bankAccounts || [],
-    lettersOfCredit: opts.lettersOfCredit || [],   // === Banking B4/B5 (team burst9) — the inter-market draw primitive (loc-); read defensively, NOT lazy-migrated (the B1 banking precedent → templates stay no-ops)
-    // === Knowledge Layer Wave A (team burst7 2026-06-19) === — the Lore data layer. `lore` = first-class
-    // facts (a fact possibly partial/stale/false; rumors subsume in Wave B); `knowledge` = the per-knower
-    // relation (character ↔ lore, confidence + provenance — the believed-vs-true link). Read DEFENSIVELY
-    // everywhere (campaign.lore ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
-    lore: opts.lore || [],
-    knowledge: opts.knowledge || [],
-    // === Sages SG-2 (burst8 b8-sages 2026-06-19) === — the multi-week SageCommission research-commission
-    // (sag-; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on the slot-64 day-tick.
-    // Read DEFENSIVELY everywhere (campaign.sageCommissions ?? []); NOT lazy-injected by migrateCampaign,
-    // so templates stay migrate-no-ops (the lore/knowledge precedent above).
-    sageCommissions: opts.sageCommissions || []
+    currentDayInMonth: opts.currentDayInMonth || 1
   };
+  // Top-level array collections — seeded from the §15.5 collection registry (every descriptor with
+  // seedInBlank:true; the central seed + per-collection provenance live in acks-engine.js). A module
+  // that adds a collection self-registers via ACKS.registerCollection from its own file and is picked
+  // up here automatically — it does NOT edit this factory (the 3-site DRY win). opts.<name> still
+  // overrides the empty default, so blankCampaign({ characters:[...] }) behaves exactly as before.
+  for(const cn of global.ACKS.seededCollections()){
+    c[cn] = opts[cn] || [];
+  }
+  return c;
 }
 
 function blankDomain(opts={}){
