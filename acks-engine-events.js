@@ -476,7 +476,13 @@ const EVENT_KINDS = Object.freeze([
   // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
   'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
   'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
-  'game-sponsored'          // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  'game-sponsored',         // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  // === Magic Items MI-3 (team burst11) === — #143 the magic-item MARKET; owned by acks-engine-magic-
+  // items.js (the appraiseMagicItemAtMarket / sellMagicItem / buyMagicItem verbs own the gp [GP Wave B]
+  // + the NotableItem custody; these are record-only audits). TT pp.26–28. Distinct from the W1
+  // item-appraised (context-free spread) / item-transfer / market-transaction.
+  'magic-item-appraised',   // a MARKET price estimate for a magic item (transactability + offered buy/sell + headroom)
+  'magic-item-sold'         // a magic item changed hands at a market (payload.direction ∈ 'buy'|'sell')
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1499,6 +1505,18 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { gameId: 'string' },
     O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
          boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
+  },
+  // === Magic Items MI-3 (team burst11) === — the magic-item market (acks-engine-magic-items.js).
+  // Record-only; settlementId carries the market (Event.context.settlementId picks it up).
+  'magic-item-appraised': {
+    R: { itemId: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', baseCost: 'number', apparentValue: 'number',
+         created: 'boolean', offeredBuyGp: 'number', offeredSellGp: 'number', transactable: 'boolean',
+         buy: 'object', sell: 'object', narrative: 'string' }
+  },
+  'magic-item-sold': {
+    R: { itemId: 'string', direction: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', created: 'boolean', priceGp: 'number', qty: 'number', narrative: 'string' }
   }
 });
 
@@ -3326,6 +3344,10 @@ registerEventHandler('item-appraised', applyEvent_magicItemAudit);
 // (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
 registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
 registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
+// === Magic Items MI-3 (team burst11) === — the market verbs (acks-engine-magic-items.js) own the gp
+// (GP Wave B) + the NotableItem custody; this keeps the appraise/sale events well-formed on replay.
+registerEventHandler('magic-item-appraised', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-sold', applyEvent_magicItemAudit);
 
 // === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
 // (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
@@ -6520,7 +6542,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
   // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
   // character/school/game state doesn't show.
-  'gladiator-trained', 'gladiator-uprising', 'game-sponsored'
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored',
+  // === Magic Items MI-3 (team burst11) === — owned by acks-engine-magic-items.js (the market verbs
+  // move the gp + custody); a raw Event-Wizard emit would record a sale/appraisal nothing moved for.
+  'magic-item-appraised', 'magic-item-sold'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
