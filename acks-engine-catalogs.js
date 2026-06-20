@@ -203,9 +203,66 @@ function sampleEvent(currentMorale){
   return (eligible[Math.floor(Math.random() * eligible.length)] || EVENT_TABLE[0]).text;
 }
 
-// House Rules registry. Each entry: { id, category, name, source, description }.
-// Categories indexed via HOUSERULE_CATEGORIES below.
-const HOUSERULES_REGISTRY = Object.freeze([
+// =============================================================================
+// House-rule self-registration — the §15.5 family, slice 3 (after ID prefixes + collections).
+// =============================================================================
+// HOUSERULES_REGISTRY + HOUSERULE_CATEGORIES are accumulating stores, not frozen literals (the
+// registerPrefix / registerCollection pattern). A subsystem that introduces a house rule (and, if
+// needed, a new category) self-registers from its OWN module at load via
+// ACKS.registerHouseRule({...}) / ACKS.registerHouseRuleCategory({...}) instead of editing these
+// central literals — the §15.5 north star, and the dominant team-session merge-conflict surface
+// (every subsystem that ships a rule edits this one block). The core + legacy set is seeded just
+// below (byte-identical to the old freeze). The kernel lives HERE — not in acks-engine.js, where
+// registerPrefix / registerCollection live — because catalogs.js owns this data AND loads first, so
+// by the time any later module loads ACKS.registerHouseRule already exists. Readers (lookupHouseRule,
+// isHouseRuleEnabled's registry-default fallback, the index.html House-Rules UI) read the live array,
+// so they observe every registration regardless of module load order.
+//
+// NB house rules are PURE REFERENCE DATA (like prefixes) — a campaign stores only the rules it has
+// TOGGLED (campaign.houseRules[id] = {enabled}); an absent/unregistered rule reads as its registry
+// `default` via isHouseRuleEnabled. So a new registerHouseRule call changes NO stored campaign and
+// forces NO template regen — there is no lazy-inject/defensive-read fork as collections (slice 2) had.
+// Each registry entry: { id, category, name, source, description, default?, requires? }.
+const HOUSERULES_REGISTRY = [];
+const HOUSERULE_INDEX = {};
+function _houseRuleSig(r){ return JSON.stringify([r.category, r.name, r.source, ('default' in r) ? r.default : null, r.requires || null, r.description]); }
+function registerHouseRule(rule){
+  if(!rule || !rule.id || typeof rule.id !== 'string') return HOUSERULES_REGISTRY;
+  const existing = HOUSERULE_INDEX[rule.id];
+  if(existing){
+    // idempotent: identical content = silent no-op; differing content = warn + keep the original
+    // (mirrors registerPrefix / registerCollection — the seed wins over a late differing registration).
+    if(_houseRuleSig(existing) !== _houseRuleSig(rule) && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] house-rule "' + rule.id + '" re-registered with different content; keeping the original.');
+    }
+    return HOUSERULES_REGISTRY;
+  }
+  HOUSERULE_INDEX[rule.id] = rule;
+  HOUSERULES_REGISTRY.push(rule);
+  return HOUSERULES_REGISTRY;
+}
+function registeredHouseRules(){ return HOUSERULES_REGISTRY.slice(); }
+
+const HOUSERULE_CATEGORIES = [];
+const HOUSERULE_CATEGORY_INDEX = {};
+function registerHouseRuleCategory(cat){
+  if(!cat || !cat.id || typeof cat.id !== 'string') return HOUSERULE_CATEGORIES;
+  const existing = HOUSERULE_CATEGORY_INDEX[cat.id];
+  if(existing){
+    if((existing.label !== cat.label || existing.description !== cat.description) && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] house-rule category "' + cat.id + '" re-registered with different content; keeping the original.');
+    }
+    return HOUSERULE_CATEGORIES;
+  }
+  HOUSERULE_CATEGORY_INDEX[cat.id] = cat;
+  HOUSERULE_CATEGORIES.push(cat);
+  return HOUSERULE_CATEGORIES;
+}
+function houseRuleCategories(){ return HOUSERULE_CATEGORIES.slice(); }
+
+// Seed the core + legacy house-rule set (byte-identical to the old freeze). New rules do NOT extend
+// this literal — a subsystem calls ACKS.registerHouseRule from its own module (the §15.5 convention).
+[
   // ----- Calendar day-tick layer (Phase 2.95 §13) -----
   { id:'auto-pause-on-encounter', category:'world', name:'Auto-pause on encounter', source:'Phase 2.95 Calendar §13', description:'The day-tick pipeline pauses for GM review when a consumer surfaces an encounter. Default on.' },
   { id:'auto-pause-on-navigation-fail', category:'world', name:'Auto-pause on navigation failure', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when a journey navigation throw fails. Default on.' },
@@ -487,8 +544,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II JJ pp.306–328 Custom Power Index (HFH-OGL Open Game Content; the IP-heaviest slice — survey §8 tier 3)',
     default:false,
     description:"OFF by default. When ON, the Custom Classes lane exposes a reference list of named custom powers (names + an index page-ref + a terse mechanical one-liner — NOT transcribed descriptions) for the Class Builder + the Inspector. The build SYSTEM itself is always available; this only surfaces the optional power-name pack. W1 ships a representative seed; the full ~250-power index is W6. ⚠ Autarch courtesy heads-up before the public site (§13.9 ckpt 3)." }
-]);
-const HOUSERULE_CATEGORIES = Object.freeze([
+].forEach(registerHouseRule);
+// Seed the core + legacy categories (byte-identical to the old freeze). New categories do NOT extend
+// this literal — a subsystem calls ACKS.registerHouseRuleCategory from its own module (§15.5).
+[
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },
   { id:'construction', label:'🏗 Construction',    description:'Strongholds, agricultural investments, land improvements, alternative farming.' },
   { id:'mercantile',   label:'⚖ Mercantile',      description:'Trade ventures, demand modifiers, random merchandise (Phase 2b).' },
@@ -500,7 +559,7 @@ const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'knowledge',    label:'📚 Knowledge',       description:'The generalized who-knows-what layer — Lore facts, confidence/provenance, rumor→lore promotion (Knowledge_Layer_Plan.md). Orthogonal to Rumors.' },
   { id:'hijinks',      label:'🗡 Hijinks',         description:'Criminal syndicates, hijink resolution detail (Phase 2.7 — placeholders).' },
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }
-]);
+].forEach(registerHouseRuleCategory);
 function lookupHouseRule(id){ return HOUSERULES_REGISTRY.find(r => r.id === id) || null; }
 
 // =============================================================================
@@ -2646,6 +2705,8 @@ function armyMarketClassForSize(troops){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
+  // House-rule self-registration (§15.5 kernel slice 3) — a module self-registers its rules + categories
+  registerHouseRule, registeredHouseRules, registerHouseRuleCategory, houseRuleCategories,
   // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
   FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
   // Terrain model (Phase_2.5_Terrain_Model_Plan.md, T1) — taxonomy + resolution layer
