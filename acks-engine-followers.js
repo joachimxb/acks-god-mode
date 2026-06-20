@@ -265,6 +265,7 @@
 
   // Roll one platoon's type+equipment on a class's 1d100 table.
   function rollFollowerTroopType(tableKey, rng){
+    rng = (typeof rng === 'function') ? rng : Math.random;
     const table = FOLLOWER_TROOP_TABLES[tableKey];
     if(!table) return null;
     const roll = 1 + Math.floor((rng() || 0) * 100);
@@ -328,6 +329,7 @@
   // Roll the peasant families arriving with the followers (RR p.337) — once per 6-mile hex.
   // Returns { applicable, families, perHex[], classification, spec, hexCount }.
   function rollFamiliesArriving(campaign, domain, row, rng){
+    rng = (typeof rng === 'function') ? rng : Math.random;   // the UI path omits rng → default it (else rollFollowerDice throws)
     const plan = _familiesArrivingPlan(campaign, domain, row);
     if(!plan.applicable) return { applicable:false, families:0, perHex:[], hexCount:0, classification:null };
     const perHex = []; let total = 0;

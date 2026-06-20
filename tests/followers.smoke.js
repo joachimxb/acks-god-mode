@@ -315,6 +315,15 @@ check('FAMILIES table: civilized 8d6×10 / borderlands 3d6×10 / outlands 1d4+1�
   check('follower-families-arrived event recorded with context', !!fev && fev.payload.families === 60 && fev.payload.classification === 'Borderlands' && fev.context && fev.context.domainId === 'dom-x', fev && JSON.stringify(fev.payload));
   check('follower-arrival result/event includes families', r.familiesInfo && r.familiesInfo.families === 60);
 }
+{ // the REAL UI path: attractFollowers called with NO opts (rng omitted) — families must still roll
+  // (regression: rollFamiliesArriving handed undefined straight to rollFollowerDice → rng() threw → 0 families)
+  const c = famFixture('Fighter', 9, 15000, { classification:'Outlands', nHexes:1, peasantFamilies:50 });
+  const p = ACKS.proposeFollowerArrival(c, c.domains[0]);          // no rng
+  const r = ACKS.attractFollowers(c, c.domains[0], p);            // no opts at all
+  check('UI path (no rng): families rolled (outlands 1 hex, 20..50)', r.families >= 20 && r.families <= 50, r.families);
+  check('UI path (no rng): peasantFamilies bumped by the rolled families', c.domains[0].demographics.peasantFamilies === 50 + r.families, c.domains[0].demographics.peasantFamilies);
+  check('UI path (no rng): troop composition still rolled', r.troopComposition && r.troopComposition.platoons.length >= 1);
+}
 { // noDomain attract → population untouched, no families event
   const c = famFixture('Thief', 9, 5000, { classification:'Borderlands', nHexes:2, peasantFamilies:100 });
   const p = ACKS.proposeFollowerArrival(c, c.domains[0], { rng: rngMax });

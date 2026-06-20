@@ -2846,6 +2846,15 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink/40 rounded p-2">
             <div class="font-semibold" x-text="'🪖 ' + followerArrival.proposal.troopCount.toLocaleString() + ' ' + (followerArrival.proposal.troopLevel >= 1 ? '1st' : '0th') + '-level troops'"></div>
             <div class="opacity-70 text-xs">→ a follower band commanded by the ruler (they follow him on adventures).</div>
+            <!-- @b11-followers (Wave B) — the per-platoon Type & Equipment table (RR p.337) -->
+            <div class="opacity-70 text-xs" x-show="followerArrival.proposal.troopTableKey">⚙ Type &amp; equipment rolled per platoon of 30 on the <span class="font-medium" x-text="followerArrival.proposal.troopTableKey"></span> table (RR p.337).</div>
+          </div>
+        </template>
+        <!-- @b11-followers (Wave B) — the Families Arriving with Followers preview (RR p.337) -->
+        <template x-if="followerArrival.proposal.familiesPreview && followerArrival.proposal.familiesPreview.applicable">
+          <div class="vellum border border-ink/40 rounded p-2">
+            <div class="font-semibold">🌾 Peasant families settle the domain</div>
+            <div class="opacity-70 text-xs" x-text="'→ ' + followerArrival.proposal.familiesPreview.label + ' (rolled when they arrive — RR p.337).'"></div>
           </div>
         </template>
         <template x-if="followerArrival.proposal.apprenticeCount > 0">
@@ -6661,7 +6670,36 @@ document.addEventListener('alpine:init', () => {
                     x-text="' (' + (followerEligibility(selectedDomain).ruler.class || '') + ', level ' + (followerEligibility(selectedDomain).ruler.level || 9) + ') holds a ' + (followerEligibility(selectedDomain).row.stronghold || 'stronghold') + ' worth ' + (followerEligibility(selectedDomain).strongholdValue || 0).toLocaleString() + 'gp — enough to attract followers (RR p.334).'"></span>
                 </p>
                 <p class="text-sm opacity-80 mt-1"><span x-text="followerCardWho(selectedDomain)"></span> will rally to the banner.</p>
+                <!-- @b11-followers (Wave B) — loyalty/morale + the Families-Arriving preview -->
+                <p class="text-xs opacity-70 mt-1" x-text="followerLoyaltyPreviewLabel(selectedDomain)"></p>
+                <p class="text-xs opacity-70" x-show="followerFamiliesPreviewLabel(selectedDomain)">🌾 Peasant families settling: <span x-text="followerFamiliesPreviewLabel(selectedDomain)"></span> (RR p.337).</p>
                 <button @click="openFollowerArrival(selectedDomain)" class="mt-2 px-3 py-1 border border-ink rounded text-sm font-semibold hover:bg-amber-50" title="Roll + review the followers, then bring them in (RR p.334)">🎺 Summon followers…</button>
+              </div>
+            </template>
+
+            <!-- @b11-followers (Wave B) — post-attraction readout: companion loyalty/morale, the troop band's
+                 per-class composition + morale (RR p.337), and the families that settled with the followers.
+                 The x-for-over-singleton keeps `fs` reactive (re-keyed on the domain) — a plain x-data alias
+                 would capture it once at mount and go stale when the selected domain changes. -->
+            <template x-for="fs in (domainFollowersSummary(selectedDomain) ? [domainFollowersSummary(selectedDomain)] : [])" :key="'followers-' + selectedDomain.id">
+              <div class="vellum border rounded p-3 mb-3" style="border-color:rgba(160,110,20,.4); background:rgba(180,120,20,.05)">
+                <h3 class="font-bold text-lg">🎺 Followers <span class="text-sm font-normal opacity-70">· RR pp.334–337</span></h3>
+                <p class="text-sm mt-1" x-show="fs.companions">
+                  ⚔ <span class="font-semibold" x-text="fs.companions"></span> companion<span x-show="fs.companions !== 1">s</span> —
+                  loyalty <span x-text="_signed(fs.companionLoyalty)"></span><span x-show="fs.fanatical" class="text-green-700"> (fanatical — no calamity loyalty roll)</span><span x-show="fs.companionMorale != null">, morale <span x-text="_signed(fs.companionMorale)"></span></span>
+                </p>
+                <template x-if="fs.troopBand">
+                  <div class="text-sm mt-1">
+                    <p>🪖 <span class="font-semibold" x-text="fs.troopBand.count.toLocaleString()"></span> troops — morale <span x-text="_signed(fs.troopBand.morale)"></span>, loyalty <span x-text="_signed(fs.troopBand.loyalty)"></span></p>
+                    <ul class="text-xs opacity-80 ml-5 list-disc">
+                      <template x-for="row in fs.troopBand.summary" :key="row.type + '|' + row.equipment">
+                        <li><span x-text="row.count"></span> × <span class="font-medium" x-text="row.type"></span> <span class="opacity-60" x-text="'(' + row.equipment + ')'"></span></li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+                <p class="text-sm mt-1" x-show="fs.novices">📿 <span class="font-semibold" x-text="fs.novices.toLocaleString()"></span> cloister novices</p>
+                <p class="text-sm mt-1" x-show="fs.families">🌾 <span class="font-semibold" x-text="fs.families.toLocaleString()"></span> peasant families settled with the followers (RR p.337).</p>
               </div>
             </template>
 
@@ -19271,6 +19309,45 @@ return {
   // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
   // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
   // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
+  // Pure reads over the Wave-B engine — they extend the shipped eligibility-driven Stronghold card.
+  // The eligibility "await" card shows what WILL arrive (loyalty/morale + families preview); a NEW
+  // post-attraction readout shows what DID (companion loyalty, the troop band's composition + morale,
+  // the families that settled). RR pp.334–337.
+  followerFamiliesPreviewLabel(domain){
+    const c = this.currentCampaign; const e = this.followerEligibility(domain);
+    if(!c || !e.ok || !(window.ACKS && window.ACKS.familiesArrivingPreview)) return '';
+    const pv = window.ACKS.familiesArrivingPreview(c, domain, e.row);
+    return (pv && pv.applicable) ? pv.label : '';
+  },
+  followerLoyaltyPreviewLabel(domain){
+    const e = this.followerEligibility(domain);
+    if(!e.ok) return '';
+    const divine = !!(e.row && e.row.divine);
+    return 'Loyalty ' + (divine ? '+4 (fanatical)' : '+2') + " + the ruler's Charisma modifier; morale " + (divine ? '+4' : '+1') + ' (RR pp.335–337).';
+  },
+  // The post-attraction readout (null until the ruler has attracted followers).
+  domainFollowersSummary(domain){
+    const c = this.currentCampaign; if(!c || !domain || !window.ACKS) return null;
+    const ruler = window.ACKS.rulerCharacter ? window.ACKS.rulerCharacter(c, domain) : null;
+    if(!ruler || !ruler.followersAttracted) return null;
+    const companions = (c.characters || []).filter(ch => ch && ch.attractedAsFollower && ch.liegeCharacterId === ruler.id);
+    const bands = (c.groups || []).filter(g => g && g.socialTier === 'follower' && g.commanderCharacterId === ruler.id);
+    const troopBand = bands.find(g => Array.isArray(g.followerComposition) && g.followerComposition.length) || bands.find(g => !/novice/i.test(g.name || ''));
+    const noviceBand = bands.find(g => /novice/i.test(g.name || ''));
+    const active = g => (window.ACKS.groupActiveCount ? window.ACKS.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0)));
+    const info = companions.length && window.ACKS.followerLoyaltyInfo ? window.ACKS.followerLoyaltyInfo(c, companions[0].id) : null;
+    return {
+      rulerName: ruler.name || 'The ruler',
+      companions: companions.length,
+      fanatical: info ? !!info.fanatical : false,
+      companionLoyalty: info ? info.effectiveLoyalty : (companions[0] ? (companions[0].loyalty || 0) : null),
+      companionMorale: info ? info.morale : null,
+      troopBand: troopBand ? { count: active(troopBand), morale: troopBand.followerMorale, loyalty: troopBand.followerLoyalty, summary: troopBand.followerCompositionSummary || [] } : null,
+      novices: noviceBand ? active(noviceBand) : 0,
+      families: Number(domain.followerFamiliesArrived) || 0
+    };
+  },
+  _signed(n){ return (n != null && n >= 0 ? '+' : '') + n; },
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +
