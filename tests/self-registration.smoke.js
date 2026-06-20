@@ -319,5 +319,88 @@ ok('registerLoadMigration() with no args is a safe no-op', (function(){ try { co
 ok('registerLoadMigration(name) with no fn does not register', (function(){ const n = ACKS.registeredLoadMigrations().length; ACKS.registerLoadMigration('__noFn'); return ACKS.registeredLoadMigrations().length === n; })());
 
 // =============================================================================
+// SLICE 5 — the typed-event-kind registry (registerEventKind). THE LAST FAMILY.
+// =============================================================================
+// EVENT_KINDS / EVENT_SCHEMAS / EVENT_WIZARD_OPTOUT were three frozen literals in acks-engine-events.js
+// that every event-shipping subsystem had to edit (with the already-decentralized EVENT_HANDLERS, the
+// "4 parallel registries" — the BIGGEST team-session merge-conflict surface, "the Lead unions the
+// events.js registries by hand", §15.4). They are now accumulating stores a module extends from its
+// own file via ACKS.registerEventKind('foo', { schema, wizardOptOut, handler }) (the unified one-call
+// entry; the handler forwards to the existing registerEventHandler). The kernel lives in events.js
+// (where the data is). Unlike the prior families this is NOT pinned as the full set: event kinds are a
+// large, fast-growing APPEND-set (~10 per burst, 171 today), so a full ordered literal here would churn
+// + merge-conflict on every event-adding branch — re-creating the surface this slice removes. The
+// exact ORDER+content byte-identity of the conversion is proven by the one-shot node diff vs the
+// pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
+// schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
+// optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
+const EV_KINDS_COUNT = 171, EV_SCHEMAS_COUNT = 171, EV_OPTOUT_COUNT = 145;
+const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
+  'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
+  'domain-banditry','proficiency-throw','domain-advanced','bout-round'];
+
+section('the seeded event-kind registries reproduce the pre-refactor frozen-literal counts + invariants');
+const evKinds = ACKS.EVENT_KINDS, evSchemas = ACKS.EVENT_SCHEMAS, evOptout = ACKS.EVENT_WIZARD_OPTOUT;
+const evKindSet = new Set(evKinds);
+ok('exactly ' + EV_KINDS_COUNT + ' event kinds seeded', evKinds.length === EV_KINDS_COUNT, 'got ' + evKinds.length);
+ok('no duplicate event kinds', evKindSet.size === evKinds.length);
+ok('exactly ' + EV_SCHEMAS_COUNT + ' schemas seeded (1:1 with kinds)', Object.keys(evSchemas).length === EV_SCHEMAS_COUNT, 'got ' + Object.keys(evSchemas).length);
+ok('every schema key is a registered kind', Object.keys(evSchemas).every(k => evKindSet.has(k)),
+  Object.keys(evSchemas).filter(k => !evKindSet.has(k)).join(', '));
+ok('every kind has a schema (the 1:1 invariant)', evKinds.every(k => k in evSchemas),
+  evKinds.filter(k => !(k in evSchemas)).join(', '));
+ok('exactly ' + EV_OPTOUT_COUNT + ' wizard opt-outs seeded', evOptout.size === EV_OPTOUT_COUNT, 'got ' + evOptout.size);
+ok('every opt-out is a registered kind', [...evOptout].every(k => evKindSet.has(k)),
+  [...evOptout].filter(k => !evKindSet.has(k)).join(', '));
+ok('representative kinds all present (catches a catastrophic seed failure)', EV_REPRESENTATIVES.every(k => evKindSet.has(k)),
+  EV_REPRESENTATIVES.filter(k => !evKindSet.has(k)).join(', '));
+ok('player-plan is first, bout-round is last (append order preserved)', evKinds[0] === 'player-plan' && evKinds[evKinds.length - 1] === 'bout-round');
+
+section('registerEventKind — the kernel (the last self-registration family)');
+ok('registerEventKind exported', typeof ACKS.registerEventKind === 'function');
+ok('registeredEventKinds exported', typeof ACKS.registeredEventKinds === 'function');
+ok('the kind store is mutable (no longer Object.freeze-d)', !Object.isFrozen(ACKS.EVENT_KINDS));
+ok('the schema store is mutable', !Object.isFrozen(ACKS.EVENT_SCHEMAS));
+
+// a module self-registering a fresh kind from its own file at load — the unified one-call entry
+// (kind string + schema + wizard opt-out + handler), the §15.5 ergonomic.
+let evDispatched = false;
+ACKS.registerEventKind('__smoke-evt', {
+  schema: { R: { x: 'string' }, O: {} },
+  wizardOptOut: true,
+  handler: function(c, e){ evDispatched = true; return { result: { narrativeSummary: 'ok' } }; }
+});
+ok('a fresh kind lands in EVENT_KINDS', ACKS.EVENT_KINDS.includes('__smoke-evt'));
+ok('its schema lands in EVENT_SCHEMAS', !!ACKS.EVENT_SCHEMAS['__smoke-evt']);
+ok('its wizard opt-out lands in EVENT_WIZARD_OPTOUT', ACKS.EVENT_WIZARD_OPTOUT.has('__smoke-evt'));
+ok('isEventKindKnown sees it', ACKS.isEventKindKnown('__smoke-evt'));
+ok('wizardEmittableKinds hides it (opted out)', !ACKS.wizardEmittableKinds().includes('__smoke-evt'));
+ok('and is visible via the shared namespace (the read path other modules + index.html use)',
+  global.ACKS.EVENT_KINDS.includes('__smoke-evt'));
+// the new capability: the handler forwards to registerEventHandler + applyEvent dispatches it
+ACKS.applyEvent(ACKS.blankCampaign({ name: 't' }), ACKS.newEvent('__smoke-evt', { submittedBy: 'gm', payload: { x: 'y' } }));
+ok('the handler forwarded via registerEventKind fires through applyEvent', evDispatched);
+// validateEvent enforces the self-registered schema (proves registerEventSchema is live end-to-end)
+ok('validateEvent enforces the self-registered schema', (function(){
+  try { ACKS.applyEvent(ACKS.blankCampaign({ name: 't' }), ACKS.newEvent('__smoke-evt', { submittedBy: 'gm', payload: {} })); return false; }
+  catch(e){ return /missing required payload field "x"/.test(e.message); }
+})());
+// registeredEventKinds returns a fresh array (mutating it cannot corrupt the store)
+ok('registeredEventKinds() returns a fresh array', (function(){ const a = ACKS.registeredEventKinds(); const n = a.length; a.push('zz'); return ACKS.registeredEventKinds().length === n; })());
+
+// idempotent: re-registering the same kind does not re-push
+const evCnt = ACKS.EVENT_KINDS.length;
+ACKS.registerEventKind('__smoke-evt');
+ok('re-registering the same kind is idempotent (no re-push)', ACKS.EVENT_KINDS.length === evCnt);
+// schema conflict: a different schema for a registered kind keeps the original (and warns)
+ACKS.registerEventKind('__smoke-evt', { schema: { R: { DIFFERENT: 'string' }, O: {} } });
+ok('a conflicting schema keeps the original', JSON.stringify(ACKS.EVENT_SCHEMAS['__smoke-evt'].R) === JSON.stringify({ x: 'string' }));
+// a bare kind (no opts) registers only the string — no schema
+ACKS.registerEventKind('__smoke-bare');
+ok('a bare registerEventKind(kind) registers only the string', ACKS.EVENT_KINDS.includes('__smoke-bare') && !('__smoke-bare' in ACKS.EVENT_SCHEMAS));
+// guards: missing/falsy args are safe no-ops, never throw
+ok('registerEventKind() with no args is a safe no-op', (function(){ try { const n = ACKS.EVENT_KINDS.length; ACKS.registerEventKind(); ACKS.registerEventKind(''); return ACKS.EVENT_KINDS.length === n; } catch(e){ return false; } })());
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — self-registration.smoke.js: ' + pass + ' passed, ' + fail + ' failed.');
 if (fail) { console.log('  failing: ' + failures.join(' · ')); process.exit(1); }
