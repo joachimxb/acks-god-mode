@@ -14,6 +14,16 @@
  *   - materializeContinentalHex — idempotent GM-authoring of a continental hex (merges into its region).
  *   - defensive: a legacy hex (no hexScale) reads as a parentless regional hex; sparse campaigns unchanged.
  * The scale-switcher + continental render are the UI (browser-verified, index.html).
+ *
+ * HW-5 = the local (1.5-mile) drill-down tier (the mirror of HW-4 BELOW the canonical 6-mile hex):
+ *   - localChildCoords (the idealized ~16 nesting grid under a regional hex) + localChildHexes
+ *     (the authored children, scale-guarded reverse index).
+ *   - materializeLocalHex — idempotent GM-authoring of a local hex BOUND to its regional parent
+ *     (parentHexId explicit) + domainId:null so it stays OUT of the 6-mile economy + the regional view.
+ *   - localDrillView — the map drill render set (idealized grid + authored + addable + aggregate).
+ *   - aggregateRegionalCell — the derived roll-up of authored local detail (dominant terrain / families).
+ *   - local hexes never pollute the regional tier or continental aggregation (hexScale-filtered).
+ * The local scale switch + drill/author overlay are the UI (browser-verified, index.html).
  */
 'use strict';
 require('./_engine.js').load();
@@ -225,6 +235,94 @@ section('defensive — a legacy campaign (hexes with no hexScale) is unchanged')
   ok('legacy hexes still aggregate into a cell', cells.length === 1 && cells[0].childCount === 5);
   ok('legacy cell families summed', cells[0].families === 60);
   ok('legacy hex hexParentOf = null (no materialized parent, derived-only)', ACKS.hexParentOf(camp, camp.hexes[0]) === null);
+}
+
+// =============================================================================
+section('HW-5 — local child coords + authored children (the nesting grid + reverse index)');
+{
+  const camp = mkCampaign();
+  const parent = addHex(camp, { q: 2, r: 1 }, { terrain: 'hills', koppen: 'Cfb' });   // regional (default scale)
+  const ideal = ACKS.localChildCoords(parent);
+  ok('localChildCoords returns ~16 (regional→local)', ideal.length >= 13 && ideal.length <= 19);
+  ok('localChildCoords === hexScaleChildCoords(parent, regional)', ideal.length === ACKS.hexScaleChildCoords(parent.coord, 'regional').length);
+  ok('every ideal coord rounds back to the parent', ideal.every(c => eqCoord(ACKS.hexScaleParentCoord(c, 'regional'), parent.coord)));
+  ok('localChildCoords [] for a continental hex (not a 1.5-mi parent)', ACKS.localChildCoords({ hexScale: 'continental', coord: { q: 0, r: 0 } }).length === 0);
+  ok('localChildCoords [] for a local hex (finest tier)', ACKS.localChildCoords({ hexScale: 'local', coord: { q: 0, r: 0 } }).length === 0);
+  ok('no authored local children yet', ACKS.localChildHexes(camp, parent).length === 0);
+  ok('localChildHexes [] for a non-regional parent', ACKS.localChildHexes(camp, { hexScale: 'continental', coord: { q: 0, r: 0 }, id: 'c' }).length === 0);
+}
+
+section('HW-5 — materializeLocalHex (GM authoring; idempotent; bound to parent; out-of-economy)');
+{
+  const camp = mkCampaign();
+  const parent = addHex(camp, { q: 2, r: 1 }, { terrain: 'hills', koppen: 'Cfb', domainId: 'dom-x' });
+  const lc = ACKS.localChildCoords(parent);
+  const a = ACKS.materializeLocalHex(camp, parent, lc[0], { hexOpts: { terrain: 'forest', families: 8 } });
+  ok('creates a hexScale:local hex', a && a.hexScale === 'local');
+  ok('bound to the parent via parentHexId', a.parentHexId === parent.id);
+  ok('at the chosen local coord', eqCoord(a.coord, lc[0]));
+  ok('domainless by default (out of the 6-mile economy)', a.domainId === null);
+  ok('hexOpts pass through (terrain / families)', a.terrain === 'forest' && a.families === 8);
+  ok('idempotent — second call returns the same hex', ACKS.materializeLocalHex(camp, parent, lc[0]) === a);
+  ok('only one local hex at that coord', camp.hexes.filter(h => ACKS.hexScaleOf(h) === 'local').length === 1);
+  ok('authored child appears under the parent (reverse index)', ACKS.localChildHexes(camp, parent).some(h => h.id === a.id));
+  ok('and resolves via the generic hexParentOf (stored parentHexId)', ACKS.hexParentOf(camp, a) === parent);
+  // guards
+  ok('null for a non-regional parent (cannot drill into local/continental)', ACKS.materializeLocalHex(camp, { hexScale: 'continental', id: 'x', coord: { q: 0, r: 0 } }, lc[1]) === null);
+  ok('null for a missing coord', ACKS.materializeLocalHex(camp, parent, null) === null);
+  ok('null for a non-numeric coord', ACKS.materializeLocalHex(camp, parent, { q: 'a', r: 1 }) === null);
+  // domainId override (a GM who wants the local hex to belong to the parent's domain)
+  const b = ACKS.materializeLocalHex(camp, parent, lc[1], { domainId: 'dom-x' });
+  ok('domainId override honored', b.domainId === 'dom-x');
+  // a stray hexScale in hexOpts cannot break the tier (reconciled)
+  const c = ACKS.materializeLocalHex(camp, parent, lc[2], { hexOpts: { hexScale: 'continental', parentHexId: 'spoof' } });
+  ok('hexOpts cannot override the local tier or the parent binding', c.hexScale === 'local' && c.parentHexId === parent.id);
+}
+
+section('HW-5 — localDrillView (the map drill render set) + aggregateRegionalCell (derived summary)');
+{
+  const camp = mkCampaign();
+  const parent = addHex(camp, { q: 0, r: 0 }, { terrain: 'hills', koppen: 'BWh', families: 100, domainId: 'dom-1' });
+  const lc = ACKS.localChildCoords(parent);
+  ACKS.materializeLocalHex(camp, parent, lc[0], { hexOpts: { terrain: 'forest', families: 4, settlement: { name: 'Hamlet' } } });
+  ACKS.materializeLocalHex(camp, parent, lc[1], { hexOpts: { terrain: 'forest', families: 6 } });
+  ACKS.materializeLocalHex(camp, parent, lc[2], { hexOpts: { terrain: 'swamp', families: 2 } });
+  const view = ACKS.localDrillView(camp, parent);
+  ok('view carries parent + parentHexId + parentCoord', view && view.parent === parent && view.parentHexId === parent.id && eqCoord(view.parentCoord, { q: 0, r: 0 }));
+  ok('idealizedCount ~16', view.idealizedCount >= 13 && view.idealizedCount <= 19);
+  ok('authoredCount 3', view.authoredCount === 3);
+  ok('addableCoords = idealized − authored', view.addableCoords.length === view.idealizedCount - 3);
+  ok('addable excludes the authored cells', !view.addableCoords.some(c => eqCoord(c, lc[0]) || eqCoord(c, lc[1]) || eqCoord(c, lc[2])));
+  ok('authoredByCoordKey maps a coord → its hex', (() => { const h = view.authoredByCoordKey[lc[0].q + ',' + lc[0].r]; return h && h.terrain === 'forest'; })());
+  // the derived aggregate of authored detail
+  const agg = view.aggregate;
+  ok('aggregate dominantTerrain = forest (2 of 3)', agg.dominantTerrain === 'forest');
+  ok('aggregate families summed = 12', agg.families === 12);
+  ok('aggregate settlementCount = 1', agg.settlementCount === 1);
+  ok('aggregate childCount 3, idealizedCount ~16', agg.childCount === 3 && agg.idealizedCount >= 13);
+  ok('aggregate key = the parent coord key R0,0', agg.key === 'R0,0');
+  ok('aggregate parentHexId = parent.id', agg.parentHexId === parent.id);
+  // localDrillView guards
+  ok('localDrillView null for a continental hex', ACKS.localDrillView(camp, { hexScale: 'continental', coord: { q: 0, r: 0 }, id: 'c' }) === null);
+  ok('localDrillView null for a local hex (no deeper tier)', ACKS.localDrillView(camp, { hexScale: 'local', coord: { q: 0, r: 0 }, id: 'l' }) === null);
+  // aggregateRegionalCell standalone (pure; explicit members) — empty + koppen fallback
+  const agg2 = ACKS.aggregateRegionalCell(camp, [], parent);
+  ok('empty members → childCount 0, families 0', agg2.childCount === 0 && agg2.families === 0);
+  ok('empty members → koppen falls back to the parent koppen (BWh)', agg2.koppen === 'BWh' && agg2.koppenSource === 'parent');
+  ok('child koppen wins over parent when present', ACKS.aggregateRegionalCell(camp, [{ coord: { q: 0, r: 0 }, koppen: 'Cfb' }], parent).koppen === 'Cfb');
+}
+
+section('HW-5 — local hexes do NOT pollute the regional tier or continental aggregation');
+{
+  const camp = mkCampaign();
+  const parent = addHex(camp, { q: 0, r: 0 }, { terrain: 'hills', families: 50, domainId: 'dom-1' });
+  ACKS.materializeLocalHex(camp, parent, ACKS.localChildCoords(parent)[0], { hexOpts: { terrain: 'forest', families: 5 } });
+  const regionalOnly = camp.hexes.filter(h => ACKS.hexScaleOf(h) === 'regional');
+  ok('only the parent is regional (the local child is excluded by scale)', regionalOnly.length === 1 && regionalOnly[0].id === parent.id);
+  ok('the local child carries no domainId (invisible to the domain economy)', camp.hexes.find(h => ACKS.hexScaleOf(h) === 'local').domainId === null);
+  const cells = ACKS.continentalCellsForCampaign(camp);
+  ok('continental aggregation counts only the regional hex (not the local child)', cells.length === 1 && cells[0].childCount === 1);
+  ok('continental cell families = the parent only (50, not 55)', cells[0].families === 50);
 }
 
 // =============================================================================
