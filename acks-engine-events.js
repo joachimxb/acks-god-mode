@@ -330,6 +330,14 @@ const EVENT_KINDS = Object.freeze([
   // adventure-result disbursement). Carries the Event.context envelope (the lair as site + the
   // casualties + beneficiaries). Event Wizard opt-out below.
   'wilderness-foray',
+  // === Delves D5 (team burst11) === — Phase 3.5 (JJ ch.3, the off-screen settlement layer).
+  // Record-only audit emitted by acks-engine-delves.js. 'settlement-visited' = a party opens a
+  // SettlementVisit (arrival in town); 'urban-incident' = an urban incident occurs during the stay
+  // (the holed-up day-consumer's resolution OR a GM-pressed wandering/looking roll). Diseases ride
+  // the shipped CL-2 'disease-contracted' (a disease-exposure incident calls ACKS.contractDisease);
+  // casualties ride the shipped Delves-D1 'mortal-wound'. Event Wizard opt-out below.
+  'settlement-visited',
+  'urban-incident',
   // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
   // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
   // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
@@ -1169,6 +1177,20 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { lairId: 'string', monster: 'string', defeated: 'boolean', monsterLevel: 'number',
          expeditionLevel: 'number', treasureGp: 'number', magicItemRolls: 'number', combatXp: 'number',
          casualties: 'array', unitCasualties: 'array', lairCleared: 'boolean', narrative: 'string' }
+  },
+  // === Delves D5 (team burst11) === (JJ ch.3; engine-emitted by acks-engine-delves.js, record-only).
+  // A party opens a stay in a settlement.
+  'settlement-visited': {
+    R: { visitId: 'string' },
+    O: { settlementId: 'string', mode: 'string', participantCount: 'number', narrative: 'string' }
+  },
+  // An urban incident during a stay: the rolled d100 incident + its mechanical hooks (reaction band,
+  // disease exposure, combat risk, theft) — the consequences (disease/casualty) ride their own events.
+  'urban-incident': {
+    R: { visitId: 'string', incidentKey: 'string' },
+    O: { settlementId: 'string', roll: 'number', afterDark: 'boolean', category: 'string',
+         reactionBand: 'string', diseaseExposure: 'boolean', combatRisk: 'boolean',
+         affectedCharacterId: 'string', narrative: 'string' }
   },
   // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
   // record-only). A character contracts a disease (infected); then the disease resolves.
@@ -3135,6 +3157,12 @@ registerEventHandler('delve-foray', applyEvent_delveAudit);
 // ACKS.commitWildernessForay already applied the state (Mortal Wounds, unit casualties, clearLair, the
 // adventure-result disbursement); this keeps the event well-formed on replay (records the narrative only).
 registerEventHandler('wilderness-foray', applyEvent_delveAudit);
+// === Delves D5 (team burst11) === — the off-screen settlement events share the same record-only audit
+// posture: acks-engine-delves.js already applied the state (the SettlementVisit / its incidents[];
+// disease via contractDisease, casualties via applyMortalWound — both emit their own events); this
+// keeps the settlement events well-formed on replay (records the narrative only).
+registerEventHandler('settlement-visited', applyEvent_delveAudit);
+registerEventHandler('urban-incident', applyEvent_delveAudit);
 // === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
 // acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
@@ -6371,6 +6399,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Delves D4 (team) === — owned by ACKS.commitWildernessForay (the Wilderness Foray modal);
   // a raw emit would narrate a foray the casualties / treasure / lair state don't show.
   'wilderness-foray',
+  // === Delves D5 (team burst11) === — owned by acks-engine-delves.js (startSettlementVisit + the
+  // slot-66 settlement-incidents consumer / the on-demand roller); a raw emit would narrate a visit /
+  // incident the SettlementVisit + its incidents[] don't show. The GM runs a stay via the 🏙 panel.
+  'settlement-visited', 'urban-incident',
   // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.

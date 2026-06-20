@@ -881,6 +881,53 @@
       ]
     },
     // === end Delves D2 ===
+    // === Delves D5 (team burst11 2026-06-20) — the SettlementVisit (svt-, campaign.settlementVisits[];
+    // Phase_3.5_Delves_Plan.md §4.4). The off-screen settlement-stay record + the urban-incident log.
+    // adminCreate:'schemaForm' = the Inspector Admin verb; the in-fiction verb is ACKS.startSettlementVisit
+    // (the 🏙 Settlement Visits panel). incidents[] are rolled records (D5 owns the roller) — the
+    // itemSchema gives the shape, not a factory. Every top-level field is a blankSettlementVisit key
+    // (the schema⊆factory invariant, tests/smoke.js). ──
+    'settlementVisit': {
+      factory: 'blankSettlementVisit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Mode', 'Incidents', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                      type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                    type: 'string', group: 'Identity', description: 'Optional GM label (else derived from the settlement)' },
+        { name: 'settlementId',            type: 'id', idKind: 'settlement', group: 'Identity' },
+        { name: 'hexId',                   type: 'id', idKind: 'hex', group: 'Identity', description: "The settlement's hex (incident context + the day-clock)" },
+        { name: 'partyId',                 type: 'id', idKind: 'party', group: 'Participants', description: 'Optional — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
+        { name: 'mode',                    type: 'enum', enumValues: ['holed-up','wandering','looking-for-trouble'], group: 'Mode', default: 'holed-up', description: 'holed-up = the 1/day auto incident check; the others are GM-pressed (JJ p.80)' },
+        { name: 'status',                  type: 'enum', enumValues: ['active','departed'], group: 'Mode', default: 'active' },
+        // The urban incidents that have occurred — rolled records (D5's rollSettlementIncident owns the shape).
+        { name: 'incidents',               type: 'array', group: 'Incidents', description: 'Urban incidents (JJ pp.81–84)', itemSchema: { fields: [
+            { name: 'incidentKey',         type: 'string' },
+            { name: 'label',               type: 'string' },
+            { name: 'category',            type: 'string' },
+            { name: 'cite',                type: 'string' },
+            { name: 'roll',                type: 'number' },
+            { name: 'afterDark',           type: 'boolean' },
+            { name: 'dayInMonth',          type: 'number' },
+            { name: 'turn',                type: 'number' },
+            { name: 'reactionCall',        type: 'boolean' },
+            { name: 'tone',                type: 'string' },
+            { name: 'diseaseExposure',     type: 'boolean' },
+            { name: 'combatRisk',          type: 'boolean' },
+            { name: 'rumor',               type: 'boolean' },
+            { name: 'rewardGp',            type: 'gp' },
+            { name: 'affectedCharacterId', type: 'id', idKind: 'character' },
+            { name: 'resolved',            type: 'boolean' },
+            { name: 'eventId',             type: 'string' }
+          ] } },
+        { name: 'arrivedAtTurn',           type: 'number', group: 'Lifecycle' },
+        { name: 'arrivedAtDayInMonth',     type: 'number', group: 'Lifecycle' },
+        { name: 'departedAtTurn',          type: 'number', group: 'Lifecycle' },
+        { name: 'notes',                   type: 'longText', group: 'History' },
+        { name: 'history',                 type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Delves D5 ===
     // === Phase 4 — The Arcane Domain (Sanctums AD-D) — the Attunement relation (att-,
     // campaign.attunements[]; RR p.387). mage ↔ dungeon, one ACTIVE per dungeon. Every field is a
     // blankAttunement key (the schema⊆factory invariant). adminCreate:'schemaForm' = the generic form;
