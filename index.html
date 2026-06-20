@@ -15935,6 +15935,8 @@ document.addEventListener('alpine:init', () => {
         <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
         <span class="opacity-30">|</span>
         <button @click="openCommissionModal()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-yellow-200 hover:bg-yellow-300" title="Commission a magic item from an NPC caster (TT p.28: 3× base — routes into Magic Research)">🛠 Commission…</button>
+        <!-- === @b11-magicitems (team) — MI-3: the magic-item market launcher === -->
+        <button @click="openMagicMarket()" class="px-2 py-0.5 border-2 border-ink rounded font-semibold bg-amber-200 hover:bg-amber-300" title="Buy / sell / appraise a magic item at a settlement market (TT p.28 price spread; GP rides GP Wave B)">🛒 Market…</button>
       </div>
     </div>
     <template x-if="magicItemList().length === 0">
@@ -17346,6 +17348,126 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
 <!-- === @b11-knowledge  (team) — Knowledge Wave B: the share-a-fact / promote-rumor→lore controls + provenance panel (📚 Knowledge tab) === -->
 <!-- === @b11-magicitems (team) — MI-3 magic-item market: the buy / sell / appraise wizard/modal (🪄 Magic Items tab) === -->
+<div x-show="magicMarket.open" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="closeMagicMarket()" @keydown.escape.window="closeMagicMarket()">
+  <div class="vellum border border-ink rounded p-4 max-w-xl w-full max-h-[88vh] overflow-y-auto">
+    <div class="flex justify-between items-baseline mb-2">
+      <h3 class="font-bold text-lg">🛒 Magic-item market</h3>
+      <button @click="closeMagicMarket()" class="text-sm underline">close ✕</button>
+    </div>
+    <p class="text-sm opacity-70 mb-3">Buy / sell / appraise at a settlement market. Price is the <strong>TT p.28</strong> spread (buy ×2.25, sell-created ×2, sell-found ×1); a bigger market handles rarer goods. The coin move rides GP Wave B; the item is a <code>notableItem</code>.</p>
+    <div class="space-y-2 text-sm">
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Market</span>
+        <select x-model="magicMarket.settlementId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+          <option value="">— pick a settlement —</option>
+          <template x-for="s in magicMarketSettlements()" :key="s.id"><option :value="s.id" x-text="(s.name || s.id) + ' · Class ' + magicMarketClassLabel(s)"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Character</span>
+        <select x-model="magicMarket.actorId" @change="magicMarket.result=null; magicMarket.sellItemId=''" class="flex-1 min-w-[12rem]">
+          <option value="">— pick a character —</option>
+          <template x-for="c in magicMarketActors()" :key="c.id"><option :value="c.id" x-text="(c.name || c.id) + ' · ' + (c.coins && c.coins.gp || 0).toLocaleString() + ' gp'"></option></template>
+        </select>
+      </label>
+      <!-- mode tabs -->
+      <div class="flex gap-1 border-b border-ink/30 pb-1">
+        <button @click="magicMarket.mode='appraise'; magicMarket.result=null" :class="magicMarket.mode==='appraise' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">🔍 Appraise</button>
+        <button @click="magicMarket.mode='sell'; magicMarket.result=null" :class="magicMarket.mode==='sell' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">💰 Sell</button>
+        <button @click="magicMarket.mode='buy'; magicMarket.result=null" :class="magicMarket.mode==='buy' ? 'bg-amber-200 font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-0.5 border border-ink rounded-t">🛒 Buy</button>
+      </div>
+
+      <!-- APPRAISE / SELL item picker (the actor's items) -->
+      <template x-if="magicMarket.mode==='appraise' || magicMarket.mode==='sell'">
+        <label class="flex flex-wrap items-baseline gap-2"><span class="w-24" x-text="magicMarket.mode==='sell' ? 'Sell item' : 'Item'"></span>
+          <select x-model="magicMarket.sellItemId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+            <option value="">— pick an item the character holds —</option>
+            <template x-for="ni in magicMarketSellItems()" :key="ni.id"><option :value="ni.id" x-text="(ni.name || ni.kind || 'item') + ' · ' + magicMarketRarityOf(ni)"></option></template>
+          </select>
+        </label>
+      </template>
+      <template x-if="(magicMarket.mode==='appraise' || magicMarket.mode==='sell') && magicMarket.actorId && !magicMarketSellItems().length">
+        <p class="text-xs italic opacity-60">This character holds no magic items to <span x-text="magicMarket.mode"></span>. (Custody, or a carried link, marks who holds an item.)</p>
+      </template>
+
+      <!-- BUY source + picker -->
+      <template x-if="magicMarket.mode==='buy'">
+        <div class="space-y-2">
+          <div class="flex gap-3 items-center">
+            <span class="w-24">Source</span>
+            <label class="flex items-center gap-1"><input type="radio" value="stock" x-model="magicMarket.buySource" @change="magicMarket.result=null"> from market stock</label>
+            <label class="flex items-center gap-1"><input type="radio" value="catalog" x-model="magicMarket.buySource" @change="magicMarket.result=null"> from the catalog</label>
+          </div>
+          <template x-if="magicMarket.buySource==='stock'">
+            <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Item</span>
+              <select x-model="magicMarket.buyItemId" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+                <option value="">— pick an item in this market —</option>
+                <template x-for="ni in magicMarketStockItems()" :key="ni.id"><option :value="ni.id" x-text="(ni.name || ni.kind || 'item') + ' · ' + magicMarketRarityOf(ni)"></option></template>
+              </select>
+            </label>
+          </template>
+          <template x-if="magicMarket.buySource==='catalog'">
+            <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Catalog</span>
+              <select x-model="magicMarket.buyCatalogKey" @change="magicMarket.result=null" class="flex-1 min-w-[12rem]">
+                <option value="">— pick an archetype —</option>
+                <template x-for="e in magicMarketCatalog()" :key="e.key"><option :value="e.key" x-text="e.name + ' (' + e.rarity + ', ' + e.baseCost.toLocaleString() + 'gp base)'"></option></template>
+              </select>
+            </label>
+          </template>
+          <template x-if="magicMarket.buySource==='stock' && magicMarket.settlementId && !magicMarketStockItems().length">
+            <p class="text-xs italic opacity-60">This market has no magic items in stock (sell one here, or buy from the catalog).</p>
+          </template>
+        </div>
+      </template>
+
+      <!-- live forecast -->
+      <template x-if="magicMarketForecast()">
+        <div class="border border-ink/40 rounded bg-amber-50/60 p-2 text-sm space-y-0.5">
+          <template x-if="!magicMarketForecast().available"><div class="text-red-700" x-text="'Cannot price this item: ' + (magicMarketForecast().reason || '?')"></div></template>
+          <template x-if="magicMarketForecast().available">
+            <div>
+              <div><strong x-text="magicMarketForecast().spread.rarityLabel"></strong> · base <span class="font-mono" x-text="magicMarketForecast().spread.baseCost.toLocaleString()"></span> gp · market <strong x-text="'Class ' + magicMarketForecast().buyAv.marketClass"></strong></div>
+              <!-- appraise shows both ways -->
+              <template x-if="magicMarket.mode==='appraise'">
+                <div class="mt-1 space-y-0.5">
+                  <div>🛒 Buy here: <span class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></span> gp <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span></div>
+                  <div>💰 Sell here: <span class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></span> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+                </div>
+              </template>
+              <template x-if="magicMarket.mode==='sell'">
+                <div class="mt-1">💰 Offer: <strong class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></strong> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+              </template>
+              <template x-if="magicMarket.mode==='buy'">
+                <div class="mt-1">🛒 Cost: <strong class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></strong> gp (×2.25) <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span>
+                  <span x-show="magicMarketActorGp() < magicMarketForecast().spread.buy" class="text-red-700"> · can't afford (<span class="font-mono" x-text="magicMarketActorGp().toLocaleString()"></span> gp)</span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- gmOverride for sell/buy -->
+      <template x-if="magicMarket.mode!=='appraise'">
+        <label class="flex items-center gap-1 text-xs opacity-80"><input type="checkbox" x-model="magicMarket.gmOverride"> GM override — force a too-rare / sold-out market through</label>
+      </template>
+
+      <!-- submit -->
+      <div class="flex gap-2 items-center pt-1">
+        <template x-if="magicMarket.mode==='appraise'">
+          <button @click="magicMarketSubmitAppraise()" :disabled="!magicMarketForecast() || !magicMarketForecast().available" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed">🔍 Record appraisal</button>
+        </template>
+        <template x-if="magicMarket.mode==='sell'">
+          <button @click="magicMarketSubmitSell()" :disabled="!magicMarketCanSubmit()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" x-text="magicMarketForecast() && magicMarketForecast().available ? ('💰 Sell for ~' + magicMarketForecast().spread.sell.toLocaleString() + ' gp') : '💰 Sell'"></button>
+        </template>
+        <template x-if="magicMarket.mode==='buy'">
+          <button @click="magicMarketSubmitBuy()" :disabled="!magicMarketCanSubmit()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-amber-300 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed" x-text="magicMarketForecast() && magicMarketForecast().available ? ('🛒 Buy for ~' + magicMarketForecast().spread.buy.toLocaleString() + ' gp') : '🛒 Buy'"></button>
+        </template>
+      </div>
+      <template x-if="magicMarket.result">
+        <p class="text-sm mt-1" :class="magicMarket.result.ok ? 'text-green-800' : 'text-red-700'" x-text="magicMarket.result.msg"></p>
+      </template>
+    </div>
+  </div>
+</div>
 <!-- === @b11-gladiators (team) — G5 round-by-round bout: the tactical-bout modal/overlay (⚔ Gladiators tab) === -->
 <!-- === @b11-followers  (team) — Followers Wave B: the loyalty/morale + Families-arriving readout on the Stronghold-tab 🎺 follower card === -->
 
@@ -19269,6 +19391,50 @@ return {
   // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
   // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
   // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
+  // A thin Alpine layer over the engine verbs (acks-engine-magic-items.js): appraiseMagicItemAtMarket /
+  // sellMagicItem / buyMagicItem + the magicItemMarketAvailability gate + the TT magicItemPriceSpread.
+  // The coin move rides GP Wave B inside the verb; the item is a notableItem. All reads guard
+  // currentCampaign (the modal is x-show, not unmounted — it evaluates on the welcome screen too).
+  magicMarket: { open:false, settlementId:'', actorId:'', mode:'appraise', sellItemId:'', buySource:'stock', buyItemId:'', buyCatalogKey:'', gmOverride:false, result:null },
+  magicMarketSettlements(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.settlements)) ? this.currentCampaign.settlements : []; },
+  magicMarketActors(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.characters)) ? this.currentCampaign.characters : []; },
+  magicMarketSettlementObj(){ const id = this.magicMarket.settlementId; return id ? this.magicMarketSettlements().find(s => s && s.id === id) : null; },
+  magicMarketActorObj(){ const id = this.magicMarket.actorId; return id ? this.magicMarketActors().find(c => c && c.id === id) : null; },
+  magicMarketActorGp(){ const c = this.magicMarketActorObj(); return (c && c.coins && c.coins.gp) || 0; },
+  _magicMarketFindNotable(id){ return ((this.currentCampaign && this.currentCampaign.notableItems) || []).find(n => n && n.id === id) || null; },
+  openMagicMarket(){ const s = this.magicMarketSettlements(), c = this.magicMarketActors(); this.magicMarket = { open:true, settlementId: s[0] ? s[0].id : '', actorId: c[0] ? c[0].id : '', mode:'appraise', sellItemId:'', buySource:'stock', buyItemId:'', buyCatalogKey:'', gmOverride:false, result:null }; },
+  closeMagicMarket(){ this.magicMarket.open = false; this.magicMarket.result = null; },
+  magicMarketClassLabel(s){ if(!s || !this.currentCampaign || !window.ACKS.magicMarketClassIdx) return '?'; return ['I','II','III','IV','V','VI'][window.ACKS.magicMarketClassIdx(this.currentCampaign, s)] || '?'; },
+  magicMarketRarityOf(ni){ const A = window.ACKS; if(!ni || !this.currentCampaign) return ''; const bc = A.magicItemBaseCost(this.currentCampaign, ni); const r = (ni.intrinsic && ni.intrinsic.rarity) || (bc != null ? A.magicItemRarity(bc) : 'common'); return A.magicItemRarityLabel(r); },
+  magicMarketSellItems(){ return (this.magicMarket.actorId && this.currentCampaign) ? window.ACKS.sellableMagicItemsFor(this.currentCampaign, this.magicMarket.actorId) : []; },
+  magicMarketStockItems(){ return (this.magicMarket.settlementId && this.currentCampaign) ? window.ACKS.magicItemMarketListings(this.currentCampaign, this.magicMarket.settlementId) : []; },
+  magicMarketCatalog(){ return window.ACKS.magicItemCatalog ? window.ACKS.magicItemCatalog() : []; },
+  magicMarketForecast(){
+    const A = window.ACKS, camp = this.currentCampaign, m = this.magicMarket;
+    if(!camp || !A.magicItemPriceSpread) return null;
+    const set = this.magicMarketSettlementObj(); if(!set) return null;
+    let ref = null;
+    if(m.mode === 'buy'){ ref = (m.buySource === 'catalog') ? (m.buyCatalogKey || null) : (m.buyItemId ? this._magicMarketFindNotable(m.buyItemId) : null); }
+    else { ref = m.sellItemId ? this._magicMarketFindNotable(m.sellItemId) : null; }
+    if(!ref) return null;
+    const spread = A.magicItemPriceSpread(camp, ref);
+    if(!spread || !spread.available) return { available:false, reason: (spread && spread.reason) || 'no-base-cost' };
+    return { available:true, spread,
+      buyAv:  A.magicItemMarketAvailability(camp, ref, set, { direction:'buy'  }),
+      sellAv: A.magicItemMarketAvailability(camp, ref, set, { direction:'sell' }) };
+  },
+  magicMarketTransactNote(av){ if(!av) return ''; if(!av.transactable) return '· ✗ too rare for this market'; if(!av.available) return '· ✗ market full this month'; return '· ✓ ' + av.monthlyRemaining + ' left this month'; },
+  magicMarketCanSubmit(){
+    const f = this.magicMarketForecast(), m = this.magicMarket;
+    if(!f || !f.available || !m.actorId) return false;
+    if(m.mode === 'sell'){ if(!m.sellItemId) return false; return !!m.gmOverride || (f.sellAv.transactable && f.sellAv.available); }
+    if(m.mode === 'buy'){ const has = m.buySource === 'catalog' ? !!m.buyCatalogKey : !!m.buyItemId; if(!has) return false; const afford = this.magicMarketActorGp() >= f.spread.buy; return afford && (!!m.gmOverride || (f.buyAv.transactable && f.buyAv.available)); }
+    return !!m.sellItemId;
+  },
+  magicMarketErr(e){ const map = { 'market-too-small-for-rarity':'this market is too small to deal in an item this rare', 'monthly-ceiling':'the market has filled its quota for this rarity this month', 'not-transactable':'this market cannot deal in an item this rare', 'insufficient-funds':'the buyer cannot afford it', 'unknown-settlement':'pick a settlement', 'unknown-item':'pick an item', 'no-item':'pick an item', 'unknown-buyer':'pick a buyer', 'no-seller':'pick a seller', 'no-base-cost':'this item has no base cost to price', 'payment-failed':'the coin transfer failed' }; return map[e] || e; },
+  magicMarketSubmitAppraise(){ const m = this.magicMarket; const r = window.ACKS.appraiseMagicItemAtMarket(this.currentCampaign, { itemId: m.sellItemId, settlementId: m.settlementId, characterId: m.actorId || null }); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.result = { ok:true, msg: r.event.payload.narrative }; } else { m.result = { ok:false, msg: 'Cannot appraise: ' + this.magicMarketErr(r.error || '?') }; } },
+  magicMarketSubmitSell(){ const m = this.magicMarket; const r = window.ACKS.sellMagicItem(this.currentCampaign, { itemId: m.sellItemId, sellerCharacterId: m.actorId, settlementId: m.settlementId, gmOverride: !!m.gmOverride }); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.sellItemId = ''; m.result = { ok:true, msg: r.event.payload.narrative }; this.showToast && this.showToast('💰 Sold for ' + r.proceedsGp.toLocaleString() + ' gp.', 3000); } else { m.result = { ok:false, msg: 'Cannot sell: ' + this.magicMarketErr(r.error || '?') }; } },
+  magicMarketSubmitBuy(){ const m = this.magicMarket; const opts = { buyerCharacterId: m.actorId, settlementId: m.settlementId, gmOverride: !!m.gmOverride }; if(m.buySource === 'catalog') opts.catalogKey = m.buyCatalogKey; else opts.itemId = m.buyItemId; const r = window.ACKS.buyMagicItem(this.currentCampaign, opts); if(r.ok){ this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist(); m.buyItemId = ''; m.buyCatalogKey = ''; m.result = { ok:true, msg: r.event.payload.narrative }; this.showToast && this.showToast('🛒 Bought for ' + r.costGp.toLocaleString() + ' gp.', 3000); } else { m.result = { ok:false, msg: 'Cannot buy: ' + this.magicMarketErr(r.error || '?') }; } },
   // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===
   // === @b11-followers  (team) — Followers Wave B (loyalty/morale + families-arriving): state + methods ===
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
