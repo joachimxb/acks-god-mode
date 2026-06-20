@@ -499,5 +499,150 @@ ok('SG-3: migrate injects no sageRetainers collection (the retainer is a charact
 })());
 
 // =============================================================================
+// SG-5 — the treatise primitive (RR p.146: read 6 days → reference to re-roll at the WORSE rank)
+// SG-4 — the optional Knowledge-Layer emit (knowledge-tracking on → a successful consult deposits Lore)
+// =============================================================================
+function tcamp(chars, items){ return { schemaVersion:2, currentTurn:1, currentDayInMonth:1, characters:chars||[], notableItems:items||[], eventLog:[] }; }
+function treatiseItem(prof, ranks, over){ const it = ACKS.blankNotableItem(Object.assign({ id:'itm-tr', name:'A Treatise' }, over||{})); ACKS.markTreatise({ notableItems:[it] }, it, { proficiency:prof, ranks:ranks }); return it; }
+
+section('SG-5 — exports + treatise-read event registration');
+['TREATISE_TIERS','treatiseTier','treatiseTierLabel','isTreatise','treatiseInfo','treatisesInCampaign','treatiseComprehension','hasReadTreatise','markTreatise','readTreatise','treatiseReferenceResolve','treatiseReferenceForecast','referenceTreatise']
+  .forEach(k => ok('ACKS.' + k + ' exported', typeof ACKS[k] === (k === 'TREATISE_TIERS' ? 'object' : 'function')));
+ok('treatise-read is a known event kind', ACKS.isEventKindKnown('treatise-read'));
+ok('treatise-read opts out of the Event Wizard', ACKS.isWizardEmittable && !ACKS.isWizardEmittable('treatise-read'));
+ok('EVENT_SCHEMAS has a treatise-read schema (R: reader + item + phase)', (() => { const s = ACKS.EVENT_SCHEMAS['treatise-read']; return s && s.R && s.R.readerCharacterId === 'string' && s.R.itemId === 'string' && s.R.phase === 'string'; })());
+ok('treatise-read schema declares throw + activityCost optional objects', (() => { const s = ACKS.EVENT_SCHEMAS['treatise-read']; return s && s.O && s.O.throw === 'object' && s.O.activityCost === 'object'; })());
+
+section('SG-5 — the four RAW tiers (RR p.146 equipment table)');
+ok('TREATISE_TIERS has 4 tiers ranks 1–4', ACKS.TREATISE_TIERS.length === 4 && ACKS.TREATISE_TIERS.map(t=>t.ranks).join('') === '1234');
+ok('tier labels Apprentice/Journeyman/Master/Grandmaster', ACKS.TREATISE_TIERS.map(t=>t.label).join(',') === 'Apprentice,Journeyman,Master,Grandmaster');
+ok('tier gp 400/800/1200/1600 (RR p.146)', ACKS.TREATISE_TIERS.map(t=>t.gp).join(',') === '400,800,1200,1600');
+ok('treatiseTier(3) → Master', ACKS.treatiseTier(3).label === 'Master');
+ok('treatiseTierLabel(4) → Grandmaster', ACKS.treatiseTierLabel(4) === 'Grandmaster');
+ok('treatiseTier clamps (0→Apprentice, 9→Grandmaster)', ACKS.treatiseTier(0).label === 'Apprentice' && ACKS.treatiseTier(9).label === 'Grandmaster');
+
+section('SG-5 — markTreatise + isTreatise + treatiseInfo (the Notable-Item fields)');
+let titem = ACKS.blankNotableItem({ id:'itm-1', name:'On the Auran Dynasties' });
+let tc = tcamp([], [titem]);
+ok('a plain notable item → not a treatise, info null', !ACKS.isTreatise(titem) && ACKS.treatiseInfo(titem) === null);
+let mk = ACKS.markTreatise(tc, 'itm-1', { proficiency:'knowledge', ranks:3, spec:'history' });
+ok('markTreatise ok → kind book, isTreatise true', mk.ok === true && titem.kind === 'book' && ACKS.isTreatise(titem));
+ok('fields land on intrinsic{} (no factory/top-level field)', titem.intrinsic.treatiseProficiency === 'knowledge' && titem.intrinsic.treatiseRanks === 3 && titem.intrinsic.treatiseSpec === 'history' && Array.isArray(titem.intrinsic.readByCharacterIds));
+ok('treatiseInfo resolves proficiency/ranks/tier/spec/defaultTask', (() => { const i = ACKS.treatiseInfo(titem); return i.proficiency === 'knowledge' && i.ranks === 3 && i.tier === 'Master' && i.spec === 'history' && i.profLabel === 'Knowledge' && i.defaultTaskKey === 'knowledge:recall' && i.gp === 1200; })());
+ok('markTreatise clamps ranks 1–4', (() => { const it = ACKS.blankNotableItem({ id:'itm-x' }); ACKS.markTreatise({ notableItems:[it] }, it, { proficiency:'healing', ranks:9 }); return it.intrinsic.treatiseRanks === 4; })());
+ok('markTreatise does NOT clobber a real magic-item kind (only generic misc-magic→book)', (() => { const it = ACKS.blankNotableItem({ id:'itm-w', kind:'magic-weapon' }); ACKS.markTreatise({ notableItems:[it] }, it, { proficiency:'knowledge', ranks:1 }); return it.kind === 'magic-weapon'; })());
+ok('markTreatise: no proficiency → error', ACKS.markTreatise(tc, 'itm-1', {}).error === 'no-proficiency');
+ok('markTreatise: unknown item → error', ACKS.markTreatise(tc, 'nope', { proficiency:'knowledge', ranks:1 }).error === 'unknown-item');
+ok('treatisesInCampaign lists the treatise', ACKS.treatisesInCampaign(tc).length === 1 && ACKS.treatisesInCampaign(tc)[0] === titem);
+
+section('SG-5 — comprehension gate (RR p.146: a treatise ≤ ONE rank above your own)');
+const rdr2 = scholar({ id:'chr-r2', proficiencies:[{key:'knowledge',ranks:2}] });
+const rdr1 = scholar({ id:'chr-r1', proficiencies:[{key:'knowledge',ranks:1}] });
+const rdr0 = { id:'chr-r0', level:1, proficiencies:[] };
+ok('reader r2 / treatise r3 → ok (ceiling 3)', ACKS.treatiseComprehension(tc, rdr2, titem).ok === true);
+ok('reader r1 / treatise r3 → too-advanced (ceiling 2)', (() => { const c = ACKS.treatiseComprehension(tc, rdr1, titem); return c.ok === false && c.error === 'too-advanced' && c.ceiling === 2; })());
+ok('reader r0 / treatise r1 → ok (ceiling 1)', ACKS.treatiseComprehension(tcamp([], [treatiseItem('knowledge',1,{id:'itm-a1'})]), rdr0, treatiseItem('knowledge',1,{id:'itm-a1'})).ok === true);
+ok('reader r0 / treatise r2 → too-advanced', ACKS.treatiseComprehension(tc, rdr0, treatiseItem('knowledge',2,{id:'itm-a2'})).ok === false);
+
+section('SG-5 — readTreatise (the 6-day dedicated read)');
+let rc1 = tcamp([rdr2], [titem]);
+let rd1 = ACKS.readTreatise(rc1, { readerId:'chr-r2', itemId:'itm-1' });
+ok('read ok → reader recorded on the book', rd1.ok === true && ACKS.hasReadTreatise(titem, 'chr-r2') && titem.intrinsic.readByCharacterIds.indexOf('chr-r2') >= 0);
+ok('read emits treatise-read phase:read (narrates)', (() => { const ev = rc1.eventLog[0].event; return ev.kind === 'treatise-read' && ev.payload.phase === 'read' && ev.campaignLogHidden !== true && /6 days of study/.test(rc1.eventLog[0].result.narrativeSummary); })());
+ok('read activityCost = dedicated, 6 days (the #346 tag)', (() => { const ac = rc1.eventLog[0].event.payload.activityCost; return ac && ac.slot === 'dedicated' && ac.days === 6 && ac.kind === 'read-treatise'; })());
+ok('read §528 envelope (reader subject, treatise source as notable-item)', (() => { const re = rc1.eventLog[0].event.context.relatedEntities||[]; return re.some(e=>e.id==='chr-r2'&&e.kind==='character') && re.some(e=>e.id==='itm-1'&&e.kind==='notable-item'); })());
+ok('re-read → alreadyRead true (no duplicate reader id)', (() => { const r = ACKS.readTreatise(rc1, { readerId:'chr-r2', itemId:'itm-1' }); return r.alreadyRead === true && titem.intrinsic.readByCharacterIds.filter(x=>x==='chr-r2').length === 1; })());
+ok('read too-advanced → error, reader NOT recorded', (() => { const c = tcamp([rdr1], [treatiseItem('knowledge',3,{id:'itm-3'})]); const it = c.notableItems[0]; const r = ACKS.readTreatise(c, { readerId:'chr-r1', itemId:'itm-3' }); return r.ok === false && r.error === 'too-advanced' && !ACKS.hasReadTreatise(it, 'chr-r1'); })());
+ok('read a non-treatise item → not-a-treatise', ACKS.readTreatise(tcamp([rdr2], [ACKS.blankNotableItem({ id:'itm-plain' })]), { readerId:'chr-r2', itemId:'itm-plain' }).error === 'not-a-treatise');
+ok('read guards: no campaign / unknown reader / unknown item', ACKS.readTreatise(null, {}).ok === false && ACKS.readTreatise(rc1, { readerId:'nope', itemId:'itm-1' }).error === 'unknown-reader' && ACKS.readTreatise(rc1, { readerId:'chr-r2', itemId:'nope' }).error === 'unknown-item');
+
+section('SG-5 — referenceTreatise: the re-roll at min(reader, treatise) rank (RR p.146)');
+// reader rank 3, treatise rank 1 → eff rank 1 → knowledge:recall target 11 (the BOOK caps the rank down)
+let rdr3 = scholar({ id:'chr-r3', proficiencies:[{key:'knowledge',ranks:3}] });
+let lowBook = treatiseItem('knowledge', 1, { id:'itm-low', name:'A Primer' });
+let cLow = tcamp([rdr3], [lowBook]);
+ok('reference before read → ok:false not-read', ACKS.referenceTreatise(cLow, { readerId:'chr-r3', itemId:'itm-low', rng: rng(0.5) }).error === 'not-read');
+ACKS.readTreatise(cLow, { readerId:'chr-r3', itemId:'itm-low' });
+let fcLow = ACKS.treatiseReferenceForecast(cLow, rdr3, lowBook);
+ok('forecast: reader r3 + treatise r1 → eff rank 1 (worse), target 11 (NOT the reader’s 3)', fcLow.available === true && fcLow.effectiveRanks === 1 && fcLow.target === 11, 'eff=' + fcLow.effectiveRanks + ' target=' + fcLow.target);
+let refLow = ACKS.referenceTreatise(cLow, { readerId:'chr-r3', itemId:'itm-low', query:'who?', rng: rng(0.5) }); // nat 11 ≥ 11 → success
+ok('reference re-rolls at the worse rank (eff 1, target 11, nat-11 → success)', refLow.ok === true && refLow.effectiveRanks === 1 && refLow.target === 11 && refLow.success === true && refLow.throw.natural === 11);
+ok('reference emits treatise-read phase:reference, campaignLogHidden (table chatter)', (() => { const ev = cLow.eventLog.at(-1).event; return ev.kind === 'treatise-read' && ev.payload.phase === 'reference' && ev.campaignLogHidden === true; })());
+ok('reference payload carries the throw breakdown + ancillary activityCost', (() => { const p = cLow.eventLog.at(-1).event.payload; return p.throw && p.throw.total === 11 && p.throw.target === 11 && p.throw.success === true && p.activityCost.slot === 'ancillary' && p.activityCost.kind === 'reference-treatise'; })());
+// reader rank 2, treatise rank 3 → eff rank 2 → target 7 (the READER caps the rank down)
+let cHi = tcamp([rdr2], [treatiseItem('knowledge', 3, { id:'itm-hi' })]);
+ACKS.readTreatise(cHi, { readerId:'chr-r2', itemId:'itm-hi' });
+ok('reader r2 + treatise r3 → eff rank 2, target 7 (reader caps it)', (() => { const f = ACKS.treatiseReferenceForecast(cHi, rdr2, cHi.notableItems[0]); return f.effectiveRanks === 2 && f.target === 7; })());
+// secret flag
+let refSec = ACKS.referenceTreatise(cHi, { readerId:'chr-r2', itemId:'itm-hi', secret:true, rng: rng(0.5) });
+ok('secret reference → throw.secret true', refSec.throw.secret === true && cHi.eventLog.at(-1).event.payload.throw.secret === true);
+// a rank-0 effective re-roll is unavailable (read a rank-1 book at rank 0 → can train, but no re-roll)
+let cZero = tcamp([{ id:'chr-z', level:1, proficiencies:[] }], [treatiseItem('knowledge', 1, { id:'itm-z' })]);
+ACKS.readTreatise(cZero, { readerId:'chr-z', itemId:'itm-z' });
+ok('eff rank 0 (rank-0 reader, rank-1 book) → reference rank-too-low (can read+train, not re-roll)', ACKS.referenceTreatise(cZero, { readerId:'chr-z', itemId:'itm-z', rng: rng(0.5) }).error === 'rank-too-low');
+// a Loremastery treatise (level-scaled target, not tier) — eff rank 1 → proficient, L6 target 13 (18 −1/level)
+let lmReader = { id:'chr-lm', name:'Magus', level:6, proficiencies:[{key:'loremastery',ranks:1}] };
+let lmBook = treatiseItem('loremastery', 2, { id:'itm-lm' });
+let cLm = tcamp([lmReader], [lmBook]);
+ACKS.readTreatise(cLm, { readerId:'chr-lm', itemId:'itm-lm' });
+ok('Loremastery treatise → loremastery:decipher, eff rank 1, L6 target 13', (() => { const f = ACKS.treatiseReferenceForecast(cLm, lmReader, lmBook); return f.taskKey === 'loremastery:decipher' && f.effectiveRanks === 1 && f.target === 13; })());
+// explicit taskKey override
+ok('opts.taskKey override is honored', ACKS.referenceTreatise(cHi, { readerId:'chr-r2', itemId:'itm-hi', taskKey:'knowledge:recall', assumeRead:true, rng: rng(0.5) }).taskKey === 'knowledge:recall');
+// reference §528 envelope surfaces in characterHistory(reader)
+ok('reference event surfaces in characterHistory(reader)', (() => { if(typeof ACKS.characterHistory !== 'function') return true; return ACKS.characterHistory(cLow, 'chr-r3').some(e => (e.event||e).kind === 'treatise-read'); })());
+ok('treatise event surfaces in notableItemHistory(item)', (() => { if(typeof ACKS.notableItemHistory !== 'function') return true; return ACKS.notableItemHistory(cLow, 'itm-low').some(e => (e.event||e).kind === 'treatise-read'); })());
+
+// =============================================================================
+section('SG-4 — Knowledge-Layer emit (gated on knowledge-tracking; READ-ONLY consume of knowledge.js)');
+// =============================================================================
+const knowledgeShipped = typeof ACKS.recordLore === 'function' && typeof ACKS.learnLore === 'function';
+ok('knowledge.js API present (recordLore + learnLore)', knowledgeShipped);
+if(knowledgeShipped){
+  // OFF by default (knowledge-tracking unregistered → isHouseRuleEnabled false): a successful consult
+  // works FULLY (the answer) but deposits NO Lore.
+  let off = tcamp([specialist(), client()]);
+  let or = ACKS.consultSage(off, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', answerText:'The Tarkauns ruled.', feeGp:0, rng: rng(0.1) });
+  ok('Knowledge OFF: consult succeeds (the sage works fully)', or.ok === true && or.success === true);
+  ok('Knowledge OFF: payload.loreId null, no lore[]/knowledge[], only the sage-consultation event', off.eventLog[0].event.payload.loreId === null && !(off.lore && off.lore.length) && !(off.knowledge && off.knowledge.length) && off.eventLog.length === 1);
+  // ON (campaign.houseRules['knowledge-tracking'] = true): a successful consult deposits Lore + a Knowledge link.
+  let on = tcamp([specialist(), client()]); on.houseRules = { 'knowledge-tracking': true };
+  let onr = ACKS.consultSage(on, { sageId:'chr-sage', clientId:'chr-cli', subject:'ancient history', answerText:'The Tarkauns ruled.', feeGp:0, rng: rng(0.95) }); // nat-20 in-spec → crit success
+  const consultEv = on.eventLog.find(e => e.event.kind === 'sage-consultation').event;
+  ok('Knowledge ON: a Lore fact is deposited (text = the answer, by the sage)', (on.lore||[]).length === 1 && on.lore[0].text === 'The Tarkauns ruled.' && on.lore[0].createdByCharacterId === 'chr-sage' && on.lore[0].loreKind === 'fact');
+  ok('Knowledge ON: payload.loreId links the deposited fact', consultEv.payload.loreId === on.lore[0].id);
+  ok('Knowledge ON: the client gains a Knowledge record (source sage)', (() => { const k = (on.knowledge||[])[0]; return k && k.knowerId === 'chr-cli' && k.loreId === on.lore[0].id && k.source && k.source.kind === 'sage' && k.source.byId === 'chr-sage'; })());
+  ok('Knowledge ON: a wide success → high certainty (nat-20 crit → certain)', (on.knowledge||[])[0].certainty === 'certain');
+  ok('Knowledge ON: a lore-learned event is logged + campaignLogHidden', (() => { const le = on.eventLog.find(e => e.event.kind === 'lore-learned'); return !!le && le.event.campaignLogHidden === true; })());
+  // an 18+ squeak → a lower certainty band (suspected)
+  let on2 = tcamp([specialist(), client()]); on2.houseRules = { 'knowledge-tracking': true };
+  ACKS.consultSage(on2, { sageId:'chr-sage', clientId:'chr-cli', subject:'dragon anatomy', answerText:'They breathe fire.', feeGp:0, rng: rng(0.85) }); // out-spec 18+, nat-18 → margin 0 → suspected
+  ok('Knowledge ON: an 18+ squeak → suspected (certainty from the throw margin)', (on2.knowledge||[])[0] && on2.knowledge[0].certainty === 'suspected');
+  // a FAILED consult → no Lore (success-gated)
+  let onF = tcamp([specialist(), client()]); onF.houseRules = { 'knowledge-tracking': true };
+  ACKS.consultSage(onF, { sageId:'chr-sage', clientId:'chr-cli', subject:'dragon anatomy', answerText:'x', feeGp:0, rng: rng(0.5) }); // out-spec 18, nat-11 → fail
+  ok('Knowledge ON + failed consult → no Lore (the sage knew nothing)', !(onF.lore && onF.lore.length));
+  // ON but NO content (no answerText/subject/query) → nothing to record
+  let onE = tcamp([scholar()]); onE.houseRules = { 'knowledge-tracking': true };
+  ACKS.consultSage(onE, { sageId:'chr-sch', feeGp:0, rng: rng(0.5) }); // success but no answer/subject/query
+  ok('Knowledge ON + no content → no Lore (nothing to record)', !(onE.lore && onE.lore.length) && onE.eventLog.find(e=>e.event.kind==='sage-consultation').event.payload.loreId === null);
+  // opts.emitLore forces the gate either way
+  let fOff = tcamp([scholar()]);
+  ACKS.consultSage(fOff, { sageId:'chr-sch', subject:'lore', answerText:'A fact.', feeGp:0, emitLore:true, rng: rng(0.5) }); // rule OFF, emitLore:true → records
+  ok('opts.emitLore:true forces the emit even with the rule off', (fOff.lore||[]).length === 1);
+  let fOn = tcamp([scholar()]); fOn.houseRules = { 'knowledge-tracking': true };
+  ACKS.consultSage(fOn, { sageId:'chr-sch', subject:'lore', answerText:'A fact.', feeGp:0, emitLore:false, rng: rng(0.5) }); // rule ON, emitLore:false → suppressed
+  ok('opts.emitLore:false suppresses the emit even with the rule on', !(fOn.lore && fOn.lore.length));
+} else {
+  ok('SG-4 skipped (knowledge.js not loaded headless)', true);
+}
+
+// =============================================================================
+section('SG-5 — team-session invariants (no new collection/prefix/entity; migrate-no-op)');
+// =============================================================================
+ok('a treatise is a Notable Item — markTreatise adds NO campaign collection', (() => { const c = tcamp([], [ACKS.blankNotableItem({ id:'itm-q' })]); ACKS.markTreatise(c, 'itm-q', { proficiency:'knowledge', ranks:1 }); return Object.keys(c).filter(k => Array.isArray(c[k])).sort().join(',') === 'characters,eventLog,notableItems'; })());
+ok('blankNotableItem carries no treatise fields (the factory is untouched — defensive read)', (() => { const it = ACKS.blankNotableItem({}); return !('treatiseProficiency' in (it.intrinsic||{})) && !('treatiseRanks' in (it.intrinsic||{})); })());
+ok('SG-5 adds NO new id prefix', !(ACKS.ID_PREFIXES && ACKS.ID_PREFIXES.treatise));
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — sages.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if(fail){ console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }
