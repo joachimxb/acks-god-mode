@@ -468,6 +468,15 @@
       find: (c, id) => ((c && c.bankAccounts) || []).find(x => x && x.id === id),
       displayName: (c, obj) => obj ? ((obj.owner && obj.owner.id ? obj.owner.id : 'account') + ' · ' + (obj.balanceGp || 0) + 'gp') : '' },
 
+    // === Banking B4/B5 (team burst9 2026-06-20) — the letter of credit (loc-, campaign.lettersOfCredit[]):
+    // the inter-market draw primitive (RR p.42). displayName reads only blankLetterOfCredit keys (the
+    // registry⊆factory invariant — a LoC has no `name`; describe it by face value + status). ──
+    { kind: 'letterOfCredit', label: 'Letter of Credit', pluralLabel: 'Letters of Credit', icon: '📜',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.lettersOfCredit) || [],
+      find: (c, id) => ((c && c.lettersOfCredit) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => obj ? ((obj.faceValueGp || 0) + 'gp letter · ' + (obj.status || 'outstanding')) : '' },
+
     // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore: a first-class fact (campaign.lore[]).
     // rumors subsume in Wave B. The per-knower Knowledge relation (knw-) is accessor-only — NOT a
     // registry kind (a join record surfaced via loreKnownBy / the Knowledge tab, not browsed). ===

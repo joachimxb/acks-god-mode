@@ -373,6 +373,14 @@ const EVENT_KINDS = Object.freeze([
   // Record-only: reconcileFeudalLoans (acks-engine-banking.js) materializes a kind:'feudal' Loan from a
   // GIVEN F&D loan obligation (it moves no gp — the principal already moved in giveLoanObligation). ===
   'loan-reconciled',   // a shipped F&D feudal loan promoted onto the shared Loan relation (fdObligationId link)
+  // === Banking B4/B5 (team burst9 2026-06-20) — the loan-lifecycle close-out events (B2 left
+  // markLoanDefaulted/writeOffLoan history-only) + letters of credit (loc-, the inter-market draw
+  // primitive). Record-only audits — the verbs in acks-engine-banking.js already moved the gp through
+  // the GP Wave B grammar (a LoC issue/redeem rides the 'external' banking-network handle). ===
+  'loan-defaulted',          // a commercial loan called in default (stops accruing; RR p.42 bounty-hunter note)
+  'loan-written-off',        // the creditor forgives a loan's remaining balance
+  'letter-of-credit-issued', // a letter of credit drawn against a bank account (face + fee → the banking network)
+  'letter-of-credit-redeemed', // a letter of credit drawn at its destination market (network → the bearer)
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
   // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
@@ -1210,6 +1218,24 @@ const EVENT_SCHEMAS = Object.freeze({
   'loan-reconciled': {
     R: { loanId: 'string', fdObligationId: 'string' },
     O: { kind: 'string', principalGp: 'number', creditor: 'object', debtor: 'object', narrative: 'string' }
+  },
+  // === Banking B4/B5 (team burst9 2026-06-20) — loan close-out + letters of credit (record-only;
+  // the verbs in acks-engine-banking.js already moved the gp through the grammar). ===
+  'loan-defaulted': {
+    R: { loanId: 'string' },
+    O: { balanceGp: 'number', debtOverXp: 'boolean', bountyTriggered: 'boolean', narrative: 'string' }
+  },
+  'loan-written-off': {
+    R: { loanId: 'string' },
+    O: { forgivenGp: 'number', reason: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-issued': {
+    R: { letterId: 'string' },
+    O: { accountId: 'string', faceValueGp: 'number', issueFeeGp: 'number', issuingMarketSettlementId: 'string', drawingMarketSettlementId: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-redeemed': {
+    R: { letterId: 'string' },
+    O: { faceValueGp: 'number', atMarketSettlementId: 'string', bearer: 'object', narrative: 'string' }
   },
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
   // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
@@ -3003,6 +3029,11 @@ registerEventHandler('bank-deposit', applyEvent_bankingAudit);
 registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
 // === Banking B2 (team burst8 2026-06-19) === — the feudal-loan reconcile reuses the same record-only audit.
 registerEventHandler('loan-reconciled', applyEvent_bankingAudit);
+// === Banking B4/B5 (team burst9 2026-06-20) === — loan close-out + letters of credit reuse the same record-only audit.
+registerEventHandler('loan-defaulted', applyEvent_bankingAudit);
+registerEventHandler('loan-written-off', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-issued', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-redeemed', applyEvent_bankingAudit);
 // === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
 // shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
 // keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
@@ -6143,6 +6174,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Banking B2 (team burst8 2026-06-19) === — owned by acks-engine-banking.js (reconcileFeudalLoans);
   // a raw emit would record a feudal-loan link the campaign.loans[] entry doesn't actually carry.
   'loan-reconciled',
+  // === Banking B4/B5 (team burst9 2026-06-20) === — owned by acks-engine-banking.js (markLoanDefaulted /
+  // writeOffLoan + issue/redeemLetterOfCredit); a raw emit would record a default/write-off or a letter
+  // of credit the campaign.loans[] / lettersOfCredit[] + the gp don't show.
+  'loan-defaulted', 'loan-written-off', 'letter-of-credit-issued', 'letter-of-credit-redeemed',
   // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.

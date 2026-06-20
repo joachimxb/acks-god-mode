@@ -147,6 +147,7 @@ function blankCampaign(opts={}){
     // Lazy-defaulted on load too; the F&D feudal-loan reconcile onto the shared Loan is B2.
     loans: opts.loans || [],
     bankAccounts: opts.bankAccounts || [],
+    lettersOfCredit: opts.lettersOfCredit || [],   // === Banking B4/B5 (team burst9) — the inter-market draw primitive (loc-); read defensively, NOT lazy-migrated (the B1 banking precedent → templates stay no-ops)
     // === Knowledge Layer Wave A (team burst7 2026-06-19) === — the Lore data layer. `lore` = first-class
     // facts (a fact possibly partial/stale/false; rumors subsume in Wave B); `knowledge` = the per-knower
     // relation (character ↔ lore, confidence + provenance — the believed-vs-true link). Read DEFENSIVELY

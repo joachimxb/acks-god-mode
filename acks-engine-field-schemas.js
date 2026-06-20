@@ -1260,6 +1260,34 @@
         { name: 'history',                     type: 'history', readonly: true, group: 'Lifecycle' }
       ]
     },
+
+    // === Banking B4/B5 (team burst9 2026-06-20) — the letter of credit (loc-): the inter-market draw
+    // primitive. Fields ⊆ blankLetterOfCredit keys (the schema⊆factory invariant). ===
+    'letterOfCredit': {
+      factory: 'blankLetterOfCredit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Parties', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'sourceAccountId', type: 'id', idKind: 'bankAccount', group: 'Identity', description: 'The bank account the letter is drawn against' },
+        { name: 'issuer', type: 'object', group: 'Parties', description: 'Who drew it (the account owner)', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'bearer', type: 'object', group: 'Parties', description: 'Who may redeem it (default = the issuer)', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'faceValueGp',               type: 'gp', group: 'Terms', description: 'The amount drawable at the destination market' },
+        { name: 'issueFeeGp',                type: 'gp', group: 'Terms', description: 'The one-time issue fee (a reasoned tooling number, not a RAW fee)' },
+        { name: 'issuingMarketSettlementId', type: 'id', idKind: 'settlement', group: 'Terms', description: 'Where it was drawn (the account’s market)' },
+        { name: 'drawingMarketSettlementId', type: 'id', idKind: 'settlement', group: 'Terms', description: 'Where it is redeemable (a different market; RR p.42 capital pool gates the draw)' },
+        { name: 'status',                    type: 'enum', enumValues: ['outstanding','redeemed','cancelled'], group: 'Lifecycle' },
+        { name: 'issuedAtTurn',              type: 'number', group: 'Lifecycle' },
+        { name: 'settledAtTurn',             type: 'number', group: 'Lifecycle', description: 'Set when redeemed/cancelled — null while outstanding' },
+        { name: 'history',                   type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
     // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact. The per-knower Knowledge
     // relation (knw-) is accessor-only (surfaced via the Knowledge tab + loreKnownBy), NOT Inspector-
     // edited, so no schema for it. subjectIds + qualityDimensions are mixed-kind / freeform arrays —

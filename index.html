@@ -15527,6 +15527,8 @@ document.addEventListener('alpine:init', () => {
         </select>
       </label>
       <label class="flex flex-col">Initial deposit (gp)<input type="number" min="0" x-model="bankAcctInitial" class="w-28" placeholder="0"></label>
+      <label class="flex flex-col" title="Off by default — no RAW deposit interest. Set > 0 to credit a monthly return (a tooling option).">Interest (%/mo)<input type="number" min="0" step="0.1" x-model="bankAcctInterest" class="w-24" placeholder="0"></label>
+      <label class="flex items-center gap-1 self-center" title="RR p.313 — take a one-time 10% custody fee on the initial deposit"><input type="checkbox" x-model="bankAcctConsign"> Consignment (10% fee)</label>
       <button @click="bankingOpenAccount()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Open account</button>
     </div>
     <template x-if="bankingAccounts().length === 0">
@@ -15542,9 +15544,43 @@ document.addEventListener('alpine:init', () => {
               <td x-text="(acc.custodian && (acc.custodian.label || acc.custodian.kind)) || '—'"></td>
               <td class="text-right" x-text="(acc.balanceGp||0).toLocaleString() + ' gp'"></td>
               <td x-text="acc.status"></td>
-              <td>
-                <button x-show="acc.status === 'open'" @click="bankingDeposit(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
-                <button x-show="acc.status === 'open'" @click="bankingWithdraw(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+              <td class="whitespace-nowrap">
+                <button x-show="acc.status === 'open'" @click="bankOpenModal('deposit', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
+                <button x-show="acc.status === 'open'" @click="bankOpenModal('withdraw', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+                <button x-show="acc.status === 'open' && (acc.balanceGp||0) > 0" @click="bankOpenModal('issue-loc', acc.id)" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-xs" title="Draw a letter of credit against this account, redeemable at another market (RR p.42)">📜 Issue letter</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Letters of credit (team burst9 — B5; RR p.42, the merchant bill of exchange) -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-1">📜 Letters of Credit <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLetters().length"></span></h3>
+    <p class="text-sm opacity-70 mb-2">Draw a note against a bank account (the <strong>📜 Issue letter</strong> button on an account above), drawable at a <em>different</em> market — the gold never travels (RR p.42). Redeeming pays the bearer at the destination market, capped by that market's monthly capital pool. A reasoned tooling extension.</p>
+    <p class="text-sm opacity-70 mb-2" x-show="bankingLetters().length > 0" x-text="bankLettersLedgerText()"></p>
+    <template x-if="bankingLetters().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No letters of credit. Issue one from a bank account above.</p>
+    </template>
+    <template x-if="bankingLetters().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th class="text-right">Face</th><th>Bearer</th><th>From → To</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="loc in bankingLetters()" :key="loc.id">
+            <tr>
+              <td class="text-right font-semibold" x-text="(loc.faceValueGp||0).toLocaleString() + ' gp'"></td>
+              <td x-text="bankingPartyName(loc.bearer)"></td>
+              <td class="text-xs" x-text="(bankingMarketName(loc.issuingMarketSettlementId) || '—') + ' → ' + (bankingMarketName(loc.drawingMarketSettlementId) || '—')"></td>
+              <td x-text="bankingLetterStatus(loc)"></td>
+              <td class="whitespace-nowrap">
+                <template x-if="loc.status === 'outstanding'">
+                  <span class="inline-flex gap-1">
+                    <button @click="bankRedeemLetter(loc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs" title="Pay the bearer the face value at the destination market (RR p.42 capital pool)">Redeem</button>
+                    <button @click="bankCancelLetter(loc.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 text-xs" title="Refund the face value to the source account (the issue fee is forfeit)">Cancel</button>
+                  </span>
+                </template>
               </td>
             </tr>
           </template>
@@ -16507,6 +16543,38 @@ document.addEventListener('alpine:init', () => {
      div right AFTER your OWN marker below (before the page script block). Disjoint anchors → clean merge. ─── -->
 <!-- === @b9-politics   (team) — senate-wizard modal === -->
 <!-- === @b9-banking    (team) — deposit / letter-of-credit modal === -->
+<div x-show="bankModal.open" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="bankModalClose()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-5 space-y-3" @click.outside="bankModalClose()">
+    <div class="flex items-center justify-between">
+      <h3 class="font-bold text-lg" x-text="bankModalTitle()"></h3>
+      <button @click="bankModalClose()" class="text-2xl leading-none opacity-60 hover:opacity-100">&times;</button>
+    </div>
+    <p class="text-sm opacity-70" x-show="bankModalAccount()" x-text="'Account: ' + bankingPartyName(bankModalAccount() && bankModalAccount().owner) + ' · balance ' + ((bankModalAccount() && bankModalAccount().balanceGp) || 0).toLocaleString() + 'gp'"></p>
+    <label class="flex flex-col text-sm" :title="bankModal.mode === 'issue-loc' ? 'The amount drawable at the destination market' : ''">
+      <span x-text="bankModal.mode === 'issue-loc' ? 'Face value (gp)' : 'Amount (gp)'"></span>
+      <input type="number" min="1" x-model="bankModal.amount" class="w-full" placeholder="1000" @keydown.enter="bankModalCanSubmit() && bankModalSubmit()">
+    </label>
+    <label class="flex items-center gap-2 text-sm" x-show="bankModal.mode === 'deposit'">
+      <input type="checkbox" x-model="bankModal.consignment"> Consignment — take the 10% custody fee (RR p.313)
+    </label>
+    <template x-if="bankModal.mode === 'issue-loc'">
+      <div class="space-y-2">
+        <label class="flex flex-col text-sm">Drawable at (destination market)
+          <select x-model="bankModal.drawingMarketId" class="w-full">
+            <option value="">— pick a market —</option>
+            <template x-for="s in bankingSettlements()" :key="'loc-mkt-'+s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col text-sm">Issue fee (%) <input type="number" min="0" step="0.5" x-model="bankModal.feePct" class="w-24"></label>
+        <p class="text-xs opacity-60">The gold stays put — issuing debits this account (face + fee) into the banking network; redeeming pays the bearer at the destination market, capped by that market's monthly capital pool (RR p.42). A reasoned tooling extension (the merchant bill of exchange).</p>
+      </div>
+    </template>
+    <div class="flex justify-end gap-2 pt-1">
+      <button @click="bankModalClose()" class="px-3 py-1 border border-ink rounded bg-stone-100 hover:bg-stone-200 text-sm">Cancel</button>
+      <button @click="bankModalSubmit()" :disabled="!bankModalCanSubmit()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed" x-text="bankModalTitle()"></button>
+    </div>
+  </div>
+</div>
 <!-- === @b9-sages      (team) — sage retainer / commission modal === -->
 <!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
 <!-- === @b9-lifecycle  (team) — character transformation modal === -->
@@ -17064,28 +17132,18 @@ return {
     const opts = { owner:{ kind:'character', id: this.bankAcctOwnerId } };
     if(this.bankAcctMarketId){ opts.marketSettlementId = this.bankAcctMarketId; opts.custodian = { kind:'bank', label:'Bank', marketSettlementId: this.bankAcctMarketId }; }
     const init = Math.round(Number(this.bankAcctInitial) || 0); if(init > 0) opts.initialDepositGp = init;
+    const intr = Number(this.bankAcctInterest) || 0; if(intr > 0) opts.depositInterestRateMonthly = intr / 100;
+    if(this.bankAcctConsign){ opts.custodyFeePctAtConsignment = 0.10; opts.consignment = true; }   // RR p.313 — 10% custody fee on the initial deposit
     const r = window.ACKS.openBankAccount(this.currentCampaign, opts);
     if(!r.ok){ this.showToast('Could not open account: ' + r.reason, 4000); return; }
-    this.bankAcctInitial = '';
+    this.bankAcctInitial = ''; this.bankAcctInterest = ''; this.bankAcctConsign = false;
     this.markDirty(); this.schedulePersist();
     this.showToast('Bank account opened.');
   },
-  bankingDeposit(accId){
-    const raw = window.prompt('Deposit how much gp?'); if(raw === null) return;
-    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
-    const r = window.ACKS.depositToBankAccount(this.currentCampaign, accId, n, {});
-    if(!r.ok){ this.showToast('Deposit failed: ' + r.reason, 4000); return; }
-    this.markDirty(); this.schedulePersist();
-    this.showToast('Deposited ' + n.toLocaleString() + 'gp.');
-  },
-  bankingWithdraw(accId){
-    const raw = window.prompt('Withdraw how much gp?'); if(raw === null) return;
-    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
-    const r = window.ACKS.withdrawFromBankAccount(this.currentCampaign, accId, n, {});
-    if(!r.ok){ this.showToast('Withdrawal failed: ' + r.reason, 4000); return; }
-    this.markDirty(); this.schedulePersist();
-    this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
-  },
+  // B5 (team burst9) — deposit/withdraw now open the unified bank modal (was prompt()-based in B1);
+  // any deep-link caller gets the modal too.
+  bankingDeposit(accId){ this.bankOpenModal('deposit', accId); },
+  bankingWithdraw(accId){ this.bankOpenModal('withdraw', accId); },
   magicItemAddKey: '', magicItemAddMakerId: '', magicItemDetailId: null,
   magicItemIdCharId: '', magicItemIdMethod: 'equip', magicItemResult: null, magicItemCatalogOpen: false,
   magicItemList(){ return (this.currentCampaign && this.currentCampaign.notableItems) || []; },
@@ -17842,6 +17900,67 @@ return {
   //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
   // === @b9-politics   (team) — Politics P-5 Senate Wizard: state + methods ===
   // === @b9-banking    (team) — Banking B4/B5 deposits + letters of credit: state + methods ===
+  // Open-account extras (deposit interest + the RR p.313 consignment custody fee), a unified Bank
+  // modal (deposit / withdraw / issue-letter) replacing the B1 prompt() flows, and the letters-of-
+  // credit panel (issue against an account, redeem at a different market, cancel). B1 shipped the
+  // BankAccount (bnk-) + deposit/withdraw setters; B5 adds the inter-market letter of credit (loc-).
+  bankAcctInterest: '',          // optional monthly deposit-interest % on a new account (0 = none — no RAW deposit interest)
+  bankAcctConsign: false,        // open with the RR p.313 10% consignment custody fee on the initial deposit
+  bankModal: { open:false, mode:'deposit', accountId:'', amount:'', consignment:false, drawingMarketId:'', feePct:1 },
+  bankModalAccount(){ return this.bankingAccounts().find(a => a && a.id === this.bankModal.accountId) || null; },
+  bankModalTitle(){ return ({ 'deposit':'💰 Deposit', 'withdraw':'💸 Withdraw', 'issue-loc':'📜 Issue letter of credit' })[this.bankModal.mode] || 'Bank'; },
+  bankOpenModal(mode, accountId){
+    const acc = this.bankingAccounts().find(a => a && a.id === accountId) || null;
+    let drawDefault = '';
+    if(mode === 'issue-loc'){ const others = this.bankingSettlements().filter(s => s && s.id !== (acc && acc.marketSettlementId)); if(others.length) drawDefault = others[0].id; }
+    this.bankModal = { open:true, mode, accountId, amount:'', consignment:false, drawingMarketId: drawDefault, feePct: 1 };
+  },
+  bankModalClose(){ this.bankModal.open = false; },
+  bankModalCanSubmit(){
+    const m = this.bankModal; const amt = Math.round(Number(m.amount) || 0);
+    if(amt <= 0) return false;
+    if(m.mode === 'issue-loc' && !m.drawingMarketId) return false;
+    return true;
+  },
+  bankModalSubmit(){
+    const m = this.bankModal; const amt = Math.round(Number(m.amount) || 0);
+    if(amt <= 0){ this.showToast('Enter an amount.'); return; }
+    const A = window.ACKS; let r;
+    if(m.mode === 'deposit'){ r = A.depositToBankAccount(this.currentCampaign, m.accountId, amt, { consignment: !!m.consignment }); }
+    else if(m.mode === 'withdraw'){ r = A.withdrawFromBankAccount(this.currentCampaign, m.accountId, amt, {}); }
+    else if(m.mode === 'issue-loc'){
+      if(!m.drawingMarketId){ this.showToast('Pick a destination market.'); return; }
+      r = A.issueLetterOfCredit(this.currentCampaign, { accountId: m.accountId, faceValueGp: amt, drawingMarketSettlementId: m.drawingMarketId, feePct: (Number(m.feePct) || 0) / 100 });
+    }
+    if(!r || !r.ok){ this.showToast(this.bankModalTitle() + ' failed: ' + ((r && r.reason) || '?') + ((r && r.balanceGp != null) ? (' (balance ' + r.balanceGp.toLocaleString() + 'gp)') : ((r && r.needed != null) ? (' (need ' + r.needed.toLocaleString() + 'gp)') : '')), 4500); return; }
+    this.markDirty(); this.schedulePersist(); this.bankModalClose();
+    if(m.mode === 'deposit') this.showToast('Deposited ' + amt.toLocaleString() + 'gp' + (r.custodyFeeGp ? (' (−' + r.custodyFeeGp.toLocaleString() + 'gp custody fee)') : '') + '.');
+    else if(m.mode === 'withdraw') this.showToast('Withdrew ' + amt.toLocaleString() + 'gp.');
+    else this.showToast('📜 Letter of credit issued: ' + amt.toLocaleString() + 'gp.');
+  },
+  // Letters of credit (B5)
+  bankingLetters(){ return (this.currentCampaign && this.currentCampaign.lettersOfCredit) || []; },
+  bankingLetterStatus(loc){ return window.ACKS.letterStatusLabel(loc); },
+  bankLettersLedgerText(){ const L = window.ACKS.letterLedgerFor(this.currentCampaign, {}); const parts = [L.outstandingCount + ' outstanding']; if(L.totalOutstandingGp > 0) parts.push(L.totalOutstandingGp.toLocaleString() + 'gp in transit'); if(L.redeemedCount > 0) parts.push(L.redeemedCount + ' redeemed'); return parts.join(' · '); },
+  bankRedeemLetter(letterId){
+    const loc = this.bankingLetters().find(l => l && l.id === letterId); if(!loc) return;
+    const A = window.ACKS;
+    let r = A.redeemLetterOfCredit(this.currentCampaign, letterId, {});
+    if(!r.ok && r.reason === 'over-capital-pool'){
+      if(!window.confirm('The destination market can only honor ' + (r.remaining || 0).toLocaleString() + 'gp this month (its capital pool, RR p.42), but this letter is for ' + (loc.faceValueGp || 0).toLocaleString() + 'gp. Honor it anyway (the GM overrides the pool)?')) return;
+      r = A.redeemLetterOfCredit(this.currentCampaign, letterId, { force: true });
+    }
+    if(!r.ok){ this.showToast('Redeem failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('📜 Letter redeemed: ' + (r.paid || 0).toLocaleString() + 'gp drawn at ' + (this.bankingMarketName(loc.drawingMarketSettlementId) || 'the market') + '.');
+  },
+  bankCancelLetter(letterId){
+    if(!window.confirm('Cancel this letter? The face value is refunded to the source account; the issue fee is forfeit.')) return;
+    const r = window.ACKS.cancelLetterOfCredit(this.currentCampaign, letterId, {});
+    if(!r.ok){ this.showToast('Cancel failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Letter cancelled — face value refunded.');
+  },
   // === @b9-sages      (team) — Sages SG-3 periodic-fee commissions: state + methods ===
   // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===
   // === @b9-lifecycle  (team) — Lifecycle CL-5 transformation: state + methods ===
@@ -28286,6 +28405,7 @@ return {
       'apprenticeships',
       // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
       'loans', 'bankAccounts',
+      'lettersOfCredit',   // === Banking B4/B5 (team burst9 2026-06-20) — the letter-of-credit relation (loc-)
       // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
       'lore', 'knowledge',
       // === Sages SG-2 (team burst8 2026-06-19) — the multi-week SageCommission research-commission (§8.9 importer mandate)
@@ -28386,7 +28506,8 @@ return {
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
       units:'unit', armies:'army',
       researchProjects:'research project', apprenticeships:'apprenticeship',
-      loans:'loan', bankAccounts:'bank account'
+      loans:'loan', bankAccounts:'bank account',
+      lettersOfCredit:'letter of credit'   // === Banking B4/B5 (team burst9 2026-06-20)
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){
