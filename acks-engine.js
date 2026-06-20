@@ -8105,7 +8105,13 @@ function processPassiveInvestmentsForTurn(campaign){
     if(destDomainId){
       const destDomain = (campaign.domains||[]).find(d => d.id === destDomainId);
       if(destDomain){
-        destDomain.treasury.gp = (destDomain.treasury.gp||0) + gp;
+        // Route through the canonical treasury setter (NOT a raw scalar write): it
+        // deposits to the domain's treasury stash and keeps domain.treasury.gp in
+        // lockstep, so the load-time reconcileTreasuryScalars pass no longer clobbers
+        // the payout. A scalar-only write left the stash sum un-incremented, so on the
+        // next load reconcile rewrote the scalar back down — the payout silently
+        // vanished on reload (Stash C.2 / GP Wave B canonical-setter doctrine).
+        _applyDomainTreasuryDelta(campaign, destDomain, gp, { reason:'passive-investment', label:(inv.name || inv.ownerName || 'passive investment') });
         destLabel = destDomain.name + ' treasury';
       }
     }
