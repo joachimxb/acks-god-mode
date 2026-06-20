@@ -429,7 +429,13 @@ const EVENT_KINDS = Object.freeze([
   // behind the default-OFF gladiator-games rule. Carry the Event.context envelope (settlement/school/combatants).
   'bout-resolved',          // an abstract bout is resolved → winner/casualties/XP/crowd reaction (RAW p.25/27/28)
   'gladiator-game-held',    // a Game/Munus is staged → all its scheduled bouts resolved (RAW p.22)
-  'gladiator-recruited'     // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
+  'gladiator-recruited',    // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // slot-62 day-tick consumer + checkUprising + sponsorGame apply the state). Record-only audits; behind
+  // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
+  'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
+  'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
+  'game-sponsored'          // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1364,6 +1370,21 @@ const EVENT_SCHEMAS = Object.freeze({
   'gladiator-recruited': {
     R: { characterId: 'string', schoolId: 'string' },
     O: { method: 'string', gladiatorType: 'string', level: 'number', costGp: 'number', narrative: 'string' }
+  },
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — record-only audit (see EVENT_KINDS).
+  'gladiator-trained': {
+    R: { characterId: 'string' },
+    O: { schoolId: 'string', gladiatorType: 'string', graduationRoll: 'number', maimed: 'boolean', narrative: 'string' }
+  },
+  'gladiator-uprising': {
+    R: { schoolId: 'string' },
+    O: { spark: 'string', modifier: 'number', gladiatorCount: 'number', leaders: 'number', supporters: 'number',
+         supportPct: 'number', revolt: 'boolean', narrative: 'string' }
+  },
+  'game-sponsored': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
+         boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
   }
 });
 
@@ -3183,6 +3204,11 @@ function applyEvent_gladiatorAudit(campaign, event){
 registerEventHandler('bout-resolved', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-game-held', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
+// === Gladiators G3/G4 (team burst10 2026-06-20) === — same record-only audit; the slot-62 consumer +
+// checkUprising + sponsorGame already applied the state (graduation / morale cascade / scheduled bouts).
+registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
+registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6322,7 +6348,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G2 (team burst9 2026-06-20) === — owned by acks-engine-gladiators.js (resolveAndCommit
   // Bout / holdGame / recruitGladiator, driven by the ⚔ Gladiators tab); a raw Event-Wizard emit would
   // record a bout/game/recruit the bout/game/character state doesn't show.
-  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited'
+  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited',
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
+  // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
+  // character/school/game state doesn't show.
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
