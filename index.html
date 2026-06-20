@@ -14920,6 +14920,47 @@ document.addEventListener('alpine:init', () => {
         <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
       </label>
 
+      <!-- === @b9-sages (team) — SG-3: the periodic-fee retainer (a standing arrangement: priority + covered consults) === -->
+      <div class="vellum border border-ink p-2 rounded text-sm" style="background:#eef3e3">
+        <div class="font-semibold">🤝 Retainer <span class="text-xs font-normal opacity-60">· a standing arrangement — the sage is on call &amp; ordinary consults are covered (RR p.171; 500 gp/mo)</span></div>
+        <!-- this sage already retained by the inquirer? -->
+        <template x-if="sageRetainerForUI()">
+          <div class="mt-1 text-xs">
+            <span class="text-green-800 font-semibold">✓ On retainer</span>
+            — <span x-text="(sageRetainerForUI().feeGpPerMonth||0) + ' gp/mo'"></span>,
+            <span x-text="sageRetainerForUI().consultDiscount >= 1 ? 'consults free' : ('consults ' + Math.round((sageRetainerForUI().consultDiscount||0)*100) + '% off')"></span>
+            · month <span x-text="sageRetainerForUI().monthsPaid"></span>
+            <button @click="endSageRetainerUi(sageRetainerForUI().id)" class="ml-2 px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="End this retainer — no further monthly fee.">End</button>
+          </div>
+        </template>
+        <!-- offer to retain (a retainer is a client↔sage arrangement — the inquirer must differ from the sage) -->
+        <template x-if="!sageRetainerForUI() && sageConsult.clientId && sageConsult.clientId !== sageConsult.sageId">
+          <div class="mt-1 flex items-center gap-2 flex-wrap text-xs">
+            <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-20 text-xs" x-model.number="retainerFeeGp"> gp/mo</label>
+            <button @click="retainSelectedSage()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Retain this sage on a monthly fee — the first month is paid now; the Day Clock bills each month thereafter.">🤝 Retain this sage</button>
+            <span class="opacity-60">— first month now; ongoing consults become covered</span>
+          </div>
+        </template>
+        <template x-if="!sageRetainerForUI() && sageConsult.clientId && sageConsult.clientId === sageConsult.sageId">
+          <div class="mt-1 text-xs italic opacity-60">Pick a different inquirer to retain this sage (you don't retain yourself).</div>
+        </template>
+        <!-- the inquirer's other active retainers -->
+        <template x-if="clientRetainerRows().length">
+          <div class="mt-2 text-xs">
+            <div class="opacity-70 font-semibold">On retainer to <span x-text="sageConsultClientName()"></span>:</div>
+            <template x-for="ret in clientRetainerRows()" :key="ret.id">
+              <div class="flex items-center gap-2">
+                <span x-text="'• ' + ret.sageName + (ret.specialty ? (' (' + ret.specialty + ')') : '') + ' — ' + (ret.feeGpPerMonth||0) + ' gp/mo, month ' + ret.monthsPaid"></span>
+                <button @click="endSageRetainerUi(ret.id)" class="px-1.5 border border-ink rounded hover:bg-red-100" title="End this retainer.">End</button>
+              </div>
+            </template>
+          </div>
+        </template>
+        <template x-if="retainerResult && !retainerResult.ok">
+          <div class="mt-1 text-xs text-red-800" x-text="retainerResult.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + retainerResult.error)"></div>
+        </template>
+      </div>
+
       <!-- Forecast -->
       <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
         <div class="wizard-forecast-row" :class="(sageConsultForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
@@ -16507,7 +16548,7 @@ document.addEventListener('alpine:init', () => {
      div right AFTER your OWN marker below (before the page script block). Disjoint anchors → clean merge. ─── -->
 <!-- === @b9-politics   (team) — senate-wizard modal === -->
 <!-- === @b9-banking    (team) — deposit / letter-of-credit modal === -->
-<!-- === @b9-sages      (team) — sage retainer / commission modal === -->
+<!-- === @b9-sages      (team) — SG-3 retainer UI is folded INTO the Consult-a-Sage modal above (the 🤝 Retainer section, per the task); state+methods at the @b9-sages domainApp marker === -->
 <!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
 <!-- === @b9-lifecycle  (team) — character transformation modal === -->
 <!-- === @b9-hexscales  (team) — local-scale authoring overlay (if any) === -->
@@ -17842,7 +17883,49 @@ return {
   //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
   // === @b9-politics   (team) — Politics P-5 Senate Wizard: state + methods ===
   // === @b9-banking    (team) — Banking B4/B5 deposits + letters of credit: state + methods ===
-  // === @b9-sages      (team) — Sages SG-3 periodic-fee commissions: state + methods ===
+  // === @b9-sages      (team) — Sages SG-3 periodic-fee retainer: state + methods ===
+  // A patron RETAINS a sage on a monthly fee (RR p.171 specialist wage, default 500 gp/mo) for
+  // priority (the sage is on call) + covered consultations. Surfaced ON the Consult-a-Sage modal
+  // (the 🤝 Retainer section near the fee). Thin Alpine layer over acks-engine-sages.js (retainSage
+  // / endSageRetainer / sageRetainerFor / sageRetainersForCharacter). The monthly bill rides the
+  // shipped slot-64 day-tick (the Day Clock / Advance Month) — no UI billing button needed.
+  retainerFeeGp: 500,
+  retainerResult: null,
+  // The active retainer between the modal's inquirer (client) and the selected sage, or null.
+  sageRetainerForUI(){
+    const A = window.ACKS;
+    if(!A || !A.sageRetainerFor) return null;
+    return A.sageRetainerFor(this.currentCampaign, this.sageConsult.clientId, this.sageConsult.sageId) || null;
+  },
+  sageConsultClientName(){
+    const id = this.sageConsult.clientId;
+    const c = id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === id) : null;
+    return (c && c.name) || 'the inquirer';
+  },
+  // Every active retainer the inquirer holds (as the client), for the modal's list.
+  clientRetainerRows(){
+    const A = window.ACKS, c = this.currentCampaign, id = this.sageConsult.clientId;
+    if(!A || !A.sageRetainersForCharacter || !id) return [];
+    const chars = (c && c.characters) || [];
+    return A.sageRetainersForCharacter(c, id)
+      .filter(r => r.clientCharacterId === id)
+      .map(r => { const s = chars.find(x => x && x.id === r.sageCharacterId); return Object.assign({}, r, { sageName: (s && s.name) || r.sageCharacterId }); });
+  },
+  retainSelectedSage(){
+    const A = window.ACKS;
+    const r = A.retainSage(this.currentCampaign, {
+      sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId,
+      feeGpPerMonth: Number(this.retainerFeeGp) || 0, specialty: this.sageConsult.specialty
+    });
+    this.retainerResult = r;
+    if(r && r.ok){ this.sageConsult.result = null; this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Sage retained — the first month is paid.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the first month.' : ('Cannot retain: ' + (r.error || ''))); }
+  },
+  endSageRetainerUi(id){
+    const r = window.ACKS.endSageRetainer(this.currentCampaign, id);
+    this.retainerResult = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast('Retainer ended.'); }
+  },
   // === @b9-gladiators (team) — Gladiators G2 arena tab: state + methods ===
   // === @b9-lifecycle  (team) — Lifecycle CL-5 transformation: state + methods ===
   // === @b9-hexscales  (team) — Hex Scales HW-5 local authoring: state + methods ===
