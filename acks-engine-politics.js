@@ -338,11 +338,24 @@
     if(lawful >= Math.ceil(n * 2 / 3)) alignment = 'Lawful';
     else if(lawful >= Math.ceil(n / 2) && chaotic === 0) alignment = 'Lawful';
     else if(chaotic >= Math.ceil(n / 2)) alignment = 'Chaotic';
+    // Personal Authority (P-7; RR p.350 + JJ p.402): the oligarchy's average class level cross-
+    // referenced with its average domain income (the apex realm's income ÷ oligarch count). READ the
+    // shipped economy accessors — never write economy.js (the Separating-Land/income split is a
+    // DEFERRED later slice, survey §6). Defensive: a bare fixture with no economy reads 0 income.
+    const A = _A();
+    let avgIncome = 0;
+    if(typeof A.domainIncome === 'function' && apex){
+      try { avgIncome = Math.round((Number(A.domainIncome(campaign, apex)) || 0) / n); } catch(e){ avgIncome = 0; }
+    }
+    const personalAuthority = (typeof A.computePersonalAuthority === 'function')
+      ? A.computePersonalAuthority(levelSum / n, avgIncome) : null;
     return {
       memberCount: n,
       cha: Math.round(chaSum / n),                 // average CHA modifier (+Leadership)
       level: Math.round(levelSum / n),             // average class level
-      alignment
+      alignment,
+      avgIncome,                                   // the realm's domain income ÷ oligarch count (JJ p.402)
+      personalAuthority                            // avg level × avg income (RR p.350; null if the economy module is absent)
     };
   }
 
@@ -1488,6 +1501,258 @@
     return t <= senate.honeymoonUntilTurn;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // P-7 — Eldermoot vocabulary + the rule-of-the-few OLIGARCHY governance mode
+  //       (burst10 2026-06-20). Spec: Phase_4_Politics_Plan.md §12 + §14 P-7 + §2–§3;
+  //       Politics_RAW_Survey.md §5 (oligarchies, JJ pp.402–404). The senate (P-1…P-5) is
+  //       RAW core, ungated; the OLIGARCHY governance mode + its decisions/verbs sit behind
+  //       the ONE opt-in `rule-of-the-few` house rule (plan §8 — default OFF, JJ "optional").
+  //       The oligarchs ARE the ruler: oligarchyDerivedStats (P-1, extended above with
+  //       Personal Authority) is the collective ruler; decisions are by MAJORITY (NOT the 2d6
+  //       senate voting — survey §1's headline correction), a deadlock keeping last period's
+  //       policy. Eldermoot is the senate's dwarven instance — blankSenate already accepts
+  //       kind:'eldermoot'; this adds only the kind-label vocabulary (the entities + voting
+  //       are SHARED with the senate, OQ4 → "same as the senate"; the Dwarven plan owns the
+  //       dwarven flavor + scale).
+  //   DEFERRED (NOT here — out of this lane): Separating Land and Lordship + the oligarchy
+  //     income/XP split (survey §6; touches the economy core — a later slice). We READ the
+  //     shipped income accessor for Personal Authority; we WRITE nothing to economy.js.
+  //   Three record-only events (oligarchy-established / -dissolved / -decision): the verb
+  //     applies state + emits the already-applied event; the events.js handler is a record-
+  //     only audit (the favor-duty / P-2 / P-3 / P-5 precedent). NO new entity / prefix /
+  //     collection / migration — the oligarchy lives on the SHIPPED governance sub-tree
+  //     (P-1); the two new bits of state (governance.lastOligarchyPolicy + a per-apex
+  //     governanceHistory[]) are init-on-write + read defensively (the P-3 independentGifts /
+  //     P-5 motions discipline), so blankSenate / the field-schema / registry / migrate-no-op
+  //     invariants are untouched.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const RULE_OF_THE_FEW = 'rule-of-the-few';
+  function _ruleOfTheFewOn(campaign){
+    const A = _A();
+    return !!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, RULE_OF_THE_FEW));
+  }
+
+  // ── Eldermoot scaffolding (the senate-kind vocabulary; survey §7.2 / plan §11 — the Dwarven seam) ──
+  // blankSenate already takes kind ∈ senate|eldermoot|council; an eldermoot IS a senate (same
+  // entities, factions, senatorships, and 2d6 voting — OQ4). These are only the display vocabulary.
+  const SENATE_KINDS = Object.freeze(['senate', 'eldermoot', 'council']);
+  const _SENATE_KIND_LABELS = Object.freeze({ senate: 'Senate', eldermoot: 'Eldermoot', council: 'Council' });
+  function isEldermoot(senate){ return !!senate && senate.kind === 'eldermoot'; }
+  function senateKindLabel(senate){
+    const k = (senate && senate.kind) || 'senate';
+    return _SENATE_KIND_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+  }
+
+  // ── The oligarchy governance mode (JJ pp.402–404; survey §5) ──
+  const OLIGARCHY_DECISION_RULES = Object.freeze(['majority', 'unanimous', 'weighted']);
+
+  // Emit an already-applied oligarchy record. Mirrors _emitPoliticsEvent, but the Event.context is
+  // the apex DOMAIN directly (an oligarchy has no senate). Guarded so a missing events module never
+  // breaks the pure computation.
+  function _emitOligarchyEvent(campaign, kind, payload, apex, rulerId){
+    const A = _A();
+    if(typeof A.newEvent !== 'function' || typeof A.setEventContext !== 'function') return null;
+    let ev;
+    try { ev = A.newEvent(kind, { submittedBy: 'engine', targetTurn: campaign.currentTurn || 1,
+      cadence: 'monthly-turn', payload: payload }); }
+    catch(e){ return null; }                               // kind not registered (events module absent)
+    const hexId = apex ? (((campaign.hexes || []).find(h => h && h.domainId === apex.id)) || {}).id || null : null;
+    const related = [];
+    if(rulerId) related.push({ kind:'character', id: rulerId, role:'subject' });
+    if(apex) related.push({ kind:'domain', id: apex.id, role:'site' });
+    const g = apex ? governanceFor(campaign, apex) : null;
+    if(g) (g.oligarchCharacterIds || []).forEach(id => { if(id) related.push({ kind:'character', id, role:'witness' }); });
+    A.setEventContext(ev, { primaryHexId: hexId, domainId: apex ? apex.id : null, relatedEntities: related });
+    if(A.EVENT_STATUS) ev.status = A.EVENT_STATUS.APPLIED;
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: payload.narrative || kind },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+    return ev;
+  }
+
+  function _ensureGovernanceHistory(apex){
+    if(!Array.isArray(apex.governanceHistory)) apex.governanceHistory = [];   // init-on-write (defensive-read)
+    return apex.governanceHistory;
+  }
+
+  // Establish an oligarchy on a realm's apex domain (JJ pp.402–404; survey §5.2): the apex
+  // governance mode becomes 'oligarchic' with the member list + a decision rule. Gated on
+  // rule-of-the-few. (Base morale re-derives off the collective ruler — oligarchyDerivedStats;
+  // wiring that derived CHA into the economy's base-morale row is a DEFERRED later slice. This
+  // sets the mode + members so the derived stats + decisions are live.) Returns { ok, governance }.
+  //   opts: { domainId, oligarchCharacterIds[], decisionRule, rulerCharacterId, turn, emit }
+  function establishOligarchy(campaign, opts){
+    opts = opts || {};
+    if(!_ruleOfTheFewOn(campaign)) return { ok:false, reason:'rule-off' };
+    const apex = realmApexDomain(campaign, _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    const members = (Array.isArray(opts.oligarchCharacterIds) ? opts.oligarchCharacterIds : [])
+      .filter(id => !!_findChar(campaign, id));
+    if(members.length === 0) return { ok:false, reason:'no-members' };
+    const rule = OLIGARCHY_DECISION_RULES.indexOf(opts.decisionRule) >= 0 ? opts.decisionRule : 'majority';
+    const turn = _turnOf(campaign, opts);
+    const fromMode = governanceFor(campaign, apex).mode;
+    const g = setDomainGovernance(campaign, apex.id, {
+      mode: 'oligarchic', oligarchCharacterIds: members.slice(), oligarchyDecisionRule: rule
+    });
+    _ensureGovernanceHistory(apex).push({ turn, type: 'oligarchy-established', from: fromMode, members: members.length, rule });
+    if(opts.emit !== false){
+      _emitOligarchyEvent(campaign, 'oligarchy-established', {
+        apexDomainId: apex.id, fromMode, memberCount: members.length, decisionRule: rule,
+        narrative: 'An oligarchy of ' + members.length + ' takes power in ' + (apex.name || 'the realm') +
+          ' (decisions by ' + rule + ').'
+      }, apex, opts.rulerCharacterId || null);
+    }
+    return { ok:true, governance: g, apexDomainId: apex.id, memberCount: members.length };
+  }
+
+  // Dissolve an oligarchy (JJ pp.402–404; survey §5.2): the apex reverts to feudal — or to
+  // senatorial when a senate exists and a ruler is named (the RAW bridge, survey §5.4) — and the
+  // member list clears. Gated on rule-of-the-few. Returns { ok, governance, into }.
+  //   opts: { domainId, into:'feudal'|'senatorial', rulerCharacterId, action, turn, emit }
+  function dissolveOligarchy(campaign, opts){
+    opts = opts || {};
+    if(!_ruleOfTheFewOn(campaign)) return { ok:false, reason:'rule-off' };
+    const apex = realmApexDomain(campaign, _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    if(governanceFor(campaign, apex).mode !== 'oligarchic') return { ok:false, reason:'not-oligarchic' };
+    const turn = _turnOf(campaign, opts);
+    const senate = senateForDomain(campaign, apex);
+    const into = (opts.into === 'senatorial' && senate) ? 'senatorial' : 'feudal';
+    if(opts.rulerCharacterId && _findChar(campaign, opts.rulerCharacterId)) apex.rulerCharacterId = opts.rulerCharacterId;
+    const g = setDomainGovernance(campaign, apex.id, { mode: into, oligarchCharacterIds: [] });
+    _ensureGovernanceHistory(apex).push({ turn, type: 'oligarchy-dissolved', into, action: opts.action || 'dissolved', rulerCharacterId: opts.rulerCharacterId || null });
+    if(opts.emit !== false){
+      _emitOligarchyEvent(campaign, 'oligarchy-dissolved', {
+        apexDomainId: apex.id, into, action: opts.action || 'dissolved',
+        narrative: 'The oligarchy of ' + (apex.name || 'the realm') + ' is dissolved — the realm becomes ' + into + '.'
+      }, apex, opts.rulerCharacterId || apex.rulerCharacterId || null);
+    }
+    return { ok:true, governance: g, into };
+  }
+
+  // An oligarch secedes (JJ pp.402–404; survey §5.2): he leaves the oligarchy, and his henchman-
+  // vassals roll Loyalty to follow him — SURFACED, not auto-applied (the GM rolls via the shipped
+  // loyalty machinery, the F&D-penalty pattern). When membership drops below 2 the body collapses —
+  // to senatorial when ONE administering oligarch remains and a senate exists (the bridge, survey
+  // §5.4), else feudal. Gated on rule-of-the-few. A non-collapsing secession is a membership edit
+  // (governanceHistory only — no event; the 3 allotted kinds are establish/dissolve/decide).
+  //   opts: { domainId, oligarchCharacterId, rulerCharacterId, turn, emit }
+  //   Returns { ok, seceder, remaining[], collapsed, into?, henchmanVassals[], loyaltyModifier }.
+  function secedeFromOligarchy(campaign, opts){
+    opts = opts || {};
+    if(!_ruleOfTheFewOn(campaign)) return { ok:false, reason:'rule-off' };
+    const apex = realmApexDomain(campaign, _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    const g0 = governanceFor(campaign, apex);
+    if(g0.mode !== 'oligarchic') return { ok:false, reason:'not-oligarchic' };
+    const seceder = opts.oligarchCharacterId;
+    if(!seceder || g0.oligarchCharacterIds.indexOf(seceder) < 0) return { ok:false, reason:'not-a-member' };
+    const turn = _turnOf(campaign, opts);
+    const remaining = g0.oligarchCharacterIds.filter(id => id !== seceder);
+    const A = _A();
+    // the seceding oligarch's henchman-vassals roll Loyalty to follow (surfaced — RR loyalty, GM applies)
+    const henchmanVassals = (Array.isArray(campaign.characters) ? campaign.characters : [])
+      .filter(c => c && c.liegeCharacterId === seceder
+        && (typeof A.isHenchman === 'function' ? A.isHenchman(c) : c.kind === 'henchman'))
+      .map(c => c.id);
+
+    if(remaining.length < 2){
+      // collapse: the bridge — one administering oligarch + a senate ⇒ senatorial, else feudal.
+      const senate = senateForDomain(campaign, apex);
+      const into = (remaining.length === 1 && senate) ? 'senatorial' : 'feudal';
+      if(remaining.length === 1 && _findChar(campaign, remaining[0])) apex.rulerCharacterId = remaining[0];
+      setDomainGovernance(campaign, apex.id, { mode: into, oligarchCharacterIds: [] });
+      _ensureGovernanceHistory(apex).push({ turn, type: 'oligarchy-dissolved', into, action: 'secession-collapse', seceder });
+      if(opts.emit !== false){
+        _emitOligarchyEvent(campaign, 'oligarchy-dissolved', {
+          apexDomainId: apex.id, into, action: 'secession',
+          narrative: 'An oligarch secedes from ' + (apex.name || 'the realm') + ' — the oligarchy collapses to ' + into + '.'
+        }, apex, opts.rulerCharacterId || apex.rulerCharacterId || null);
+      }
+      return { ok:true, seceder, remaining, collapsed:true, into, henchmanVassals, loyaltyModifier: 0 };
+    }
+    // the body continues: drop the member (history only — a membership edit). The GM applies follower Loyalty.
+    setDomainGovernance(campaign, apex.id, { oligarchCharacterIds: remaining });
+    _ensureGovernanceHistory(apex).push({ turn, type: 'oligarch-seceded', seceder, remaining: remaining.length });
+    return { ok:true, seceder, remaining, collapsed:false, henchmanVassals, loyaltyModifier: 0 };
+  }
+
+  // Resolve an oligarchy decision (JJ p.402; survey §5.1) — MAJORITY rules (NOT the 2d6 senate
+  // voting). Each oligarch casts for / against / abstain (the UI gathers them; an unlisted member
+  // abstains). The decision rule sets the bar: 'majority' = > half the members vote for; 'unanimous'
+  // = every member for, none against; 'weighted' = > half the total weight (each member carries
+  // opts.votes[i].weight, default 1). On a DEADLOCK (no resolution) LAST PERIOD'S POLICY PERSISTS
+  // (JJ p.402) — tracked on governance.lastOligarchyPolicy (init-on-write). PURE compute + an
+  // already-applied 'oligarchy-decision' record. Gated on rule-of-the-few. Returns the tally.
+  //   opts: { domainId, policy, votes:[{characterId,vote:'for'|'against'|'abstain',weight}],
+  //           decisionRule (override), rulerCharacterId, turn, emit }
+  function resolveOligarchyDecision(campaign, opts){
+    opts = opts || {};
+    if(!_ruleOfTheFewOn(campaign)) return { ok:false, reason:'rule-off' };
+    const apex = realmApexDomain(campaign, _findDomain(campaign, opts.domainId));
+    if(!apex) return { ok:false, reason:'no-domain' };
+    const g = governanceFor(campaign, apex);
+    if(g.mode !== 'oligarchic') return { ok:false, reason:'not-oligarchic' };
+    const members = g.oligarchCharacterIds.slice();
+    if(members.length === 0) return { ok:false, reason:'no-members' };
+    const rule = OLIGARCHY_DECISION_RULES.indexOf(opts.decisionRule) >= 0 ? opts.decisionRule : (g.oligarchyDecisionRule || 'majority');
+    const turn = _turnOf(campaign, opts);
+    // normalize votes to the member set (an unlisted member abstains)
+    const byId = {};
+    (Array.isArray(opts.votes) ? opts.votes : []).forEach(v => { if(v && v.characterId) byId[v.characterId] = v; });
+    let forW = 0, againstW = 0, abstainW = 0, forN = 0, againstN = 0, abstainN = 0;
+    for(const id of members){
+      const v = byId[id] || { vote: 'abstain' };
+      const w = (v.weight != null && Number(v.weight) >= 0) ? Number(v.weight) : 1;
+      const vote = (v.vote === 'for' || v.vote === 'against') ? v.vote : 'abstain';
+      if(vote === 'for'){ forW += w; forN++; }
+      else if(vote === 'against'){ againstW += w; againstN++; }
+      else { abstainW += w; abstainN++; }
+    }
+    const totalW = forW + againstW + abstainW;
+    let outcome;
+    if(rule === 'unanimous'){
+      outcome = (forN > 0 && againstN === 0 && abstainN === 0) ? 'passed' : (againstN > 0 ? 'rejected' : 'deadlock');
+    } else if(rule === 'weighted'){
+      const half = totalW / 2;
+      outcome = forW > half ? 'passed' : (againstW > half ? 'rejected' : 'deadlock');
+    } else { // majority (head count)
+      const half = members.length / 2;
+      outcome = forN > half ? 'passed' : (againstN > half ? 'rejected' : 'deadlock');
+    }
+    // deadlock → last period's policy persists (JJ p.402); a pass becomes the new "last period's"
+    let persistedPolicy = null;
+    if(outcome === 'deadlock'){
+      persistedPolicy = (apex.governance && apex.governance.lastOligarchyPolicy) || null;
+    } else if(outcome === 'passed'){
+      setDomainGovernance(campaign, apex.id, {});                 // ensure the sub-tree is materialized
+      apex.governance.lastOligarchyPolicy = opts.policy || '';
+    }
+    const result = {
+      ok: true, apexDomainId: apex.id, policy: opts.policy || '', decisionRule: rule, outcome,
+      forVotes: rule === 'weighted' ? forW : forN,
+      againstVotes: rule === 'weighted' ? againstW : againstN,
+      abstainVotes: rule === 'weighted' ? abstainW : abstainN,
+      forHeads: forN, againstHeads: againstN, abstainHeads: abstainN,
+      memberCount: members.length, persistedPolicy
+    };
+    _ensureGovernanceHistory(apex).push({ turn, type: 'oligarchy-decision', policy: result.policy, rule, outcome });
+    if(opts.emit !== false){
+      _emitOligarchyEvent(campaign, 'oligarchy-decision', {
+        apexDomainId: apex.id, policy: result.policy, decisionRule: rule, outcome,
+        forVotes: result.forVotes, againstVotes: result.againstVotes, abstainVotes: result.abstainVotes,
+        narrative: 'The oligarchy of ' + (apex.name || 'the realm') + ' decides “' + (result.policy || 'a policy') + '”: ' +
+          (outcome === 'passed' ? 'PASSED' : outcome === 'rejected' ? 'REJECTED' :
+            'DEADLOCK — last period’s policy persists' + (persistedPolicy ? ' (' + persistedPolicy + ')' : '')) +
+          ' (' + result.forVotes + ' for / ' + result.againstVotes + ' against).'
+      }, apex, opts.rulerCharacterId || apex.rulerCharacterId || null);
+    }
+    return result;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
@@ -1515,7 +1780,11 @@
     SENATE_MOTION_KINDS, blankSenateMotion,
     senateMotionsForSenate, findSenateMotion,
     openSenateMotion, previewSenateMotionVote, resolveSenateMotion, withdrawSenateMotion,
-    senateInHoneymoon
+    senateInHoneymoon,
+    // P-7 — Eldermoot vocabulary + the rule-of-the-few oligarchy mode (burst10)
+    RULE_OF_THE_FEW, SENATE_KINDS, OLIGARCHY_DECISION_RULES,
+    isEldermoot, senateKindLabel,
+    establishOligarchy, dissolveOligarchy, secedeFromOligarchy, resolveOligarchyDecision
   });
 
 })(typeof window !== 'undefined' ? window : global);

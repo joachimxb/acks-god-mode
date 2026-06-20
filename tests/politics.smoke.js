@@ -907,11 +907,161 @@ ok('migrate(demo) is a TRUE no-op (JSON-identical)', JSON.stringify(ACKS.migrate
 })();
 
 // =============================================================================
+section('P-7 — Eldermoot vocabulary (scaffolding; the Dwarven seam)');
+// =============================================================================
+(function(){
+  ok('SENATE_KINDS = [senate, eldermoot, council]', Array.isArray(ACKS.SENATE_KINDS)
+    && ['senate','eldermoot','council'].every(k => ACKS.SENATE_KINDS.includes(k)));
+  ok('blankSenate accepts kind:eldermoot', ACKS.blankSenate({ kind:'eldermoot' }).kind === 'eldermoot');
+  ok('isEldermoot true for an eldermoot / false for a senate', ACKS.isEldermoot({ kind:'eldermoot' }) === true && ACKS.isEldermoot({ kind:'senate' }) === false);
+  ok('senateKindLabel: Senate / Eldermoot / Council', ACKS.senateKindLabel({kind:'senate'}) === 'Senate'
+    && ACKS.senateKindLabel({kind:'eldermoot'}) === 'Eldermoot' && ACKS.senateKindLabel({kind:'council'}) === 'Council');
+  ok('senateKindLabel defaults to Senate', ACKS.senateKindLabel(null) === 'Senate' && ACKS.senateKindLabel({}) === 'Senate');
+  // an eldermoot IS a senate — shares the entities + the 2d6 voting (OQ4). Quick end-to-end via senateVote.
+  const c = { currentTurn:1, domains:[{ id:'dom-apex', liegeId:null, governance:{ mode:'senatorial', senateId:'sen-e' } }],
+    senates:[ACKS.blankSenate({ id:'sen-e', kind:'eldermoot', realmDomainId:'dom-apex', name:'The Eldermoot', independentMinorSenatorVotes:1 })],
+    factions:[], senatorships:[ACKS.blankSenatorship({ id:'snr-1', senateId:'sen-e', senatorCharacterId:'chr-1', votes:3 })],
+    characters:[{ id:'chr-1', abilities:{CHA:13} }], eventLog:[] };
+  const v = ACKS.senateVote(c, { senateId:'sen-e', matter:'a clan matter', autoRoll:false, gmOutcome:'approved', emit:false });
+  ok('senateVote runs on an eldermoot (shared voting machinery)', !!v && v.approved === true);
+})();
+
+// =============================================================================
+section('P-7 — rule-of-the-few gate + the oligarchy verbs (JJ pp.402–404; survey §5)');
+// =============================================================================
+ok('rule-of-the-few registered, category domain', (function(){ const r = ACKS.lookupHouseRule('rule-of-the-few'); return !!r && r.category === 'domain'; })());
+ok('rule-of-the-few default OFF (no default field; absent ⇒ off)', (ACKS.lookupHouseRule('rule-of-the-few')||{}).default !== true
+  && ACKS.isHouseRuleEnabled({ houseRules:{} }, 'rule-of-the-few') === false);
+ok('RULE_OF_THE_FEW const = "rule-of-the-few"', ACKS.RULE_OF_THE_FEW === 'rule-of-the-few');
+ok('OLIGARCHY_DECISION_RULES = [majority, unanimous, weighted]', Array.isArray(ACKS.OLIGARCHY_DECISION_RULES)
+  && ['majority','unanimous','weighted'].every(k => ACKS.OLIGARCHY_DECISION_RULES.includes(k)));
+ok('computePersonalAuthority(5,600) = 0 (the shipped RR p.350 bracket)', ACKS.computePersonalAuthority(5, 600) === 0);
+
+function oligFix(opts){
+  opts = opts || {};
+  return { currentTurn: 5, houseRules: opts.ruleOff ? {} : { 'rule-of-the-few': { enabled:true } },
+    domains: [{ id:'dom-apex', name:'Aristia', liegeId:null, rulerCharacterId:'chr-1' }],
+    characters: [
+      { id:'chr-1', name:'Aldermane', abilities:{CHA:16}, level:9, alignment:'Lawful', proficiencies:[{key:'leadership'}] },
+      { id:'chr-2', name:'Bryce',     abilities:{CHA:13}, level:7, alignment:'Lawful' },
+      { id:'chr-3', name:'Caine',     abilities:{CHA:9},  level:5, alignment:'Neutral' },
+      { id:'h1', name:'Henrik', socialTier:'henchman', liegeCharacterId:'chr-2' }
+    ], hexes:[{ id:'hex-1', domainId:'dom-apex' }], eventLog:[] };
+}
+
+// — the gate: every verb refuses + writes nothing when the rule is OFF (principle 8) —
+(function(){
+  const c = oligFix({ ruleOff:true });
+  ok('establishOligarchy refused when rule OFF', ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1'] }).reason === 'rule-off');
+  ok('resolveOligarchyDecision refused when rule OFF', ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex' }).reason === 'rule-off');
+  ok('secedeFromOligarchy refused when rule OFF', ACKS.secedeFromOligarchy(c, { domainId:'dom-apex', oligarchCharacterId:'chr-1' }).reason === 'rule-off');
+  ok('dissolveOligarchy refused when rule OFF', ACKS.dissolveOligarchy(c, { domainId:'dom-apex' }).reason === 'rule-off');
+  ok('rule OFF wrote NOTHING (mode stays feudal, no event)', ACKS.governanceFor(c, c.domains[0]).mode === 'feudal' && c.eventLog.length === 0);
+})();
+
+// — establish + the derived collective ruler incl. Personal Authority (survey §5.1) —
+(function(){
+  const c = oligFix();
+  const e = ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2','chr-3'], decisionRule:'majority' });
+  ok('establishOligarchy ok (3 members)', e.ok === true && e.memberCount === 3);
+  ok('establish sets the apex mode oligarchic', ACKS.governanceFor(c, c.domains[0]).mode === 'oligarchic');
+  ok('establish records governanceHistory (init-on-write)', Array.isArray(c.domains[0].governanceHistory) && c.domains[0].governanceHistory.some(h => h.type === 'oligarchy-established'));
+  ok('establish emitted oligarchy-established', c.eventLog.some(x => x.event && x.event.kind === 'oligarchy-established'));
+  ok('establish refuses with no members', ACKS.establishOligarchy(oligFix(), { domainId:'dom-apex', oligarchCharacterIds:[] }).reason === 'no-members');
+
+  const st = ACKS.oligarchyDerivedStats(c, c.domains[0]);
+  ok('derived memberCount 3', st.memberCount === 3);
+  ok('derived CHA = round((+2 +1 Leadership)+(+1)+(0))/3 = 1 (survey §5.1)', st.cha === 1);
+  ok('derived level = avg(9,7,5) = 7', st.level === 7);
+  ok('derived alignment = Lawful (≥⅔ lawful, survey §5.1)', st.alignment === 'Lawful');
+  ok('derived avgIncome is a number ≥ 0', typeof st.avgIncome === 'number' && st.avgIncome >= 0);
+  ok('derived personalAuthority wired to the shipped RR p.350 accessor', st.personalAuthority === ACKS.computePersonalAuthority(7, st.avgIncome));
+  ok('personalAuthority clamped to [-4,+4]', st.personalAuthority >= -4 && st.personalAuthority <= 4);
+  // the existing P-1 fields are unchanged (no regression from the P-7 extension)
+  ok('oligarchyDerivedStats → null for a non-oligarchic realm (unchanged)', ACKS.oligarchyDerivedStats(oligFix(), oligFix().domains[0]) === null);
+})();
+
+// — majority / unanimous / weighted decisions + deadlock → last policy persists (JJ p.402) —
+(function(){
+  const c = oligFix();
+  ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2','chr-3'], decisionRule:'majority' });
+  const d1 = ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex', policy:'raise the army',
+    votes:[{characterId:'chr-1',vote:'for'},{characterId:'chr-2',vote:'for'},{characterId:'chr-3',vote:'against'}] });
+  ok('majority 2/1 → passed', d1.outcome === 'passed' && d1.forVotes === 2 && d1.againstVotes === 1);
+  ok('a passed decision records last period’s policy', c.domains[0].governance.lastOligarchyPolicy === 'raise the army');
+  ok('decision emitted oligarchy-decision', c.eventLog.some(x => x.event && x.event.kind === 'oligarchy-decision'));
+  const d2 = ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex', policy:'new tax',
+    votes:[{characterId:'chr-1',vote:'for'},{characterId:'chr-2',vote:'against'}] });   // 1/1/1abstain
+  ok('a tied majority → deadlock', d2.outcome === 'deadlock');
+  ok('deadlock → last period’s policy persists (JJ p.402)', d2.persistedPolicy === 'raise the army');
+  ok('deadlock did NOT overwrite the last policy', c.domains[0].governance.lastOligarchyPolicy === 'raise the army');
+  // unanimous: any abstain/against blocks
+  ACKS.setDomainGovernance(c, 'dom-apex', { oligarchyDecisionRule:'unanimous' });
+  ok('unanimous with an abstain → deadlock (not passed)', ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex', policy:'x',
+    votes:[{characterId:'chr-1',vote:'for'},{characterId:'chr-2',vote:'for'},{characterId:'chr-3',vote:'abstain'}] }).outcome === 'deadlock');
+  ok('unanimous all-for → passed', ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex', policy:'y',
+    votes:[{characterId:'chr-1',vote:'for'},{characterId:'chr-2',vote:'for'},{characterId:'chr-3',vote:'for'}] }).outcome === 'passed');
+  // weighted: > half the total weight
+  ACKS.setDomainGovernance(c, 'dom-apex', { oligarchyDecisionRule:'weighted' });
+  const d4 = ACKS.resolveOligarchyDecision(c, { domainId:'dom-apex', policy:'z',
+    votes:[{characterId:'chr-1',vote:'for',weight:5},{characterId:'chr-2',vote:'against',weight:2},{characterId:'chr-3',vote:'against',weight:2}] });
+  ok('weighted 5 vs 4 → passed (> half of 9)', d4.outcome === 'passed' && d4.forVotes === 5 && d4.againstVotes === 4);
+  ok('resolveOligarchyDecision refuses a non-oligarchic realm', ACKS.resolveOligarchyDecision(oligFix(), { domainId:'dom-apex' }).reason === 'not-oligarchic');
+})();
+
+// — secession: continues (history only) + surfaces the seceder’s henchman-vassals (survey §5.2) —
+(function(){
+  const c = oligFix();
+  ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2','chr-3'] });
+  const evBefore = c.eventLog.length;
+  const s = ACKS.secedeFromOligarchy(c, { domainId:'dom-apex', oligarchCharacterId:'chr-2' });
+  ok('secede continues with ≥2 remaining', s.ok && s.collapsed === false && s.remaining.length === 2);
+  ok('secede dropped the member from the oligarchy', ACKS.governanceFor(c, c.domains[0]).oligarchCharacterIds.indexOf('chr-2') < 0);
+  ok('secede surfaces the seceder’s henchman-vassals (RR loyalty — GM applies)', s.henchmanVassals.length === 1 && s.henchmanVassals[0] === 'h1');
+  ok('a continuing secession emits NO new event (history only)', c.eventLog.length === evBefore);
+  ok('still oligarchic after a continuing secession', ACKS.governanceFor(c, c.domains[0]).mode === 'oligarchic');
+})();
+
+// — secession that collapses the body: → feudal, or → senatorial when a senate exists (the bridge §5.4) —
+(function(){
+  const c = oligFix();
+  ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2'] });
+  const s = ACKS.secedeFromOligarchy(c, { domainId:'dom-apex', oligarchCharacterId:'chr-2' });
+  ok('collapse to feudal (no senate, 1 remains)', s.collapsed === true && s.into === 'feudal' && ACKS.governanceFor(c, c.domains[0]).mode === 'feudal');
+  ok('collapse names the remaining oligarch the ruler', c.domains[0].rulerCharacterId === 'chr-1');
+  ok('collapse emitted oligarchy-dissolved', c.eventLog.some(x => x.event && x.event.kind === 'oligarchy-dissolved'));
+
+  const c2 = oligFix();
+  c2.senates = [ACKS.blankSenate({ id:'sen-x', realmDomainId:'dom-apex', name:'S' })];
+  ACKS.setDomainGovernance(c2, 'dom-apex', { senateId:'sen-x' });
+  ACKS.establishOligarchy(c2, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2'] });
+  const s2 = ACKS.secedeFromOligarchy(c2, { domainId:'dom-apex', oligarchCharacterId:'chr-2' });
+  ok('collapse → senatorial when a senate exists (the RAW bridge, survey §5.4)', s2.into === 'senatorial' && ACKS.governanceFor(c2, c2.domains[0]).mode === 'senatorial');
+})();
+
+// — dissolve —
+(function(){
+  const c = oligFix();
+  ACKS.establishOligarchy(c, { domainId:'dom-apex', oligarchCharacterIds:['chr-1','chr-2','chr-3'] });
+  const r = ACKS.dissolveOligarchy(c, { domainId:'dom-apex', into:'feudal' });
+  ok('dissolve reverts to feudal + clears members', r.ok && r.into === 'feudal'
+    && ACKS.governanceFor(c, c.domains[0]).mode === 'feudal' && ACKS.governanceFor(c, c.domains[0]).oligarchCharacterIds.length === 0);
+  ok('dissolve emitted oligarchy-dissolved', c.eventLog.some(x => x.event && x.event.kind === 'oligarchy-dissolved'));
+  ok('dissolve refuses a non-oligarchic realm', ACKS.dissolveOligarchy(c, { domainId:'dom-apex' }).reason === 'not-oligarchic');
+})();
+
+// — P-7 added no new collection / no lazy-inject: a plain campaign migrate stays a no-op —
+ok('P-7 adds nothing to migrateCampaign (governanceHistory is init-on-write only)', (function(){
+  const c = ACKS.migrateCampaign({ schemaVersion:2, domains:[{ id:'d', liegeId:null }], characters:[], houseRules:{ 'rule-of-the-few': { enabled:true } } });
+  return !('governanceHistory' in (c.domains[0] || {})) && !('lastOligarchyPolicy' in ((c.domains[0]||{}).governance || {}));
+})());
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Politics P-1 + P-2 smoke checks passed.');
+  console.log('\nAll Politics smoke checks passed (P-1 · P-2 · P-3 · P-5 · P-7).');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
