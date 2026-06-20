@@ -357,6 +357,55 @@ function importableCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c)
   ['customRaces',          { seedInBlank:false, lazyDefault:false, importable:true  }]
 ].forEach(function(pair){ registerCollection(pair[0], pair[1]); });
 
+// =============================================================================
+// Load-migration self-registration — the §15.5 family, slice 4 (after house rules).
+// =============================================================================
+// migrateCampaign() runs an ordered sequence of idempotent per-LOAD passes — the normalize /
+// backfill / lift / reconcile steps that run on EVERY campaign load regardless of schemaVersion
+// (distinct from the versioned MIGRATIONS array below, which bumps schemaVersion). Before this it
+// was a hand-ordered block of ~19 bare calls inside migrateCampaign — a central append-target every
+// data-shape subsystem had to edit. Now each pass is a descriptor in this accumulating store, and a
+// module self-registers its pass from its own file via ACKS.registerLoadMigration(name, fn, {order}).
+// Unlike the prefix / collection / house-rule families (which are SETS), the passes are an ORDERED
+// PIPELINE with real dependencies (e.g. stash-item-shapes must run BEFORE reconcile-stashes; the
+// lairs / units / projects lifts run AFTER lazy-default seeds their collections), so a pass carries
+// an explicit `order` and the runner sorts by (order, registration-seq). The legacy 19 are seeded
+// just before migrateCampaign with orders 10..190 (gaps of 10 leave room to slot a new pass between
+// two existing ones). registerLoadMigration is a no-op on missing args; a same-name re-register with
+// a DIFFERENT fn warns + keeps the original (the registerPrefix / registerCollection conflict rule).
+const LOAD_MIGRATIONS = [];
+const LOAD_MIGRATION_INDEX = {};
+let _loadMigrationSeq = 0;
+function registerLoadMigration(name, fn, opts){
+  if(!name || typeof name !== 'string' || typeof fn !== 'function') return LOAD_MIGRATIONS;
+  opts = opts || {};
+  const existing = LOAD_MIGRATION_INDEX[name];
+  if(existing){
+    // idempotent: same fn = silent no-op; a different fn keeps the original (warn). An already-
+    // registered pass is never silently reordered (re-registering can't reshuffle the pipeline).
+    if(existing.fn !== fn && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] load-migration "' + name + '" re-registered with a different fn; keeping the original.');
+    }
+    return LOAD_MIGRATIONS;
+  }
+  const desc = { name: name, fn: fn, order: (typeof opts.order === 'number' ? opts.order : 1000), seq: _loadMigrationSeq++ };
+  LOAD_MIGRATION_INDEX[name] = desc;
+  LOAD_MIGRATIONS.push(desc);
+  return LOAD_MIGRATIONS;
+}
+// The passes in execution order — sorted by (order, registration-seq) so a same-order pass keeps its
+// registration order, and a new pass slots deterministically. Returns a fresh sorted array (callers
+// must not mutate the store).
+function registeredLoadMigrations(){
+  return LOAD_MIGRATIONS.slice().sort(function(a, b){ return (a.order - b.order) || (a.seq - b.seq); });
+}
+// Run every registered per-load pass in order, in place. migrateCampaign calls this after the
+// versioned MIGRATIONS schema-bump loop. Each pass is idempotent (safe to run on every load).
+function runLoadMigrations(campaign){
+  registeredLoadMigrations().forEach(function(p){ p.fn(campaign); });
+  return campaign;
+}
+
 function newId(prefix){
   if(!prefix) throw new Error('newId requires a prefix');
   // 7-char random suffix gives ~78 billion combinations per prefix — collision-resistant.
@@ -962,6 +1011,85 @@ const MIGRATIONS = [
   // { from: 2, to: 3, run: function(c){ /* in-place transforms */ return c; } }
 ];
 
+// Seed the legacy per-load passes with their EXACT pre-refactor execution order (orders 10..190 —
+// the hand-ordered block that used to live inline in migrateCampaign, node-captured from main @
+// 9b1273f). New passes do NOT extend this literal: a module self-registers its pass from its own
+// file via ACKS.registerLoadMigration with an explicit order (the §15.5 convention). The per-pass
+// provenance comments below are preserved verbatim from the old inline block. The ordering
+// dependencies (why each `order` is what it is):
+//   • character-proficiencies (60) after character-classification (50)
+//   • stash-item-shapes (100) BEFORE reconcile-stashes (110) — reconcile reads facet-shaped lines
+//   • the lairs/units/agricultural/stronghold lifts (140..170) after lazy-default-v1 (130) seeds
+//     campaign.lairs[] / units[] / armies[] / projects[]
+//   • stronghold-to-constructibles (170) after agricultural-to-projects (160)
+//   • sync-party-camp-stashes (190) after reconcile-party-membership (180) + domain-treasuries (90)
+[
+  // Foundation #234 — drop legacy campaign.log[]. The Campaign Log view now derives from eventLog.
+  // Idempotent: subsequent loads find the field already gone and skip cleanly.
+  ['drop-legacy-log', function(c){ if(Array.isArray(c.log)){ delete c.log; } }, 10],
+  // Foundation #241 — reconcile rural population drift. Pre-fix campaigns may have peasantFamilies
+  // ≠ sum(rural hex.families). Idempotent: a no-op on already-consistent data.
+  ['reconcile-rural-population', reconcileRuralPopulation, 20],
+  // Foundation #244 — strip mining-tagged income.other entries when the dwarven-mining house rule is
+  // off (special signature: takes (domains, houseRules)). Covers domains stored inside current.domains;
+  // the Alpine session-restore path calls stripUnusedMiningEntries separately for its split domains array.
+  ['strip-unused-mining', function(c){ stripUnusedMiningEntries(c.domains || [], c.houseRules || {}); }, 30],
+  // 2026-06-05 — remove the retired tributePct field (auto-tribute is RAW realm-families now). Idempotent.
+  ['remove-tribute-pct', migrateRemoveTributePct, 40],
+  // Phase #440 stage 1 — additive five-axis classification (controlledBy / socialTier /
+  // lifecycleState / creatureTypes / isEnchantedCreature / hitDice). Idempotent.
+  ['character-classification', migrateAllCharacterClassification, 50],
+  // PT-0 — materialize the loose character.proficiencies[] into the canonical { key, ranks (, spec) }
+  // shape on disk. Guarded: a no-op when the proficiencies module isn't loaded (standalone engine use).
+  // Runs after the classification migration. The forward ideal is acks-engine-proficiencies.js
+  // self-registering this pass from its own file. See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
+  ['character-proficiencies', function(c){
+    if(global.ACKS && typeof global.ACKS.migrateAllCharacterProficiencies === 'function'){
+      global.ACKS.migrateAllCharacterProficiencies(c);
+    }
+  }, 60],
+  // Items I1 — character coin purse (coins:{pp,gp,ep,sp,cp}; folds a legacy personalGp scalar into
+  // coins.gp and keeps the personalGp mirror in lockstep, canonical-setter rule #10). Idempotent.
+  ['character-coins', migrateAllCharacterCoins, 70],
+  // #445 — Wave A relation backfill (liege / magistrates / tribute → henchmanships / … /
+  // tributaryAgreements). Additive; legacy fields preserved. Idempotent.
+  ['wave-a-relations', migrateLegacyToWaveARelations, 80],
+  // #468 Stash A.3 — materialize each domain.treasury scalar into a treasury-stash entity (always-on
+  // core; the inventory-stash-system toggle was removed v0.17.0). Idempotent. Per Stash plan §6.3.
+  ['domain-treasuries', migrateAllDomainTreasuries, 90],
+  // Items I1 (OQ9) — upgrade legacy coin|bulk|item stash/carry lines to the facet shape (facets[] +
+  // notableItemId) BEFORE reconcile reads them. Idempotent; skips free-text inventory strings.
+  ['stash-item-shapes', migrateAllStashItemShapes, 100],
+  // #469 Stash A.4 — item-consolidation reconcile + treasury-scalar reconcile (catches scalar drift
+  // from external writers). Idempotent.
+  ['reconcile-stashes', reconcileAllStashes, 110],
+  ['reconcile-treasury-scalars', reconcileTreasuryScalars, 120],
+  // 2026-05-30 post-survey scope reservations — lazy backfill of additive collections + fields.
+  // Idempotent. See Data_Dictionary §13.2 + §13.3.
+  ['lazy-default-v1-reservations', lazyDefaultV1ScopeReservations, 130],
+  // #476 M0 — lift legacy nested hex.lairs[] sub-entities to the first-class campaign.lairs[]
+  // collection (the treasury→stash pattern). Runs after lazy-default guarantees campaign.lairs[].
+  ['legacy-hex-lairs', migrateLegacyHexLairs, 140],
+  // Military W1 — lift nested garrison / mercenary-company units to the first-class campaign.units[]
+  // collection, reference-unified (the hexes precedent, Architecture §3.3). Runs after lazy-default
+  // guarantees campaign.units[] / armies[]. Idempotent + self-healing in both directions.
+  ['garrison-units-to-units', migrateGarrisonUnitsToUnits, 150],
+  // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
+  // lazy-default (guarantees campaign.projects[]) and reads campaign.hexes. Idempotent.
+  ['agricultural-to-projects', migrateAgriculturalToProjects, 160],
+  // Wave Construction-C — lift each domain's stronghold onto a first-class Constructible mirror
+  // (additive; the economy keeps reading the stronghold's own value — zero drift). Runs after the
+  // ag migration. Idempotent.
+  ['stronghold-to-constructibles', migrateStrongholdComponentsToConstructibles, 170],
+  // #521 follow-up — rebuild each party's member mirror + validate leader from character.partyId
+  // (Architecture §3.3). Idempotent; no-op on party-less templates.
+  ['reconcile-party-membership', reconcilePartyMembership, 180],
+  // Items I1 / Stash B — every party has a camp stash that travels with it. Runs after membership
+  // reconcile (needs leader/members) + treasury migration. Always-on core; a no-op on party-less
+  // campaigns. Idempotent.
+  ['sync-party-camp-stashes', syncAllPartyCampStashes, 190]
+].forEach(function(t){ registerLoadMigration(t[0], t[1], { order: t[2] }); });
+
 function migrateCampaign(raw){
   if(!raw || typeof raw !== 'object'){
     throw new Error('migrateCampaign: input is not an object');
@@ -984,92 +1112,13 @@ function migrateCampaign(raw){
     current = step.run(current);
     current.schemaVersion = step.to;
   }
-  // Foundation #234 — drop legacy campaign.log[]. The Campaign Log view now derives
-  // from eventLog. The string-only narrative entries the old field captured are not
-  // preserved (eventLog already has structured equivalents for everything that matters).
-  // Idempotent: subsequent loads find the field already gone and skip cleanly.
-  if(Array.isArray(current.log)){
-    delete current.log;
-  }
-  // Foundation #241 — reconcile rural population drift. Pre-fix campaigns may have
-  // peasantFamilies ≠ sum(rural hex.families) because the old monthly commit only updated
-  // the domain-level field. Idempotent: a no-op on already-consistent data.
-  reconcileRuralPopulation(current);
-  // Foundation #244 — strip mining-tagged income.other entries when the dwarven-mining
-  // house rule is off. See `stripUnusedMiningEntries` helper below; this call covers any
-  // domains stored inside `current.domains`. Callers that store domains separately (e.g. the
-  // Alpine UI splits `this.currentCampaign.domains` and `this.domains` apart) must also call
-  // `stripUnusedMiningEntries(separateDomainsArray, current.houseRules)` after migration.
-  stripUnusedMiningEntries(current.domains || [], current.houseRules || {});
-  // 2026-06-05 — remove the retired `tributePct` field (auto-tribute is RAW realm-families now). Idempotent.
-  migrateRemoveTributePct(current);
-  // Phase #440 stage 1 — additive five-axis classification migration. Idempotent.
-  // Walks campaign.characters[] and ensures every character has the canonical
-  // controlledBy / socialTier / lifecycleState / creatureTypes / isEnchantedCreature
-  // / hitDice fields. Legacy c.kind is preserved through stage 1 for display-string
-  // compat; stage 2 will land the deletion after the index.html sweep.
-  migrateAllCharacterClassification(current);
-  // Phase 3.6 Proficiency Throws PT-0 — materialize the loose character.proficiencies[] into the
-  // canonical { key, ranks (, spec) } shape on disk (idempotent). The proficiencies module's read
-  // layer already parses every legacy string form on the fly; this writes that view back so the
-  // stored field is canonical for the engine officer readers + integrators reading the .acks.json.
-  // Guarded: a no-op when the proficiencies module isn't loaded (standalone engine use). Runs after
-  // the five-axis classification migration. See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
-  if(global.ACKS && typeof global.ACKS.migrateAllCharacterProficiencies === 'function'){
-    global.ACKS.migrateAllCharacterProficiencies(current);
-  }
-  // Items I1 — character coin purse. Idempotent. Ensures every character has a
-  // coins:{pp,gp,ep,sp,cp} object (folding a legacy personalGp scalar into coins.gp)
-  // and keeps the personalGp mirror in lockstep (canonical-setter rule #10).
-  migrateAllCharacterCoins(current);
-  // #445 — Wave A relation backfill. Idempotent. Lifts character.liegeCharacterId,
-  // domain.magistrates, domain.liegeId, domain.expenses.tributeToLiege into
-  // henchmanships / specialistContracts / hirelingContracts / magistracies /
-  // vassalages / tributaryAgreements records. Additive; legacy fields preserved.
-  migrateLegacyToWaveARelations(current);
-  // #468 — Stash A.3 — materialize domain.treasury scalar into treasury-stash
-  // entities for each domain. Always-on core (the inventory-stash-system toggle
-  // was removed v0.17.0). Idempotent. Per Phase_2.95_Stash_Plan.md §6.3.
-  migrateAllDomainTreasuries(current);
-  // Items I1 (OQ9, 2026-06-03) — upgrade legacy coin|bulk|item stash/carry lines
-  // to the facet shape (facets[] + notableItemId) BEFORE reconcile reads them.
-  // Idempotent; skips free-text inventory strings.
-  migrateAllStashItemShapes(current);
-  // #469 — Stash A.4 — item-consolidation reconcile + treasury-scalar reconcile.
-  // Idempotent. Tidies legacy multi-entry stashes (e.g. multiple gp coin entries
-  // from pre-A.2 data) and catches any scalar drift from external writers.
-  reconcileAllStashes(current);
-  reconcileTreasuryScalars(current);
-  // 2026-05-30 post-survey scope reservations — lazy backfill of additive fields.
-  // Idempotent. Ensures Campaign/Hex/Character/Settlement/Event new optional fields
-  // exist on legacy saves. See Data_Dictionary.md §13.2 + §13.3.
-  lazyDefaultV1ScopeReservations(current);
-  // Phase 2.5 Monster Persistence (#476, M0) — lift legacy nested hex.lairs[] sub-entities to the
-  // first-class campaign.lairs[] collection (same pattern as the treasury→stash lift). Runs after
-  // lazyDefaultV1ScopeReservations guarantees campaign.lairs[]. Idempotent; a no-op on campaigns
-  // with no nested lairs (every shipped template). See migrateLegacyHexLairs below.
-  migrateLegacyHexLairs(current);
-  // Phase 3 Military W1 (2026-06-12) — lift nested garrison/mercenary-company units to the
-  // first-class campaign.units[] collection, reference-unified (the SAME object in both homes —
-  // the hexes precedent, Architecture §3.3). Runs after lazyDefaultV1ScopeReservations guarantees
-  // campaign.units[]/armies[]. Idempotent + self-healing in both directions (a JSON round-trip
-  // duplicates the shared objects; this re-unifies by id on every load).
-  migrateGarrisonUnitsToUnits(current);
-  // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
-  // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
-  // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
-  migrateAgriculturalToProjects(current);
-  // Phase 4 Construction Wave C — lift each domain's stronghold onto a first-class Constructible mirror
-  // (additive; the economy keeps reading the stronghold's own value — zero drift). Runs after the ag
-  // migration; both guarantee their collections via lazyDefaultV1ScopeReservations above. Idempotent.
-  migrateStrongholdComponentsToConstructibles(current);
-  // #521 follow-up — rebuild each party's member mirror + validate leader from the
-  // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
-  reconcilePartyMembership(current);
-  // Items I1 / Stash B — every party has a camp stash that travels with it. Runs after
-  // membership reconcile (needs leader/members) + treasury migration. Always-on core;
-  // a no-op on party-less campaigns (e.g. the templates). Idempotent.
-  syncAllPartyCampStashes(current);
+  // Run the registered per-load migration passes in order (the self-registration kernel —
+  // Architecture §9.4 / CLAUDE §15.5). These are the idempotent normalize / backfill / lift /
+  // reconcile passes that run on EVERY load regardless of schemaVersion; each is registered with
+  // an explicit `order` (the legacy 19 are seeded above with orders 10..190) so a module can
+  // self-register its pass from its own file. Replaces the old hand-ordered inline block — same
+  // passes, same order; the per-pass provenance comments now live on the seed descriptors above.
+  runLoadMigrations(current);
   return current;
 }
 
@@ -11989,6 +12038,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Migration
   MIGRATIONS, migrateCampaign,
+  // §15.5 load-migration self-registration (slice 4) — the per-load pass registry + runner.
+  registerLoadMigration, registeredLoadMigrations, runLoadMigrations,
   // Phase #440 stage 1 — additive five-axis classification migration (2026-05-29)
   migrateCharacterClassification, migrateAllCharacterClassification,
   // Foundation #244 — mining-entry stripper (callable independently of migrateCampaign for

@@ -251,5 +251,73 @@ ok('a conflicting category re-register keeps the original', (ACKS.HOUSERULE_CATE
 ok('registerHouseRuleCategory() with no arg is a safe no-op', (function(){ try { const n = ACKS.HOUSERULE_CATEGORIES.length; ACKS.registerHouseRuleCategory(); return ACKS.HOUSERULE_CATEGORIES.length === n; } catch(e){ return false; } })());
 
 // =============================================================================
+// SLICE 4 — the load-migration registry (registerLoadMigration).
+// =============================================================================
+// migrateCampaign()'s per-load pass list — the idempotent normalize / backfill / lift / reconcile
+// passes that run on EVERY load (distinct from the versioned MIGRATIONS schema-bump array) — is now
+// an accumulating, ORDER-CARRYING store a module extends from its own file via
+// ACKS.registerLoadMigration(name, fn, {order}). Unlike the prefix / collection / house-rule
+// families (SETS), the passes are an ORDERED PIPELINE, so each carries an explicit `order` and the
+// runner sorts by (order, registration-seq). The 19-pass contract below is node-captured from the
+// pre-refactor inline block (orders 10..190). A dropped / added / reordered pass fails here.
+const EXP_LOAD_MIGRATIONS = [
+  [10,'drop-legacy-log'],[20,'reconcile-rural-population'],[30,'strip-unused-mining'],
+  [40,'remove-tribute-pct'],[50,'character-classification'],[60,'character-proficiencies'],
+  [70,'character-coins'],[80,'wave-a-relations'],[90,'domain-treasuries'],[100,'stash-item-shapes'],
+  [110,'reconcile-stashes'],[120,'reconcile-treasury-scalars'],[130,'lazy-default-v1-reservations'],
+  [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[160,'agricultural-to-projects'],
+  [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes']
+];
+
+section('the seeded load-migration pipeline is byte-identical to the pre-refactor inline block');
+const lm = ACKS.registeredLoadMigrations();
+ok('exactly 19 passes seeded', lm.length === 19, 'got ' + lm.length);
+ok('passes in the exact pre-refactor order with the exact order numbers',
+  JSON.stringify(lm.map(p => [p.order, p.name])) === JSON.stringify(EXP_LOAD_MIGRATIONS),
+  'got ' + JSON.stringify(lm.map(p => [p.order, p.name])));
+ok('every pass has a function', lm.every(p => typeof p.fn === 'function'));
+ok('registeredLoadMigrations() returns a fresh array (mutating it cannot corrupt the store)',
+  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 19; })());
+
+section('registerLoadMigration — the kernel (explicit-order pipeline)');
+ok('registerLoadMigration exported', typeof ACKS.registerLoadMigration === 'function');
+ok('runLoadMigrations exported', typeof ACKS.runLoadMigrations === 'function');
+
+// a module self-registering a pass from its own file at load, with an order that slots between two
+// seeded passes — proving order placement AND that the pass actually RUNS via runLoadMigrations.
+ACKS.registerLoadMigration('__smoke-pass-a', function(c){ c.__a = true; }, { order: 55 });
+ACKS.registerLoadMigration('__smoke-pass-z', function(c){ c.__lastPass = 'z'; }, { order: 1e6 });
+const lm2 = ACKS.registeredLoadMigrations();
+ok('a fresh pass lands at its order slot (55 sits between classification@50 and proficiencies@60)',
+  lm2.findIndex(p => p.name === '__smoke-pass-a') === lm2.findIndex(p => p.name === 'character-classification') + 1);
+ok('an order-1e6 pass sorts to the very end', lm2[lm2.length - 1].name === '__smoke-pass-z');
+// the runner executes them in order, in place
+const lmProbe = { schemaVersion: 2, kind: 'campaign', id: 'cmp-lm', name: 'lm' };
+ACKS.runLoadMigrations(lmProbe);
+ok('runLoadMigrations fires a self-registered pass', lmProbe.__a === true && lmProbe.__lastPass === 'z');
+ok('migrateCampaign runs the registered passes (the freshly-registered one fired)',
+  ACKS.migrateCampaign({ schemaVersion:2, kind:'campaign', id:'cmp-lm2', name:'lm2' }).__lastPass === 'z');
+
+// a pass with no explicit order defaults toward the end (order 1000)
+ACKS.registerLoadMigration('__smoke-pass-default', function(){});
+ok('a pass with no order defaults to order 1000',
+  (ACKS.registeredLoadMigrations().find(p => p.name === '__smoke-pass-default') || {}).order === 1000);
+
+// idempotent: same name + same fn = silent no-op
+const lmFnX = function(){};
+ACKS.registerLoadMigration('__smoke-pass-idem', lmFnX, { order: 42 });
+const cntLM = ACKS.registeredLoadMigrations().length;
+ACKS.registerLoadMigration('__smoke-pass-idem', lmFnX, { order: 42 });
+ok('re-registering the same name + fn is idempotent (count unchanged)', ACKS.registeredLoadMigrations().length === cntLM);
+// conflict: same name + a DIFFERENT fn keeps the original (warns) and never reorders
+ACKS.registerLoadMigration('__smoke-pass-idem', function(c){ c.__clobbered = true; }, { order: 99 });
+const lmIdem = ACKS.registeredLoadMigrations().find(p => p.name === '__smoke-pass-idem');
+ok('a conflicting re-register keeps the original fn', lmIdem.fn === lmFnX);
+ok('a conflicting re-register keeps the original order (no silent reorder)', lmIdem.order === 42);
+// guards: missing args are safe no-ops, never throw
+ok('registerLoadMigration() with no args is a safe no-op', (function(){ try { const n = ACKS.registeredLoadMigrations().length; ACKS.registerLoadMigration(); return ACKS.registeredLoadMigrations().length === n; } catch(e){ return false; } })());
+ok('registerLoadMigration(name) with no fn does not register', (function(){ const n = ACKS.registeredLoadMigrations().length; ACKS.registerLoadMigration('__noFn'); return ACKS.registeredLoadMigrations().length === n; })());
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — self-registration.smoke.js: ' + pass + ' passed, ' + fail + ' failed.');
 if (fail) { console.log('  failing: ' + failures.join(' · ')); process.exit(1); }
