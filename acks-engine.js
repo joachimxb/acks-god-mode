@@ -10425,6 +10425,10 @@ function dayTickActivityInFlight(campaign){
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
   if(budgeted(campaign.hexes)) return true;
   if(Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.geography && budgeted(d.geography.hexes))) return true;
+  // Delves D5 (team burst11) — an active holed-up SettlementVisit is day-aware activity in flight:
+  // the slot-66 settlement-incidents consumer (acks-engine-delves.js) makes its 1/day urban-incident
+  // check while the party recuperates/studies/trains in town (JJ p.80).
+  if(Array.isArray(campaign.settlementVisits) && campaign.settlementVisits.some(v => v && v.status === 'active' && v.mode === 'holed-up')) return true;
   return false;
 }
 

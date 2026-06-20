@@ -17344,6 +17344,119 @@ document.addEventListener('alpine:init', () => {
      is a wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
 <!-- === @b11-politics   (team) — P-7 senate-materialization wizard: the generative Generate-Senate wizard/modal (launched from the 🏛 Senate tab) === -->
 <!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
+<!-- A floating launcher on the World ▸ 🕳️ Dungeons sub-view (the lane extends that view via this marker
+     region; it adds no top-level tab). Opens the off-screen Settlement-Visit panel (JJ ch.3). -->
+<button x-show="currentView === 'world' && worldSubView === 'dungeons'" x-cloak
+        @click="openSettlementVisits()"
+        class="fixed bottom-4 right-4 z-40 px-3 py-2 border border-ink rounded-full bg-amber-100 hover:bg-amber-200 shadow-lg text-sm font-semibold"
+        title="Settlement Visits (JJ ch.3) — hole up in town while the wounded recover / the mage researches; roll urban incidents">🏙 Settlement Visits<span class="ml-1 opacity-70" x-text="'· ' + svtVisits().length"></span></button>
+<!-- The Settlement-Visit panel: start a stay · the active/past visits · the selected visit's incident log. -->
+<div x-show="svtUI.open" x-cloak class="fixed inset-0 z-[64] flex items-center justify-center bg-black/40 p-4" @keydown.escape.window="svtUI.open && (svtUI.open = false)">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-4" @click.outside="svtUI.open = false">
+    <div class="flex items-center justify-between border-b border-ink/40 pb-2 mb-3">
+      <h3 class="font-bold text-lg">🏙 Settlement Visits <span class="text-sm opacity-70 font-normal">— off-screen town stays (JJ ch.3)</span></h3>
+      <button @click="svtUI.open = false" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Close">✕</button>
+    </div>
+
+    <!-- Start a visit -->
+    <div class="border border-ink/40 rounded p-3 mb-3 bg-yellow-50/40">
+      <div class="font-semibold text-sm mb-2">＋ Start a stay</div>
+      <div class="flex flex-wrap items-end gap-3 text-sm">
+        <label class="flex flex-col gap-0.5">Settlement
+          <select x-model="svtUI.startSettlementId" class="border border-ink rounded px-1 py-0.5 min-w-[12rem]">
+            <option value="">— pick a settlement —</option>
+            <template x-for="s in svtSettlementOptions()" :key="s.id"><option :value="s.id" :selected="svtUI.startSettlementId === s.id" x-text="s.name"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col gap-0.5">Mode
+          <select x-model="svtUI.startMode" class="border border-ink rounded px-1 py-0.5">
+            <option value="holed-up">Holed up (auto 1/day check)</option>
+            <option value="wandering">Wandering (GM-pressed)</option>
+            <option value="looking-for-trouble">Looking for trouble (GM-pressed)</option>
+          </select>
+        </label>
+        <button @click="svtStart()" :disabled="!svtUI.startSettlementId" class="px-3 py-1 border border-ink rounded bg-green-100 hover:bg-green-200 disabled:opacity-40 disabled:cursor-not-allowed">Start</button>
+      </div>
+      <div class="mt-2 text-sm">
+        <div class="opacity-70 mb-1">Who's in town:</div>
+        <div class="flex flex-wrap gap-x-3 gap-y-1 max-h-24 overflow-y-auto">
+          <template x-for="ch in svtCharacterOptions()" :key="ch.id">
+            <label class="flex items-center gap-1"><input type="checkbox" :checked="svtUI.startParticipantIds.includes(ch.id)" @change="svtToggleParticipant(ch.id)"><span x-text="ch.name || '(unnamed)'"></span></label>
+          </template>
+        </div>
+        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <!-- The visit list -->
+      <div class="w-44 shrink-0 border-r border-ink/30 pr-2">
+        <div class="text-xs font-semibold opacity-70 mb-1">Visits</div>
+        <template x-if="svtVisits().length === 0"><p class="text-xs italic opacity-50">No stays yet.</p></template>
+        <template x-for="v in svtVisits()" :key="v.id">
+          <button @click="svtUI.selectedId = v.id"
+                  class="block w-full text-left px-2 py-1 rounded text-sm mb-0.5 border"
+                  :class="svtUI.selectedId === v.id ? 'bg-amber-200 border-ink' : 'border-transparent hover:bg-yellow-100'">
+            <div class="font-medium truncate" x-text="svtSettlementName(v.settlementId)"></div>
+            <div class="text-xs opacity-70" x-text="v.mode + ' · ' + v.status + ' · ' + (v.incidents||[]).length + ' inc.'"></div>
+          </button>
+        </template>
+      </div>
+
+      <!-- The selected visit -->
+      <div class="flex-1 min-w-0">
+        <template x-if="!svtSelected()"><p class="text-sm italic opacity-50 py-8 text-center">Select a stay to see its incidents.</p></template>
+        <template x-if="svtSelected()">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <span class="font-semibold" x-text="svtSettlementName(svtSelected().settlementId)"></span>
+                <span class="text-sm opacity-70" x-text="' · ' + svtSelected().mode + ' · ' + svtSelected().status"></span>
+              </div>
+              <button x-show="svtSelected().status === 'active'" @click="svtDepart(svtSelected().id)" class="px-2 py-0.5 border border-ink rounded text-sm hover:bg-yellow-100" title="End the stay">🚪 Depart</button>
+            </div>
+            <div class="text-xs opacity-70 mb-2">In town: <span x-text="(svtSelected().participantCharacterIds||[]).map(id => svtCharName(id)).join(', ') || '—'"></span></div>
+
+            <div x-show="svtSelected().status === 'active'" class="flex items-center gap-2 mb-3">
+              <button @click="svtRoll()" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm">🎲 Roll an incident</button>
+              <label class="flex items-center gap-1 text-sm"><input type="checkbox" x-model="svtUI.afterDark"> after dark (+30)</label>
+            </div>
+
+            <div class="text-xs font-semibold opacity-70 mb-1">Incidents (newest first)</div>
+            <template x-if="svtIncidents().length === 0"><p class="text-sm italic opacity-50">No incidents yet.</p></template>
+            <div class="space-y-1.5">
+              <template x-for="(inc, i) in svtIncidents()" :key="i">
+                <div class="border border-ink/30 rounded p-2 text-sm" :class="inc.combatRisk ? 'bg-red-50' : (inc.diseaseExposure ? 'bg-orange-50' : 'bg-white/40')">
+                  <div class="font-medium">
+                    <span x-text="inc.label"></span>
+                    <span class="text-xs opacity-60" x-text="' (roll ' + inc.roll + (inc.afterDark ? ', after dark' : '') + ' · ' + inc.cite + ')'"></span>
+                  </div>
+                  <div class="text-xs mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                    <template x-if="inc.reaction"><span class="px-1 rounded bg-blue-100" x-text="'reaction: ' + inc.reaction.band + (inc.tone ? ' (' + inc.tone + ')' : '')"></span></template>
+                    <template x-if="inc.theft && inc.theft.failed"><span class="px-1 rounded bg-yellow-200" x-text="inc.theft.gpLost + 'gp lifted'"></span></template>
+                    <template x-if="inc.diseaseExposure"><span class="px-1 rounded bg-orange-200" x-text="'disease exposure' + (inc.disease ? (inc.disease.infected ? ' → ' + (inc.disease.label || 'infected') : ' (resisted)') : '')"></span></template>
+                    <template x-if="inc.authority"><span class="px-1 rounded bg-gray-200">authority</span></template>
+                    <template x-if="inc.rumor"><span class="px-1 rounded bg-green-100">rumor hook</span></template>
+                    <template x-if="inc.affectedName"><span class="opacity-70" x-text="'· ' + inc.affectedName"></span></template>
+                  </div>
+                  <!-- combat-risk → resolve as a fight (wound a participant via the shipped Mortal Wounds resolver) -->
+                  <div x-show="inc.combatRisk && !inc.casualty" class="text-xs mt-1 flex items-center gap-1">
+                    <span class="text-red-700">⚔ A fight may break out —</span>
+                    <select :id="'svtcas-' + i" class="border border-ink rounded px-1 text-xs">
+                      <template x-for="id in (svtSelected().participantCharacterIds||[])" :key="id"><option :value="id" x-text="svtCharName(id)"></option></template>
+                    </select>
+                    <button @click="svtResolveCasualty(document.getElementById('svtcas-' + i).value)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200">Resolve (wound)</button>
+                  </div>
+                  <template x-if="inc.casualty"><div class="text-xs mt-1 text-red-700" x-text="'⚔ ' + (inc.casualty.name || '') + ' — ' + (inc.casualty.conditionLabel || '') + (inc.casualty.outcome ? ' (' + inc.casualty.outcome + ')' : '')"></div></template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- === @b11-knowledge  (team) — Knowledge Wave B: the share-a-fact / promote-rumor→lore controls + provenance panel (📚 Knowledge tab) === -->
 <!-- === @b11-magicitems (team) — MI-3 magic-item market: the buy / sell / appraise wizard/modal (🪄 Magic Items tab) === -->
 <!-- === @b11-gladiators (team) — G5 round-by-round bout: the tactical-bout modal/overlay (⚔ Gladiators tab) === -->
@@ -19267,6 +19380,23 @@ return {
   //     state + methods ONLY after its own @b11-<lane> marker below; the Lead reconciles at integration. ───
   // === @b11-politics   (team) — P-7 senate-materialization wizard: state + methods ===
   // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
+  // Thin UI over the D5 engine (acks-engine-delves.js): start/depart a SettlementVisit, roll urban
+  // incidents (JJ ch.3), and resolve a combat-risk fight via the shipped Mortal Wounds resolver.
+  // No house rule (RAW core); the launcher floats on the World ▸ 🕳️ Dungeons sub-view.
+  svtUI: { open:false, selectedId:null, startSettlementId:'', startMode:'holed-up', startParticipantIds:[], afterDark:false },
+  openSettlementVisits(){ this.svtUI.open = true; if(!this.svtUI.selectedId){ const list = this.svtVisits(); if(list.length) this.svtUI.selectedId = list[0].id; } },
+  svtVisits(){ const c = this.currentCampaign; if(!c || !Array.isArray(c.settlementVisits)) return []; return c.settlementVisits.slice().sort((a,b)=> (a.status==='active'?0:1)-(b.status==='active'?0:1)); },
+  svtSelected(){ const c = this.currentCampaign; if(!c || !this.svtUI.selectedId) return null; return (c.settlementVisits||[]).find(v=>v && v.id===this.svtUI.selectedId) || null; },
+  svtSettlementOptions(){ const c = this.currentCampaign; if(!c) return []; const out = []; (c.settlements||[]).forEach(s=>{ if(s && s.id) out.push({ id:s.id, name:s.name||s.id }); }); (c.hexes||[]).forEach(h=>{ if(h && h.settlement && h.settlement.id && !out.find(x=>x.id===h.settlement.id)) out.push({ id:h.settlement.id, name:h.settlement.name||h.settlement.id }); }); return out; },
+  svtSettlementName(id){ const o = this.svtSettlementOptions().find(x=>x.id===id); return o ? o.name : 'the settlement'; },
+  svtCharacterOptions(){ const c = this.currentCampaign; return (c && Array.isArray(c.characters)) ? c.characters.filter(x=>x && x.alive!==false) : []; },
+  svtCharName(id){ const c = this.currentCampaign; const ch = ((c && c.characters)||[]).find(x=>x && x.id===id); return ch ? (ch.name||'(unnamed)') : id; },
+  svtToggleParticipant(id){ const i = this.svtUI.startParticipantIds.indexOf(id); if(i>=0) this.svtUI.startParticipantIds.splice(i,1); else this.svtUI.startParticipantIds.push(id); },
+  svtStart(){ const c = this.currentCampaign; if(!c || !this.svtUI.startSettlementId) return; const v = window.ACKS.startSettlementVisit(c, { settlementId:this.svtUI.startSettlementId, participantCharacterIds:this.svtUI.startParticipantIds.slice(), mode:this.svtUI.startMode }); if(v){ this.svtUI.selectedId = v.id; this.svtUI.startParticipantIds = []; this.markDirty(); this.schedulePersist(); this.showToast('🏙 Stay started in ' + this.svtSettlementName(v.settlementId)); } },
+  svtDepart(id){ const c = this.currentCampaign; window.ACKS.departSettlementVisit(c, id); this.markDirty(); this.schedulePersist(); this.showToast('🚪 Departed the settlement.'); },
+  svtRoll(){ const c = this.currentCampaign; const v = this.svtSelected(); if(!v || v.status!=='active') return; const rec = window.ACKS.rollAndApplySettlementIncident(c, v.id, { afterDark:this.svtUI.afterDark }); this.markDirty(); this.schedulePersist(); if(rec) this.showToast('🏙 ' + (rec.label || 'Incident')); },
+  svtIncidents(){ const v = this.svtSelected(); return (v && Array.isArray(v.incidents)) ? v.incidents.slice().reverse() : []; },
+  svtResolveCasualty(charId){ const c = this.currentCampaign; const v = this.svtSelected(); if(!v || !charId) return; const res = window.ACKS.resolveSettlementCasualty(c, v.id, charId); this.markDirty(); this.schedulePersist(); if(res) this.showToast('⚔ ' + this.svtCharName(charId) + ' — ' + (res.conditionLabel || 'wounded') + (res.outcome ? ' (' + res.outcome + ')' : '')); },
   // === @b11-knowledge  (team) — Knowledge Wave B (share / promote-rumor→lore / provenance): state + methods ===
   // === @b11-magicitems (team) — MI-3 magic-item market (buy / sell / appraise): state + methods ===
   // === @b11-gladiators (team) — G5 round-by-round tactical bout: state + methods ===

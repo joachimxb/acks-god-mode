@@ -2110,6 +2110,38 @@ function blankKnowledge(opts={}){
   };
 }
 
+// === Delves D5 (team burst11 2026-06-20) — the SettlementVisit entity (svt-, Wave F) =========
+// Phase_3.5_Delves_Plan.md §4.4 — the off-screen settlement layer: a settlement-scoped STAY record,
+// the vessel for the urban-incident generator (JJ ch.3 / pp.81–84) + the holed-up day-cadence mode.
+// The svt- prefix + campaign.settlementVisits[] collection + the registry kind 🛤 were RESERVED
+// 2026-05-30 (lazyDefaultV1ScopeReservations + blankCampaign + entity-registry); this lane mints the
+// factory that makes the kind real (+ the field-schema). The campaign-activity venues (Emporium /
+// Guildhouse / Temple / Tower — buy / hire / research) are NOT here — that's the activity-budget
+// #346 venue layer (Milestone A). The SettlementVisit is the adventure-INCIDENT surface only.
+function blankSettlementVisit(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.settlementVisit),   // 'svt-' (reserved 2026-05-30)
+    name: opts.name || '',                                // optional GM label (else derived from the settlement)
+    settlementId: opts.settlementId || null,
+    hexId: opts.hexId || null,                            // the settlement's hex (incident Event.context + day-clock)
+    partyId: opts.partyId || null,
+    participantCharacterIds: opts.participantCharacterIds || [],
+    mode: opts.mode || 'holed-up',                        // holed-up | wandering | looking-for-trouble (JJ p.80)
+    status: opts.status || 'active',                      // active | departed
+    // [{ dayInMonth, turn, roll(1d100[+30 dark]), afterDark, incidentKey, label, category, cite,
+    //    reactionCall, tone, reaction{natural,total,band}, theft{save,target,failed,gpLost},
+    //    diseaseExposure, combatRisk, authority, rumor, rewardGp, affectedCharacterId, resolved, eventId }]
+    incidents: opts.incidents || [],
+    arrivedAtTurn: opts.arrivedAtTurn || null,
+    arrivedAtDayInMonth: opts.arrivedAtDayInMonth || null,
+    departedAtTurn: opts.departedAtTurn || null,
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+// === end Delves D5 ===========================================================================
+
 Object.assign(ACKS, {
   blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
@@ -2134,6 +2166,8 @@ Object.assign(ACKS, {
   blankDeity, blankCongregation, blankDivineFavor,
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact + Knowledge per-knower relation ===
   blankLore, blankKnowledge,
+  // === Delves D5 (team burst11 2026-06-20) — SettlementVisit (svt-, the off-screen settlement layer) ===
+  blankSettlementVisit,
   MAGISTRATE_ROLES, MAGISTRATE_ROLE_KEYS, MAGISTRATE_SALARY_FRACTION, emptyMagistrates, ensureMagistratesShape, isCharacterQualifiedForRole,
   LOYALTY_BANDS, loyaltyBandFor, applyLoyaltyFloors, rollLoyalty
 });

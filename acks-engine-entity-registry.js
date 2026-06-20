@@ -266,11 +266,14 @@
       find: (c, id) => ((c && c.sageCommissions) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.subject) ? ('Research: ' + obj.subject) : (obj && obj.id) },
 
+    // Delves D5 (team burst11 2026-06-20) — the kind was reserved 2026-05-30; this lane mints the
+    // blankSettlementVisit factory + field-schema. displayName reads only blankSettlementVisit keys
+    // (name/id) per the registry⊆factory invariant (tests/smoke.js).
     { kind: 'settlementVisit', label: 'Settlement Visit', pluralLabel: 'Settlement Visits', icon: '🛤',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.settlementVisits) || [],
       find: (c, id) => ((c && c.settlementVisits) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => (obj && obj.id) },
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
 
     { kind: 'oath', label: 'Oath', pluralLabel: 'Oaths', icon: '🗡',
       addressable: true, chronicleable: true,
