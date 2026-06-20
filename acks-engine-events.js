@@ -228,6 +228,14 @@ const EVENT_KINDS = Object.freeze([
   'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
   // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
   'divine-wrath',           // the gods confront an arcane usurper of a settlement (Religion-emitted; GM-resolved)
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + divine transgression (JJ p.400) ===
+  // Record-only, engine-emitted (consecrateAltar / consecrateRuler / applyDivineTransgression already
+  // applied the state). consecrate-FIELDS + the generic DP spend stay under the shipped 'consecration'
+  // kind (kind-discriminated payload); the manifest's reserved consecrate-fields/divine-power-spend names
+  // are folded there. Carry the Event.context envelope.
+  'consecrate-altar',       // DP spent to consecrate an altar → a Place of Power (pinnacle/sinkhole)
+  'consecrate-ruler',       // a 9th+ chaplain blesses a ruler → a 12-month domain buff (morale/loyalty/vagary)
+  'divine-transgression',   // a divine caster offends his deity → the JJ p.400 table outcome (standing/death)
   // === Hijinks HJ-1 (team) ===
   // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
@@ -937,6 +945,19 @@ const EVENT_SCHEMAS = Object.freeze({
   'divine-wrath': {
     R: { settlementId: 'string', usurperCharacterId: 'string', level: 'number', severity: 'string' },
     O: { familiesXp: 'number', forceXp: 'number' }
+  },
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + transgression (JJ p.400) ===
+  'consecrate-altar': {
+    R: { casterCharacterId: 'string', settlementId: 'string', divinePowerSpentGp: 'number' },
+    O: { altarValueGp: 'number', placeOfPowerKind: 'string', placeOfPowerId: 'string' }
+  },
+  'consecrate-ruler': {
+    R: { casterCharacterId: 'string', domainId: 'string', divinePowerSpentGp: 'number' },
+    O: { rulerCharacterId: 'string', throwResult: 'object', buff: 'object' }
+  },
+  'divine-transgression': {
+    R: { characterId: 'string', tableRoll: 'number', transgression: 'string' },
+    O: { deityId: 'string', severity: 'string', standingEffect: 'string', died: 'boolean', narrativeNote: 'string' }
   },
   // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
   'hijink-attempted': {
@@ -2953,6 +2974,11 @@ registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
 // === Religion Wave E (2026-06-19) — divine-wrath shares the record-only audit posture (the monthly
 // processDivineWrathForTurn already escalated/faded the wrath; the handler keeps the event well-formed). ===
 registerEventHandler('divine-wrath', applyEvent_religionAudit);
+// === Religion R3/R5 (team burst10 2026-06-20) — consecration + transgression share the audit posture
+// (consecrateAltar / consecrateRuler / applyDivineTransgression already applied the state). ===
+registerEventHandler('consecrate-altar', applyEvent_religionAudit);
+registerEventHandler('consecrate-ruler', applyEvent_religionAudit);
+registerEventHandler('divine-transgression', applyEvent_religionAudit);
 // === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
 // startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
 // handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
@@ -6184,6 +6210,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Religion Wave E (2026-06-19) — owned by the monthly processDivineWrathForTurn (raw emit would
   // record a divine-wrath the settlement.divineWrath state + usurpation don't show). ===
   'divine-wrath',
+  // === Religion R3/R5 (team burst10 2026-06-20) — owned by the consecration + transgression verbs (raw
+  // emit would record an act the placesOfPower / consecrationBuff / favor standing state don't show; the
+  // GM performs them from the ⛪ Religion view / the character Faith tab). ===
+  'consecrate-altar', 'consecrate-ruler', 'divine-transgression',
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',

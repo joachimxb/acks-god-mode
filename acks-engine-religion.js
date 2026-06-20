@@ -626,6 +626,17 @@
       out.wrathManifestations = wrath.manifestations;
       out.wrathFaded = wrath.faded;
     } catch(_){ /* never let the wrath pass fail the religion consumer */ }
+
+    // 4) === @b10-religion (team) — Religion R3: expire the 12-month consecrate-ruler buff (RR p.422). The
+    // economy/loyalty READS gate on liveness (expiresAtTurn > currentTurn); this is GC — drop the stale
+    // object + log once it is no longer live (expiresAtTurn <= the turn being closed). NO new commitTurn
+    // line: it rides the shipped monthly consumer (consecrationBuff is a defensive field — no migration). ===
+    for(const d of (Array.isArray(campaign.domains) ? campaign.domains : [])){
+      if(d && d.consecrationBuff && (Number(d.consecrationBuff.expiresAtTurn) || 0) <= turn){
+        out.logEntries.push('📿 The divine consecration of ' + (d.name || d.id) + ' fades');
+        d.consecrationBuff = null;
+      }
+    }
     return out;
   }
 
@@ -983,6 +994,263 @@
     });
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Religion R3 — Using divine power: consecration + the buff effects (Phase_4_Religion_Plan.md §3.4/§5.3)
+  // ════════════════════════════════════════════════════════════════════════════
+  // consecrate-FIELDS shipped in R1 above (records domain.consecrationLandValueBonus — now READ by the
+  // economy at Revenue Collection, §9.1). R3 adds consecrate-ALTAR (→ a Place-of-Power stub on the
+  // settlement) + consecrate-RULER (→ a 12-month domain.consecrationBuff: +1 morale / +1 vassal loyalty /
+  // vagary advantage), the buff accessors the economy + the F&D loyalty roll read, and the buff GC in the
+  // monthly consumer above. RAW core — no house rule (D2). Every new field (consecrationBuff,
+  // lastRulerConsecrationTurn, settlement.placesOfPower[] entries, character.overcastTargetBonus) is
+  // DEFENSIVE — init-on-write, NOT on any factory, NOT in migrateCampaign — so templates/demo stay
+  // migrate-no-ops (religion.smoke §R0 guard).
+
+  // Consecrate an altar (RR p.422): a dedicated act (1 day / 500gp of altar value); spend DP = the altar
+  // value (or a humbler explicit divinePowerGp). Creates a Place of Power — a pinnacle of good (Lawful) or
+  // a sinkhole of evil (Chaotic), 100 sq ft per 100gp — recorded as a STUB on settlement.placesOfPower[]
+  // (Sanctums owns the on-site effects + the formal entity/prefix when it lands, §5.3). No throw. Emits
+  // `consecrate-altar`. (The sinkhole also satisfies the blood-sacrifice venue requirement, R2.)
+  function consecrateAltar(campaign, opts){
+    opts = opts || {};
+    const casterId = opts.casterId, settlementId = opts.settlementId;
+    const ch = _findChar(campaign, casterId);
+    if(!ch) return { ok: false, reason: 'no-caster' };
+    const s = _findSettlement(campaign, settlementId);
+    if(!s) return { ok: false, reason: 'no-settlement' };
+    const altarValueGp = Math.max(0, Math.round(Number(opts.altarValueGp) || 0));
+    if(altarValueGp <= 0) return { ok: false, reason: 'no-altar-value' };
+    const cost = Math.max(0, Math.round(Number(opts.divinePowerGp != null ? opts.divinePowerGp : altarValueGp) || 0));
+    const spend = spendDivinePower(campaign, casterId, cost);
+    if(!spend.ok) return { ok: false, reason: 'insufficient-divine-power', cost, available: spend.remaining };
+    const deity = deityOf(campaign, casterId);
+    const align = (deity && deity.alignment) || ch.alignment || 'Neutral';
+    const kind = (align === 'Chaotic') ? 'sinkhole' : 'pinnacle';   // sinkhole of evil / pinnacle of good (RR p.422)
+    const pop = {
+      id: 'pop-' + Math.random().toString(36).slice(2, 9),          // a Place-of-Power STUB (Sanctums formalizes the entity + prefix)
+      kind, rank: 'minor', sizeSqFt: altarValueGp,                  // 100 sq ft / 100gp → 1 sq ft / gp
+      deityId: deity ? deity.id : null, sourceAltarValueGp: altarValueGp,
+      consecratedByCharacterId: casterId, consecratedAtTurn: campaign.currentTurn || 1, dispelled: false
+    };
+    if(!Array.isArray(s.placesOfPower)) s.placesOfPower = [];
+    s.placesOfPower.push(pop);
+    _recordReligionEvent(campaign, 'consecrate-altar',
+      { casterCharacterId: casterId, settlementId, altarValueGp, divinePowerSpentGp: cost, placeOfPowerKind: kind, placeOfPowerId: pop.id },
+      { narrative: (ch.name || casterId) + ' consecrates ' + (kind === 'sinkhole' ? 'a sinkhole of evil' : 'a pinnacle of good') + ' at ' + (s.name || settlementId) + ' — ' + cost.toLocaleString() + 'gp DP',
+        context: { settlementId, primaryHexId: _settlementHexId(campaign, s),
+          relatedEntities: [{ kind: 'character', id: casterId, role: 'subject' }, { kind: 'settlement', id: settlementId, role: 'site' }] } });
+    return { ok: true, cost, placeOfPower: pop, remaining: spend.remaining };
+  }
+
+  // Consecrate a ruler (RR p.422): a 9th+ divine caster (the domain's chaplain) blesses its ruler — a
+  // dedicated act, ONCE PER YEAR (12 months). Spend DP = the ruler's monthly domain revenue; a magic-
+  // research throw. Success → a 12-month buff (domain base morale +1, +1 vassal loyalty, vagaries rolled
+  // twice take-better). Natural 1 → the awry buff (−1 morale, −1 loyalty, vagary disadvantage). DP is
+  // spent regardless of the throw; a plain failure (not a nat-1) grants no buff. Emits `consecrate-ruler`.
+  function consecrateRuler(campaign, opts){
+    opts = opts || {};
+    const casterId = opts.casterId, domainId = opts.domainId;
+    const ch = _findChar(campaign, casterId), d = _findDomain(campaign, domainId);
+    if(!ch) return { ok: false, reason: 'no-caster' };
+    if(!d) return { ok: false, reason: 'no-domain' };
+    if((ch.level || 1) < 9) return { ok: false, reason: 'caster-below-9th' };
+    if(!isDivineCaster(ch)) return { ok: false, reason: 'not-divine-caster' };
+    const turn = campaign.currentTurn || 1;
+    const last = Number(d.lastRulerConsecrationTurn);
+    if(!isNaN(last) && (turn - last) < 12) return { ok: false, reason: 'already-consecrated-this-year', nextTurn: last + 12 };
+    const A = _A();
+    const revenue = Math.max(0, Math.round(
+      (typeof A.monthlyGrossIncome === 'function') ? (A.monthlyGrossIncome(campaign, d) || 0)
+      : (typeof A.domainIncome === 'function') ? (A.domainIncome(campaign, d) || 0) : 0));
+    const spend = spendDivinePower(campaign, casterId, revenue);
+    if(!spend.ok) return { ok: false, reason: 'insufficient-divine-power', cost: revenue, available: spend.remaining };
+    const throwResult = rollDivineThrow(campaign, casterId, { rng: opts.rng, target: opts.target });
+    d.lastRulerConsecrationTurn = turn;                              // the rite was performed (1×/year gate) regardless of the throw
+    const rulerId = d.rulerCharacterId
+      || ((typeof A.rulerCharacter === 'function') ? ((A.rulerCharacter(campaign, d) || {}).id) : null) || null;
+    let buff = null;
+    if(throwResult.success){
+      buff = { grantedAtTurn: turn, expiresAtTurn: turn + 12, moraleBonus: 1, loyaltyBonus: 1, vagaryAdvantage: true, awry: false };
+    } else if(throwResult.natural1){
+      buff = { grantedAtTurn: turn, expiresAtTurn: turn + 12, moraleBonus: -1, loyaltyBonus: -1, vagaryAdvantage: false, vagaryDisadvantage: true, awry: true };
+    }
+    if(buff) d.consecrationBuff = buff;                              // a plain throw failure grants no buff (DP still spent)
+    _recordReligionEvent(campaign, 'consecrate-ruler',
+      { casterCharacterId: casterId, rulerCharacterId: rulerId, domainId, divinePowerSpentGp: revenue, throwResult, buff },
+      { narrative: (ch.name || casterId) + ' consecrates the ruler of ' + (d.name || domainId) + ' — ' + revenue.toLocaleString() + 'gp DP, '
+          + (throwResult.success ? 'blessed (12 months: +1 morale, +1 vassal loyalty, vagary advantage)'
+             : throwResult.natural1 ? 'AWRY (12 months: −1 morale, −1 loyalty, vagary disadvantage)' : 'no effect (throw failed)'),
+        context: { domainId, relatedEntities: [{ kind: 'character', id: casterId, role: 'subject' }]
+          .concat(rulerId ? [{ kind: 'character', id: rulerId, role: 'beneficiary' }] : [])
+          .concat([{ kind: 'domain', id: domainId, role: 'site' }]) } });
+    return { ok: true, cost: revenue, throwResult, buff, remaining: spend.remaining };
+  }
+
+  // ── Consecration-buff accessors (read by the economy + the F&D loyalty roll, §9.2) ──
+  // The live 12-month consecrate-ruler buff on a domain, or null. Liveness: expiresAtTurn > currentTurn
+  // (the buff applies for the 12 turns after the grant; the monthly consumer GCs the stale object).
+  function _liveConsecrationBuff(d, currentTurn){
+    const b = d && d.consecrationBuff;
+    if(!b || typeof b !== 'object') return null;
+    return ((Number(b.expiresAtTurn) || 0) > currentTurn) ? b : null;
+  }
+  function domainConsecrationBuff(campaign, d){
+    return _liveConsecrationBuff(d, _currentTurn(campaign));
+  }
+  // The morale-modifier row (or null) for moraleModifiersFor (economy.js, late-bound). +1 normally; −1 awry.
+  function domainConsecrationMoraleRow(campaign, d){
+    const b = _liveConsecrationBuff(d, _currentTurn(campaign));
+    if(!b || !b.moraleBonus) return null;
+    return { label: (b.moraleBonus > 0 ? 'Ruler consecrated by the gods (RR p.422)' : 'The ruler’s consecration went awry (RR p.422)'), value: b.moraleBonus };
+  }
+  // +1 (or −1, awry) to a vassal ruler's loyalty rolls when their LIEGE rules a domain with a live
+  // consecration buff (RR p.422). Mirrors officeLoyaltyBonusFor; the caller (_favorDutyLoyaltyRoll) keeps
+  // the POSITIVE bonus non-stacking with the Office favor (OQ5), while an awry −1 still applies.
+  function domainConsecrationVassalLoyaltyBonus(campaign, characterId){
+    if(!campaign || !characterId) return 0;
+    const v = (campaign.vassalages || []).find(x => x && x.status === 'active' && x.vassalRulerCharacterId === characterId);
+    const liegeId = v ? v.suzerainCharacterId : null;
+    if(!liegeId) return 0;
+    const turn = _currentTurn(campaign);
+    for(const d of (campaign.domains || [])){
+      if(!d || d.rulerCharacterId !== liegeId) continue;
+      const b = _liveConsecrationBuff(d, turn);
+      if(b && b.loyaltyBonus) return b.loyaltyBonus;
+    }
+    return 0;
+  }
+  // The recorded vagary seam (RR p.422 "roll twice, take the better"): 'advantage' | 'disadvantage' | null.
+  // The Military vagary roller reads this when wired (a recorded seam this burst — Plan §9.3 / §10 scope).
+  function domainConsecrationVagaryAdvantage(campaign, domainId){
+    const d = _findDomain(campaign, domainId);
+    const b = d ? _liveConsecrationBuff(d, _currentTurn(campaign)) : null;
+    if(!b) return null;
+    return b.vagaryAdvantage ? 'advantage' : (b.vagaryDisadvantage ? 'disadvantage' : null);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Religion R5 — Codes of Behavior + the Divine Transgression table (Phase_4_Religion_Plan.md §3.6)
+  // ════════════════════════════════════════════════════════════════════════════
+  // The d% table a divine caster rolls on a divine-overcasting fumble OR when he offends his deity (JJ p.400
+  // "Calamity and Disfavor" — the Judge may invoke it for any sufficiently offensive act). Mechanical facts
+  // (the d% ranges + the named outcome + its effect) reorganized to data per §13.6 — terse ORIGINAL glosses,
+  // not the rulebook prose. The standing consequence rides the SHIPPED setDivineFavorStanding: a 'lapsed'
+  // favor already suspends divine-power accrual (§4.3), and `atone` restores it. The lethal high end routes
+  // through the shipped death recorder (recordCharacterDeath, CL-4a) when present. No house rule (core RAW).
+
+  // standingEffect ∈ 'none' | 'lapsed' (disfavored until atonement) | 'dead'. meta carries the specific loss.
+  const DIVINE_TRANSGRESSION_TABLE = Object.freeze([
+    { min: 1,  max: 60,  key: 'failure',           label: 'Failure',                standingEffect: 'none',   gloss: 'The overcasting fails; nothing worse befalls the caster.' },
+    { min: 61, max: 65,  key: 'prostration',       label: 'Prostration Required',   standingEffect: 'none',   gloss: 'The god demands public obeisance — prostrate to make the casting succeed, or stay standing and it fails.' },
+    { min: 66, max: 68,  key: 'trickster',         label: 'Trickster',              standingEffect: 'none',   gloss: 'Another god answers in his place — a random divine spell of the same level goes off instead.' },
+    { min: 69, max: 71,  key: 'castigation',        label: 'Castigation',           standingEffect: 'none',   gloss: 'The casting succeeds but wracks the caster (1d4 luminous — necrotic if Chaotic — per spell level).' },
+    { min: 72, max: 74,  key: 'target-self',        label: 'Target Self',           standingEffect: 'none',   gloss: 'The spell turns on the caster (a beneficial spell is treated as Castigation).' },
+    { min: 75, max: 77,  key: 'target-ally',        label: 'Target Ally',           standingEffect: 'none',   gloss: 'The spell strikes a random ally in range (none in range → treat as Target Self).' },
+    { min: 78, max: 80,  key: 'link-severed',       label: 'Divine Link Severed',   standingEffect: 'none',   gloss: 'The casting fails; the caster cannot cast divine spells for 1d4+1 rounds.' },
+    { min: 81, max: 83,  key: 'unconscious',        label: 'Unconscious',           standingEffect: 'none',   gloss: 'The casting fails; the caster falls unconscious for 1d4+1 rounds.' },
+    { min: 84, max: 86,  key: 'repertoire-loss',    label: 'Repertoire Loss',       standingEffect: 'lapsed', meta: { lostRepertoire: true }, gloss: 'The casting fails; the caster may not cast that spell again until he receives an atonement.' },
+    { min: 87, max: 89,  key: 'disfavor',           label: 'Severe Divine Disfavor',standingEffect: 'lapsed', gloss: 'The casting fails; the caster is disfavored — divine power is suspended until he is the beneficiary of an atonement.' },
+    { min: 90, max: 91,  key: 'loss-of-powers',     label: 'Loss of Powers',        standingEffect: 'lapsed', meta: { lostClassPowers: true }, gloss: 'The casting fails; the caster loses his class powers (other than spellcasting) until atonement.' },
+    { min: 92, max: 93,  key: 'divine-dislike',     label: 'Divine Dislike',        standingEffect: 'none',   meta: { overcastTargetBonus: 1 }, gloss: 'The casting fails; the caster permanently raises his overcasting target value by 1.' },
+    { min: 94, max: 95,  key: 'divine-signature',   label: 'Divine Signature',      standingEffect: 'none',   meta: { signature: true }, gloss: 'The casting fails; the caster gains a permanent side effect (the GM rolls the Spell Signature sub-table).' },
+    { min: 96, max: 97,  key: 'mission',            label: 'Mission from God',      standingEffect: 'none',   meta: { quest: true }, gloss: 'The casting succeeds, but the caster is charged with a quest in his deity’s service.' },
+    { min: 98, max: 99,  key: 'bolt-from-heaven',   label: 'Bolt from Heaven',      standingEffect: 'dead',   meta: { restorable: 'reluctant' }, gloss: 'The deity smites the caster dead. He can be restored, but no one of his faith will do so willingly — and a same-faith caster who tries is smitten too.' },
+    { min: 100,max: 100, key: 'death',              label: 'Death',                 standingEffect: 'dead',   meta: { restorable: 'miracle-or-wish' }, gloss: 'Servants of death drag the caster body and soul into the underworld — restorable only by miracle or wish.' }
+  ]);
+  function lookupDivineTransgression(roll){
+    const r = Math.max(1, Math.min(100, Math.round(Number(roll) || 0)));
+    return DIVINE_TRANSGRESSION_TABLE.find(row => r >= row.min && r <= row.max) || null;
+  }
+
+  // Roll on the Divine Transgression table (1d% + an optional GM modifier — e.g. an impious ruler widens
+  // the awry range). Returns { natural, mod, total, row }.
+  function rollDivineTransgression(campaign, casterId, opts){
+    opts = opts || {};
+    const rng = _rng(opts);
+    const natural = 1 + Math.floor((rng() || 0) * 100);
+    const total = Math.max(1, Math.min(100, natural + (Number(opts.mod) || 0)));
+    return { natural, mod: Number(opts.mod) || 0, total, row: lookupDivineTransgression(total) };
+  }
+
+  // Apply a Divine Transgression to a caster (the manual GM trigger + the overcast-fumble hook). Rolls,
+  // looks up the row, applies the mechanical consequence it can (standing → lapsed → DP suspended until
+  // atonement; the permanent overcast-target bump; the lethal high end via the shipped death recorder),
+  // logs it on the favor's transgressionsLog, and emits `divine-transgression`. The transient/combat-scale
+  // outcomes (castigation damage, target-self/ally, link-severed, unconscious, signature/mission/quest) are
+  // surfaced in the result + the event for the GM to narrate — not auto-applied (no combat state here).
+  function applyDivineTransgression(campaign, casterId, opts){
+    opts = opts || {};
+    const ch = _findChar(campaign, casterId);
+    if(!ch) return { ok: false, reason: 'no-caster' };
+    const rolled = rollDivineTransgression(campaign, casterId, opts);
+    const row = rolled.row;
+    if(!row) return { ok: false, reason: 'no-row', roll: rolled };
+    const A = _A();
+    const turn = campaign.currentTurn || 1;
+    const meta = row.meta || {};
+    let died = false, standingChanged = null;
+
+    // Standing consequence — lapsed → divine-power accrual suspended until atonement (the shipped gate, §4.3).
+    const fav = divineFavorOf(campaign, casterId);
+    if(row.standingEffect === 'lapsed' && fav && fav.standing === 'good-standing'){
+      setDivineFavorStanding(campaign, fav.id, 'lapsed', 'divine-transgression: ' + row.key);
+      standingChanged = 'lapsed';
+    }
+    // Permanent overcast-target bump (Divine Dislike) — a defensive field (no factory/migration change).
+    if(meta.overcastTargetBonus){ ch.overcastTargetBonus = (Number(ch.overcastTargetBonus) || 0) + meta.overcastTargetBonus; }
+    // The lethal high end (Bolt from Heaven / Death) — route through the shipped death recorder (CL-4a).
+    if(row.standingEffect === 'dead'){
+      died = true;
+      const deathOpts = { cause: 'divine-transgression', narrative: (ch.name || casterId) + ' is slain by divine wrath (' + row.label + ')' };
+      if(typeof A.recordCharacterDeath === 'function'){
+        try { A.recordCharacterDeath(campaign, ch, deathOpts); }
+        catch(_){ ch.lifecycleState = 'deceased'; ch.alive = false; }
+      } else { ch.lifecycleState = 'deceased'; ch.alive = false; }
+    }
+    // Log on the favor (created on demand if the caster has none — a transgression presumes a relationship).
+    const logFav = fav || ensureDivineFavor(campaign, casterId, (deityOf(campaign, casterId) || {}).id || null);
+    if(logFav){
+      if(!Array.isArray(logFav.transgressionsLog)) logFav.transgressionsLog = [];
+      logFav.transgressionsLog.push({ turn, kind: row.key, severity: row.label, tableRoll: rolled.total,
+        consequence: row.gloss, standingEffect: row.standingEffect, meta, atonedAtTurn: null });
+    }
+    const deity = deityOf(campaign, casterId);
+    _recordReligionEvent(campaign, 'divine-transgression',
+      { characterId: casterId, deityId: deity ? deity.id : null, tableRoll: rolled.total, transgression: row.key,
+        severity: row.label, standingEffect: row.standingEffect, died, narrativeNote: row.gloss },
+      { narrative: (ch.name || casterId) + ' transgresses — ' + row.label + ' (d% ' + rolled.total + '): ' + row.gloss,
+        context: { relatedEntities: [{ kind: 'character', id: casterId, role: 'subject' }]
+          .concat(deity ? [{ kind: 'deity', id: deity.id, role: 'patron' }] : []) } });
+    return { ok: true, roll: rolled, row, standingChanged, died, overcastTargetBonus: ch.overcastTargetBonus || 0 };
+  }
+
+  // Atonement (the restore path, RR p.422 — the until-atonement consequences end): return a lapsed/
+  // excommunicate caster to good standing, stamp the open transgression-log entries atonedAtTurn, emit
+  // `divine-favor-changed` (action 'atonement'). Re-enables divine-power accrual (the shipped gate).
+  // The permanent Divine-Dislike overcast bump is NOT cleared (it is permanent, RR/JJ).
+  function atone(campaign, casterId, opts){
+    opts = opts || {};
+    const ch = _findChar(campaign, casterId);
+    if(!ch) return { ok: false, reason: 'no-caster' };
+    const fav = divineFavorOf(campaign, casterId);
+    if(!fav) return { ok: false, reason: 'no-favor' };
+    const turn = campaign.currentTurn || 1;
+    const wasStanding = fav.standing;
+    if(fav.standing !== 'good-standing') setDivineFavorStanding(campaign, fav.id, 'good-standing', 'atonement');
+    let cleared = 0;
+    for(const t of (Array.isArray(fav.transgressionsLog) ? fav.transgressionsLog : [])){
+      if(t && t.atonedAtTurn == null && (t.standingEffect === 'lapsed' || (t.meta && (t.meta.lostClassPowers || t.meta.lostRepertoire)))){
+        t.atonedAtTurn = turn; cleared++;
+      }
+    }
+    _recordReligionEvent(campaign, 'divine-favor-changed',
+      { characterId: casterId, deityId: fav.deityId, standing: fav.standing, previousStanding: wasStanding, action: 'atonement', clearedTransgressions: cleared },
+      { narrative: (ch.name || casterId) + ' receives an atonement — restored to good standing',
+        context: { relatedEntities: [{ kind: 'character', id: casterId, role: 'subject' }]
+          .concat(fav.deityId ? [{ kind: 'deity', id: fav.deityId, role: 'patron' }] : []) } });
+    return { ok: true, standing: fav.standing, previousStanding: wasStanding, clearedTransgressions: cleared };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     DIVINE_CLASSES,
@@ -1010,7 +1278,12 @@
     proposeReligionDay, commitReligionWeek,
     // ── Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ──
     settlementDivineWrath, wrathSeverityForLevel, divineWrathForceXp, processDivineWrathForTurn,
-    congregationUsurpedSettlementWeeklyGp
+    congregationUsurpedSettlementWeeklyGp,
+    // ── Religion R3 (team burst10 2026-06-20) — consecration (altar/ruler) + the buff accessors (RR p.422) ──
+    consecrateAltar, consecrateRuler,
+    domainConsecrationBuff, domainConsecrationMoraleRow, domainConsecrationVassalLoyaltyBonus, domainConsecrationVagaryAdvantage,
+    // ── Religion R5 (team burst10 2026-06-20) — the Divine Transgression table (JJ p.400) ──
+    DIVINE_TRANSGRESSION_TABLE, lookupDivineTransgression, rollDivineTransgression, applyDivineTransgression, atone
   });
 
 })(typeof window !== 'undefined' ? window : global);

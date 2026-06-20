@@ -14194,13 +14194,42 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
                 </select>
               </label>
-              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value (pending the R3 economy read)">Consecrate</button>
+              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value at the next Revenue Collection (cumulative; may exceed the RR p.341 cap)">Consecrate</button>
             </div>
             <div class="flex items-end gap-1">
               <label class="flex flex-col text-xs">Pray &amp; sacrifice gp<input type="number" min="0" x-model.number="religionPrayGp[row.ch.id]" class="w-24"></label>
               <button @click="religionPray(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Return divine power to the deity → campaign XP above your monthly threshold, settled on Advance Month">Pray</button>
             </div>
           </div>
+          <!-- === @b10-religion (team) — R3 consecrate altar/ruler + R5 transgression/atonement (RR p.422 / JJ p.400) === -->
+          <div class="flex flex-wrap items-end gap-3 mt-2 text-sm border-t border-ink/20 pt-2">
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate altar
+                <select x-model="religionAltarSettlement[row.ch.id]" class="w-32">
+                  <option value="">— settlement —</option>
+                  <template x-for="s in religionSettlementOptions()" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                </select>
+              </label>
+              <label class="flex flex-col text-xs">value gp<input type="number" min="0" x-model.number="religionAltarValue[row.ch.id]" class="w-24"></label>
+              <button @click="religionConsecrateAltar(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionAltarSettlement[row.ch.id] || !(religionAltarValue[row.ch.id] > 0)" title="Spend DP = altar value → a Place of Power (pinnacle of good / sinkhole of evil), 100 sq ft per 100gp (RR p.422)">Consecrate altar</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate ruler (9th+ chaplain)
+                <select x-model="religionRulerDomain[row.ch.id]" class="w-36">
+                  <option value="">— domain —</option>
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+                </select>
+              </label>
+              <button @click="religionConsecrateRuler(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionRulerDomain[row.ch.id]" title="Once per year: spend DP = the ruler's monthly revenue + a throw → 12 months of +1 base morale, +1 vassal loyalty, vagary advantage (RR p.422)">Consecrate ruler</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <button @click="religionRollTransgression(row.ch.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="Roll on the Divine Transgression table (JJ p.400) — the caster has offended his deity (the manual GM trigger)">⚖ Transgression</button>
+              <button x-show="row.favor && row.favor.standing && row.favor.standing !== 'good-standing'" @click="religionAtone(row.ch.id)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200" title="Atonement restores good standing — re-enables divine-power accrual (RR p.422)">🕊 Atone</button>
+            </div>
+          </div>
+          <template x-if="religionTransgressionResult[row.ch.id]">
+            <p class="text-xs mt-1" :class="religionTransgressionResult[row.ch.id].died ? 'text-red-700 font-semibold' : (religionTransgressionResult[row.ch.id].standingChanged ? 'text-amber-700' : 'opacity-70')" x-text="'⚖ ' + religionTransgressionResult[row.ch.id].text"></p>
+          </template>
         </div>
       </template>
     </div>
@@ -18826,6 +18855,54 @@ return {
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
   // === @b10-treasure   (team) — Treasure T3/T4/T5 special-treasures + magic-fill + modes: state + methods ===
   // === @b10-religion   (team) — Religion R3 consecration + R5 transgression: state + methods ===
+  // Thin Alpine layer over the acks-engine-religion.js R3/R5 verbs (consecrateAltar / consecrateRuler /
+  // applyDivineTransgression / atone). Surfaced as a second action row + a result line per divine caster
+  // in the ⛪ Religion view's 📿 Divine-power panel. Each action mutates currentCampaign through the engine
+  // (which emits the typed events) then markDirty + schedulePersist + a toast. (consecrate-fields shipped R1.)
+  religionAltarSettlement: {},     // per-caster consecrate-altar target settlement (keyed by charId)
+  religionAltarValue: {},          // per-caster altar value gp
+  religionRulerDomain: {},         // per-caster consecrate-ruler target domain
+  religionTransgressionResult: {}, // per-caster last divine-transgression result (drives the result line)
+  religionSettlementOptions(){ return ((this.currentCampaign && this.currentCampaign.settlements) || []).map(s => ({ id: s.id, name: s.name || s.id })); },
+  religionConsecrateAltar(charId){
+    const sid = this.religionAltarSettlement[charId]; const val = Number(this.religionAltarValue[charId]) || 0;
+    if(!sid || val <= 0) return;
+    const r = window.ACKS.consecrateAltar(this.currentCampaign, { casterId: charId, settlementId: sid, altarValueGp: val });
+    if(!r || !r.ok){ this.showToast('Cannot consecrate altar: ' + (r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP') : (r && r.reason) || 'failed')); return; }
+    this.religionAltarValue[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Consecrated ' + (r.placeOfPower && r.placeOfPower.kind === 'sinkhole' ? 'a sinkhole of evil' : 'a pinnacle of good') + ' — ' + (r.cost || 0).toLocaleString() + ' gp DP');
+  },
+  religionConsecrateRuler(charId){
+    const domId = this.religionRulerDomain[charId]; if(!domId) return;
+    const r = window.ACKS.consecrateRuler(this.currentCampaign, { casterId: charId, domainId: domId });
+    if(!r || !r.ok){
+      const why = r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP')
+        : r && r.reason === 'caster-below-9th' ? 'caster must be 9th level or higher'
+        : r && r.reason === 'not-divine-caster' ? 'not a divine caster'
+        : r && r.reason === 'already-consecrated-this-year' ? ('already consecrated this year (next turn ' + (r.nextTurn || '?') + ')')
+        : (r && r.reason) || 'failed';
+      this.showToast('Cannot consecrate ruler: ' + why); return;
+    }
+    this.markDirty(); this.schedulePersist();
+    const t = r.throwResult || {};
+    this.showToast('Consecrated the ruler — ' + (r.cost || 0).toLocaleString() + ' gp DP, ' + (t.success ? 'blessed (12 mo: +1 morale, +1 vassal loyalty)' : t.natural1 ? 'AWRY (12 mo: −1 morale, −1 loyalty)' : 'throw failed (no buff)'));
+  },
+  religionRollTransgression(charId){
+    const r = window.ACKS.applyDivineTransgression(this.currentCampaign, charId, {});
+    if(!r || !r.ok){ this.showToast('Cannot roll transgression: ' + ((r && r.reason) || 'failed')); return; }
+    const row = r.row || {};
+    this.religionTransgressionResult[charId] = { text: row.label + ' (d% ' + (r.roll && r.roll.total) + '): ' + (row.gloss || ''), died: !!r.died, standingChanged: r.standingChanged };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('⚖ ' + row.label + ' (d% ' + (r.roll && r.roll.total) + ')' + (r.died ? ' — slain!' : r.standingChanged ? ' — disfavored (lapsed)' : ''));
+  },
+  religionAtone(charId){
+    const r = window.ACKS.atone(this.currentCampaign, charId, {});
+    if(!r || !r.ok){ this.showToast('Cannot atone: ' + ((r && r.reason) || 'failed')); return; }
+    this.religionTransgressionResult[charId] = null;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🕊 Atoned — restored to good standing');
+  },
   // ─── #555 Wave Inspector-B (2026-05-31) — top-level Inspector tab state + methods ───
   // The Inspector is a schema-driven Browse/Inspect/Edit/Create tool for any entity kind.
   // Reads from the Entity Registry (#550) for kind enumeration + lookups, and from the
@@ -24908,11 +24985,17 @@ return {
     }
     // RR p.348 Office favor (F&D-8) — +1 to this character's loyalty rolls when his LIEGE holds an
     // active ceremonial office (the office raises the holder's prestige → his vassals are more loyal).
+    // === @b10-religion (team) — Religion R3 consecrate-ruler (RR p.422) gives the same +1 (or −1 if the
+    // rite went awry). The two POSITIVE prestige bonuses are non-stacking (OQ5 — take the max); an awry
+    // −1 still applies. Mirrors _favorDutyLoyaltyRoll's religiousBonus. ===
     let officeNote = '';
-    if(window.ACKS && window.ACKS.officeLoyaltyBonusFor){
-      const ob = window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id);
-      if(ob){ mod += ob; officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348)."; }
-    }
+    const _ob = (window.ACKS && window.ACKS.officeLoyaltyBonusFor) ? (window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id) || 0) : 0;
+    const _cb = (window.ACKS && window.ACKS.domainConsecrationVassalLoyaltyBonus) ? (window.ACKS.domainConsecrationVassalLoyaltyBonus(this.currentCampaign, ch.id) || 0) : 0;
+    const _religiousBonus = _cb < 0 ? (_ob + _cb) : Math.max(_ob, _cb);
+    if(_religiousBonus){ mod += _religiousBonus; }
+    if(_ob > 0) officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348).";
+    if(_cb > 0) officeNote += (officeNote ? ' ' : '') + (_ob > 0 ? '(also consecrated — non-stacking)' : ('+1 — ' + (ch.name || 'this vassal') + "'s ruler is consecrated by the gods (RR p.422)."));
+    else if(_cb < 0) officeNote += (officeNote ? ' ' : '') + "−1 — the ruler's consecration went awry (RR p.422).";
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
