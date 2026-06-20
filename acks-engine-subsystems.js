@@ -6207,6 +6207,84 @@ function _reconcileBanditrySubset(campaign, d, bands, target, opts){
   }
   return { action: null, bands };
 }
+// ── The NPC bandit-leader challenger (RR pp.350–351) ─────────────────────────
+// At morale ≤ −2 with banditry active, a CUMULATIVE monthly chance (1% / 5% / 10% at −2 / −3 /
+// −4) that a leader emerges from the bandits to challenge the ruler. He offers battle at the
+// first opportunity; if the ruler does not meet him in battle, he loots/pillages the domain
+// (−4 to its morale rolls — moraleModifiersFor reads d.banditryChallenger.pillaging). Defeating
+// his bandit army (the W3 battle aftermath clears the challenge) or raising morale above −2 (the
+// bands disperse) ends it. The challenge roll + the generated NPC ride an ISOLATED seeded rng
+// (the _seededMilitaryRng / army-disease idiom) so the shared band-reconcile rng stream stays
+// byte-stable — tests force/deny a spawn via options.challengerRng. Lazy/defensive domain fields
+// (d.banditryChallenger, d.banditryChallengeChance) like d.banditryOccupationMonths — no migration.
+const _BANDIT_CHALLENGE_PCT = Object.freeze({ '-2': 1, '-3': 5, '-4': 10 });
+function _processBanditryChallenger(campaign, d, opts){
+  const A = _jACKS();
+  const turn = opts.turn || (campaign.currentTurn || 1);
+  const target = opts.target || 0;
+  const morale = (opts.morale != null) ? opts.morale : 0;
+  const bands = opts.bands || [];
+  const out = opts.out || null;
+  const dn = d.name || d.id;
+  const crng = opts.challengerRng || _jMulberry32(_jHash32('bandit-challenger|' + d.id + '|' + turn + '|' + morale));
+  const log = (narrative, action, extra) => {
+    _banditryEmitEvent(campaign, d, Object.assign({ action: action, morale: morale }, extra || {}), narrative);
+    if(out){ out.logEntries.push(narrative); out.domains.push(Object.assign({ domainId: d.id, action: action }, extra || {})); }
+  };
+  const existing = d.banditryChallenger || null;
+  if(existing){
+    const ch = (campaign.characters || []).find(c => c && c.id === existing.characterId) || null;
+    // Dispersed: morale recovered (no bandits left) or the challenger is already gone.
+    if(target <= 0 || !ch || ch.lifecycleState === 'deceased' || ch.lifecycleState === 'departed'){
+      if(ch && ch.lifecycleState !== 'deceased' && ch.lifecycleState !== 'departed'){
+        ch.lifecycleState = 'departed';
+        if(typeof A.addCharacterHistory === 'function') A.addCharacterHistory(campaign, ch, 'note', 'The bandit revolt in ' + dn + ' subsided — he loses his army and slips away (RR p.351)');
+      }
+      d.banditryChallenger = null;
+      log('\u{1F3F3} ' + ((ch && ch.name) || 'The bandit lord') + ' loses his army and vanishes as ' + dn + '’s revolt subsides.', 'challenger-dispersed', { challengerCharacterId: existing.characterId });
+      return;
+    }
+    // Persists: re-assert his command of the current bands; escalate offering → pillaging if the
+    // ruler did not meet him in battle since he emerged (the −4 then engages via moraleModifiersFor).
+    for(const g of bands){ if(g) g.commanderCharacterId = existing.characterId; }
+    if(existing.status === 'offering'){
+      existing.status = 'pillaging'; existing.pillaging = true; existing.pillageSinceTurn = turn;
+      log('\u{1F451} ' + ch.name + ' takes the field unopposed and begins to loot ' + dn + ' — −4 to its morale rolls until the ruler meets him in battle (RR p.351).', 'challenger-pillages', { challengerCharacterId: existing.characterId });
+    }
+    return;
+  }
+  // No challenger yet — accumulate + roll the cumulative monthly chance (reset when not plagued).
+  if(target <= 0 || morale > -2){ if(d.banditryChallengeChance) d.banditryChallengeChance = 0; return; }
+  const inc = _BANDIT_CHALLENGE_PCT[String(morale)] || 0;
+  if(inc <= 0) return;
+  d.banditryChallengeChance = Math.min(100, (d.banditryChallengeChance || 0) + inc);
+  if((1 + Math.floor(crng() * 100)) > d.banditryChallengeChance) return;   // no leader emerges this month
+  if(typeof A.generateNPC !== 'function') return;                          // generators not loaded — skip
+  // His level grants personal authority +0 at the domain's income (RR p.351): PA = lvl − bracket
+  // − 1, so lvl = bracket(income) + 1 ⇒ PA = 0. (The RAW −4-Rebellious note — income 0 → level 1
+  // → PA 0 — generalized across all three bands; a richer, less-crashed domain draws an abler rival.)
+  const income = (typeof A.domainIncome === 'function') ? A.domainIncome(campaign, d) : 0;
+  const bracket = (typeof A.personalAuthorityBracketForIncome === 'function') ? A.personalAuthorityBracketForIncome(income) : 0;
+  const lvl = Math.max(1, Math.min(14, bracket + 1));
+  const hexId = (bands.find(g => g && g.currentHexId) || {}).currentHexId
+    || ((typeof A.domainSeatHexId === 'function') ? A.domainSeatHexId(campaign, d) : null);
+  let gen = null;
+  try {
+    gen = A.generateNPC(campaign, { class: 'fighter', targetLevel: lvl, alignment: 'Chaotic',
+      socialTier: 'independent', controlledBy: 'gm', hexId: hexId, domainId: d.id }, { rng: crng });
+  } catch(e){ gen = null; }
+  if(!gen || !gen.character) return;
+  const ch = gen.character;
+  ch.banditChallenge = { domainId: d.id, sinceTurn: turn };
+  if(!Array.isArray(campaign.characters)) campaign.characters = [];
+  campaign.characters.push(ch);
+  for(const g of bands){ if(g) g.commanderCharacterId = ch.id; }
+  d.banditryChallenger = { characterId: ch.id, sinceTurn: turn, status: 'offering', pillaging: false };
+  d.banditryChallengeChance = 0;
+  if(typeof A.addCharacterHistory === 'function') A.addCharacterHistory(campaign, ch, 'note', 'Emerged from the bandits of ' + dn + ' to challenge its ruler (RR p.351)');
+  log('\u{1F451} A bandit lord, ' + ch.name + ' (L' + lvl + '), has risen from the rebels of ' + dn + ' to challenge its ruler — he will offer battle at the first opportunity (RR p.351).', 'challenger-emerged', { challengerCharacterId: ch.id, challengerLevel: lvl, challengerName: ch.name });
+}
+
 function processBanditryForTurn(campaign, options){
   const A = _jACKS();
   const o = options || {};
@@ -6306,6 +6384,9 @@ function processBanditryForTurn(campaign, options){
       out.logEntries.push(narrative);
       out.domains.push({ domainId: d.id, action: action || 'casualties-settled', target, killed, militiaTarget, bands: bandRoster });
     }
+    // 6) The NPC bandit-leader challenger (RR pp.350–351) — emerge / pillage / disperse.
+    _processBanditryChallenger(campaign, d, { challengerRng: o.challengerRng, turn: turn,
+      target: target, morale: morale, moraleName: moraleName, bands: allBands, out: out });
   }
   return out;
 }

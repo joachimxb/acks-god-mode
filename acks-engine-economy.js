@@ -499,6 +499,11 @@ function moraleModifiersFor(campaign, d){
     mods.push({ label: 'Bandits plague the domain — enemy-army occupation, month ' + occMonths + ' (RR p.349 + p.351)',
                 value: -Math.max(0, occMonths - 1) });
   }
+  // #476 E10 — the NPC bandit-leader challenger pillages an unmet domain (RR p.351): −4 to its
+  // morale rolls until the ruler meets him in battle. Rule-gated like the occupation term above.
+  if(d.banditryChallenger && d.banditryChallenger.pillaging && isHouseRuleEnabled(campaign, 'domain-morale-banditry')){
+    mods.push({ label: 'A bandit lord loots the domain — its ruler has not met him in battle (RR p.351)', value: -4 });
+  }
   // Phase 3 Military W2 — JJ p.103: a NEUTRAL domain-encounter band the ruler did not
   // deploy the garrison against costs −1 on the NEXT domain morale roll (peasant
   // xenophobia). One-shot: the incursion consumer sets the flag, commitTurn consumes it

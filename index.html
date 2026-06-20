@@ -45,13 +45,13 @@
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
 <script src="acks-engine.js?v=2026-06-18-constructionwiz"></script>
 <script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
-<script src="acks-engine-economy.js?v=2026-06-12-b"></script>
+<script src="acks-engine-economy.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-events.js?v=2026-06-19-supplybase"></script>
-<script src="acks-engine-battles.js?v=2026-06-18-banditbattle"></script>
+<script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-19-weatherrecon"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -5174,6 +5174,12 @@ document.addEventListener('alpine:init', () => {
               <!-- #476 E10 / RR p.433 — the militia-drawn rebels fight as trained troops, not peasant rabble -->
               <p class="text-sm mt-1 font-semibold accent-red" x-show="banditryMilitiaInfo(selectedDomain)"
                  x-text="'⚔ ' + (banditryMilitiaInfo(selectedDomain)?.raiders || 0).toLocaleString() + ' of these are your own trained militia in revolt — they fight as ' + (banditryMilitiaInfo(selectedDomain)?.label || '') + ', not peasant rabble (RR p.433).'"></p>
+              <!-- #476 E10 — the NPC bandit-leader challenger (RR p.351) -->
+              <template x-if="banditChallenger(selectedDomain)">
+                <p class="text-sm mt-1 font-bold accent-red">👑
+                  <button class="underline" @click="openCharacterEditor(banditChallenger(selectedDomain).characterId)" x-text="banditChallengerName(selectedDomain)"></button><span x-text="banditChallengerText(selectedDomain)"></span>
+                </p>
+              </template>
               <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && isHouseRuleEnabled('domain-morale-banditry')"
                  x-text="'⚠ Enemy-army occupation, month ' + (selectedDomain.banditryOccupationMonths || 0)
                    + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
@@ -28852,6 +28858,21 @@ return {
     const raiders = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
     const t = bands[0].groupTemplate;
     return { bands: bands.length, raiders, label: t.troopLabel || t.troopTypeKey };
+  },
+  // #476 E10 — the NPC bandit-leader challenger (RR p.351): the object, the NPC's name, the message.
+  banditChallenger(d){ return (d && d.banditryChallenger) || null; },
+  banditChallengerName(d){
+    const c = d && d.banditryChallenger; if(!c) return '';
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === c.characterId);
+    return (ch && ch.name) || 'A bandit lord';
+  },
+  banditChallengerText(d){
+    const c = d && d.banditryChallenger; if(!c) return '';
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === c.characterId);
+    const lvl = ch ? (' (L' + (ch.level || 1) + ')') : '';
+    return c.pillaging
+      ? lvl + ' is looting the domain — −4 to its morale rolls until the ruler meets him in battle (RR p.351).'
+      : lvl + ' has risen from the rebels to challenge the ruler — meet him in battle (the bands above, via Military ▸ ⚔ Active Threats) or raise morale above −2 to disperse him (RR p.351).';
   },
   // Phase 3 Military W2 — the Vagaries of Incursion domain-panel reads.
   incursionBands(d){
