@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-events.js?v=2026-06-20-burst10-g3g4"></script>
 <script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
@@ -86,7 +86,7 @@
 <script src="acks-engine-followers.js?v=2026-06-18-followers"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-gladiators.js?v=2026-06-20-burst10-g3g4"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -17034,7 +17034,41 @@ document.addEventListener('alpine:init', () => {
           <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🪖 Recruit gladiator</button>
           <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Schedule bout</button>
           <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+          <!-- === @b10-gladiators (team) — G3/G4 actions === -->
+          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-emerald-200 hover:bg-emerald-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)">💰 Run business month</button>
+          <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
+          <button @click="gladOpenSponsor()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A munerator sponsors a Munus — budget ≥0.5gp/family, ≤12 bouts/day, ≈equal sides (RAW p.22)">🎪 Sponsor a game</button>
         </div>
+
+        <!-- === @b10-gladiators (team) — G3 school accounts (the monthly P&L preview) === -->
+        <template x-if="gladSchoolAccounts()">
+          <div class="vellum border border-ink/30 rounded p-2 text-sm flex flex-wrap gap-x-5 gap-y-1" x-data="{ get a(){ return gladSchoolAccounts(); } }">
+            <span class="font-semibold">📋 Monthly accounts</span>
+            <span title="2gp / gladiator (incl. candidates)">Upkeep: <b x-text="a.upkeep + 'gp'"></b></span>
+            <span title="trainers / guards / chirugeon (RAW p.24)">Staff wages: <b x-text="a.staffWages + 'gp'"></b></span>
+            <span x-show="a.estRent > 0" title="(0.5gp/family × families) × your share of the settlement’s gladiators">Est. rent: <b x-text="a.estRent + 'gp'"></b></span>
+            <span x-show="a.estRent > 0" :class="a.estProfit >= 0 ? 'text-emerald-700' : 'text-red-700'">Est. profit: <b x-text="(a.estProfit >= 0 ? '+' : '') + a.estProfit + 'gp'"></b></span>
+            <span class="opacity-60" x-text="'Roster ' + a.roster + ' · amphitheater ' + (a.amphitheaterSeats ? a.amphitheaterSeats.toLocaleString() + ' seats' : '—')"></span>
+          </div>
+        </template>
+
+        <!-- === @b10-gladiators (team) — G3/G4 result cards (business month / uprising) === -->
+        <template x-if="gladG3.business.result">
+          <div class="vellum border-2 border-emerald-600 bg-emerald-50 rounded p-3 text-sm space-y-1" x-data="{ get r(){ return gladG3.business.result; } }">
+            <div class="font-bold flex items-center justify-between"><span>💰 Business month</span><button @click="gladG3.business.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
+            <div>Rented <b x-text="r.tally.rentCount"></b> gladiator(s): <span class="text-emerald-700" x-text="r.tally.wins + ' won'"></span> · <span x-text="r.tally.losses + ' lost'"></span> · <span class="text-red-700" x-text="r.tally.slain + ' slain'"></span></div>
+            <div>Rent <b x-text="r.pl.rentIncome + 'gp'"></b> − prizes <span x-text="r.pl.prizes"></span> − replacements <span x-text="r.pl.replacements"></span> − upkeep <span x-text="r.pl.upkeep"></span> − wages <span x-text="r.pl.staffWages"></span> = <b :class="r.pl.profit >= 0 ? 'text-emerald-700' : 'text-red-700'" x-text="(r.pl.profit >= 0 ? 'profit +' : 'loss ') + r.pl.profit + 'gp'"></b></div>
+            <div class="text-xs opacity-60" x-show="r.banked && r.banked.banked">Banked to the school treasury.</div>
+            <div class="text-xs text-red-700" x-show="r.banked && r.banked.deficit">⚠ The treasury can’t cover the loss — the school runs a deficit.</div>
+          </div>
+        </template>
+        <template x-if="gladG3.uprising.result">
+          <div class="vellum border-2 rounded p-3 text-sm space-y-1" :class="gladG3.uprising.result.revolt ? 'border-red-600 bg-red-50' : 'border-ink/40'" x-data="{ get r(){ return gladG3.uprising.result; } }">
+            <div class="font-bold flex items-center justify-between"><span x-text="r.revolt ? '🔥 UPRISING!' : '🔥 Uprising check — held'"></span><button @click="gladG3.uprising.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
+            <div x-text="'Net circumstance modifier ' + (r.modifier >= 0 ? '+' : '') + r.modifier + ' · ' + r.leaders + ' lead, ' + r.supporters + ' support → ' + r.supportPct + '% would rise'"></div>
+            <div x-text="r.revolt ? 'A leader has 25%+ support — the school revolts.' : 'No leader gathered the 25% support needed to revolt.'"></div>
+          </div>
+        </template>
 
         <!-- roster -->
         <template x-if="gladRoster(gladSelectedSchool()).length">
@@ -17057,10 +17091,15 @@ document.addEventListener('alpine:init', () => {
                     <td class="pr-2">
                       <span x-show="g.lifecycleState==='deceased'" class="text-red-700">☠ slain</span>
                       <span x-show="g.lifecycleState==='incapacitated'" class="text-amber-700">🩹 wounded</span>
-                      <span x-show="g.lifecycleState==='candidate'" class="opacity-60">🎓 candidate</span>
+                      <span x-show="g.lifecycleState==='candidate' && !gladTrainInfo(g).inTraining" class="opacity-60">🎓 candidate</span>
+                      <span x-show="g.lifecycleState==='candidate' && gladTrainInfo(g).inTraining" class="text-amber-700" x-text="'🎓 training (' + gladTrainInfo(g).daysLeft + 'd)'"></span>
                       <span x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" class="text-green-700">🏅 freedom earned</span>
                     </td>
-                    <td><button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button></td>
+                    <td class="whitespace-nowrap">
+                      <button x-show="g.lifecycleState==='candidate' && !gladTrainInfo(g).inTraining" @click="gladBeginTraining(g)" :disabled="!gladRuleOn()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-100" title="Begin the 6–9-month training (the slot-62 Day-Clock consumer graduates them; 1d20 on completion)">Train</button>
+                      <button x-show="g.lifecycleState==='candidate' && gladTrainInfo(g).inTraining && gladTrainInfo(g).daysLeft===0" @click="gladGraduate(g)" :disabled="!gladRuleOn()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Roll the graduation 1d20 now">Graduate</button>
+                      <button x-show="gladEarnedFreedom(g) && g.lifecycleState!=='deceased'" @click="gladFreeGladiator(g)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">Free</button>
+                    </td>
                   </tr>
                 </template>
               </tbody>
@@ -17327,6 +17366,61 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 <!-- === @b10-gladiators (team) — G3/G4: sponsor-a-game + school-P&L + uprising modal(s) === -->
+<!-- Gladiators G4 — sponsor-a-game modal (z-70) -->
+<template x-if="gladG3.sponsor.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladG3.sponsor.open=false" @keydown.escape.window="gladG3.sponsor.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🎪 Sponsor a game <span class="text-sm font-normal opacity-60">· AXIOMS 4 p.22</span></h3>
+      <label class="block text-sm">Settlement
+        <select x-model="gladG3.sponsor.settlementId" @change="gladSponsorRecalc()" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="">(none)</option>
+          <template x-for="st in gladSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Munerator (sponsor)
+        <select x-model="gladG3.sponsor.muneratorId" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="">(the realm / abstract)</option>
+          <template x-for="ch in gladLanistaOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name"></option></template>
+        </select>
+      </label>
+      <label class="block text-sm">Budget (gp)
+        <input type="number" min="0" x-model.number="gladG3.sponsor.budgetGp" class="w-full border border-ink rounded px-1 py-0.5">
+        <span class="block text-xs opacity-60 mt-0.5" x-text="'A munerator spends ≥ 0.5gp/urban-family — minimum ' + gladG3.sponsor.minBudget.toLocaleString() + 'gp here.'"></span>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladG3.sponsor.payFromMunerator"> The munerator pays it from their purse (the liturgy expense)</label>
+      <p class="text-xs opacity-70">Schedules a single one-on-one bout from the school’s two ablest gladiators (≈equal sides). Add more in ⚔ Schedule bout, then 🏛 Hold the games.</p>
+      <div class="flex justify-end gap-2">
+        <button @click="gladG3.sponsor.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitSponsor()" :disabled="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget" :class="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget ? 'opacity-50 cursor-not-allowed' : 'bg-amber-300 hover:bg-amber-400'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🎪 Sponsor</button>
+      </div>
+    </div>
+  </div>
+</template>
+<!-- Gladiators G4 — uprising-check modal (z-70) -->
+<template x-if="gladG3.uprising.open">
+  <div class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" @click.self="gladG3.uprising.open=false" @keydown.escape.window="gladG3.uprising.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+      <h3 class="text-lg font-bold">🔥 Check for an uprising <span class="text-sm font-normal opacity-60">· AXIOMS 4 p.26</span></h3>
+      <p class="text-sm opacity-70">A spark rolls the 2d6 uprising table for every active gladiator (2d6 + their lanista morale + the school’s circumstance modifier). A leader with 25%+ support revolts.</p>
+      <label class="block text-sm">The spark
+        <select x-model="gladG3.uprising.spark" class="w-full border border-ink rounded px-1 py-0.5">
+          <option value="heavy-game-losses">Lost ≥33% of the school in a game</option>
+          <option value="unpaid-prize">A victor’s prize went unpaid</option>
+          <option value="underpaid-upkeep">Upkeep under 2gp/gladiator</option>
+          <option value="too-few-guards">Fewer than 1 guard per 20</option>
+          <option value="over-rented">A gladiator rented &gt; 3×/year</option>
+          <option value="kill-or-injure-for-no-reason">A gladiator killed/injured for no reason</option>
+        </select>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladG3.uprising.sparkNotFault"> The spark was not the lanista’s fault (+1)</label>
+      <div class="text-sm opacity-70" x-text="'Circumstance modifier: ' + (gladUprisingMod() >= 0 ? '+' : '') + gladUprisingMod()"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="gladG3.uprising.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="gladSubmitUprising()" class="px-3 py-1 border border-ink rounded text-sm bg-red-300 hover:bg-red-400 font-semibold">🔥 Roll the table</button>
+      </div>
+    </div>
+  </div>
+</template>
 <!-- === @b10-sages      (team) — SG-5: read-a-treatise UI (folds into the Consult-a-Sage modal / item sheet) === -->
 <!-- === @b10-hijinks    (team) — HJ-3: syndicate-depth (lieutenant/crew/takeover/guild) modal(s) === -->
 <div x-show="takeoverModal.open" x-cloak class="fixed inset-0 z-[76] flex items-center justify-center bg-black/40 p-4"
@@ -19150,6 +19244,80 @@ return {
     else this.showToast('Could not resolve the decision: ' + ((r && r.reason) || 'error'), 5000);
   },
   // === @b10-gladiators (team) — Gladiators G3/G4 training + business loop + uprisings + sponsoring: state + methods ===
+  // Over acks-engine-gladiators.js (trainGladiator / resolveGraduation / schoolMonthlyPL / runSchoolBusinessMonth /
+  // uprisingModifiers / checkUprising / sponsorGame; the slot-62 Day-Clock consumer graduates + runs the P&L
+  // automatically). Extends the ⚔ Gladiators tab (no new tab). All verbs gate on gladiator-games.
+  gladG3: {
+    business: { result:null },
+    uprising: { open:false, schoolId:null, spark:'heavy-game-losses', sparkNotFault:true, result:null },
+    sponsor:  { open:false, settlementId:'', muneratorId:'', budgetGp:0, minBudget:0, payFromMunerator:false }
+  },
+  gladTrainInfo(g){ const c=this.currentCampaign; return (c && window.ACKS.gladiatorTrainingInfo) ? window.ACKS.gladiatorTrainingInfo(c, g) : { inTraining:false }; },
+  gladBeginTraining(g){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s) return;
+    const r=window.ACKS.trainGladiator(c, s, g.id, { type: g.gladiatorType || (this.gladTypes()[0]||{}).key });
+    if(!r.ok){ this.showToast('Cannot train: '+r.reason, 3000, 'warn'); return; }
+    this._gladPersist(); this.showToast(g.name+' begins '+r.months+'-month training.', 2800);
+  },
+  gladGraduate(g){
+    const c=this.currentCampaign; const r=window.ACKS.resolveGraduation(c, g.id, {});
+    if(!r.ok){ this.showToast('Cannot graduate: '+r.reason, 3000, 'warn'); return; }
+    this._gladPersist();
+    this.showToast(r.maimed ? (g.name+' is maimed in training (1d20 '+r.roll+')') : (g.name+' graduates (1d20 '+r.roll+')'), 3200, r.maimed ? 'warn' : 'info');
+  },
+  // The monthly accounts preview (staff/upkeep/est-rent/est-profit + the settlement amphitheater size).
+  gladSchoolAccounts(){
+    const c=this.currentCampaign; const A=window.ACKS; const s=this.gladSelectedSchool();
+    if(!c || !s || !A.schoolStaffWages) return null;
+    const upkeep=A.schoolUpkeepGp(c,s), staffWages=A.schoolStaffWages(c,s), estRent=A.estimateSchoolMonthlyRent(c,s);
+    const set=s.settlementId ? (c.settlements||[]).find(x=>x&&x.id===s.settlementId) : null;
+    return { roster:A.schoolRosterCount(c,s), upkeep, staffWages, estRent,
+             estProfit: estRent - upkeep - staffWages,
+             amphitheaterSeats: set ? A.amphitheaterSeatsForSettlement(c, set) : 0 };
+  },
+  gladRunBusinessMonth(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    const r=window.ACKS.runSchoolBusinessMonth(c, s, {});
+    if(!r.ok){ this.showToast('Business month failed: '+r.reason, 3500, 'error'); return; }
+    this.gladG3.business.result=r; this._gladPersist();
+    this.showToast('Business month — '+(r.pl.profit>=0?('profit +'+r.pl.profit):('loss '+r.pl.profit))+'gp', 3200);
+  },
+  gladOpenUprising(){
+    const s=this.gladSelectedSchool(); if(!s){ this.showToast('Establish a school first.',3000,'warn'); return; }
+    this.gladG3.uprising={ open:true, schoolId:s.id, spark:'heavy-game-losses', sparkNotFault:true, result:this.gladG3.uprising.result };
+  },
+  gladUprisingMod(){ const c=this.currentCampaign; const s=this.gladSelectedSchool(); const A=window.ACKS; return (c&&s&&A.uprisingModifiers) ? A.uprisingModifiers(c, s, { sparkNotFault:this.gladG3.uprising.sparkNotFault }).total : 0; },
+  gladSubmitUprising(){
+    const c=this.currentCampaign; const s=this.gladSelectedSchool(); const u=this.gladG3.uprising;
+    const r=window.ACKS.checkUprising(c, s, { spark:u.spark, sparkNotFault:u.sparkNotFault });
+    if(!r.ok){ this.showToast('Uprising check failed: '+r.reason, 3500, 'warn'); return; }
+    this.gladG3.uprising.open=false; this.gladG3.uprising.result=r; this._gladPersist();
+    this.showToast(r.revolt ? '🔥 An uprising breaks out!' : 'The spark passes — no uprising.', 3200, r.revolt ? 'error' : 'info');
+  },
+  gladOpenSponsor(){
+    const s=this.gladSelectedSchool();
+    const settlementId = (s && s.settlementId) || (this.gladSettlementOptions()[0]||{}).id || '';
+    this.gladG3.sponsor={ open:true, settlementId, muneratorId:'', budgetGp:0, minBudget:0, payFromMunerator:false };
+    this.gladSponsorRecalc();
+  },
+  gladSponsorRecalc(){
+    const c=this.currentCampaign; const sp=this.gladG3.sponsor;
+    const set=sp.settlementId ? (c.settlements||[]).find(x=>x&&x.id===sp.settlementId) : null;
+    const fam=set ? (Number(set.families)||0) : 0;
+    sp.minBudget=Math.ceil(fam*0.5);
+    if(!sp.budgetGp || sp.budgetGp < sp.minBudget) sp.budgetGp=sp.minBudget;
+  },
+  gladSubmitSponsor(){
+    const c=this.currentCampaign; const sp=this.gladG3.sponsor; const s=this.gladSelectedSchool();
+    // schedule one balanced one-on-one from the school's two ablest ready gladiators (if available)
+    const roster=this.gladRoster(s).filter(ch=>ch && ch.lifecycleState!=='deceased' && ch.lifecycleState!=='candidate').sort((a,b)=>(b.level||0)-(a.level||0));
+    const bouts=[]; if(roster.length>=2) bouts.push({ sideA:{ combatantIds:[roster[0].id], kind:'gladiator' }, sideB:{ combatantIds:[roster[1].id], kind:'gladiator' }, kind:'to-incapacitation' });
+    const r=window.ACKS.sponsorGame(c, { settlementId:sp.settlementId||null, muneratorCharacterId:sp.muneratorId||null,
+      budgetGp:sp.budgetGp, payFromMunerator:sp.payFromMunerator, name:(s&&s.name?s.name+' ':'')+'Games', bouts });
+    if(!r.ok){ this.showToast('Sponsor failed: '+(r.reason==='budget-too-low'?('budget must be ≥'+r.minBudget+'gp'):r.reason), 3800, 'error'); return; }
+    this.gladG3.sponsor.open=false; this._gladPersist();
+    this.showToast('Games sponsored ('+r.budgetGp+'gp, '+r.scheduled.length+' bout'+(r.scheduled.length===1?'':'s')+').', 3000);
+  },
   // === @b10-sages      (team) — Sages SG-5 treatise + SG-4 Lore-emit: state + methods ===
   // === @b10-hijinks    (team) — Hijinks HJ-3 syndicate depth (lieutenants/crews/takeover): state + methods ===
   hj3CrewIds: [],                                            // selected crew charIds in the launch form (gated crew-hijinks)
@@ -23739,6 +23907,22 @@ return {
       if(party){
         acts.push({kind:'party-member', icon:'🧭', label:'in party ' + (party.name || '(unnamed)'),
                    priority:3, deepLinkTo:{entity:'party', id:party.id}});
+      }
+    }
+
+    // ── Contributor: Gladiator (🏟 training / ⚔ a scheduled bout) — Gladiators G3/G4 (team b10) ──
+    if(c.socialTier === 'gladiator' && c.lifecycleState !== 'deceased'){
+      const A = window.ACKS;
+      const tInfo = (A && A.gladiatorTrainingInfo) ? A.gladiatorTrainingInfo(this.currentCampaign, c) : { inTraining:false };
+      const inBout = (this.currentCampaign?.bouts||[]).some(b => b && b.status === 'scheduled' &&
+        [].concat(b.sideA?.combatantIds||[], b.sideB?.combatantIds||[]).includes(c.id));
+      if(tInfo.inTraining){
+        acts.push({kind:'gladiator-training', icon:'🏟', label:'in gladiatorial training (' + tInfo.daysLeft + 'd left)', priority:2});
+      } else if(inBout){
+        acts.push({kind:'gladiator-bout', icon:'⚔', label:'fighting in the arena', priority:1, deepLinkTo:{view:'gladiators'}});
+      } else if(c.lifecycleState === 'active'){
+        const sch = c.contractSchoolId ? (this.currentCampaign?.gladiatorSchools||[]).find(s => s && s.id === c.contractSchoolId) : null;
+        acts.push({kind:'gladiator', icon:'🏟', label:'a gladiator' + (sch ? ' of ' + (sch.name || 'the school') : ''), priority:2, deepLinkTo:{view:'gladiators'}});
       }
     }
 

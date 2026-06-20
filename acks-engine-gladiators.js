@@ -732,6 +732,480 @@
     return _ruleOn(campaign, 'gladiator-games') || _schools(campaign).length > 0;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // G3 — TRAINING CLOCK + THE MONTHLY BUSINESS LOOP (AXIOMS 4 pp.24–25)
+  // EXTENDS the shipped G1/G2 (no new entity/prefix/house-rule). New DEFENSIVE runtime
+  // fields (NOT on blankCharacter/blankGladiatorSchool → no field-schema/migration touch,
+  // the team-session discipline): on a candidate Character — trainingStartedOrd /
+  // trainingCompletesOrd / trainingMonths / trainingGraduated / gladiatorUnworthy; on a
+  // school — businessNextOrd. The school P&L reproduces Titus's worked example EXACTLY
+  // (rent 680 → profit 159, p.25); the staff/upkeep are computed (Titus's 163 / 18).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // The 1-based absolute day ordinal (turn 1 day 1 = ord 1; the sage-commission / recruitment-drive
+  // convention) — drives the training clock + the month-end business loop on the slot-62 consumer.
+  function _gladDayOrd(campaign, dayInMonth){
+    const turn = (campaign && campaign.currentTurn) || 1;
+    const day  = (dayInMonth != null) ? dayInMonth : ((campaign && campaign.currentDayInMonth) || 1);
+    return (turn - 1) * 30 + day;
+  }
+
+  // ── AMPHITHEATER_SIZE — appropriate seat count by market class (p.21) ────────
+  // The de-drifted RAW table (the PDF column-shifted; reconstructed from the cell order + the
+  // Arganos worked example "Class III, 4,000 families → 7,500 + (4,000−2,500)×3 = 12,000 seats").
+  // Class is the ACKS-core Roman order (lookupMarketClass); Class IV is the minimum (V/VI = None,
+  // matching AMPHITHEATER_MIN_MARKET_CLASS = 4). Each formula = base + ⌊(families − anchor) × perFamily⌋,
+  // the anchor being the class's lower family bound.
+  const AMPHITHEATER_SIZE = [
+    { class:'I',   base:30000, anchor:20000, perFamily:0.25, note:'30,000 + 1 per 4 families over 20,000', page:21 },
+    { class:'II',  base:15000, anchor:5000,  perFamily:1,    note:'15,000 + 1 per family over 5,000',       page:21 },
+    { class:'III', base:7500,  anchor:2500,  perFamily:3,    note:'7,500 + 3 per family over 2,500',         page:21 },
+    { class:'IV',  base:0,     anchor:0,     perFamily:5,    note:'5 seats per family',                      page:21 },
+    { class:'V',   base:0,     anchor:0,     perFamily:0,    note:'None',                                    page:21 },
+    { class:'VI',  base:0,     anchor:0,     perFamily:0,    note:'None',                                    page:21 }
+  ].map(Object.freeze);
+  Object.freeze(AMPHITHEATER_SIZE);
+  const _AMPHI_BY_CLASS = {}; for(const r of AMPHITHEATER_SIZE){ _AMPHI_BY_CLASS[r.class] = r; }
+  const AMPHITHEATER_MAX_SEATS = 100000;  // RAW: no more than 100,000 seats (p.22)
+  // The appropriate amphitheater size for a market class (Roman 'I'…'VI', or 'VI*') + family count (p.21).
+  function amphitheaterSeatsForClassFamilies(marketClass, families){
+    const fam = Math.max(0, Number(families) || 0);
+    const cls = String(marketClass || '').replace('*', '');   // 'VI*' → 'VI'
+    const row = _AMPHI_BY_CLASS[cls];
+    if(!row) return 0;                                          // unknown / below Class VI
+    const seats = row.base + Math.floor(Math.max(0, fam - row.anchor) * row.perFamily);
+    return Math.max(0, Math.min(AMPHITHEATER_MAX_SEATS, seats));
+  }
+  // The appropriate amphitheater size + build cost for a settlement (reads families → market class).
+  function amphitheaterSeatsForSettlement(campaign, settlement){
+    const A = _A();
+    const fam = (settlement && Number(settlement.families)) || 0;
+    const cls = (typeof A.lookupMarketClass === 'function') ? A.lookupMarketClass(fam).class : 'VI';
+    return amphitheaterSeatsForClassFamilies(cls, fam);
+  }
+
+  // ── GLADIATOR_TRAINING_BY_TYPE — per-type training time + typical cost (p.25) ──
+  // The RAW Training & Equipment table (verified vs AXIOMS 4 p.25): lighter-armored types train
+  // LONGER (the 6 / 7.5 / 9-month tiers); costGp = the typical training+equipment cost (sets market
+  // value). The graduation roll (1d20, maim on 1; unworthy 1–10) + the simplified 6mo/200gp option
+  // live on the shipped GLADIATOR_TRAINING object.
+  const GLADIATOR_TRAINING_BY_TYPE = Object.freeze({
+    spearfighter: Object.freeze({ months:6,   costGp:192 }),
+    challenger:   Object.freeze({ months:6,   costGp:192 }),
+    striker:      Object.freeze({ months:7.5, costGp:197.5 }),
+    shieldbearer: Object.freeze({ months:7.5, costGp:197.5 }),
+    pursuer:      Object.freeze({ months:7.5, costGp:197.5 }),
+    netfighter:   Object.freeze({ months:9,   costGp:200 }),
+    dualwielder:  Object.freeze({ months:9,   costGp:200 })
+  });
+  // The training time (months) for a gladiator type — defaults to the RAW minimum (6) for an unknown type.
+  function gladiatorTrainingMonths(typeKey){
+    const row = GLADIATOR_TRAINING_BY_TYPE[typeKey];
+    return row ? row.months : GLADIATOR_TRAINING.minMonths;
+  }
+
+  // trainGladiator(campaign, school, characterId, opts) — begin training a candidate (RAW p.24–25).
+  // Sets the type + the 6–9-month clock (a completion ordinal the slot-62 consumer advances); the
+  // graduation 1d20 fires on the day the clock completes. opts = { type, unworthy }. GATED.
+  // Returns { ok, character, months, completesOrd } or { ok:false, reason }.
+  function trainGladiator(campaign, school, characterId, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const sch = _resolveSchool(campaign, school);
+    if(!sch) return { ok:false, reason:'no-school' };
+    const ch = (characterId && typeof characterId === 'object') ? characterId : _findChar(campaign, characterId);
+    if(!ch) return { ok:false, reason:'no-character' };
+    if(ch.socialTier !== 'gladiator') return { ok:false, reason:'not-a-gladiator' };
+    opts = opts || {};
+    const typeKey = opts.type || ch.gladiatorType || (GLADIATOR_TYPES[0] && GLADIATOR_TYPES[0].key);
+    if(!findGladiatorType(typeKey)) return { ok:false, reason:'unknown-type' };
+    const months = gladiatorTrainingMonths(typeKey);
+    const startOrd = _gladDayOrd(campaign);
+    ch.gladiatorType       = typeKey;
+    ch.lifecycleState      = 'candidate';
+    ch.trainingStartedOrd  = startOrd;
+    ch.trainingCompletesOrd = startOrd + Math.ceil(months * 30);
+    ch.trainingMonths      = months;
+    ch.trainingGraduated   = false;
+    if(opts.unworthy) ch.gladiatorUnworthy = true;
+    const A = _A();
+    if(typeof A.addCharacterHistory === 'function'){
+      try { A.addCharacterHistory(campaign, ch, 'note', 'Begins ' + months + '-month training as a ' + (findGladiatorType(typeKey).label) + ' at ' + (sch.name || 'the school')); } catch(_e){}
+    }
+    if(!Array.isArray(sch.gladiatorCharacterIds)) sch.gladiatorCharacterIds = [];
+    if(!sch.gladiatorCharacterIds.includes(ch.id)) sch.gladiatorCharacterIds.push(ch.id);
+    return { ok:true, character: ch, months, completesOrd: ch.trainingCompletesOrd };
+  }
+  // Derived training read (UI + the day log): { inTraining, daysLeft, completesOrd, months }.
+  function gladiatorTrainingInfo(campaign, ch){
+    if(!ch || ch.socialTier !== 'gladiator' || ch.lifecycleState !== 'candidate' || ch.trainingGraduated
+       || typeof ch.trainingCompletesOrd !== 'number') return { inTraining:false };
+    const left = ch.trainingCompletesOrd - _gladDayOrd(campaign);
+    return { inTraining:true, daysLeft: Math.max(0, left), completesOrd: ch.trainingCompletesOrd, months: ch.trainingMonths || null };
+  }
+  // The graduation throw (1d20; maim/kill on a 1, or 1–10 for an unworthy candidate; else an ordinary
+  // gladiator, p.25). Mutates the character (graduate → active, or maimed → deceased "dead to the games").
+  function _graduateGladiator(campaign, ch, opts){
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const roll = opts.roll || (1 + Math.floor(rng() * GLADIATOR_TRAINING.graduationDie)); // 1d20
+    const failMax = ch.gladiatorUnworthy ? GLADIATOR_TRAINING.unworthyFailMax : GLADIATOR_TRAINING.maimOn; // 10 : 1
+    const maimed = roll <= failMax;
+    ch.trainingGraduated = true;
+    ch.trainingCompletesOrd = null;
+    if(maimed){
+      ch.lifecycleState = 'deceased'; ch.alive = false; ch.deadToTheGames = true;
+    } else {
+      ch.lifecycleState = 'active';            // an ordinary gladiator (level 0 = ordinary)
+    }
+    return { roll, maimed, failMax };
+  }
+  // resolveGraduation(campaign, characterId, opts) — the public graduation verb (the slot-62 commit + a UI
+  // "graduate now" both route through it): roll the 1d20, mutate the candidate, emit `gladiator-trained`.
+  // opts.{roll, rng}. GATED. Returns { ok, maimed, roll, character } or { ok:false, reason }.
+  function resolveGraduation(campaign, characterId, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const ch = (characterId && typeof characterId === 'object') ? characterId : _findChar(campaign, characterId);
+    if(!ch) return { ok:false, reason:'no-character' };
+    if(ch.socialTier !== 'gladiator' || ch.lifecycleState !== 'candidate' || ch.trainingGraduated) return { ok:false, reason:'not-a-candidate' };
+    const g = _graduateGladiator(campaign, ch, opts || {});
+    const A = _A();
+    if(typeof A.addCharacterHistory === 'function'){
+      try { A.addCharacterHistory(campaign, ch, 'note', g.maimed ? ('Maimed in training (graduation 1d20 ' + g.roll + ' ≤ ' + g.failMax + ')') : ('Graduates as an ordinary gladiator (graduation 1d20 ' + g.roll + ')')); } catch(_e){}
+    }
+    const narrative = g.maimed ? ((ch.name || 'A candidate') + ' is maimed in training and dead to the games (1d20 ' + g.roll + ')')
+                               : ((ch.name || 'A candidate') + ' graduates as an ordinary ' + ((findGladiatorType(ch.gladiatorType) || {}).label || 'gladiator') + ' (1d20 ' + g.roll + ')');
+    _emitGladiatorEvent(campaign, 'gladiator-trained', {
+      characterId: ch.id, schoolId: ch.contractSchoolId || null, gladiatorType: ch.gladiatorType || null,
+      graduationRoll: g.roll, maimed: g.maimed
+    }, narrative, { primaryHexId: ch.currentHexId || null, relatedEntities:
+      [{ kind:'character', id: ch.id, role:'subject' }].concat(ch.contractSchoolId ? [{ kind:'gladiator-school', id: ch.contractSchoolId, role:'site' }] : []) });
+    return { ok:true, maimed: g.maimed, roll: g.roll, character: ch };
+  }
+
+  // ── The school P&L (RAW p.25 — "Running the School") ────────────────────────
+  // The roster count for staff/upkeep — gladiators AND candidates count (RAW p.24), excluding the dead.
+  function schoolRosterCount(campaign, school){
+    return gladiatorsOfSchool(campaign, _resolveSchool(campaign, school) || school).filter(g => g && g.lifecycleState !== 'deceased').length;
+  }
+  // A 5th-level-or-higher lanista qualifies as his own master trainer (RAW p.24 — no hired master needed).
+  function _lanistaIsMasterTrainer(campaign, school){
+    const lan = school && school.lanistaCharacterId ? _findChar(campaign, school.lanistaCharacterId) : null;
+    return !!(lan && (Number(lan.level) || 0) >= 5);
+  }
+  // Monthly staff wages (RAW p.24 — Gladiator School Staff). Reproduces Titus's 9-gladiator school EXACTLY:
+  // 1 guard (25) + 2 ordinary trainers (120) + lanista-as-master-trainer (0) + part-time chirugeon (9×2=18)
+  // = 163gp. Round the staff counts UP (RAW). A small school (<60) hires the healer part-time at 2gp/glad.
+  function schoolStaffWages(campaign, school){
+    const sch = _resolveSchool(campaign, school); if(!sch) return 0;
+    const n = schoolRosterCount(campaign, sch);
+    if(n <= 0) return 0;
+    const guards       = Math.ceil(n / 20) * 25;     // 1 / 20 gladiators, 25gp
+    const ordTrainers  = Math.ceil(n / 6) * 60;      // 1 / 6 gladiators, 60gp
+    const mastersNeed  = Math.ceil(n / 120);         // 1 / 120 gladiators, 250gp
+    const masters      = Math.max(0, mastersNeed - (_lanistaIsMasterTrainer(campaign, sch) ? 1 : 0)) * 250;
+    const healer       = (n < 60) ? n * 2 : Math.ceil(n / 60) * 100;  // small school: part-time 2gp/glad
+    return guards + ordTrainers + masters + healer;
+  }
+  // Monthly upkeep (RAW p.23 — 2gp / gladiator / month; candidates count).
+  function schoolUpkeepGp(campaign, school){
+    return schoolRosterCount(campaign, school) * UPKEEP_GP_PER_MONTH;
+  }
+  // The monthly P&L (RAW p.25). rentIncome − (prizes + replacements + upkeep + staff) = profit.
+  // upkeep + staff auto-compute from the roster when not overridden. Reproduces Titus EXACTLY:
+  // schoolMonthlyPL(camp, titus9, { rentIncomeGp:680, prizesGp:90, replacementsGp:250 }) → profit 159
+  // (upkeep 18, staff 163, totalCost 521). Pure.
+  function schoolMonthlyPL(campaign, school, inputs){
+    const sch = _resolveSchool(campaign, school);
+    inputs = inputs || {};
+    const rentIncome   = Math.max(0, Math.round(Number(inputs.rentIncomeGp)   || 0));
+    const prizes       = Math.max(0, Math.round(Number(inputs.prizesGp)       || 0));
+    const replacements = Math.max(0, Math.round(Number(inputs.replacementsGp) || 0));
+    const upkeep       = (inputs.upkeepGp     != null) ? Math.max(0, Math.round(inputs.upkeepGp))     : schoolUpkeepGp(campaign, sch);
+    const staffWages   = (inputs.staffWagesGp != null) ? Math.max(0, Math.round(inputs.staffWagesGp)) : schoolStaffWages(campaign, sch);
+    const totalCost    = prizes + replacements + upkeep + staffWages;
+    return { rentIncome, prizes, replacements, upkeep, staffWages, totalCost, profit: rentIncome - totalCost };
+  }
+  // The estimated monthly rent a school is owed (RAW p.25): (µgp/family × families) × (own / total-in-settlement).
+  // µ defaults to the 0.5gp/family minimum. Falls back to opts.{families,totalGladiators} for a settlement-less school.
+  function estimateSchoolMonthlyRent(campaign, school, opts){
+    const sch = _resolveSchool(campaign, school); if(!sch) return 0;
+    opts = opts || {};
+    const mu = (opts.muGpPerFamily != null) ? opts.muGpPerFamily : SPONSOR_MIN_GP_PER_FAMILY;
+    const set = sch.settlementId ? (campaign.settlements || []).find(s => s && s.id === sch.settlementId) : null;
+    const families = set ? (Number(set.families) || 0) : (Number(opts.families) || 0);
+    if(!families) return 0;
+    const own = gladiatorsOfSchool(campaign, sch).filter(g => g && g.lifecycleState === 'active').length;
+    let total = 0;
+    for(const s of _schools(campaign)){
+      if(set && s.settlementId !== sch.settlementId) continue;
+      total += gladiatorsOfSchool(campaign, s).filter(g => g && g.lifecycleState === 'active').length;
+    }
+    if(typeof opts.totalGladiators === 'number') total = opts.totalGladiators;
+    if(total <= 0) return 0;
+    return Math.round(families * mu * own / total);
+  }
+  // Bank the month's net to/from the school treasury Stash (GP Wave B). Best-effort + guarded: a school
+  // with no treasury (or an under-funded one on a loss) simply records the P&L (the sage-retainer precedent).
+  function _bankSchoolNet(campaign, school, net, opts){
+    const A = _A();
+    if(!school || !school.treasuryStashId || typeof A.applyWealthTransfer !== 'function') return { banked:false, net };
+    const stash = (typeof A.findStash === 'function') ? A.findStash(campaign, school.treasuryStashId) : null;
+    if(!stash) return { banked:false, net };
+    try {
+      if(net > 0){
+        A.applyWealthTransfer(campaign, { amount: net, source:{ kind:'external', label:'gladiatorial rents' },
+          destination:{ kind:'stash', id: school.treasuryStashId }, bucket:'service', reason:'gladiator-school-profit' });
+      } else if(net < 0){
+        A.applyWealthTransfer(campaign, { amount: -net, source:{ kind:'stash', id: school.treasuryStashId },
+          destination:{ kind:'external', label:'gladiatorial costs' }, bucket:'service', reason:'gladiator-school-loss' });
+      }
+      return { banked:true, net };
+    } catch(_e){ return { banked:false, net, deficit:true }; }   // insufficient treasury → a deficit (flagged)
+  }
+  // runSchoolBusinessMonth(campaign, school, opts) — the month-end loop the slot-62 consumer fires.
+  // Rents out ~3×/year (≈¼ the roster/month) of the ready gladiators, rolls the abstract 1d10 each
+  // (win → prize 20% of rent; slain → replaced at 250gp; the win/bout counters advance), computes the
+  // P&L, and banks the net to the treasury. opts.{rentIncomeGp, rentCount, rng} override the auto values.
+  // GATED. Returns { ok, pl, tally, rented, banked }.
+  function runSchoolBusinessMonth(campaign, school, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const sch = _resolveSchool(campaign, school); if(!sch) return { ok:false, reason:'no-school' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const ready = gladiatorsOfSchool(campaign, sch).filter(g => g && g.lifecycleState === 'active');
+    const rentIncome = (opts.rentIncomeGp != null) ? Math.max(0, Math.round(opts.rentIncomeGp)) : estimateSchoolMonthlyRent(campaign, sch, opts);
+    let rentCount = (opts.rentCount != null) ? (opts.rentCount | 0) : Math.ceil(ready.length * RENTS_PER_YEAR / 12);
+    rentCount = Math.max(0, Math.min(ready.length, rentCount));
+    let prizes = 0, replacements = 0, wins = 0, losses = 0, slain = 0;
+    const rented = ready.slice(0, rentCount);
+    for(const g of rented){
+      const o = rollGladiatorBoutOutcome({ rng });
+      if(o.outcome === 'won'){
+        wins++; g.victoriesWon = (Number(g.victoriesWon) || 0) + 1; g.boutsSurvived = (Number(g.boutsSurvived) || 0) + 1;
+        prizes += gladiatorVictoryPrize(Number(g.level) || 0);
+      } else if(o.outcome === 'lost'){
+        losses++; g.boutsSurvived = (Number(g.boutsSurvived) || 0) + 1;
+      } else {
+        slain++; g.lifecycleState = 'deceased'; g.alive = false; g.deadToTheGames = true;
+        replacements += gladiatorBaseGpValue(0);   // replace with a 250gp ordinary candidate
+      }
+    }
+    const pl = schoolMonthlyPL(campaign, sch, { rentIncomeGp: rentIncome, prizesGp: prizes, replacementsGp: replacements });
+    const banked = _bankSchoolNet(campaign, sch, pl.profit, opts);
+    if(!Array.isArray(sch.history)) sch.history = [];
+    sch.history.push({ turn: (campaign && campaign.currentTurn) || 1, type:'business-month',
+      summary: 'Monthly P&L — rent ' + pl.rentIncome + 'gp, profit ' + pl.profit + 'gp (' + wins + 'W/' + losses + 'L/' + slain + ' slain of ' + rentCount + ' rented)' });
+    return { ok:true, pl, tally:{ rentCount, wins, losses, slain }, rented: rented.map(g => g.id), banked };
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // G4 — UPRISINGS + SPONSORING A GAME (AXIOMS 4 pp.22, 26)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Uprising modifiers (p.26) ───────────────────────────────────────────────
+  // The circumstance modifiers added to each gladiator's 2d6 + lanista-morale roll. The values CONFIRMED
+  // by the Titus worked example (p.26 — a 5th-level master-trainer on a not-his-fault spark = +1 level +2
+  // master +1 not-fault, net 0 against morale −4) are exact; the guard/upkeep granularity is a best-reading
+  // of a column-drifted PDF table (FLAGGED — verify vs the PDF in a later pass; not exercised by the
+  // worked example, which has adequate guards). A POSITIVE modifier → a higher roll → more loyal.
+  const UPRISING_MODIFIERS = Object.freeze({
+    masterTrainer: 2,        // lanista is himself a master trainer (worked example)
+    ordinaryTrainer: 1,      // lanista is himself an (ordinary) gladiator trainer  ⚠ best-reading
+    level5plus: 1,           // lanista is 5th level or higher (worked example)
+    intimidation: 1,         // lanista has the Intimidation proficiency
+    sparkNotFault: 1,        // the spark was not the lanista's fault (worked example)
+    extraGuardPer20: 1,      // each extra guard per 20 gladiators  ⚠ best-reading
+    insufficientGuards: Object.freeze({ '15': -1, '10': -2, '5': -3, 'none': -4 }),  // ⚠ best-reading
+    page: 26,
+    rawGuardUpkeepVerified: false
+  });
+  function _gladHasIntimidation(ch){
+    const A = _A();
+    if(ch && typeof A.hasProficiency === 'function'){ try { return !!A.hasProficiency(ch, 'intimidation'); } catch(_e){} }
+    return false;
+  }
+  function _gladChaMod(ch){
+    const A = _A();
+    return (ch && ch.abilities && typeof A.abilityMod === 'function') ? (A.abilityMod(ch.abilities.CHA) || 0) : 0;
+  }
+  // The school-wide circumstance modifier for an uprising roll (the per-gladiator lanista-morale is the
+  // base, added separately in checkUprising). opts = { sparkNotFault, lanistaIsTrainer }. Returns { total, mods }.
+  function uprisingModifiers(campaign, school, opts){
+    opts = opts || {};
+    const sch = _resolveSchool(campaign, school);
+    const lan = sch && sch.lanistaCharacterId ? _findChar(campaign, sch.lanistaCharacterId) : null;
+    const mods = [];
+    const cha = _gladChaMod(lan); if(cha) mods.push({ label:'Lanista CHA modifier', value: cha });
+    if(_gladHasIntimidation(lan)) mods.push({ label:'Intimidation proficiency', value: UPRISING_MODIFIERS.intimidation });
+    const lvl = lan ? (Number(lan.level) || 0) : 0;
+    if(lvl >= 5) mods.push({ label:'Lanista 5th level or higher', value: UPRISING_MODIFIERS.level5plus });
+    if(_lanistaIsMasterTrainer(campaign, sch)) mods.push({ label:'Lanista is a master trainer', value: UPRISING_MODIFIERS.masterTrainer });
+    else if(opts.lanistaIsTrainer || (lan && lvl >= 1)) mods.push({ label:'Lanista is a gladiator trainer', value: UPRISING_MODIFIERS.ordinaryTrainer });
+    if(opts.sparkNotFault) mods.push({ label:'Spark was not the lanista’s fault', value: UPRISING_MODIFIERS.sparkNotFault });
+    const total = mods.reduce((s, m) => s + m.value, 0);
+    return { total, mods };
+  }
+  // checkUprising(campaign, school, opts) — on a spark, roll the Gladiator Uprising table (2d6 + each
+  // gladiator's lanista morale + the school's circumstance modifier) for every active gladiator, then
+  // resolve the cascade: a Lead result revolts when ≥25% of the roster is uprising/conspiring (lead +
+  // join). Reproduces the Titus worked example (p.26 — 6 gladiators, morale −4, net mod 0; rolls
+  // 11/8/2/4/6/7 → 1 lead + 1 join = 33% ≥ 25% → revolt). opts = { spark, sparkNotFault, rolls?[], rng }.
+  // GATED. Emits `gladiator-uprising`. Returns { ok, spark, modifier, per[], leaders, supporters, supportPct, revolt }.
+  function checkUprising(campaign, school, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    const sch = _resolveSchool(campaign, school); if(!sch) return { ok:false, reason:'no-school' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const roster = gladiatorsOfSchool(campaign, sch).filter(g => g && g.lifecycleState === 'active');
+    if(!roster.length) return { ok:false, reason:'no-gladiators' };
+    const modInfo = uprisingModifiers(campaign, sch, opts);
+    const rolls = Array.isArray(opts.rolls) ? opts.rolls : null;
+    const total = roster.length;
+    const per = [];
+    let leaders = 0, supporters = 0;
+    roster.forEach((g, i) => {
+      const base = (rolls && rolls[i] != null) ? rolls[i] : ((1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6)));
+      const morale = Number(g.lanistaMorale) || 0;
+      const adjusted = base + morale + modInfo.total;
+      const band = _bandLookup(GLADIATOR_UPRISING.bands, adjusted);
+      per.push({ characterId: g.id, roll: base, morale, adjusted, result: band });
+      if(band === 'lead') leaders++;
+      else if(band === 'join') supporters++;     // "join"/Support — actively conspiring (counts toward 25%)
+    });
+    const supportPct = Math.round(((leaders + supporters) / total) * 100);
+    const revolt = leaders > 0 && supportPct >= GLADIATOR_UPRISING.leadSupportThresholdPct;  // ≥25%
+    // RAW consequences (p.26): a Lead with insufficient support → −2 morale; a Firmly Loyal → +1 morale.
+    for(const p of per){
+      const g = roster.find(x => x.id === p.characterId); if(!g) continue;
+      if(p.result === 'lead' && !revolt){ g.lanistaMorale = Math.max(-12, (Number(g.lanistaMorale) || 0) - 2); }
+      else if(p.result === 'firmly-loyal'){ g.lanistaMorale = Math.min(12, (Number(g.lanistaMorale) || 0) + 1); }
+    }
+    if(revolt){ sch.uprisingState = { startedAtTurn:(campaign && campaign.currentTurn) || 1, leaders, supporters, spark: opts.spark || null }; }
+    const narrative = (sch.name || 'The school') + (revolt
+      ? ' — a gladiator UPRISING breaks out (' + leaders + ' lead, ' + (leaders + supporters) + '/' + total + ' = ' + supportPct + '% rise)'
+      : ' — a spark passes (no uprising; ' + supportPct + '% would rise)');
+    _emitGladiatorEvent(campaign, 'gladiator-uprising', {
+      schoolId: sch.id, spark: opts.spark || null, modifier: modInfo.total, gladiatorCount: total,
+      leaders, supporters, supportPct, revolt
+    }, narrative, { settlementId: sch.settlementId || null, relatedEntities:
+      [{ kind:'gladiator-school', id: sch.id, role:'subject' }] });
+    return { ok:true, spark: opts.spark || null, modifier: modInfo.total, mods: modInfo.mods, per, leaders, supporters, supportPct, revolt };
+  }
+
+  // ── Sponsoring a game (p.22) ────────────────────────────────────────────────
+  // The two sides of a bout must be ≈equal in total gp value (within ±10%), unless either side fields
+  // creatures or prisoners (RAW p.22). Returns { ok, valueA, valueB } / { ok:false, reason }.
+  function _boutSidesBalanced(campaign, spec){
+    if(!spec || !spec.sideA || !spec.sideB) return { ok:false, reason:'no-sides' };
+    const lenient = (spec.sideA.kind && spec.sideA.kind !== 'gladiator') || (spec.sideB.kind && spec.sideB.kind !== 'gladiator');
+    const sumVal = side => (side.combatantIds || []).reduce((s, id) => { const c = _findChar(campaign, id); return s + (c ? gladiatorGpValue(c) : 0); }, 0);
+    const a = sumVal(spec.sideA), b = sumVal(spec.sideB);
+    if(lenient) return { ok:true, valueA:a, valueB:b, lenient:true };
+    const hi = Math.max(a, b) || 1;
+    return { ok: Math.abs(a - b) / hi <= SIDE_VALUE_TOLERANCE, reason:'sides-unequal', valueA:a, valueB:b };
+  }
+  // sponsorGame(campaign, opts) — a munerator sponsors a Munus (RAW p.22): pays ≥0.5gp/urban-family as a
+  // festival/liturgy expense, schedules the bouts (≤12/day, ≈equal sides ±10%), and creates the Game.
+  // The liturgy spend rides GP Wave B from the munerator (the existing Munerator-overseen liturgy expense;
+  // no NEW expense category). opts = { settlementId, families?, muneratorCharacterId, budgetGp?, name,
+  //   amphitheaterConstructibleId?, bouts:[{ sideA, sideB, kind, rentPaidGp }], payFromMunerator? }.
+  // GATED. Returns { ok, game, scheduled[], rejected[], days, minBudget, budgetGp } or { ok:false, reason }.
+  function sponsorGame(campaign, opts){
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    opts = opts || {};
+    const set = opts.settlementId ? (campaign.settlements || []).find(s => s && s.id === opts.settlementId) : null;
+    const families = set ? (Number(set.families) || 0) : (Number(opts.families) || 0);
+    const minBudget = Math.ceil(families * SPONSOR_MIN_GP_PER_FAMILY);   // ≥ 0.5gp / urban family (p.22)
+    const budgetGp = (opts.budgetGp != null) ? Math.max(0, Math.round(opts.budgetGp)) : minBudget;
+    if(families > 0 && budgetGp < minBudget) return { ok:false, reason:'budget-too-low', minBudget };
+    const game = createGame(campaign, { name: opts.name || 'The Games', settlementId: opts.settlementId || null,
+      amphitheaterConstructibleId: opts.amphitheaterConstructibleId || null, muneratorCharacterId: opts.muneratorCharacterId || null,
+      budgetGp, scheduledTurn: (campaign && campaign.currentTurn) || 1, createdAtTurn: (campaign && campaign.currentTurn) || 1 });
+    const bouts = Array.isArray(opts.bouts) ? opts.bouts : [];
+    const scheduled = [], rejected = [];
+    let perDay = 0, day = 0;
+    for(const bspec of bouts){
+      const bal = _boutSidesBalanced(campaign, bspec);
+      if(!bal.ok){ rejected.push({ spec: bspec, reason: bal.reason, valueA: bal.valueA, valueB: bal.valueB }); continue; }
+      if(perDay >= MAX_BOUTS_PER_DAY){ day++; perDay = 0; }     // ≤12 bouts/day → overflow to the next day (p.22)
+      const b = createBout(campaign, { gameId: game.id, sideA: bspec.sideA, sideB: bspec.sideB,
+        kind: bspec.kind || 'to-incapacitation', rentPaidGp: bspec.rentPaidGp || 0, createdAtTurn: (campaign && campaign.currentTurn) || 1 });
+      b.scheduledDay = day;
+      if(!Array.isArray(game.boutIds)) game.boutIds = [];
+      game.boutIds.push(b.id);
+      scheduled.push(b.id); perDay++;
+    }
+    // The festival/liturgy expense — the munerator pays (GP Wave B; the existing Munerator-overseen liturgy
+    // expense). Best-effort: debit the munerator's purse when asked + able (v1; the domain-expense-row
+    // integration is a Religion/economy follow-on — this module does not edit economy.js).
+    const A = _A();
+    if(opts.payFromMunerator && opts.muneratorCharacterId && budgetGp > 0 && typeof A.applyWealthTransfer === 'function'){
+      try { A.applyWealthTransfer(campaign, { amount: budgetGp, source:{ kind:'character', id: opts.muneratorCharacterId },
+        destination:{ kind:'external', label:'gladiatorial games (liturgy)' }, bucket:'liturgy', reason:'gladiatorial-game' }); } catch(_e){}
+    }
+    const days = day + 1;
+    const narrative = (game.name || 'The Games') + ' are sponsored — ' + budgetGp + 'gp, ' + scheduled.length + ' bout(s)' + (days > 1 ? ' over ' + days + ' days' : '');
+    _emitGladiatorEvent(campaign, 'game-sponsored', {
+      gameId: game.id, settlementId: opts.settlementId || null, muneratorCharacterId: opts.muneratorCharacterId || null,
+      budgetGp, minBudget, boutCount: scheduled.length, rejectedCount: rejected.length, days
+    }, narrative, { settlementId: opts.settlementId || null, relatedEntities:
+      [{ kind:'game', id: game.id, role:'subject' }].concat(opts.muneratorCharacterId ? [{ kind:'character', id: opts.muneratorCharacterId, role:'patron' }] : []) });
+    return { ok:true, game, scheduled, rejected, days, minBudget, budgetGp };
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // THE DAY-TICK CONSUMER (Calendar §14, slot 62) — self-registered from THIS module.
+  // PURE propose (graduations + the month-end business loop) → propose-review-commit. commitTurn drives
+  // it to month end via runDayTickToMonthEnd, so training graduates + the school's P&L run across
+  // Advance-Months — WITHOUT touching acks-engine.js's commitTurn (the team-session discipline).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // The month-end business ordinal for a school first seen this turn: day 30 of the current month.
+  function _gladSchoolFirstBusinessOrd(campaign){ return ((campaign && campaign.currentTurn) || 1) * 30; }
+
+  function proposeGladiatorDay(campaign, ctx){
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    if(!_ruleOn(campaign, 'gladiator-games')) return out;
+    const dayInMonth = (ctx && ctx.dayInMonth) || ((campaign && campaign.currentDayInMonth) || 1);
+    const nowOrd = _gladDayOrd(campaign, dayInMonth);
+    // (a) training graduations — a candidate whose 6–9-month clock completes today
+    for(const ch of (campaign.characters || [])){
+      if(!ch || ch.socialTier !== 'gladiator' || ch.lifecycleState !== 'candidate' || ch.trainingGraduated) continue;
+      if(typeof ch.trainingCompletesOrd !== 'number' || nowOrd < ch.trainingCompletesOrd) continue;
+      out.pendingRecords.push({ kind:'gladiator-graduate', characterId: ch.id, forOrd: ch.trainingCompletesOrd, dayInMonth });
+      out.notableEvents.push({ kind:'gm-narrative', type:'gladiator-training', transient:true,
+        primaryHexId: ch.currentHexId || null,
+        label: (ch.name || 'A candidate') + ' completes their gladiatorial training — the graduation throw is due.',
+        payload: { characterId: ch.id } });
+    }
+    // (b) the month-end school business loop — once per month at the month boundary
+    for(const sch of _schools(campaign)){
+      if(!sch || sch.status !== 'active') continue;
+      const nextOrd = (typeof sch.businessNextOrd === 'number') ? sch.businessNextOrd : _gladSchoolFirstBusinessOrd(campaign);
+      if(nowOrd < nextOrd) continue;
+      out.pendingRecords.push({ kind:'gladiator-school-month', schoolId: sch.id, forOrd: nextOrd, dayInMonth });
+      out.notableEvents.push({ kind:'gm-narrative', type:'gladiator-school', transient:true,
+        label: (sch.name || 'A gladiator school') + '’s monthly accounts are due — rent in, prizes + upkeep + wages out.',
+        payload: { schoolId: sch.id } });
+    }
+    return out;
+  }
+  function commitGladiatorRecord(campaign, record){
+    if(!record) return;
+    if(record.kind === 'gladiator-graduate'){
+      const ch = _findChar(campaign, record.characterId);
+      if(!ch || ch.socialTier !== 'gladiator' || ch.lifecycleState !== 'candidate' || ch.trainingGraduated) return;
+      if(typeof record.forOrd === 'number' && ch.trainingCompletesOrd !== record.forOrd) return;   // idempotent
+      resolveGraduation(campaign, ch, { rng: record.rng });   // rolls the 1d20, mutates, emits gladiator-trained
+    } else if(record.kind === 'gladiator-school-month'){
+      const sch = findGladiatorSchool(campaign, record.schoolId);
+      if(!sch || sch.status !== 'active') return;
+      if(typeof record.forOrd === 'number' && (typeof sch.businessNextOrd === 'number') && sch.businessNextOrd > record.forOrd) return;  // already ran this month
+      runSchoolBusinessMonth(campaign, sch, {});
+      sch.businessNextOrd = (typeof sch.businessNextOrd === 'number' ? sch.businessNextOrd : record.forOrd) + 30;
+    }
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // constants
@@ -759,7 +1233,30 @@
     // G2 — the arena: recruit · schedule · resolve-and-commit · hold a game · free
     recruitGladiator, freeGladiator, scheduleBout, resolveAndCommitBout, holdGame,
     // G2 UI reads
-    gladiatorSchoolsList, gamesList, boutsList, boutsForSchool, gladiatorsSubsystemActive
+    gladiatorSchoolsList, gamesList, boutsList, boutsForSchool, gladiatorsSubsystemActive,
+    // G3 — catalogs + amphitheater + training
+    AMPHITHEATER_SIZE, AMPHITHEATER_MAX_SEATS, GLADIATOR_TRAINING_BY_TYPE, UPRISING_MODIFIERS,
+    amphitheaterSeatsForClassFamilies, amphitheaterSeatsForSettlement, gladiatorTrainingMonths,
+    // G3 — training clock + the monthly business loop
+    trainGladiator, gladiatorTrainingInfo, resolveGraduation, schoolRosterCount, schoolStaffWages,
+    schoolUpkeepGp, schoolMonthlyPL, estimateSchoolMonthlyRent, runSchoolBusinessMonth,
+    // G4 — uprisings + sponsoring
+    uprisingModifiers, checkUprising, sponsorGame,
+    // the slot-62 day-tick consumer (training graduations + the month-end business loop)
+    proposeGladiatorDay, commitGladiatorRecord
   });
+
+  // Self-register the slot-62 day-tick consumer (Calendar §14; registerDayConsumer ships from
+  // acks-engine.js, loaded first — call-time guard). No pause triggers (the sage-commission precedent):
+  // training graduations + the month-end school P&L are propose-review-commit records, not GM-blocking.
+  // commitTurn drives it to month end via runDayTickToMonthEnd, so it never touches commitTurn directly.
+  if(typeof ACKS.registerDayConsumer === 'function'){
+    ACKS.registerDayConsumer('gladiators', {
+      handler: proposeGladiatorDay,
+      order: 62,
+      pauseTriggers: [],
+      commit: commitGladiatorRecord
+    });
+  }
 
 })(typeof window !== 'undefined' ? window : global);
