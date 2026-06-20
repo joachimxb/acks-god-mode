@@ -459,7 +459,11 @@ const EVENT_KINDS = Object.freeze([
   // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
   'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
   'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
-  'game-sponsored'          // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  'game-sponsored',         // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  // === Gladiators G5 (team burst11 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // round-by-round tactical bout — resolveAndCommitBoutTactical with opts.logRounds). A record-only,
+  // campaignLogHidden VERBOSE per-round audit; the bout's result still rides the shipped bout-resolved.
+  'bout-round'              // a tactical-bout round's blow-by-blow (opt-in verbose log; RAW p.27)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1455,6 +1459,12 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { gameId: 'string' },
     O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
          boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
+  },
+  // === Gladiators G5 (team burst11 2026-06-20) === — record-only verbose audit (see EVENT_KINDS); the
+  // tactical resolver applied the bout via the shipped bout-resolved — bout-round is the opt-in blow-by-blow.
+  'bout-round': {
+    R: { boutId: 'string', round: 'number' },
+    O: { initiative: 'object', lines: 'array', hp: 'object', narrative: 'string' }
   }
 });
 
@@ -3294,6 +3304,9 @@ registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
 registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
 registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
+// === Gladiators G5 (team burst11 2026-06-20) === — same record-only audit; the round-by-round tactical
+// resolver applied the bout via the shipped bout-resolved, and bout-round is its opt-in verbose per-round log.
+registerEventHandler('bout-round', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -6450,7 +6463,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
   // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
   // character/school/game state doesn't show.
-  'gladiator-trained', 'gladiator-uprising', 'game-sponsored'
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored',
+  // === Gladiators G5 (team burst11 2026-06-20) === — owned by acks-engine-gladiators.js (the tactical
+  // resolver emits bout-round per round); a raw Event-Wizard emit would record arena chatter with no fight.
+  'bout-round'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

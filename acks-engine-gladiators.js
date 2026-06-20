@@ -500,12 +500,16 @@
     if(typeof A.setEventContext === 'function'){
       try { A.setEventContext(ev, ctx || {}); } catch(_e){}
     }
+    if(ctx && ctx.campaignLogHidden) ev.campaignLogHidden = true;   // a verbose audit (bout-round) — Event Log only
     ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
     ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
     ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
     if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    // The Campaign Log filter (campaignLogEntries) reads campaignLogHidden off the WRAPPER too (the
+    // day-tick / commitStatEdit convention) — keep a verbose bout-round out of the narrative log.
     campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative },
-      appliedAtTurn: ev.appliedAtTurn, appliedAt: (typeof ctx === 'object' && ctx && ctx.stamp) || null });
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: (typeof ctx === 'object' && ctx && ctx.stamp) || null,
+      ...(ctx && ctx.campaignLogHidden ? { campaignLogHidden: true } : {}) });
     return ev;
   }
 
@@ -632,12 +636,28 @@
     const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
     const res = resolveBoutAbstract(campaign, b, { rng, roll: opts.roll });   // gates on gladiator-games
     if(!res.ok) return res;
-    const result = res.result;
-    const A = _A();
+    return _commitBoutResult(campaign, b, res.result, { rng });
+  }
 
-    // Winners: XP (= the defeated gp value, p.28) + the contract counters (a win is also a bout).
+  // _commitBoutResult(campaign, b, result, opts) — THE SHARED BOUT AFTERMATH. Both resolution paths feed
+  // it: the abstract 1d10 (resolveAndCommitBout) and the G5 round-by-round tactical resolver
+  // (resolveAndCommitBoutTactical) — survey §7 "the aftermath is shared and IN". It awards the winners'
+  // XP (= the defeated gp value, p.28) + contract counters + freedom; routes the losers through the crowd
+  // verdict (RAW p.27 — Hateful/Bloodthirsty → slain) + the SHIPPED Delves-D1 Mortal-Wounds resolver;
+  // applies Mortal Wounds to any incapacitated WINNER (RAW p.27 "for incapacitated winners only" — a
+  // to-death mutual KO in a team bout; result.winnerCasualties is empty on the abstract + 1v1 paths, so
+  // those are byte-unchanged); checks level-ups; commits the bout; emits `bout-resolved`. The bout's
+  // resolutionMode records which path resolved it ('abstract' | 'combat'). Returns { ok, result, bout }.
+  function _commitBoutResult(campaign, b, result, opts){
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const A = _A();
+    result.casualties = result.casualties || [];
+    result.xpAwarded = result.xpAwarded || [];
+
+    // Winners: XP + the contract counters (a win is also a bout) + freedom.
     const freedomEarned = [];
-    for(const aw of (result.xpAwarded || [])){
+    for(const aw of result.xpAwarded){
       const ch = _findChar(campaign, aw.characterId);
       if(!ch) continue;
       ch.xp = (Number(ch.xp) || 0) + (Number(aw.xp) || 0);
@@ -648,7 +668,7 @@
     }
 
     // Losers: the crowd decides a defeated-but-alive gladiator's fate (RAW p.27).
-    for(const cas of (result.casualties || [])){
+    for(const cas of result.casualties){
       const ch = _findChar(campaign, cas.characterId);
       if(!ch) continue;
       let killed = (cas.outcome === 'slain');
@@ -663,27 +683,42 @@
         ch.deadToTheGames = true;
       }
     }
+
+    // Incapacitated WINNERS (RAW p.27 — a to-death mutual KO; only arises in a team bout where a winning-
+    // side combatant also dropped to ≤0). Mortal Wounds via the shipped resolver, healed to 1hp; no crowd-
+    // kill (the mob does not call death on the victor). The winners loop already advanced their counters.
+    for(const wc of (result.winnerCasualties || [])){
+      const ch = _findChar(campaign, wc.characterId);
+      if(!ch) continue;
+      wc.mortalWound = _applyBoutWound(campaign, ch, false, rng);
+    }
     result.freedomEarned = freedomEarned;
     try { if(typeof A.checkAllCharacterLevelUps === 'function') A.checkAllCharacterLevelUps(campaign); } catch(_e){}
 
     // Commit the bout.
     b.status = 'resolved';
     b.resolvedAtTurn = (campaign && campaign.currentTurn) || 1;
+    b.resolutionMode = result.resolutionMode || b.resolutionMode || 'abstract';
     b.result = result;
     const game = b.gameId ? findGame(campaign, b.gameId) : null;
-    const winNames = (result.winnerSide === 'A' ? b.sideA : b.sideB).combatantIds
-      .map(id => { const c = _findChar(campaign, id); return c ? c.name : id; });
-    const narrative = 'Arena bout — ' + (winNames.join(', ') || 'Side ' + result.winnerSide) + ' prevail'
-      + (result.casualties.some(c => c.outcome === 'slain') ? ' (a gladiator falls)' : '')
-      + (freedomEarned.length ? ' — ' + freedomEarned.length + ' earn(s) freedom' : '');
+    const winSide = (result.winnerSide === 'A') ? b.sideA : (result.winnerSide === 'B') ? b.sideB : null;
+    const winNames = winSide ? winSide.combatantIds.map(id => { const c = _findChar(campaign, id); return c ? c.name : id; }) : [];
+    const narrative = (result.winnerSide === 'draw')
+      ? 'Arena bout — a draw' + (result.roundCount ? ' after ' + result.roundCount + ' rounds' : '')
+      : ('Arena bout — ' + (winNames.join(', ') || 'Side ' + result.winnerSide) + ' prevail'
+          + (result.resolutionMode === 'combat' && result.roundCount ? ' (' + result.roundCount + ' rounds)' : '')
+          + (result.casualties.some(c => c.outcome === 'slain') ? ' (a gladiator falls)' : '')
+          + (freedomEarned.length ? ' — ' + freedomEarned.length + ' earn(s) freedom' : ''));
     if(!Array.isArray(b.history)) b.history = [];
     b.history.push({ turn: b.resolvedAtTurn, type: 'resolved', summary: narrative });
     const combatants = [].concat(b.sideA.combatantIds, b.sideB.combatantIds)
       .map(id => ({ kind:'character', id, role:'combatant' }));
     _emitGladiatorEvent(campaign, 'bout-resolved', {
       boutId: b.id, gameId: b.gameId || null, kind: b.kind, winnerSide: result.winnerSide,
-      d10: result.d10, death: result.death, crowdReaction: result.crowdReaction,
-      casualties: result.casualties, xpAwarded: result.xpAwarded, freedomEarned
+      resolutionMode: result.resolutionMode || 'abstract',
+      d10: (result.d10 != null ? result.d10 : null), roundCount: (result.roundCount != null ? result.roundCount : null),
+      death: result.death, crowdReaction: result.crowdReaction,
+      casualties: result.casualties, xpAwarded: result.xpAwarded, winnerCasualties: result.winnerCasualties || [], freedomEarned
     }, narrative, { settlementId: (game && game.settlementId) || null, relatedEntities:
       [{ kind:'bout', id: b.id, role:'subject' }].concat(game ? [{ kind:'game', id: game.id, role:'site' }] : []).concat(combatants) });
     return { ok:true, result, bout: b };
@@ -1154,6 +1189,210 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // G5 — THE ROUND-BY-ROUND TACTICAL BOUT (AXIOMS 4 p.27 — "Running Gladiatorial Bouts in ACKS")
+  // A SELF-CONTAINED arena round resolver — the Combat-Option-B exemplar (survey §7; Combat_RAW_Survey
+  // §17.3). It is NOT the (unbuilt) man-to-man Combat engine: an arena bout is NON-POSITIONAL by
+  // construction (RAW p.27 — opponents "begin in the arena at a distance of 120' from each other and
+  // begin to fight immediately"; a duel with no terrain/formations/movement), so this models it as
+  // round-by-round attack exchanges over a single hp pool per combatant — no map, no positioning, no
+  // initiative-with-movement. It deepens the shipped abstract 1d10 (G3): instead of one roll, the fight
+  // unfolds round by round with the combatants' real hp/attack/AC/damage, and BOTH paths feed the SHARED
+  // _commitBoutResult aftermath (crowd verdict + Delves-D1 Mortal Wounds + XP + counters + bout-resolved).
+  //
+  // Combat profiles are read off the Character DEFENSIVELY, with RAW-grounded fallbacks via the SHIPPED
+  // NPC-generator helpers (attackThrowFor / acFor / rollHp — a read-only cross-module consume, late-bound;
+  // cartography-before-mechanics — no invented attack-progression). Hit chance uses the RAW ETV formula's
+  // per-round term (RAW p.31: hit fraction = (21 − (attack-throw + opponent AC))/20) realised as an actual
+  // 1d20 throw (≥ attackThrow+AC; natural 20 always hits, natural 1 always misses — ACKS).
+  //
+  // UPGRADE SEAM (Combat #140): the bout's `resolutionMode:'combat'` + this result shape ARE the handoff
+  // contract (the shipped Encounter-handoff pattern, Combat_RAW_Survey §15). When an Option-B Combat round
+  // resolver lands, resolveBoutTactical can delegate to it and feed the same _commitBoutResult unchanged.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const TACTICAL_BOUT_ROUND_CAP = 30;   // safety cap — a duel still standing after 30 rounds is a draw
+  const INCAP_ATTACK_PENALTY    = 4;    // to-incapacitation: nonlethal attacks throw at −4 (RAW p.27)
+  const SURRENDER_MORALE_TARGET = 5;    // ≤½ hp: a 2d6 + arena morale of ≤5 → surrender (RAW p.27; PCs exempt)
+
+  function _gladD(rng, sides){ return 1 + Math.floor(rng() * sides); }
+  function _gladDmgSides(die){ const m = String(die || 'd6').match(/d(\d+)/i); return m ? (+m[1] || 6) : 6; }
+  function _gladAbilityMod(ch, key){
+    const A = _A();
+    return (ch && ch.abilities && typeof A.abilityMod === 'function') ? (A.abilityMod(ch.abilities[key]) || 0) : 0;
+  }
+
+  // gladiatorCombatProfile(campaign, ch, opts) — a combatant's bout profile, read defensively off the
+  // Character with RAW-grounded fallbacks. hp is FULL at the start of a bout (RAW: gladiators heal between
+  // bouts; a lasting wound rides the aftermath). attackValue = the to-hit-AC-0 throw (LOWER is better).
+  // Returns { id, name, isPC, maxHp, hp, attackValue, ac, dmgSides, arenaMorale }.
+  function gladiatorCombatProfile(campaign, ch, opts){
+    opts = opts || {};
+    const A = _A();
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const lvl = _charLevel(ch);
+    // hp — maxHp/hp/hitPoints if present, else a RAW HD estimate (Gladiator ≈ Fighter d8) via rollHp.
+    let maxHp = Number(ch && (ch.maxHp != null ? ch.maxHp : (ch.hp != null ? ch.hp : ch.hitPoints)));
+    if(!Number.isFinite(maxHp) || maxHp <= 0){
+      maxHp = (typeof A.rollHp === 'function')
+        ? A.rollHp(rng, 'd8', Math.max(1, lvl), _gladAbilityMod(ch, 'CON'), 2)
+        : Math.max(1, lvl || 1) * 5;          // a fighter's rough average when no generator + no stored hp
+    }
+    // attack throw to hit AC 0 — the character's, else the shipped Fighter rate (a Gladiator is a Fighter,
+    // +2/3 levels), else an inline +2/3 fallback. (LOWER = better; 10+ at L1.)
+    let attackValue = Number(ch && (ch.attackThrow != null ? ch.attackThrow : ch.attackValue));
+    if(!Number.isFinite(attackValue)){
+      attackValue = (typeof A.attackThrowFor === 'function')
+        ? A.attackThrowFor(Math.max(1, lvl), '+2/3 levels')
+        : Math.max(1, 10 - Math.floor((Math.max(1, lvl) - 1) * 2 / 3));
+    }
+    // AC — the character's, else light arena armour + DEX (RAW: gladiators wear arena armour; the per-type
+    // AC table is a deferred G2 transcription, so a modest GM-editable default meanwhile).
+    let ac = Number(ch && (ch.ac != null ? ch.ac : ch.armorClass));
+    if(!Number.isFinite(ac)){
+      ac = (typeof A.acFor === 'function') ? A.acFor(_gladAbilityMod(ch, 'DEX'), 'Light') : Math.max(0, 2 + _gladAbilityMod(ch, 'DEX'));
+    }
+    return {
+      id: ch && ch.id, name: (ch && ch.name) || (ch && ch.id) || 'a gladiator',
+      isPC: !!(ch && ch.controlledBy === 'player'),
+      maxHp: Math.max(1, Math.round(maxHp)), hp: Math.max(1, Math.round(maxHp)),
+      attackValue: Math.max(1, attackValue), ac: Math.max(0, ac),
+      dmgSides: _gladDmgSides((ch && (ch.damageDie || ch.damage)) || 'd6'),   // gladiator weapon; GM-editable
+      arenaMorale: Number(ch && ch.arenaMorale) || 0
+    };
+  }
+
+  // The per-round to-hit number needed on 1d20 (attackThrow to hit AC 0 + the defender's AC, + the
+  // to-incapacitation nonlethal −4). RAW p.31's ETV hit fraction = (21 − needed)/20.
+  function _gladNeeded(attacker, defender, incapacitation){
+    return attacker.attackValue + defender.ac + (incapacitation ? INCAP_ATTACK_PENALTY : 0);
+  }
+
+  // resolveBoutTactical(campaign, bout, opts) — PURE round-by-round resolver (mirrors resolveBoutAbstract:
+  // gates on gladiator-games, returns { ok, result } without mutating the bout/campaign — the commit is
+  // _commitBoutResult, via resolveAndCommitBoutTactical). The result carries the abstract-path shape PLUS
+  // rounds[] / roundCount / winnerCasualties / resolutionMode:'combat'. opts.{rng} (every die from it →
+  // deterministic in tests). Combatant profiles are taken at full hp; the fight runs until one side is
+  // all down/surrendered (or the round cap → draw).
+  function resolveBoutTactical(campaign, bout, opts){
+    if(!bout || typeof bout !== 'object') return { ok:false, reason:'no-bout' };
+    if(!_ruleOn(campaign, 'gladiator-games')) return { ok:false, reason:'gladiator-games-off' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const death = bout.kind === 'to-death';
+    const incap = !death;   // to-incapacitation → nonlethal attacks at −4 + the surrender check
+    const chars = (campaign && campaign.characters) || [];
+    const idsOf = side => (side && Array.isArray(side.combatantIds)) ? side.combatantIds : [];
+    const build = ids => ids.map(id => { const c = chars.find(x => x && x.id === id); return c ? gladiatorCombatProfile(campaign, c, { rng }) : null; }).filter(Boolean);
+    const A = build(idsOf(bout.sideA));
+    const B = build(idsOf(bout.sideB));
+    if(!A.length || !B.length) return { ok:false, reason:'no-combatants' };
+
+    const living = side => side.filter(p => p.hp > 0 && !p.surrendered);
+    const rounds = [];
+    let n = 0;
+    // One side's combatants each strike a living opponent (the weakest — so fights resolve). Mutates hp.
+    function strike(attackers, defenders, lines){
+      for(const atk of attackers){
+        if(atk.hp <= 0 || atk.surrendered) continue;
+        const live = defenders.filter(p => p.hp > 0 && !p.surrendered);
+        if(!live.length) break;
+        const def = live.reduce((lo, p) => p.hp < lo.hp ? p : lo, live[0]);
+        const needed = _gladNeeded(atk, def, incap);
+        const d20 = _gladD(rng, 20);
+        const hit = d20 === 20 || (d20 !== 1 && d20 >= needed);
+        if(hit){
+          const dmg = Math.max(1, _gladD(rng, atk.dmgSides));
+          def.hp -= dmg;
+          lines.push(atk.name + (incap ? ' batters ' : ' hits ') + def.name + ' for ' + dmg + ' (' + Math.max(0, def.hp + dmg) + '→' + Math.max(0, def.hp) + ')'
+            + (def.hp <= 0 ? ' — ' + def.name + ' falls!' : ''));
+        } else {
+          lines.push(atk.name + ' misses ' + def.name + ' (1d20 ' + d20 + ' vs ' + needed + '+)');
+        }
+      }
+    }
+    while(n < TACTICAL_BOUT_ROUND_CAP && living(A).length && living(B).length){
+      n++;
+      const lines = [];
+      const iA = _gladD(rng, 6), iB = _gladD(rng, 6);   // initiative — higher side strikes first (tie → A)
+      const aFirst = iA >= iB;
+      lines.push('Initiative: ' + (aFirst ? ('Side A ' + iA + ' ≥ Side B ' + iB) : ('Side B ' + iB + ' > Side A ' + iA)));
+      if(aFirst){ strike(living(A), B, lines); strike(living(B), A, lines); }
+      else      { strike(living(B), A, lines); strike(living(A), B, lines); }
+      // Surrender check (to-incapacitation only) — a battered, non-PC combatant at ≤½ hp may yield (RAW p.27).
+      if(incap){
+        for(const p of A.concat(B)){
+          if(p.hp > 0 && !p.surrendered && !p.isPC && p.hp <= p.maxHp / 2){
+            const roll = _gladD(rng, 6) + _gladD(rng, 6) + p.arenaMorale;
+            if(roll <= SURRENDER_MORALE_TARGET){ p.surrendered = true; p.hp = 0; lines.push(p.name + ' yields (morale 2d6+' + p.arenaMorale + ' = ' + roll + ' ≤ ' + SURRENDER_MORALE_TARGET + ')'); }
+          }
+        }
+      }
+      rounds.push({ n, initiative: { A: iA, B: iB }, lines,
+        hp: A.concat(B).reduce((m, p) => { m[p.id] = Math.max(0, p.hp); return m; }, {}) });
+    }
+
+    const aLives = living(A).length > 0, bLives = living(B).length > 0;
+    const winnerSide = (aLives && !bLives) ? 'A' : (bLives && !aLives) ? 'B' : 'draw';
+    const winners = winnerSide === 'A' ? A : winnerSide === 'B' ? B : [];
+    const losers  = winnerSide === 'A' ? B : winnerSide === 'B' ? A : [];
+
+    // Losers: slain in a to-death bout; in a to-incapacitation bout they SURVIVE (the crowd decides — the
+    // shared aftermath rolls the crowd reaction + may call death; _commitBoutResult).
+    const casualties = losers.map(p => ({
+      characterId: p.id, side: winnerSide === 'A' ? 'B' : 'A',
+      outcome: death ? 'slain' : 'survived', surrendered: !!p.surrendered
+    }));
+    // Incapacitated WINNERS — a winning-side combatant also at ≤0 (a team-bout mutual KO; RAW p.27 rolls
+    // Mortal Wounds for them). Empty in the common 1v1 (the winner is >0 by definition).
+    const winnerCasualties = winners.filter(p => p.hp <= 0).map(p => ({ characterId: p.id, side: winnerSide, outcome: 'survived' }));
+    // A draw (round cap): everyone left at ≤0 rolls Mortal Wounds as a survivor (no XP, no crowd-kill).
+    if(winnerSide === 'draw'){
+      for(const p of A.concat(B)){ if(p.hp <= 0 && !winnerCasualties.some(w => w.characterId === p.id)) winnerCasualties.push({ characterId: p.id, side: 'draw', outcome: 'survived' }); }
+    }
+    // XP to the winners = the gp value of the defeated opponent(s) (p.28).
+    const defeatedValue = losers.reduce((sum, p) => { const c = chars.find(x => x && x.id === p.id); return sum + (c ? gladiatorGpValue(c) : 0); }, 0);
+    const xpAwarded = winners.map(p => ({ characterId: p.id, xp: defeatedValue }));
+    // Crowd reaction for the losing survivors (to-incapacitation only; a to-death loser is already slain).
+    const crowdReaction = (!death && losers.length) ? rollCrowdReaction({ rng, regularGladiator: true }).result : null;
+
+    return {
+      ok: true,
+      result: {
+        winnerSide, resolutionMode: 'combat', death,
+        rounds, roundCount: n,
+        casualties, winnerCasualties, crowdReaction, xpAwarded,
+        sobriquetsAwarded: [], prizesPaidGp: [], wagersSettled: []
+      }
+    };
+  }
+
+  // resolveAndCommitBoutTactical(campaign, bout, opts) — run the round-by-round resolver, then COMMIT via
+  // the SHARED aftermath (_commitBoutResult). opts.{rng, logRounds}. With logRounds, a record-only,
+  // campaign-log-hidden `bout-round` event is emitted per round (the verbose per-round audit — the
+  // reserved kind; off by default so the eventLog isn't flooded). Returns { ok, result, bout } or a refusal.
+  function resolveAndCommitBoutTactical(campaign, bout, opts){
+    const b = _resolveBout(campaign, bout);
+    if(!b) return { ok:false, reason:'no-bout' };
+    if(b.status === 'resolved') return { ok:false, reason:'already-resolved' };
+    opts = opts || {};
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const res = resolveBoutTactical(campaign, b, { rng });   // gates on gladiator-games
+    if(!res.ok) return res;
+    const committed = _commitBoutResult(campaign, b, res.result, { rng });
+    if(committed.ok && opts.logRounds && Array.isArray(res.result.rounds)){
+      const game = b.gameId ? findGame(campaign, b.gameId) : null;
+      for(const r of res.result.rounds){
+        _emitGladiatorEvent(campaign, 'bout-round', {
+          boutId: b.id, round: r.n, initiative: r.initiative, lines: r.lines, hp: r.hp
+        }, 'Bout round ' + r.n + ' — ' + (r.lines || []).join('; '),
+        { settlementId: (game && game.settlementId) || null, campaignLogHidden: true,
+          relatedEntities: [{ kind:'bout', id: b.id, role:'subject' }] });
+      }
+    }
+    return committed;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // THE DAY-TICK CONSUMER (Calendar §14, slot 62) — self-registered from THIS module.
   // PURE propose (graduations + the month-end business loop) → propose-review-commit. commitTurn drives
   // it to month end via runDayTickToMonthEnd, so training graduates + the school's P&L run across
@@ -1242,6 +1481,9 @@
     schoolUpkeepGp, schoolMonthlyPL, estimateSchoolMonthlyRent, runSchoolBusinessMonth,
     // G4 — uprisings + sponsoring
     uprisingModifiers, checkUprising, sponsorGame,
+    // G5 — the round-by-round tactical bout (the Combat-Option-B exemplar; the shared aftermath is _commitBoutResult)
+    TACTICAL_BOUT_ROUND_CAP, INCAP_ATTACK_PENALTY, SURRENDER_MORALE_TARGET,
+    gladiatorCombatProfile, resolveBoutTactical, resolveAndCommitBoutTactical,
     // the slot-62 day-tick consumer (training graduations + the month-end business loop)
     proposeGladiatorDay, commitGladiatorRecord
   });
