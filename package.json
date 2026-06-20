@@ -6,6 +6,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "test": "node tests/run.js",
-    "lint:docs": "node tools/doc-drift-lint.js"
+    "lint:docs": "node tools/doc-drift-lint.js",
+    "lint:engine": "node tools/cross-module-lint.js"
   }
 }

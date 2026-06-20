@@ -17,10 +17,12 @@ Thanks for your interest in improving ACKS God Mode. This is the public statemen
 4. Open a **pull request into `main`**. Please don't self-merge — the maintainer reviews and merges.
 5. The maintainer reviews and merges. (Merging to `main` does **not** deploy — see Releases.)
 
-Run the test suite before opening a PR:
+Run the suite and the lints before opening a PR (CI runs all three on every push):
 
 ```sh
-npm test
+npm test             # the engine smoke suites
+npm run lint:docs    # public docs vs the engine — no removed token referenced as live
+npm run lint:engine  # engine module boundary — no bare cross-module private call
 ```
 
 There are no runtime dependencies; the suites load the engine modules headless in Node.
