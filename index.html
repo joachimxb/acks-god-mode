@@ -39,11 +39,11 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-19-demogautogen"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-20-syntribute"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-18-constructionwiz"></script>
+<script src="acks-engine.js?v=2026-06-20-syntribute"></script>
 <script src="acks-engine-entities.js?v=2026-06-18-constructionwiz"></script>
 <script src="acks-engine-economy.js?v=2026-06-19-banditchallenger"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
@@ -59,7 +59,7 @@
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
 <script src="acks-engine-proficiencies.js?v=2026-06-14-pt5"></script>
-<script src="acks-engine-hijinks.js?v=2026-06-14-pt5"></script>
+<script src="acks-engine-hijinks.js?v=2026-06-20-syntribute"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
 <script src="acks-engine-sieges.js?v=2026-06-19-siegeprofile"></script>
@@ -8125,6 +8125,28 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <template x-if="turnSyndicateTributeProposal && turnSyndicateTributeProposal.ruleOn && (turnSyndicateTributeProposal.collections||[]).length">
+        <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
+          <h3 class="font-bold text-base mb-1">🏛 Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
+          <p class="text-sm opacity-70 mb-2 italic">Each active syndicate's monthly tribute is collected into its boss's purse — a boss "sits back and collects his ill-gotten gains." Turn off "Syndicates — auto-collect the monthly tribute" in the 🗡 Hijinks house rules to drive the take by hand.</p>
+          <table class="w-full text-sm">
+            <thead><tr class="text-left border-b border-ink/30">
+              <th class="py-1 pr-2">Syndicate</th><th class="py-1 pr-2">Boss</th><th class="py-1 pr-2">Members</th><th class="py-1 pr-2">Tribute</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="s in turnSyndicateTributeProposal.collections" :key="s.syndicateId">
+                <tr class="border-b border-ink/10">
+                  <td class="py-1 pr-2" x-text="s.name || s.syndicateId"></td>
+                  <td class="py-1 pr-2" x-text="s.bossName || '—'"></td>
+                  <td class="py-1 pr-2" x-text="s.memberCount"></td>
+                  <td class="py-1 pr-2 font-mono" x-text="(s.totalGp||0).toLocaleString() + ' gp'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
       <template x-for="p in (turnProposal || [])" :key="p.domainId">
         <div class="mb-4 border border-ink rounded p-3 vellum">
           <div class="flex justify-between items-center flex-wrap gap-2">
@@ -9199,6 +9221,8 @@ document.addEventListener('alpine:init', () => {
                   </tbody>
                 </table>
                 <p x-show="!syn.members.length" class="italic opacity-60">No members. Add ruffians + lieutenants below.</p>
+                <p x-show="syn.tributeTotal > 0" class="italic opacity-60 mt-1" :class="syn.collectedThisTurn ? 'text-green-800' : ''"
+                   x-text="syn.collectedThisTurn ? '✓ tribute collected this month' : (syn.autoTribute ? '💰 Auto-collected at the next monthly turn (RR p.362) — or collect now above.' : 'Auto-collection off — collect tribute by hand each month.')"></p>
               </div>
               <!-- add members -->
               <div class="flex items-end gap-2 text-xs">
@@ -16978,6 +17002,7 @@ return {
   },
   turnProposal:null,turnProposalError:'',   // (showTurnModal retired 2026-06-13 — the turn now stages in Review ▸ Domain Review)
   turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
+  turnSyndicateTributeProposal:null, // HJ-2 — end-of-month syndicate tribute auto-take preview (dryRun)
   turnVentureProposals:null, // Phase 2b.5 — per-turn vagaries for in-transit ventures, set in proposeMonthlyTurn
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
   dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
@@ -29600,6 +29625,7 @@ return {
       this.turnVentureProposals = result.turnVentureProposals;
       this.turnProposal         = result.turnProposal;
       this.turnLivingExpenseProposal = result.livingExpenseProposal || null;   // CoL-2 preview
+      this.turnSyndicateTributeProposal = result.syndicateTributeProposal || null;   // HJ-2 preview
       this.goToReview('domain-review');   // 2026-06-13 — the turn stages in Review ▸ Domain Review (was a modal)
     } catch(e){
       console.error('proposeMonthlyTurn error', e);
@@ -30501,7 +30527,8 @@ return {
         marketClass: s.marketClass, hideoutType: s.hideoutType, hideoutValueGp: s.hideoutValueGp || 0,
         memberCount: A.syndicateMemberCount(s), maxMembers, maxEffectiveLevel: A.syndicateMaxEffectiveLevel(s.marketClass),
         members: (s.members || []).slice().sort((a, b) => (a.level || 0) - (b.level || 0)),
-        tributeTotal: trib.totalGp, tributeLines: trib.lines, collectedThisTurn
+        tributeTotal: trib.totalGp, tributeLines: trib.lines, collectedThisTurn,
+        autoTribute: !!(A.isHouseRuleEnabled && A.isHouseRuleEnabled(this.currentCampaign, 'syndicate-auto-tribute'))
       };
     });
   },

@@ -344,6 +344,13 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'detailed-hijink-tracking', category:'hijinks', name:'Detailed hijink tracking',
     source:'ACKS II RR pp.360-370 (Phase 2.7 — not yet implemented)',
     description:"When off (default), syndicates abstract to the designer's-note shorthand. When on, every hijink is resolved per-attempt with proficiency bonuses, planning/laying-low timers, individual perpetrator state, and the full Crime and Punishment table." },
+  // HJ-2 follow-on (2026-06-20): tribute is a MONTHLY collection (RR p.362), so auto-collection is the
+  // RAW-faithful default (a boss "sits back and collects his ill-gotten gains"). The favor-duty-auto-roll /
+  // senate-auto-vote precedent: default ON, the off-switch drives the take by hand (HJ-3 per-member play).
+  { id:'syndicate-auto-tribute', category:'hijinks', name:'Syndicates — auto-collect the monthly tribute',
+    source:'ACKS II RR p.362 (RAW core; this toggle is a UX preference, not a RAW divergence)',
+    default:true,
+    description:"DEFAULT ON. Tribute is a MONTHLY collection (RR p.362, \"Monthly Member Tribute\") — a boss \"sits back and collects his ill-gotten gains.\" With this ON, the monthly turn auto-collects each active syndicate's tribute into its boss's purse (the same per-member take as the Collect button; a manual collection earlier in the month is honored and never double-taken). When OFF, the engine never auto-collects — the GM drives the take by hand (the 💰 Collect button), useful for a Judge running the detailed per-member hijink assignments (Detailed hijink tracking) who doesn't want the passive whole-roster take on top." },
   // ----- Located inventory (Phase 2.95 Stash subsystem — 2026-05-29) -----
   // The Stash subsystem is always-on CORE as of v0.17.0 (2026-06-03): the master
   // `inventory-stash-system` toggle was removed (per Joachim — a located-inventory
