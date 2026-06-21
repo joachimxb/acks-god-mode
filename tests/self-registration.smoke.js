@@ -198,7 +198,8 @@ const EXP_HR_IDS = [
   "persistent-hireling-candidates", "persistent-hireling-resurfacing", "persistent-wandering-monsters", "random-merchandise-rolling", "recruitment-notability", "rule-of-the-few",
   "rumors-auto-emit", "rumors-manual", "rumors-proliferation", "seasonal-trade-modifiers", "senate-auto-vote", "separating-land-and-lordship",
   "simplified-fatigue", "slavery", "stronghold-by-buildings", "syndicate-auto-tribute", "vagaries-of-battle", "vagaries-of-incursion",
-  "vagaries-of-recruitment", "vagaries-of-war", "dynasty-tracking"
+  "vagaries-of-recruitment", "vagaries-of-war", "dynasty-tracking",
+  "construction-vagaries", "crude-construction-weather"   // Phase 4 Construction Wave I (2026-06-21)
 ];
 const EXP_HR_CATS = ['domain','construction','mercantile','characters','world','encounters','military','rumors','knowledge','hijinks','cultural'];
 // The 7 default:true rules — the behaviour-critical set (isHouseRuleEnabled returns true for these
@@ -207,7 +208,7 @@ const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living
 
 section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
 const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
-ok('exactly 69 house rules seeded', hrIds.length === 69, 'got ' + hrIds.length);
+ok('exactly 71 house rules seeded', hrIds.length === 71, 'got ' + hrIds.length);
 ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
 ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
   'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');

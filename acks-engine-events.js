@@ -2947,6 +2947,11 @@ function applyEvent_constructionVagary(campaign, event){
   if(typeof p.delayDays === 'number'){
     proj.daysElapsed = (proj.daysElapsed||0) - p.delayDays;  // negative tick — delay
   }
+  // Wave I — a vagary actually sets the labor back (the completion check reads laborInvested, not
+  // daysElapsed): a delay loses labor, a good-progress vagary (negative laborLost) adds it.
+  if(typeof p.laborLost === 'number'){
+    proj.laborInvested = Math.max(0, (proj.laborInvested||0) - p.laborLost);
+  }
   if(typeof p.costPenaltyGp === 'number'){
     proj.gpSpent = (proj.gpSpent||0) + p.costPenaltyGp;
   }

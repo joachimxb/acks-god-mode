@@ -10162,6 +10162,20 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let levy replenishment fail the monthly commit */ }
   }
 
+  // === CONSTRUCTION VAGARIES + CRUDE-WEATHER (Phase 4 Construction, Wave I) ===
+  // Each monthly turn, in-progress projects may hit a vagary (delay + cost overrun) and crude field works
+  // weather one band worse — both house-rule-gated (construction-vagaries / crude-construction-weather, both
+  // default OFF). Late-bound (acks-engine-construction.js loads after this file) + try-guarded (the arcane /
+  // syndicate / aging precedent), so a construction setback can never fail the core monthly commit.
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processConstructionVagariesForTurn === 'function'){
+        const cv = global.ACKS.processConstructionVagariesForTurn(campaign, { rng }) || {};
+        (cv.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let construction vagaries fail the monthly commit */ }
+  }
+
   // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
   // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
   // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior

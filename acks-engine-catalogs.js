@@ -339,6 +339,12 @@ function houseRuleCategories(){ return HOUSERULE_CATEGORIES.slice(); }
   { id:'alternative-farming-methods', category:'construction', name:'Alternative farming methods (8× population density)',
     source:'ACKS II RR p.340 (variant — not yet implemented)',
     description:"Intensive cultivation of high-yield crops twice per year could yield 8× the standard population density per hex. When enabled, individual hexes can be flagged as using alternative farming, raising their max-families ceiling." },
+  { id:'construction-vagaries', category:'construction', name:'Construction vagaries (delays + overruns)',
+    source:'ACKS II — tooling (no single RR table; 🔧 Mechanic Extensions)',
+    description:"OFF by default. When ON, each monthly turn every in-progress construction project rolls 1d100 for a possible setback (bad weather, material shortage, labor dispute, accident) or a windfall (swift progress). A setback sets the project's labor back (a real delay) and may add a cost overrun (a few % of the budget); the common roll is no incident. Vessels / mines / vaults / sanctums / dungeons / civic monuments / field works have their own flavor for the rare serious setback. Each lands as a construction-vagary event in the Event Log." },
+  { id:'crude-construction-weather', category:'construction', name:'Crude field works degrade in weather',
+    source:'ACKS II RR p.176',
+    description:"OFF by default. When ON, CRUDE field fortifications (a crude palisade, piled-earth rampart, or crude ditch) weather one damage band worse each monthly turn (intact → damaged → breached → ruined → destroyed) — gone after about four months. Proper (non-crude) works persist indefinitely." },
   // ----- Mercantile -----
   { id:'random-merchandise-rolling', category:'mercantile', name:'Random merchandise rolling',
     source:'ACKS II RR Random Merchandise table (Phase 2b)',

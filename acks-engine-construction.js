@@ -223,6 +223,115 @@
   // Whether a Constructible needs repair (damaged / breached / ruined / destroyed; not intact).
   function constructibleNeedsRepair(cst){ return !!cst && cst.damageState && cst.damageState !== 'intact'; }
 
+  // ── Wave I — construction vagaries + crude-weather degradation (monthly, house-rule-gated) ──
+  // 🔧 No single RR table covers in-progress construction setbacks, so this is a tooling table (delays +
+  // cost overruns + a few per-kind specials). Each monthly turn, an in-progress project rolls 1d100 (when
+  // the construction-vagaries rule is ON); a vagary sets back its labor + adds a cost penalty (emitted as
+  // a construction-vagary event the existing handler applies). The common roll is "nothing".
+  const CONSTRUCTION_VAGARY_TABLE = [
+    { lo:1,  hi:55,  key:'none',           label:'Work proceeds without incident', delay:'0',    costPct:0 },
+    { lo:56, hi:68,  key:'bad-weather',    label:'Bad weather halts work',         delay:'1d6',  costPct:0 },
+    { lo:69, hi:79,  key:'material-short', label:'Material shortage',              delay:'1d3',  costPct:5 },
+    { lo:80, hi:88,  key:'labor-dispute',  label:'Labor dispute',                  delay:'1d4',  costPct:3 },
+    { lo:89, hi:94,  key:'accident',       label:'A construction accident',        delay:'1d6',  costPct:2 },
+    { lo:95, hi:98,  key:'good-progress',  label:'The crew makes swift progress',  delay:'-1d4', costPct:0 },  // negative = ahead of schedule
+    { lo:99, hi:100, key:'serious',        label:'A serious setback',              delay:'2d6',  costPct:10, special:true }
+  ].map(Object.freeze);
+  Object.freeze(CONSTRUCTION_VAGARY_TABLE);
+  // Per-kind flavor for the "serious setback" band (label only; the delay/cost come from the table row).
+  const CONSTRUCTION_VAGARY_KIND_SPECIAL = Object.freeze({
+    vessel:'A storm wrecks the slipway', mine:'A cave-in (Vagaries of the Deep)', vault:'A cave-in (Vagaries of the Deep)',
+    sanctum:'A magical backlash', dungeon:'A magical backlash', 'civic-monument':'A political dispute halts the work',
+    'field-fortification':'The works wash out'
+  });
+  // Roll a dice string like "1d6" / "-1d4" / "0" / "2d6". Uses the engine's _rollDiceStr when present.
+  function _vagaryDice(spec, rng){
+    const A = global.ACKS || ACKS;
+    if(typeof A._rollDiceStr === 'function' && /^-?\d*d\d+/.test(String(spec))){
+      const neg = String(spec).trim().startsWith('-');
+      const r = A._rollDiceStr(String(spec).replace(/^-/, ''), rng);
+      return neg ? -r : r;
+    }
+    return Number(spec) || 0;
+  }
+  function rollConstructionVagary(kind, rng){
+    rng = rng || Math.random;
+    const roll = 1 + Math.floor(rng() * 100);
+    const row = CONSTRUCTION_VAGARY_TABLE.find(r => roll >= r.lo && roll <= r.hi) || CONSTRUCTION_VAGARY_TABLE[0];
+    const delayDays = _vagaryDice(row.delay, rng);
+    const label = (row.special && CONSTRUCTION_VAGARY_KIND_SPECIAL[kind]) ? CONSTRUCTION_VAGARY_KIND_SPECIAL[kind] : row.label;
+    return { roll, key: row.key, label, delayDays, costPct: row.costPct || 0 };
+  }
+
+  // Push an applied construction event to the eventLog (the monthly-consumer pattern — the verb already
+  // mutated; this keeps the audit trail). Late-bound applyEvent/newEvent.
+  function _emitConstructionEvent(campaign, kind, payload){
+    const A = global.ACKS || ACKS;
+    if(!campaign || typeof A.applyEvent !== 'function' || typeof A.newEvent !== 'function') return;
+    const ev = A.newEvent(kind, { payload: payload, submittedBy:'engine', status:'applied', targetTurn: campaign.currentTurn || 1 });
+    let out; try { out = A.applyEvent(campaign, ev); } catch(_e){ return; }
+    ev.appliedAtTurn = campaign.currentTurn || 1; ev.result = out && out.result;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: (out && out.result) || {}, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  }
+
+  // The monthly construction consumer (hooked into commitTurn). Runs when EITHER construction-vagaries OR
+  // crude-construction-weather is on. (1) Vagaries: each in-progress non-agricultural project rolls 1d100;
+  // a setback emits a construction-vagary (laborLost = delayDays × the crew's daily cf, so a delay really
+  // sets progress back; a cost penalty raises gpSpent). (2) Crude weather: a crude field-fortification
+  // Constructible's damage worsens one step each month (intact→damaged→breached→ruined→destroyed) — RR p.176.
+  function processConstructionVagariesForTurn(campaign, opts){
+    opts = opts || {}; const rng = opts.rng || Math.random;
+    const A = global.ACKS || ACKS;
+    const out = { ran:false, vagaryCount:0, weatherCount:0, logEntries:[] };
+    if(!campaign) return out;
+    const isOn = (id) => (typeof A.isHouseRuleEnabled === 'function') ? A.isHouseRuleEnabled(campaign, id) : false;
+    const vagariesOn = isOn('construction-vagaries');
+    const weatherOn  = isOn('crude-construction-weather');
+    if(!vagariesOn && !weatherOn) return out;
+
+    if(vagariesOn && Array.isArray(campaign.projects)){
+      for(const p of campaign.projects){
+        if(!p || p.lifecycleState !== 'under-construction') continue;
+        if(p.constructibleKind === 'agricultural-improvement') continue;  // ag has its own drip; no structure vagary
+        const v = rollConstructionVagary(p.constructibleKind, rng);
+        if(v.key === 'none') continue;
+        const dailyCf = (typeof A.totalDailyOutputCf === 'function') ? A.totalDailyOutputCf(p.workerCounts) : 0;
+        const laborLost = Math.round(v.delayDays * dailyCf);                    // +delay loses labor; −delay (good progress) gains it
+        const costPenaltyGp = Math.round((p.totalCost || 0) * (v.costPct / 100));
+        _emitConstructionEvent(campaign, 'construction-vagary', { projectId: p.id, vagaryKey: v.key, delayDays: v.delayDays, laborLost, costPenaltyGp, narrative: v.label });
+        out.vagaryCount++;
+        out.logEntries.push((p.name || 'A project') + ': ' + v.label
+          + (v.delayDays ? (' (' + (v.delayDays > 0 ? '−' : '+') + Math.abs(v.delayDays) + ' days)') : '')
+          + (costPenaltyGp ? (' · +' + costPenaltyGp.toLocaleString() + 'gp') : ''));
+      }
+    }
+
+    if(weatherOn && Array.isArray(campaign.constructibles)){
+      // Step the damageState one band worse each month (RR p.176). We do NOT route through the
+      // construction-damaged event handler — its SHP-band logic resets a no-SHP work to 'damaged', so it
+      // can't reach 'breached'/'ruined'. Instead we step the state directly + record it on the Constructible's
+      // own history (the audit trail). A crude work is gone after ~4 months of weather.
+      const worse = { intact:'damaged', damaged:'breached', breached:'ruined', ruined:'destroyed' };
+      for(const c of campaign.constructibles){
+        if(!c || c.constructibleKind !== 'field-fortification') continue;
+        if(c.damageState === 'destroyed') continue;
+        const ent = findConstructionSubtype('field-fortification', c.constructibleSubtype);
+        if(!ent || !ent.crude) continue;                                       // only CRUDE works degrade
+        const next = worse[c.damageState || 'intact'];
+        if(!next) continue;
+        c.damageState = next;
+        if(c.maxShp != null && c.currentShp != null) c.currentShp = Math.max(0, c.currentShp - Math.ceil(c.maxShp / 4));
+        if(next === 'destroyed') c.operationalState = 'abandoned';
+        (c.history = c.history || []).push({ turn: campaign.currentTurn || null, type:'weathered', narrative: 'Degrades in the weather (RR p.176) → ' + next });
+        out.weatherCount++;
+        out.logEntries.push((c.name || 'A crude field work') + ' weathers to ' + next + ' (RR p.176)');
+      }
+    }
+    out.ran = (out.vagaryCount + out.weatherCount) > 0;
+    return out;
+  }
+
   // ── vessel construction — the construction SIDE of the shipped voyages seam ──
   // The materialization (Project → Vessel) is voyages's onVesselConstructed + its day-tick
   // consumer; this just hands the Wizard the VESSEL_CATALOG cost so a vessel Project is costed
@@ -373,7 +482,9 @@
     CIVIC_MONUMENT_CATALOG, TRAP_CATALOG, FIELD_FORTIFICATION_CATALOG, ROAD_CATALOG,
     constructionSubtypeCatalog, findConstructionSubtype,
     // Wave F — damage + repair
-    constructionRepairCost, constructibleNeedsRepair
+    constructionRepairCost, constructibleNeedsRepair,
+    // Wave I — vagaries + crude-weather degradation (the monthly construction consumer)
+    CONSTRUCTION_VAGARY_TABLE, rollConstructionVagary, processConstructionVagariesForTurn
   });
 
 })(typeof window !== 'undefined' ? window : global);
