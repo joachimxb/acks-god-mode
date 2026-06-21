@@ -108,6 +108,8 @@
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
+<!-- @b13-domvariants — Domain Variants: Pastoralist economics (Phase 5 §3, JJ pp.436–438). Loads after acks-engine-economy.js (its incomeBreakdown hook is late-bound) + catalogs (terrainBase) + events (registerEventKind); before player-view. -->
+<script src="acks-engine-domain-variants.js?v=2026-06-21-b13"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
@@ -5875,6 +5877,55 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </template>
             </div>
+            <!-- === @b13-domvariants (team) — Pastoralist economics panel (Phase 5 §3; JJ pp.436–438) === -->
+            <div class="md:col-span-2 vellum border border-ink p-3 rounded">
+              <h2 class="font-bold text-lg mb-1">🐄 Pastoralist economy <span class="text-xs font-normal opacity-60">(JJ pp.436–438)</span></h2>
+              <p class="text-sm opacity-70 mb-2">A herding hex feeds far fewer families per acre than farming (caloric efficiency 0.20–0.42) at roughly the same income per family — "land-rich, population-thin." Set a rural hex's economy below; its <strong>Land revenue</strong> (in Monthly Bookkeeping) reflects the lower carrying capacity. Income per family is unchanged. Agricultural is the RAW default — no house rule needed.</p>
+              <template x-if="domainPastoralistInfo(selectedDomain).ruralHexCount === 0">
+                <p class="text-sm italic opacity-60">No rural hexes in this domain.</p>
+              </template>
+              <template x-if="domainPastoralistInfo(selectedDomain).ruralHexCount > 0">
+                <div>
+                  <table class="text-sm w-full">
+                    <thead>
+                      <tr class="text-left opacity-70 border-b border-ink/30">
+                        <th class="pr-2 py-1">Hex</th>
+                        <th class="pr-2 py-1">Economy</th>
+                        <th class="pr-2 py-1 text-right">Families</th>
+                        <th class="pr-2 py-1 text-right" title="Agricultural carrying capacity (RR p.340)">Farm cap</th>
+                        <th class="pr-2 py-1 text-right" title="Herding carrying capacity = farm cap × caloric efficiency (JJ pp.436–438)">Herd cap</th>
+                        <th class="pr-2 py-1" title="RAW rearing-terrain hint — GM sovereignty, never a hard block">Rearable?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="h in domainPastoralistInfo(selectedDomain).hexes" :key="h.hexId">
+                        <tr class="border-b border-ink/10" :class="h.overCap ? 'text-amber-800' : ''">
+                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
+                          <td class="pr-2 py-1">
+                            <select class="text-sm" :value="h.economyType" @change="setHexEconomy(h.hexId, $event.target.value)">
+                              <template x-for="opt in pastoralistEconomyOptions()" :key="opt.value">
+                                <option :value="opt.value" :selected="opt.value === h.economyType" x-text="opt.label"></option>
+                              </template>
+                            </select>
+                          </td>
+                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
+                          <td class="pr-2 py-1 text-right font-mono opacity-70" x-text="h.agriculturalCap.toLocaleString()"></td>
+                          <td class="pr-2 py-1 text-right font-mono" x-text="h.isPastoralist ? h.pastoralistCap.toLocaleString() : '—'"></td>
+                          <td class="pr-2 py-1" x-text="!h.isPastoralist ? '—' : (h.rearable ? '✓' : ('⚠ not ' + (h.terrainBase || '?')))"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                  <p class="text-sm mt-2" x-show="domainPastoralistInfo(selectedDomain).hasPastoralist">
+                    <span class="font-semibold">Land-revenue density:</span>
+                    <span class="font-mono" x-text="'×' + domainPastoralistInfo(selectedDomain).densityPct + '%'"></span>
+                    <span class="opacity-70" x-text="domainPastoralistInfo(selectedDomain).densityPct < 100 ? ' — herding land sustains fewer families; the Land revenue row below is reduced accordingly.' : ' — at or under carrying capacity (no reduction).'"></span>
+                  </p>
+                  <p class="text-sm italic opacity-60 mt-2" x-show="!domainPastoralistInfo(selectedDomain).hasPastoralist">All hexes agricultural — the RAW baseline (no change to land revenue).</p>
+                </div>
+              </template>
+            </div>
+            <!-- === end @b13-domvariants === -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
@@ -19309,6 +19360,29 @@ return {
   // === @b13 TEAM SESSION insertion zone — each lane appends its state+methods AFTER ITS OWN marker line (distinct lines → clean auto-merge). Do not touch another lane's marker. ===
   // === @b13-construction  (team) — Construction Wave D (vessels / war machines / siege-support): state + methods ===
   // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
+  // Pastoralist economics readouts + the economyType setter. Logic lives in acks-engine-domain-variants.js;
+  // these are thin pass-throughs (Phase 5 §3, JJ pp.436–438). domainPastoralistInfo recomputes on read,
+  // so flipping a hex's economy re-renders the panel AND the income breakdown's Land revenue row live.
+  domainPastoralistInfo(d){
+    return (d && window.ACKS && window.ACKS.domainPastoralistInfo)
+      ? window.ACKS.domainPastoralistInfo(this.currentCampaign, d)
+      : { hasPastoralist:false, hexes:[], factor:1, densityPct:100, ruralHexCount:0, pastoralistHexCount:0 };
+  },
+  pastoralistEconomyOptions(){
+    const A = window.ACKS;
+    const opts = [{ value:'agricultural', label:'Agricultural (default)' }];
+    if(A && A.pastoralistEconomyTypes) (A.pastoralistEconomyTypes()||[]).forEach(k => opts.push({ value:k, label:A.pastoralistEconomyLabel(k) }));
+    return opts;
+  },
+  setHexEconomy(hexId, value){
+    if(!hexId || !this.currentCampaign || !window.ACKS || !window.ACKS.setHexEconomyType) return;
+    const r = window.ACKS.setHexEconomyType(this.currentCampaign, hexId, value);
+    if(r && r.ok && !r.unchanged){
+      if(this.markDirty) this.markDirty();
+      if(this.schedulePersist) this.schedulePersist();
+      if(this.showToast) this.showToast('🐄 Economy: ' + window.ACKS.pastoralistEconomyLabel(r.from) + ' → ' + window.ACKS.pastoralistEconomyLabel(r.to));
+    }
+  },
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
   // The three deferred AXIOMS-19 mechanics over acks-engine-lifecycle.js (educateCharacter /
   // applyReserveXpToHeir / delegateAuthority / characterFamilyInfo + the fertility auto-roll that rides

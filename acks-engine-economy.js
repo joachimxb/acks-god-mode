@@ -356,6 +356,16 @@ function incomeBreakdown(campaign, d){
                 gp: bankersRound((landRow.gp || 0) + consBonus * consFam) };
   }
   // === end @b10-religion ===
+  // === @b13-domvariants (team) — Pastoralist economics (Phase 5 §3, JJ pp.436–438): a herding hex's
+  // land feeds fewer families per acre (caloric efficiency 0.20–0.42), so its LAND revenue reflects that
+  // lower carrying capacity — gp/family is unchanged; the families-the-land-sustains is capped. In the
+  // per-hex land branch (landRow = Σ fam·val) the factor yields Σ min(fam,cap)·val exactly. Defensive:
+  // no pastoralist hex over its cap ⇒ factor 1 ⇒ byte-identical (the economy oracle stays green). Logic
+  // lives in acks-engine-domain-variants.js; late-bound (it loads after this module).
+  if(global.ACKS && typeof global.ACKS.applyPastoralistLandRevenue === 'function'){
+    landRow = global.ACKS.applyPastoralistLandRevenue(campaign, d, landRow, { hexes });
+  }
+  // === end @b13-domvariants ===
   const rows = [
     landRow,
     { label: 'Service revenue (' + (d.income.serviceRevenuePerFamily||4) + ' × ' + (fam+urb) + ')', gp: (d.income.serviceRevenuePerFamily||0)*(fam+urb) },
