@@ -423,18 +423,19 @@ function applyEvent_recruitHireling(campaign, event){
     const rowForLabel = (ACKS3 && ACKS3.HIRELING_MERCENARIES || []).find(r => r.id === p.hireTypeId);
     const unitDisplayName = (rowForLabel && rowForLabel.label) || p.hireTypeId;
     if(wantsCompany){
-      if(!patron.mercenaryCompany) patron.mercenaryCompany = { units: [] };
-      if(!Array.isArray(patron.mercenaryCompany.units)) patron.mercenaryCompany.units = [];
+      // Single-home (T6): the patron's company units live in campaign.units (stationedAt the character);
+      // read existing same-type units via unitsStationedAt (the mercenaryCompany.units mirror is gone).
+      const companyUnits = global.ACKS.unitsStationedAt(campaign, { kind: 'character', id: patron.id }) || [];
       // #548 — targetGarrisonUnitId payload field. '__new__' = force create even if same-type exists.
       // Specific id = use that unit directly. Unset = auto-find first same-type sibling (legacy behavior).
       let unit;
       if(p.targetGarrisonUnitId === '__new__'){
         unit = null;
       } else if(p.targetGarrisonUnitId){
-        unit = patron.mercenaryCompany.units.find(u => u.id === p.targetGarrisonUnitId);
-        if(!unit) unit = patron.mercenaryCompany.units.find(u => u.unitTypeKey === p.hireTypeId);
+        unit = companyUnits.find(u => u.id === p.targetGarrisonUnitId);
+        if(!unit) unit = companyUnits.find(u => u.unitTypeKey === p.hireTypeId);
       } else {
-        unit = patron.mercenaryCompany.units.find(u => u.unitTypeKey === p.hireTypeId);
+        unit = companyUnits.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
         // W1: create through blankUnit (TROOP_CATALOG wage/BR defaults — closes the old
@@ -457,18 +458,18 @@ function applyEvent_recruitHireling(campaign, event){
       unitId = unit.id;
       destNarr = "into " + (patron.name || 'patron') + "'s company";
     } else {
-      // Write to the EXISTING domain.garrison.units structure (matches what the UI reads).
-      if(!ruledDomain.garrison) ruledDomain.garrison = { units: [] };
-      if(!Array.isArray(ruledDomain.garrison.units)) ruledDomain.garrison.units = [];
+      // Single-home (T6): the domain's garrison units live in campaign.units (stationedAt the domain);
+      // read existing same-type units via unitsStationedAt (the garrison.units mirror is gone).
+      const garrisonUnits = global.ACKS.unitsStationedAt(campaign, { kind: 'domain-garrison', id: ruledDomain.id }) || [];
       // #548 — targetGarrisonUnitId payload field. See merc-company branch above.
       let unit;
       if(p.targetGarrisonUnitId === '__new__'){
         unit = null;
       } else if(p.targetGarrisonUnitId){
-        unit = ruledDomain.garrison.units.find(u => u.id === p.targetGarrisonUnitId);
-        if(!unit) unit = ruledDomain.garrison.units.find(u => u.unitTypeKey === p.hireTypeId);
+        unit = garrisonUnits.find(u => u.id === p.targetGarrisonUnitId);
+        if(!unit) unit = garrisonUnits.find(u => u.unitTypeKey === p.hireTypeId);
       } else {
-        unit = ruledDomain.garrison.units.find(u => u.unitTypeKey === p.hireTypeId);
+        unit = garrisonUnits.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
         // W1: blankUnit (catalog wage/BR) + stationUnit (campaign.units[] + the garrison mirror).

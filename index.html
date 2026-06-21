@@ -22713,9 +22713,8 @@ return {
       target = sibs[idx];
     }
     target.count = Number(target.count || 0) + Number(unit.count || 0);
-    // Remove the merged-away unit from BOTH homes (campaign.units[] + the garrison mirror).
-    if(window.ACKS && window.ACKS.disbandUnit) window.ACKS.disbandUnit(this.currentCampaign, unit);
-    else { const removeIdx = domain.garrison.units.indexOf(unit); if(removeIdx >= 0) domain.garrison.units.splice(removeIdx, 1); }
+    // Remove the merged-away unit via the canonical setter (single-home, T6 — campaign.units[]).
+    window.ACKS.disbandUnit(this.currentCampaign, unit);
     this.showToast && this.showToast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
   },
 
@@ -22888,10 +22887,8 @@ return {
   },
   removeGarrisonUnit(domain, u){
     if(this.unitIsDeployed(u)){ this.showToast && this.showToast('This unit is with a field army — remove it through the army (Characters ▸ Parties).', 3500); return; }
-    // Full removal from BOTH homes (master campaign.units[] + the garrison mirror) — else the unit
-    // lingers in the master and the Garrison table (which now reads the master) would re-show it.
-    if(window.ACKS && window.ACKS.disbandUnit) window.ACKS.disbandUnit(this.currentCampaign, u);
-    else { const arr = (domain && domain.garrison && domain.garrison.units) || []; const idx = arr.indexOf(u); if(idx >= 0) arr.splice(idx, 1); }
+    // Remove via the canonical setter (single-home, T6 — campaign.units[]).
+    window.ACKS.disbandUnit(this.currentCampaign, u);
     this.markDirty(); this.schedulePersist();
   },
 
@@ -29594,24 +29591,12 @@ return {
       nb.crossingSides = setEdge(nb.crossingSides, nwC.includes(i));
     }
   },
-  // Move a hex between domains (or to/from unclaimed). Preserves the (reference-unified, #193) hex
-  // object: drop it from the old domain's nested geography, set domainId, add to the new domain's.
+  // Move a hex between domains (or to/from unclaimed). Single-home (T6): a hex's domain claim IS
+  // hex.domainId; just set it (and ensure the hex is in the canonical campaign.hexes).
   mapRehomeHex(hex, newDomainId){
     const cur = hex.domainId || null, next = newDomainId || null;
     if(cur === next) return;
-    if(cur){
-      const od = this.domains.find(d => d.id === cur);
-      if(od && od.geography && Array.isArray(od.geography.hexes)) od.geography.hexes = od.geography.hexes.filter(h => h.id !== hex.id);
-    }
     hex.domainId = next;
-    if(next){
-      const nd = this.domains.find(d => d.id === next);
-      if(nd){
-        if(!nd.geography) nd.geography = {};
-        if(!Array.isArray(nd.geography.hexes)) nd.geography.hexes = [];
-        if(!nd.geography.hexes.some(h => h.id === hex.id)) nd.geography.hexes.push(hex);
-      }
-    }
     if(Array.isArray(this.currentCampaign?.hexes) && !this.currentCampaign.hexes.some(h => h.id === hex.id)) this.currentCampaign.hexes.push(hex);
   },
   // The picker's Create/Save button. Branches on mapEditHexId (edit existing) vs create new.
@@ -29646,10 +29631,7 @@ return {
       const d = this.domains.find(x => x.id === domId);
       if(!d){ this.mapCreateAt = null; return; }
       hex.domainId = d.id;
-      if(!d.geography) d.geography = {};
-      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-      d.geography.hexes.push(hex);
-      if(Array.isArray(this.currentCampaign?.hexes)) this.currentCampaign.hexes.push(hex); // reference-unified (#193)
+      this.currentCampaign.hexes.push(hex);   // single-home (T6) — canonical store, claimed by domainId
       this.showToast('Created hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' in ' + (d.name || 'domain') + '.');
     } else {
       hex.domainId = null;
@@ -29982,14 +29964,9 @@ return {
     // Unclaimed wilderness starts UNexplored (uncharted territory you grow the map into); a hex added
     // to a domain is known territory, so it stays explored (blankHex's default).
     const hex = window.ACKS.blankHex({ coord: this._firstFreeHexCoord(), explored: !wild });
-    hex.domainId = d ? d.id : null;
+    hex.domainId = d ? d.id : null;   // single-home (T6) — domain claim is the scalar
     if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
     this.currentCampaign.hexes.push(hex);
-    if(d){
-      if(!d.geography) d.geography = {};
-      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-      d.geography.hexes.push(hex);
-    }
     this.markDirty(); this.schedulePersist();
     this.showToast('Added hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + ' to ' + (d ? d.name : 'unclaimed wilderness') + ' — set its coord in the hex panel.');
   },
@@ -30049,8 +30026,7 @@ return {
     if((hex.pointsOfInterest || []).length) lost.push(hex.pointsOfInterest.length + ' point' + (hex.pointsOfInterest.length === 1 ? '' : 's') + ' of interest');
     const warn = lost.length ? ('\n\nThis hex contains ' + lost.join(', ') + ' — they will be deleted too.') : '';
     if(!confirm('Delete hex ' + label + '?' + warn + '\n\nThis removes it from the map and its domain, and cannot be undone.')) return;
-    this.currentCampaign.hexes = (this.currentCampaign.hexes || []).filter(h => h.id !== hex.id);
-    (this.domains || []).forEach(d => { if(d.geography && Array.isArray(d.geography.hexes)) d.geography.hexes = d.geography.hexes.filter(h => h.id !== hex.id); });
+    this.currentCampaign.hexes = (this.currentCampaign.hexes || []).filter(h => h.id !== hex.id);   // single-home (T6)
     if(Array.isArray(this.currentCampaign.settlements)) this.currentCampaign.settlements = this.currentCampaign.settlements.filter(s => !(s && s.hexId === hex.id));
     if(this.worldHexEditing && this.worldHexEditing.hexId === hex.id) this.closeHexDetail(); // close the panel if it was open on this hex
     this.markDirty(); this.schedulePersist();
