@@ -32,7 +32,8 @@ const EXPECTED = {
   researchProject:'rsp', rumor:'rum', sageCommission:'sag', senate:'sen', senatorship:'snr',
   settlement:'set', settlementVisit:'svt', siege:'sie', specialist:'spe', specialistContract:'spc',
   stash:'stash', stashItem:'si', strongholdStructure:'str', syndicate:'syn',
-  tributaryAgreement:'trb', unit:'unit', vassalage:'vas', venture:'vnt', vessel:'vsl'
+  tributaryAgreement:'trb', unit:'unit', vassalage:'vas', venture:'vnt', vessel:'vsl',
+  confinement:'cnf', dynasty:'dyn', kinship:'kin'
 };
 
 // =============================================================================
@@ -40,7 +41,7 @@ section('the seeded prefix map is byte-identical to the pre-refactor frozen lite
 const live = ACKS.ID_PREFIXES;
 const expKeys = Object.keys(EXPECTED).sort();
 const liveKeys = Object.keys(live).sort();
-ok('exactly 65 prefixes seeded', liveKeys.length === 65, 'live ' + liveKeys.length);
+ok('exactly 68 prefixes seeded', liveKeys.length === 68, 'live ' + liveKeys.length);
 ok('same kind set as before', JSON.stringify(liveKeys) === JSON.stringify(expKeys),
   'missing [' + expKeys.filter(k => !(k in live)).join(',') + '] / extra [' + liveKeys.filter(k => !(k in EXPECTED)).join(',') + ']');
 const valueMismatch = expKeys.filter(k => live[k] !== EXPECTED[k]);
@@ -96,7 +97,8 @@ const EXP_SEEDED = [
   'vassalages','tributaryAgreements','favorDutyObligations','notableItems','itemCustody','groups','journeys',
   'outposts','dungeons','congregations','divineFavors','attunements','settlementVisits','oaths',
   'vagaryOfIncursionEvents','projects','constructibles','lairs','hijinks','syndicates','researchProjects',
-  'apprenticeships','bankAccounts','lettersOfCredit','lore','knowledge','sageCommissions'
+  'apprenticeships','bankAccounts','lettersOfCredit','lore','knowledge','sageCommissions',
+  'dynasties','kinships','confinements'
 ];
 // lazyDefault:true (19) — migrateCampaign backfills these on load (the eager set).
 const EXP_LAZY = [
@@ -113,14 +115,15 @@ const EXP_IMPORTABLE = [
   'settlementVisits','oaths','vagaryOfIncursionEvents','projects','constructibles','favorDutyObligations','lairs',
   'encounters','hijinks','syndicates','units','armies','battles','sieges','vessels','delves','senates','factions',
   'senatorships','bouts','gladiatorSchools','games','customClasses','customRaces','researchProjects',
-  'apprenticeships','loans','bankAccounts','lettersOfCredit','lore','knowledge','sageCommissions'
+  'apprenticeships','loans','bankAccounts','lettersOfCredit','lore','knowledge','sageCommissions',
+  'dynasties','kinships','confinements'
 ];
 
 section('the collection registry reproduces the pre-refactor three-site truth table');
-ok('exactly 58 collections registered', ACKS.registeredCollections().length === 58, 'got ' + ACKS.registeredCollections().length);
-ok('seededCollections() === the seed set (43)', sortedEq(ACKS.seededCollections(), EXP_SEEDED), 'got ' + ACKS.seededCollections().length);
+ok('exactly 61 collections registered', ACKS.registeredCollections().length === 61, 'got ' + ACKS.registeredCollections().length);
+ok('seededCollections() === the seed set (46)', sortedEq(ACKS.seededCollections(), EXP_SEEDED), 'got ' + ACKS.seededCollections().length);
 ok('lazyDefaultCollections() === the migrate-injected set (19)', sortedEq(ACKS.lazyDefaultCollections(), EXP_LAZY), 'got ' + ACKS.lazyDefaultCollections().length);
-ok('importableCollections() === the pre-refactor SIMPLE_ID_COLLECTIONS membership (55)', sortedEq(ACKS.importableCollections(), EXP_IMPORTABLE), 'got ' + ACKS.importableCollections().length);
+ok('importableCollections() === the pre-refactor SIMPLE_ID_COLLECTIONS membership + burst12 (58)', sortedEq(ACKS.importableCollections(), EXP_IMPORTABLE), 'got ' + ACKS.importableCollections().length);
 ok('lazyDefault ⟹ importable (a load-injected collection always travels on import)',
   ACKS.lazyDefaultCollections().every(n => ACKS.importableCollections().includes(n)));
 ok('domains/hexes/banks are NOT importable (special-cased / legacy-reserved)',
@@ -195,7 +198,7 @@ const EXP_HR_IDS = [
   "persistent-hireling-candidates", "persistent-hireling-resurfacing", "persistent-wandering-monsters", "random-merchandise-rolling", "recruitment-notability", "rule-of-the-few",
   "rumors-auto-emit", "rumors-manual", "rumors-proliferation", "seasonal-trade-modifiers", "senate-auto-vote", "separating-land-and-lordship",
   "simplified-fatigue", "slavery", "stronghold-by-buildings", "syndicate-auto-tribute", "vagaries-of-battle", "vagaries-of-incursion",
-  "vagaries-of-recruitment", "vagaries-of-war"
+  "vagaries-of-recruitment", "vagaries-of-war", "dynasty-tracking"
 ];
 const EXP_HR_CATS = ['domain','construction','mercantile','characters','world','encounters','military','rumors','knowledge','hijinks','cultural'];
 // The 7 default:true rules — the behaviour-critical set (isHouseRuleEnabled returns true for these
@@ -204,7 +207,7 @@ const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living
 
 section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
 const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
-ok('exactly 68 house rules seeded', hrIds.length === 68, 'got ' + hrIds.length);
+ok('exactly 69 house rules seeded', hrIds.length === 69, 'got ' + hrIds.length);
 ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
 ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
   'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');
@@ -334,10 +337,11 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
 // schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
-const EV_KINDS_COUNT = 171, EV_SCHEMAS_COUNT = 171, EV_OPTOUT_COUNT = 145;
+const EV_KINDS_COUNT = 180, EV_SCHEMAS_COUNT = 180, EV_OPTOUT_COUNT = 154;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
-  'domain-banditry','proficiency-throw','domain-advanced','bout-round'];
+  'domain-banditry','proficiency-throw','domain-advanced','bout-round',
+  'dynasty-founded','captive-ransomed','urban-incident-escalated','vessel-launched','vessel-repaired'];
 
 section('the seeded event-kind registries reproduce the pre-refactor frozen-literal counts + invariants');
 const evKinds = ACKS.EVENT_KINDS, evSchemas = ACKS.EVENT_SCHEMAS, evOptout = ACKS.EVENT_WIZARD_OPTOUT;
@@ -354,7 +358,7 @@ ok('every opt-out is a registered kind', [...evOptout].every(k => evKindSet.has(
   [...evOptout].filter(k => !evKindSet.has(k)).join(', '));
 ok('representative kinds all present (catches a catastrophic seed failure)', EV_REPRESENTATIVES.every(k => evKindSet.has(k)),
   EV_REPRESENTATIVES.filter(k => !evKindSet.has(k)).join(', '));
-ok('player-plan is first, bout-round is last (append order preserved)', evKinds[0] === 'player-plan' && evKinds[evKinds.length - 1] === 'bout-round');
+ok('player-plan is first, vessel-repaired is last (append order preserved)', evKinds[0] === 'player-plan' && evKinds[evKinds.length - 1] === 'vessel-repaired');
 
 section('registerEventKind — the kernel (the last self-registration family)');
 ok('registerEventKind exported', typeof ACKS.registerEventKind === 'function');
@@ -415,11 +419,11 @@ ok('registerEventKind() with no args is a safe no-op', (function(){ try { const 
 // entity-kind count + the global schema⊆factory invariant in tests/smoke.js. Here we pin the COUNTS +
 // the structural invariants (no dups, 1:1 list↔index, schema-keys ⊆ entity-kinds) + representatives,
 // and exercise both registrars end-to-end.
-const ENTITY_KINDS_COUNT = 56, FIELD_SCHEMAS_COUNT = 40;
+const ENTITY_KINDS_COUNT = 58, FIELD_SCHEMAS_COUNT = 42;
 const ENTITY_REPRESENTATIVES = ['character','party','group','hex','domain','unit','army','lair','encounter',
-  'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore'];
+  'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore','dynasty','confinement'];
 const SCHEMA_REPRESENTATIVES = ['outpost','stash','magistracy','unit','army','journey','group','dungeon',
-  'senate','loan','lore'];
+  'senate','loan','lore','dynasty','confinement'];
 
 section('the seeded entity registry reproduces the pre-refactor frozen-literal counts + invariants');
 const ekList = ACKS.ENTITY_KINDS_LIST, ekIndex = ACKS.ENTITY_KINDS;
@@ -431,7 +435,7 @@ ok('the ENTITY_KINDS index has the same key set as the list (the 1:1 invariant)'
 ok('every list entry is indexed to itself', ekList.every(e => ekIndex[e.kind] === e));
 ok('representative kinds all present (catches a catastrophic seed failure)', ENTITY_REPRESENTATIVES.every(k => ekSet.has(k)),
   ENTITY_REPRESENTATIVES.filter(k => !ekSet.has(k)).join(', '));
-ok('character is first, lore is last (append order preserved)', ekKinds[0] === 'character' && ekKinds[ekKinds.length - 1] === 'lore');
+ok('character is first, confinement is last (append order preserved)', ekKinds[0] === 'character' && ekKinds[ekKinds.length - 1] === 'confinement');
 
 section('the seeded field-schemas reproduce the pre-refactor frozen-literal count + the schema⊆entity-kind invariant');
 const fsKeys = Object.keys(ACKS.FIELD_SCHEMAS);
@@ -446,7 +450,7 @@ ok('every field-schema key is a registered entity kind (1 documented exception: 
   fsKeys.filter(k => !ekSet.has(k) && !SCHEMA_KEY_EXCEPTIONS.has(k)).join(', '));
 ok('representative schemas all present', SCHEMA_REPRESENTATIVES.every(k => k in ACKS.FIELD_SCHEMAS),
   SCHEMA_REPRESENTATIVES.filter(k => !(k in ACKS.FIELD_SCHEMAS)).join(', '));
-ok('outpost is first, lore is last (insertion order preserved)', fsKeys[0] === 'outpost' && fsKeys[fsKeys.length - 1] === 'lore');
+ok('outpost is first, confinement is last (insertion order preserved)', fsKeys[0] === 'outpost' && fsKeys[fsKeys.length - 1] === 'confinement');
 ok('every seeded schema is well-formed (validateAllSchemas clean)', ACKS.validateAllSchemas().length === 0,
   ACKS.validateAllSchemas().slice(0, 3).join(' | '));
 

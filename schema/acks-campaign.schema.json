@@ -91,6 +91,12 @@
         "$ref": "#/$defs/character"
       }
     },
+    "confinements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/confinement"
+      }
+    },
     "congregations": {
       "type": "array",
       "items": {
@@ -131,6 +137,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/dungeon"
+      }
+    },
+    "dynasties": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dynasty"
       }
     },
     "encounters": {
@@ -194,6 +206,14 @@
       "items": {
         "$ref": "#/$defs/journey"
       }
+    },
+    "kinships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
     },
     "knowledge": {
       "type": "array",
@@ -6291,6 +6311,291 @@
         "id"
       ]
     },
+    "dynasty": {
+      "title": "Dynasty",
+      "description": "\"dynasty\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coatOfArms": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "realmType": {
+          "enum": [
+            "human-standard",
+            "beastman-tribal",
+            "dwarven-vault",
+            "elven-fastness",
+            "senatorial",
+            "syndicate",
+            "religious-organization",
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "extant",
+            "extinct",
+            null
+          ]
+        },
+        "founderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "successionLaw": {
+          "enum": [
+            "feudal-elective",
+            "gavelkind-elective",
+            "tanistry",
+            "patrician-elective",
+            "gavelkind",
+            "primogeniture",
+            "ultimogeniture",
+            "seniority",
+            "patrician-seniority",
+            "open",
+            null
+          ]
+        },
+        "pendingSuccessionLaw": {
+          "enum": [
+            "feudal-elective",
+            "gavelkind-elective",
+            "tanistry",
+            "patrician-elective",
+            "gavelkind",
+            "primogeniture",
+            "ultimogeniture",
+            "seniority",
+            "patrician-seniority",
+            "open",
+            null
+          ]
+        },
+        "lawChangeCompletesTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "bloodlineTraits": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "STR",
+              "INT",
+              "WIL",
+              "DEX",
+              "CON",
+              "CHA"
+            ]
+          }
+        },
+        "memberCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "heirLine": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "foundedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "confinement": {
+      "title": "Confinement",
+      "description": "\"confinement\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "captiveCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "captor": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "source": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "confinementType": {
+          "enum": [
+            "ransom",
+            "slave",
+            null
+          ]
+        },
+        "ransomValueGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "escapeChanceMonthly": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "held",
+            "ransomed",
+            "released",
+            "escaped",
+            null
+          ]
+        },
+        "resolution": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "confinedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "resolvedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastEscapeCheckTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isActive": {
+          "description": "derived / read-only (not authored)"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "eventLogEntry": {
       "title": "Event log entry (wrapper)",
       "description": "WRAPPER: the typed event is at .event (so the kind is entry.event.kind, NOT entry.kind). result holds the applied outcome. See INTEGRATION.md \"The typed event log\".",
@@ -6479,7 +6784,16 @@
                 "game-sponsored",
                 "magic-item-appraised",
                 "magic-item-sold",
-                "bout-round"
+                "bout-round",
+                "urban-incident-escalated",
+                "dynasty-founded",
+                "kinship-recorded",
+                "succession-resolved",
+                "captive-ransomed",
+                "captive-released",
+                "captive-escaped",
+                "vessel-launched",
+                "vessel-repaired"
               ]
             },
             "id": {
@@ -6571,9 +6885,9 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 56,
-    "typedKinds": 40,
-    "eventKinds": 171,
+    "entityKinds": 58,
+    "typedKinds": 42,
+    "eventKinds": 180,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
