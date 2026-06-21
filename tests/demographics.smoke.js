@@ -688,6 +688,112 @@ ACKS.settlementWealthCensus(wc, setW); ACKS.expectedSettlementWealth(wc, setW); 
 ok('the wealth census is pure (no campaign mutation)', JSON.stringify(wc) === wBefore);
 }
 
+// ── 15. SD-7b — the placement taxonomy (the 7-category accounting + the RAW realm templates) ────────
+section('SD-7b — the placement taxonomy + realm templates');
+{   // block scope — keep the locals out of the shared script scope
+
+['placementCategory','placementCensus','placementCategoryLabel','realmPlacementTemplate','placementTemplateForDomain'].forEach(fn =>
+  ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function'));
+ok('PLACEMENT_CATEGORIES = the seven', JSON.stringify(ACKS.PLACEMENT_CATEGORIES) === JSON.stringify(['ruler','domain-npc','countryside','mercenary','henchman','retired','available']));
+ok('REALM_PLACEMENT_TEMPLATES has legature/tribunate/patricianate',
+  ['legature','tribunate','patricianate'].every(k => ACKS.REALM_PLACEMENT_TEMPLATES[k] && Array.isArray(ACKS.REALM_PLACEMENT_TEMPLATES[k].roles)));
+
+// placementCategory — the priority cascade
+const camp = {
+  domains:[{ id:'dA', name:'County of Aval', rulerCharacterId:'chr-rul' },
+           { id:'dB', name:'Barony of Bree',  rulerCharacterId:'chr-rb'  }],
+  hexes:[{ id:'hxA', domainId:'dA', coord:{q:0,r:0} },{ id:'hxB', domainId:'dB', coord:{q:5,r:5} }],
+  settlements:[{ id:'sA', hexId:'hxA', families:2500 },{ id:'sB', hexId:'hxB', families:80 }],
+  characters:[]
+};
+const C = (o) => { camp.characters.push(o); return o; };
+const ruler  = C({ id:'chr-rul',  name:'Lord Aval',  level:8, class:'Fighter' });          // rules dA
+C({ id:'chr-rb', name:'Baron Bree', level:6, class:'Fighter' });                            // rules dB
+const hench  = C({ id:'chr-h',  name:'Hesta',  level:3, class:'Fighter',  socialTier:'henchman', liegeCharacterId:'chr-rul', homeSettlementId:'sA' });  // homed AND a henchman
+const follow = C({ id:'chr-fo', name:'Folco',  level:2, class:'Crusader', socialTier:'follower' });
+const merc   = C({ id:'chr-m',  name:'Marcus', level:4, class:'Fighter',  socialTier:'mercenary' });
+const spec   = C({ id:'chr-sp', name:'Spado',  level:3, class:'Venturer', socialTier:'specialist' });
+const town   = C({ id:'chr-t',  name:'Tace',   level:5, class:'Mage',     homeSettlementId:'sA' });   // domain-npc
+const court  = C({ id:'chr-ct', name:'Cael',   level:6, class:'Mage',     homeDomainId:'dA' });        // domain-npc (court)
+const rural  = C({ id:'chr-c',  name:'Cob',    level:1, class:'Mage',     homeHexId:'hxA' });          // countryside
+const adv    = C({ id:'chr-a',  name:'Avis',   level:7, class:'Explorer' });                           // available
+const dead   = C({ id:'chr-d',  name:'Dorn',   level:9, class:'Fighter',  lifecycleState:'deceased' });
+const retd   = C({ id:'chr-rt', name:'Reto',   level:7, class:'Fighter',  causeOfDeath:'retirement', alive:false });
+const depart = C({ id:'chr-dp', name:'Dap',    level:4, class:'Thief',    alive:false });               // ambiguous soft-delete
+
+const cat = c => ACKS.placementCategory(camp, c);
+ok('cat: ruler',            cat(ruler)  === 'ruler');
+ok('cat: henchman (employment beats lodging)', cat(hench) === 'henchman');   // homed AND henchman → henchman
+ok('cat: follower → henchman bucket', cat(follow) === 'henchman');
+ok('cat: mercenary',        cat(merc)   === 'mercenary');
+ok('cat: specialist → mercenary pool', cat(spec) === 'mercenary');
+ok('cat: domain-npc (homeSettlementId)', cat(town) === 'domain-npc');
+ok('cat: domain-npc (homeDomainId court)', cat(court) === 'domain-npc');
+ok('cat: countryside (homeHexId)', cat(rural) === 'countryside');
+ok('cat: available (active, unbound, unplaced)', cat(adv) === 'available');
+ok('cat: deceased → null (excluded)', cat(dead) === null);
+ok('cat: clean retirement → retired', cat(retd) === 'retired');
+ok('cat: ambiguous soft-delete → null (departed)', cat(depart) === null);
+ok('cat: null character → null', cat(null) === null);
+
+// placementCensus — campaign-wide
+const census = ACKS.placementCensus(camp);
+ok('census: scope campaign', census.scope === 'campaign');
+ok('census: total counts the live placements (11, excl. deceased + departed)', census.total === 11, 'got ' + census.total);
+ok('census: 2 rulers',     census.categories['ruler'] === 2, 'got ' + census.categories['ruler']);
+ok('census: 2 henchmen (hench + follower)', census.categories['henchman'] === 2);
+ok('census: 2 mercenaries (merc + specialist)', census.categories['mercenary'] === 2);
+ok('census: 2 domain-npcs (town + court)', census.categories['domain-npc'] === 2);
+ok('census: 1 countryside',  census.categories['countryside'] === 1);
+ok('census: 1 available',    census.categories['available'] === 1);
+ok('census: 1 retired',      census.categories['retired'] === 1);
+ok('census: total = Σ categories', ACKS.PLACEMENT_CATEGORIES.reduce((s,k)=>s+census.categories[k],0) === census.total);
+ok('census: byCategory carries label + names', (() => {
+  const r = census.byCategory.find(x => x.category === 'ruler');
+  return r && r.label === 'Ruler' && r.count === 2 && Array.isArray(r.names) && r.names.some(n => n.name === 'Lord Aval');
+})());
+ok('census: byBucket cross-tab sums to the bucketed total', (() => {
+  const bb = census.byBucket; const sum = ACKS.DEMOGRAPHIC_BUCKETS.reduce((s,b)=>s+bb[b],0) + bb.other;
+  return sum === census.total;   // every live char buckets or lands in 'other'
+})());
+
+// placementCensus — domain-scoped (belongs-to: ruler + homed-in-settlement/hex/court + lieged retainer)
+const dCensus = ACKS.placementCensus(camp, { domainId:'dA' });
+ok('census(dA): scope domain', dCensus.scope === 'domain' && dCensus.domainId === 'dA');
+ok('census(dA): the ruler of dA', dCensus.categories['ruler'] === 1);
+ok('census(dA): the lieged henchman (Hesta, lieged to chr-rul)', dCensus.categories['henchman'] === 1);
+ok('census(dA): the homed town + court NPCs', dCensus.categories['domain-npc'] === 2);
+ok('census(dA): the rural resident', dCensus.categories['countryside'] === 1);
+ok('census(dA): excludes the foreign baron (rules dB)', !dCensus.byCategory.find(x=>x.category==='ruler').names.some(n=>n.id==='chr-rb'));
+ok('census(dA): excludes the unbound mercenary (not tied to dA)', dCensus.categories['mercenary'] === 0);
+
+// derive-don't-store — the accessors are pure
+const before = JSON.stringify(camp);
+ACKS.placementCensus(camp); ACKS.placementCensus(camp, { domainId:'dA' }); ACKS.placementCategory(camp, town);
+ok('placement census is pure (no campaign mutation)', JSON.stringify(camp) === before);
+
+// the realm placement templates — faithful RAW rosters, keyed by title
+ok('realmPlacementTemplate: baron → patricianate',  ACKS.realmPlacementTemplate('baron').key === 'patricianate');
+ok('realmPlacementTemplate: viscount → tribunate',  ACKS.realmPlacementTemplate('viscount').key === 'tribunate');
+ok('realmPlacementTemplate: count → legature',      ACKS.realmPlacementTemplate('count').key === 'legature');
+ok('realmPlacementTemplate: duke → legature (floor)', ACKS.realmPlacementTemplate('duke').key === 'legature');
+ok('realmPlacementTemplate: unknown → legature',    ACKS.realmPlacementTemplate('xyz').key === 'legature');
+const leg = ACKS.REALM_PLACEMENT_TEMPLATES.legature;
+ok('legature: Legate is 7th–8th fighter-bucket', (() => { const r = leg.roles[0]; return r.role==='Legate' && r.level==='7th–8th' && r.bucket==='fighter'; })());
+ok('legature: 69 Regulars at 0th (the rank-and-file)', leg.roles.some(r => r.role==='Regulars' && r.count===69 && r.level==='0th'));
+ok('legature: a Magister mage office', leg.roles.some(r => r.role==='Magister' && r.bucket==='mage'));
+ok('patricianate: Patrician 4th–5th, 15 Regulars', (() => {
+  const p = ACKS.REALM_PLACEMENT_TEMPLATES.patricianate;
+  return p.roles[0].role==='Patrician' && p.roles[0].level==='4th–5th' && p.roles.some(r=>r.role==='Regulars' && r.count===15);
+})());
+// placementTemplateForDomain — resolves the domain's title + a sensible headcount
+const tA = ACKS.placementTemplateForDomain(camp, camp.domains[0]);  // "County of Aval" → count → legature
+ok('placementTemplateForDomain: County → legature', tA.template.key === 'legature' && tA.title === 'count');
+ok('placementTemplateForDomain: headcount is the typical staff total (>100 for a legature)', tA.headcount > 100, 'got ' + tA.headcount);
+const tB = ACKS.placementTemplateForDomain(camp, camp.domains[1]);  // "Barony of Bree" → baron → patricianate
+ok('placementTemplateForDomain: Barony → patricianate', tB.template.key === 'patricianate' && tB.title === 'baron');
+}
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');

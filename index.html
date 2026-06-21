@@ -102,7 +102,7 @@
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-21-sd7-wealth"></script>
+<script src="acks-engine-demographics.js?v=2026-06-21-sd7-placement"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-21-b12g2"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
@@ -5669,6 +5669,59 @@ document.addEventListener('alpine:init', () => {
               </div>
             </div>
           </template>
+
+          <!-- Settlement Demographics SD-7b — the placement taxonomy (the Econometrics 7-category
+               accounting: where this realm's classed NPCs sit — ruler / domain-NPC / countryside /
+               mercenary / henchman / retired / available; the recruitment + lifecycle + encounter
+               seams as one accounting). Domain-scoped; gated on living-census (the deep tier, OQ-8).
+               Pure derived read — ACKS.placementCensus. -->
+          <template x-if="placementCensusOn() && placementCensus() && placementCensus().total>0">
+            <div class="vellum border border-ink p-3 rounded md:col-span-2" style="background:#f4ecd2">
+              <h3 class="font-bold mb-1">📋 Placement census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                The RAW 7-category accounting (Econometrics §4) — where this realm's
+                <span class="font-semibold" x-text="placementCensus().total"></span> accounted NPC(s) sit.
+                It ties the census to <em>recruitment</em> (mercenary / henchman), <em>lifecycle</em> (retired),
+                and <em>encounters</em> (available) as one accounting.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Where they sit</th><th>Count</th><th>Notable examples</th></tr></thead>
+                  <tbody>
+                    <template x-for="row in placementCensus().byCategory" :key="row.category">
+                      <tr :class="row.count===0 ? 'opacity-40' : ''">
+                        <td class="font-semibold" x-text="row.label"></td>
+                        <td x-text="row.count"></td>
+                        <td>
+                          <template x-if="row.names.length===0"><span class="opacity-40">—</span></template>
+                          <template x-for="(n,ni) in row.names" :key="n.id">
+                            <span class="mr-1"><button class="underline" @click="demoOpenResident(n.id)" x-text="n.name + ' · L' + n.level"></button><span x-show="ni < row.names.length-1">,</span></span>
+                          </template>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr class="total"><td>Total</td><td x-text="placementCensus().total"></td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <details class="mt-2">
+                <summary class="text-sm cursor-pointer opacity-80">By class bucket</summary>
+                <div class="overflow-x-auto mt-1">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Bucket</th>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                      <th>other</th></tr></thead>
+                    <tbody><tr>
+                      <td class="font-semibold">Count</td>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><td x-text="placementCensus().byBucket[b]"></td></template>
+                      <td x-text="placementCensus().byBucket.other"></td>
+                    </tr></tbody>
+                  </table>
+                </div>
+              </details>
+              <p class="text-sm opacity-60 italic mt-1">A character is accounted by the most definitive fact, in order: retired → ruler → henchman → mercenary → homed-in-a-town → homed-in-the-wilds → available. Deceased NPCs are excluded; “retired” populates when a retirement gains a first-class state (today retirees soft-delete and leave the active world).</p>
+            </div>
+          </template>
           </div>
         </div>
 
@@ -7147,6 +7200,32 @@ document.addEventListener('alpine:init', () => {
                     </template>
                   </ul>
                 </div>
+              </template>
+              <!-- SD-7b — the RAW worked roster for this realm's tier (Econometrics §5 "A Typical
+                   Legature / Tribunate / Patricianate"): the concrete domain-staff list beside the
+                   derived offices above. Reference data; ACKS.placementTemplateForDomain. -->
+              <template x-if="realmTemplate()">
+                <details class="mt-3 pt-2 border-t border-ink/20">
+                  <summary class="text-sm cursor-pointer font-semibold" x-text="'📋 ' + realmTemplate().template.label + ' — the RAW worked staff for a ' + realmTemplate().titleLabel + '-tier realm (≈' + realmTemplate().headcount + ' staff)'"></summary>
+                  <p class="text-sm opacity-70 mt-1" x-text="realmTemplate().template.note"></p>
+                  <div class="overflow-x-auto mt-1">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Role</th><th>#</th><th>Level</th><th>Bucket</th><th>Notes</th></tr></thead>
+                      <tbody>
+                        <template x-for="(r,ri) in realmTemplate().template.roles" :key="ri">
+                          <tr>
+                            <td class="font-semibold" x-text="r.role"></td>
+                            <td x-text="(r.chance!=null ? Math.round(r.chance*100)+'% × ' : '') + r.count"></td>
+                            <td x-text="r.level"></td>
+                            <td class="capitalize opacity-70" x-text="r.bucket"></td>
+                            <td class="opacity-70 text-xs" x-text="r.note||''"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="text-sm opacity-60 italic mt-1">A guide to staffing this realm's stronghold (JJ Step 4 placement). The named offices above reconcile against your actual holders; the rank-and-file (guards, regulars, apprentices) stay counts.</p>
+                </details>
               </template>
             </div>
           </template>
@@ -31944,6 +32023,13 @@ return {
   realmEntourageCandidates(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.characters||[]).filter(c => c.homeDomainId!==d.id && c.lifecycleState!=='deceased').sort((a,b)=>(b.level||1)-(a.level||1)||(a.name||'').localeCompare(b.name||'')); },
   realmAssignEntourage(){ const id=this.realmAssignPick; const d=this.selectedDomain; if(!id||!d||!d.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:d.id}); this.realmAssignPick=''; },
   realmRemoveEntourage(e){ if(!e||!e.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===e.id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:null}); },
+  // SD-7b — the placement taxonomy (the 7-category accounting + the RAW realm templates; gated on the
+  // living-census house rule, the deep tier per OQ-8). placementCensus scopes to the selected domain
+  // (its ruler + homed + court + lieged retainers); placementTemplateForDomain resolves its worked roster.
+  placementCensusOn(){ return this.isHouseRuleEnabled('living-census'); },
+  placementCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.placementCensus(this.currentCampaign, {domainId:d.id}) : null; },
+  placementCategoryLabel(cat){ return window.ACKS.placementCategoryLabel(cat); },
+  realmTemplate(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.placementTemplateForDomain(this.currentCampaign, d) : null; },
   totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(this.currentCampaign, d);},
   totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(this.currentCampaign, d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.

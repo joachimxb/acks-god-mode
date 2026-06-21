@@ -1285,7 +1285,215 @@ function settlementWealthCensus(campaign, settlement){ return settlement ? settl
 // Per-individual read (the wealth a leveled NPC is expected to hold).
 function expectedNpcWealth(level){ return npcWealthGp(level); }
 
+// ═══════════════════════════════════════════════════════════════════════════════════
+// SD-7b — the PLACEMENT TAXONOMY (plan §8A.3, §11; Econometrics §4/§5). The final demographics
+// wave. SD-1/SD-2/SD-5b said WHERE-in-a-settlement an NPC sits (placementRole — a civic POI). This
+// is the wider RAW accounting: the Econometrics' master "Distribution of Classed Characters" table
+// routes EVERY classed character into one of seven destinations, tying the census to recruitment,
+// lifecycle, and encounters as ONE coherent accounting (survey §4):
+//   • ruler        — rules a domain (T1 realm command structure)
+//   • domain-npc   — lives in a ruler's settlement / court (T0/T1 urban roster)
+//   • countryside  — lives in the rural hexes (T2 rural census)
+//   • mercenary    — the hired-help / market-availability pool — the RECRUITMENT seam
+//   • henchman     — a personal retainer — the RECRUITMENT seam
+//   • retired      — aged-out members — the LIFECYCLE (CL-1) seam
+//   • available    — active + unaccounted-for: adventurers, brigands, pirates, wanderers — the
+//                    ENCOUNTER / adventure seam
+// DERIVE-DON'T-STORE (the SD-1 spine): placementCategory is a PURE classifier over the shipped
+// five-axis fields + the home pointers + the domain roster — NO new entity / prefix / field / event.
+// All cross-module predicate refs (isHenchman/isFollower/…) resolve at call-time on global.ACKS.
+//
+// ⚠ "retired" is the LIFECYCLE seam, not a live category today: the engine has no persistent retired
+// state — retirement is a soft-delete (a `character-death` event, kind:'retirement' → alive=false,
+// indistinguishable from a death via that same path; only recordCharacterDeath sets
+// lifecycleState:'deceased'). So placementCategory detects 'retired' only from a CLEAN signal
+// (lifecycleState:'retired' OR causeOfDeath:'retirement') — which CL-1/CL-4 may set later; an
+// ambiguous soft-delete (alive===false, not deceased) is treated as DEPARTED (returns null — gone
+// from the live accounting, RAW's "retired members … ignored"). The wiring is ready; the column
+// populates when retirement gains a first-class state. A deceased character → null (it's dead, not
+// placed). The classifier covers the ACTIVE world; 'retired' rounds out the RAW taxonomy.
+
+const PLACEMENT_CATEGORIES = Object.freeze(['ruler','domain-npc','countryside','mercenary','henchman','retired','available']);
+const PLACEMENT_CATEGORY_LABELS = Object.freeze({
+  'ruler':'Ruler', 'domain-npc':'Domain NPC', 'countryside':'Countryside',
+  'mercenary':'Mercenary / hireling', 'henchman':'Henchman', 'retired':'Retired', 'available':'Available'
+});
+function placementCategoryLabel(cat){ return PLACEMENT_CATEGORY_LABELS[cat] || cat || ''; }
+
+const _pred = name => (typeof ACKS[name] === 'function') ? ACKS[name] : (() => false);
+
+// placementCategory(campaign, character) → one of the seven, or null (deceased / ambiguously departed).
+// A PRIORITY CASCADE — lifecycle (retired) is the most definitive, then the active role/relation
+// (ruler → henchman → mercenary, so a bound retainer is accounted by its EMPLOYMENT not its lodging,
+// per the Econometrics), then placement (domain-npc → countryside), then the residual 'available'.
+function placementCategory(campaign, character){
+  if(!character) return null;
+  const c = character;
+  if(_pred('isDeceased')(c) || c.lifecycleState === 'deceased') return null;       // dead — not a placement
+  // retired (the clean lifecycle signal; an ambiguous soft-delete is treated as departed → null)
+  if(c.lifecycleState === 'retired' || c.causeOfDeath === 'retirement') return 'retired';
+  if(c.alive === false) return null;                                                // soft-deleted, cause unknown → departed
+  // ruler — rules a domain (an active, definitive role)
+  if(campaign && Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.rulerCharacterId === c.id)) return 'ruler';
+  // employment (the recruitment seam) beats lodging (the Econometrics accounts a henchman as a henchman)
+  if(_pred('isHenchman')(c) || _pred('isFollower')(c)) return 'henchman';
+  if(_pred('isMercenaryOfficer')(c) || _pred('isSpecialist')(c) || _pred('isHireling')(c)) return 'mercenary';
+  // placement — homed in a settlement / court → domain-npc; in the wilds → countryside
+  if(c.homeSettlementId || c.homeDomainId) return 'domain-npc';
+  if(c.homeHexId) return 'countryside';
+  return 'available';   // active, unbound, unplaced — the adventurer / brigand / wanderer pool
+}
+
+// Whether an NPC belongs to a domain's accounting (for the domain-scoped census): ruler of it,
+// homed in its settlements / hexes / court, OR a retainer lieged to its ruler. settlementIds/hexIds
+// are pre-resolved by the caller (one query per census, not per character).
+function _belongsToDomain(c, domain, settlementIds, hexIds){
+  if(!c || !domain) return false;
+  if(domain.rulerCharacterId === c.id) return true;
+  if(c.homeDomainId === domain.id) return true;
+  if(c.homeSettlementId && settlementIds.has(c.homeSettlementId)) return true;
+  if(c.homeHexId && hexIds.has(c.homeHexId)) return true;
+  if(domain.rulerCharacterId && c.liegeCharacterId === domain.rulerCharacterId) return true;  // a retainer serving the realm
+  return false;
+}
+
+// THE PLACEMENT CENSUS — the seven-category accounting over a scope (the Econometrics master table for
+// the GM's OWN world). opts: { domainId? } → scope to that domain's NPCs (its ruler + homed + court +
+// lieged retainers); else campaign-wide (every classed/named character). Pure derived read. →
+//   { scope, domainId?, total, categories:{cat:n,…}, byCategory:[{category,label,count,bucketCounts,names:[…top]}],
+//     byBucket:{bucket:n,…} }.  The UI surfaces it as "where do this realm's people sit?".
+function placementCensus(campaign, opts){
+  opts = opts || {};
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  let domain = null, settlementIds = new Set(), hexIds = new Set();
+  if(opts.domainId && campaign && Array.isArray(campaign.domains)){
+    domain = campaign.domains.find(d => d && d.id === opts.domainId) || null;
+    if(domain){
+      const sl = (typeof ACKS.settlementsForDomain === 'function') ? ACKS.settlementsForDomain(campaign, domain.id) : [];
+      sl.forEach(s => { if(s && s.id) settlementIds.add(s.id); });
+      const hl = (typeof ACKS.hexesForDomain === 'function') ? ACKS.hexesForDomain(campaign, domain.id)
+               : (Array.isArray(campaign.hexes) ? campaign.hexes.filter(h => h && h.domainId === domain.id) : []);
+      hl.forEach(h => { if(h && h.id) hexIds.add(h.id); });
+    }
+  }
+  const categories = {}; const byBucket = {};
+  PLACEMENT_CATEGORIES.forEach(cat => { categories[cat] = 0; });
+  DEMOGRAPHIC_BUCKETS.forEach(b => { byBucket[b] = 0; }); byBucket.other = 0;
+  const examples = {}; PLACEMENT_CATEGORIES.forEach(cat => { examples[cat] = []; });
+  const bucketByCat = {}; PLACEMENT_CATEGORIES.forEach(cat => { bucketByCat[cat] = Object.assign({ other:0 }, _emptyBucketMap()); });
+  let total = 0;
+  for(const c of chars){
+    if(!c) continue;
+    const cat = placementCategory(campaign, c);
+    if(!cat) continue;                                            // deceased / departed — not in the accounting
+    if(domain && !_belongsToDomain(c, domain, settlementIds, hexIds)) continue;
+    categories[cat] += 1; total += 1;
+    const bucket = coreBucketForCharacter(campaign, c);
+    if(bucket){ byBucket[bucket] += 1; bucketByCat[cat][bucket] += 1; } else { byBucket.other += 1; bucketByCat[cat].other += 1; }
+    const ex = examples[cat];
+    if(ex.length < 6) ex.push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, class: c.class || '', bucket });
+  }
+  PLACEMENT_CATEGORIES.forEach(cat => examples[cat].sort((a, b) => b.level - a.level));
+  const byCategory = PLACEMENT_CATEGORIES.map(cat => ({
+    category: cat, label: PLACEMENT_CATEGORY_LABELS[cat], count: categories[cat],
+    bucketCounts: bucketByCat[cat], names: examples[cat]
+  }));
+  return { scope: domain ? 'domain' : 'campaign', domainId: domain ? domain.id : null,
+           domainName: domain ? (domain.name || null) : null,
+           total, categories, byCategory, byBucket };
+}
+
+// ── THE REALM PLACEMENT TEMPLATES (Econometrics §5 — "A Typical Legature / Tribunate / Patricianate") ──
+// The RAW worked rosters for a realm's stronghold/urban staff, by administrative tier. These are the
+// realm/domain analog of JJ Step 3's urban roster — concrete domain-role → class/level lists the GM can
+// read as "what staffs a realm of this title." Reference data (faithful to the Econometrics prose, p.
+// "A Typical …" lists), surfaced beside the SD-3 derived REALM_OFFICES (which scales generically by
+// title; these are the concrete worked examples). The countryside analog — "A Typical Hex" — is the
+// SHIPPED SD-4 RURAL_HEX_TEMPLATE (not duplicated here).
+//   • Patricianate → a Baron-tier realm (the smallest)   • Tribunate → a Viscount-tier
+//   • Legature     → a Count-tier (and the floor for Duke/Prince/King/Emperor — the largest worked tier)
+// Each role: { role, count, level (display string), bucket (the dominant demographic bucket), chance?
+// (a %-present role, 0<chance<1), note? (the RAW class-mix / composition prose) }.
+function _tmplHeadcount(roles){ return roles.reduce((s, r) => s + (r.count || 0) * (r.chance != null ? r.chance : 1), 0); }
+
+const REALM_PLACEMENT_TEMPLATES = Object.freeze({
+  legature: Object.freeze({
+    key:'legature', label:'A Typical Legature', titleLabel:'Count', forTitles:Object.freeze(['count','duke','prince','king','emperor']),
+    note:'The staff of a Count-tier realm (the Econometrics worked roster; the floor for higher titles).',
+    roles: Object.freeze([
+      Object.freeze({ role:'Legate',              count:1,  level:'7th–8th', bucket:'fighter',  note:'75% explorer/fighter/paladin · 20% bard · 5% bladedancer/cleric' }),
+      Object.freeze({ role:'Captain of the Guard',count:1,  level:'5th',     bucket:'fighter',  chance:0.5, note:'explorer/fighter/paladin' }),
+      Object.freeze({ role:'Merchant Guildmaster',count:1,  level:'4th',     bucket:'venturer' }),
+      Object.freeze({ role:'Subalterns',          count:2,  level:'3rd',     bucket:'fighter' }),
+      Object.freeze({ role:'Quartermaster',       count:1,  level:'3rd',     bucket:'fighter' }),
+      Object.freeze({ role:'Annalist',            count:1,  level:'3rd',     bucket:'thief',    note:'bard' }),
+      Object.freeze({ role:'Elite Guards',        count:8,  level:'2nd',     bucket:'fighter' }),
+      Object.freeze({ role:'Veterans',            count:21, level:'1st',     bucket:'fighter',  note:'6 cataphracts, 15 heavy infantry' }),
+      Object.freeze({ role:'Regulars',            count:69, level:'0th',     bucket:'fighter',  note:'6 cataphracts, 18 horse archers, 15 composite bow, 30 heavy infantry' }),
+      Object.freeze({ role:'Chief Hospitalist',   count:1,  level:'5th–6th', bucket:'crusader', note:'bladedancer/cleric/priestess' }),
+      Object.freeze({ role:'Hospitalists',        count:4,  level:'1st',     bucket:'crusader', note:'bladedancer/cleric/priestess' }),
+      Object.freeze({ role:'Magister',            count:1,  level:'5th–6th', bucket:'mage',     note:'85% 5th · 15% 6th' }),
+      Object.freeze({ role:'Apprentices',         count:4,  level:'1st',     bucket:'mage' })
+    ])
+  }),
+  tribunate: Object.freeze({
+    key:'tribunate', label:'A Typical Tribunate', titleLabel:'Viscount', forTitles:Object.freeze(['viscount']),
+    note:'The staff of a Viscount-tier realm (a tribune commands four patricianates).',
+    roles: Object.freeze([
+      Object.freeze({ role:'Tribune',             count:1,  level:'5th–6th', bucket:'fighter',  note:'72% explorer/fighter/paladin · 14% bard · 9% bladedancer/cleric · 5% mage' }),
+      Object.freeze({ role:'Subaltern',           count:1,  level:'3rd',     bucket:'fighter' }),
+      Object.freeze({ role:'Elite Guards',        count:2,  level:'2nd',     bucket:'fighter' }),
+      Object.freeze({ role:'Quartermaster',       count:1,  level:'2nd',     bucket:'fighter' }),
+      Object.freeze({ role:'Veterans',            count:11, level:'1st',     bucket:'fighter',  note:'2 cataphracts, 9 heavy infantry' }),
+      Object.freeze({ role:'Regulars',            count:33, level:'0th',     bucket:'fighter',  note:'2 cataphracts, 4 horse archers, 9 composite bow, 18 heavy infantry' }),
+      Object.freeze({ role:'Annalist',            count:1,  level:'2nd',     bucket:'thief',    note:'bard' }),
+      Object.freeze({ role:'Merchant Guildmaster',count:1,  level:'2nd',     bucket:'venturer' }),
+      Object.freeze({ role:'Chief Hospitalist',   count:1,  level:'3rd–4th', bucket:'crusader', note:'bladedancer/cleric/priestess' }),
+      Object.freeze({ role:'Hospitalists',        count:3,  level:'1st',     bucket:'crusader' }),
+      Object.freeze({ role:'Magister',            count:1,  level:'3rd–4th', bucket:'mage',     note:'40% 3rd · 60% 4th' }),
+      Object.freeze({ role:'Apprentices',         count:3,  level:'1st',     bucket:'mage' })
+    ])
+  }),
+  patricianate: Object.freeze({
+    key:'patricianate', label:'A Typical Patricianate', titleLabel:'Baron', forTitles:Object.freeze(['baron']),
+    note:'The staff of a Baron-tier realm (a single fort/stronghold).',
+    roles: Object.freeze([
+      Object.freeze({ role:'Patrician',           count:1,  level:'4th–5th', bucket:'fighter',  note:'82% explorer/fighter/paladin · 9% bard · 6% bladedancer/cleric · 3% mage' }),
+      Object.freeze({ role:'Subaltern',           count:1,  level:'3rd',     bucket:'fighter' }),
+      Object.freeze({ role:'Elite Guards',        count:2,  level:'2nd',     bucket:'fighter' }),
+      Object.freeze({ role:'Veterans',            count:5,  level:'1st',     bucket:'fighter',  note:'1 cataphract, 4 heavy infantry' }),
+      Object.freeze({ role:'Regulars',            count:15, level:'0th',     bucket:'fighter',  note:'1 cataphract, 2 horse archers, 4 composite bow, 8 heavy infantry' }),
+      Object.freeze({ role:'Annalist',            count:1,  level:'1st',     bucket:'thief',    note:'bard' }),
+      Object.freeze({ role:'Merchant Guildmaster',count:1,  level:'1st',     bucket:'venturer' }),
+      Object.freeze({ role:'Hospitalists',        count:2,  level:'1st',     bucket:'crusader', note:'bladedancer/cleric/priestess' }),
+      Object.freeze({ role:'Chief Magister',      count:1,  level:'2nd–3rd', bucket:'mage',     note:'62% 2nd · 38% 3rd' }),
+      Object.freeze({ role:'Apprentices',         count:2,  level:'1st',     bucket:'mage' })
+    ])
+  })
+});
+
+// title → the worked template (baron→patricianate, viscount→tribunate, count+→legature).
+function realmPlacementTemplate(title){
+  const t = String(title || '').toLowerCase();
+  for(const key of Object.keys(REALM_PLACEMENT_TEMPLATES)){
+    if(REALM_PLACEMENT_TEMPLATES[key].forTitles.indexOf(t) >= 0) return REALM_PLACEMENT_TEMPLATES[key];
+  }
+  return REALM_PLACEMENT_TEMPLATES.legature;   // a higher/unknown title uses the largest worked tier as the floor
+}
+// The worked roster for a domain (resolves its realm title). headcount = the typical total staff.
+function placementTemplateForDomain(campaign, domain){
+  if(!domain) return null;
+  const title = (typeof ACKS.realmTitleForDomain === 'function') ? ACKS.realmTitleForDomain(domain) : 'baron';
+  const tpl = realmPlacementTemplate(title);
+  return { title, titleLabel: TITLE_LABELS[title] || tpl.titleLabel,
+           template: tpl, headcount: Math.round(_tmplHeadcount(tpl.roles)) };
+}
+
 Object.assign(ACKS, {
+  // SD-7b — the placement taxonomy (plan §8A.3; pure derive-don't-store, no new entity/field)
+  PLACEMENT_CATEGORIES, PLACEMENT_CATEGORY_LABELS, placementCategoryLabel,
+  placementCategory, placementCensus,
+  REALM_PLACEMENT_TEMPLATES, realmPlacementTemplate, placementTemplateForDomain,
   // SD-6 — the magic-item census (plan §8A.1; reads acks-engine-magic-item-availability.js)
   expectedSettlementMagicItems, realizedSettlementMagicItems, settlementMagicItemDelta,
   settlementMagicItemCensus, expectedNpcMagicItemValue, expectedNpcMagicItemTiers,
