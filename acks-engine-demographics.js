@@ -1056,7 +1056,131 @@ function autoFillDomainCountryside(campaign, domain, opts){
   return { ok:true, created, filled: created.length };
 }
 
+// ── SD-6: THE MAGIC-ITEM CENSUS (plan §8A.1; Econometrics §7) ─────────────────────────────────────
+// The resource analog of the class roster: a settlement's expected magic-item AVAILABILITY (by market
+// class) vs its REALIZED on-hand stock (placed NotableItems + magical-facet stash lines), plus the
+// per-NPC magic-item value (by level). DERIVE-DON'T-STORE — reads the licensed TT availability tables
+// shipped in acks-engine-magic-item-availability.js (catalog posture, TT p.27; ⚠ IP §13.6/§13.9).
+// ALWAYS-ON RAW tooling (plan OQ-8 — it's the Treasure-Tome availability math, not a house rule).
+// All cross-module refs resolve at call-time on global.ACKS (sibling load order irrelevant).
+
+const _ROMAN_CLASS_IDX = Object.freeze({ I:0, II:1, III:2, IV:3, V:4, VI:5 });
+
+// A NotableItem's TT type key / rarity / gp value, classified via the availability + magic-items modules.
+function _notableTypeKey(ni){
+  const cat = (ni && ni.intrinsic && ni.intrinsic.category) || (ni && ni.kind) || null;
+  return (typeof ACKS.magicItemTypeForCategory === 'function') ? ACKS.magicItemTypeForCategory(cat) : null;
+}
+function _notableRarity(ni){
+  const r = ni && ni.intrinsic && ni.intrinsic.rarity;
+  if(r) return r;
+  const bc = ni && ((ni.intrinsic && ni.intrinsic.baseCost) || ni.baseCost);
+  return (bc != null && typeof ACKS.magicItemRarity === 'function') ? ACKS.magicItemRarity(bc) : null;
+}
+function _notableValueGp(ni){
+  const av = ni && ni.intrinsic && (ni.intrinsic.apparentValue != null ? ni.intrinsic.apparentValue : ni.intrinsic.baseCost);
+  if(av != null) return Number(av) || 0;
+  const r = _notableRarity(ni);
+  return (r && typeof ACKS.magicRarityTierValue === 'function') ? ACKS.magicRarityTierValue(r) : 0;
+}
+function _packAvailCell(cell){
+  if(!cell || cell.kind === 'none') return { cellKind:'none', perMarket:0, perParty:0, chancePct:0, perPartyChancePct:0 };
+  const pp = (typeof ACKS.magicItemAvailabilityPerParty === 'function') ? ACKS.magicItemAvailabilityPerParty(cell) : { kind:cell.kind, count:0, chancePct:cell.chancePct };
+  return {
+    cellKind: cell.kind,
+    perMarket: cell.kind === 'count' ? cell.count : 0,
+    perParty: pp.kind === 'count' ? pp.count : 0,
+    chancePct: cell.kind === 'chance' ? cell.chancePct : 100,
+    perPartyChancePct: pp.chancePct != null ? pp.chancePct : 0
+  };
+}
+
+// EXPECTED — the per-settlement magic-item availability (the RAW TT p.27 cells for the class, per-market
+// + per-party). byType = the BUY availability (Availability-by-Type); byRarity = the SELL transaction
+// cap (Transactions-by-Rarity). The "what enchanted goods can be bought/found here" read.
+function expectedSettlementMagicItems(campaign, settlement){
+  if(!settlement) return null;
+  const mc = demographicMarketClass(settlement);
+  const idx = _ROMAN_CLASS_IDX[mc] != null ? _ROMAN_CLASS_IDX[mc] : 5;
+  const types = ACKS.MAGIC_ITEM_TYPE_ORDER || [];
+  const rarities = ACKS.MAGIC_RARITY_TIER_ORDER || [];
+  const byType = {};
+  types.forEach(t => { byType[t] = _packAvailCell(ACKS.magicItemTypeAvailabilityCell ? ACKS.magicItemTypeAvailabilityCell(t, idx) : null); });
+  const byRarity = {};
+  rarities.forEach(r => { byRarity[r] = _packAvailCell(ACKS.magicItemTransactionCell ? ACKS.magicItemTransactionCell(r, idx) : null); });
+  return { settlementId: settlement.id || null, marketClass: mc, marketClassIdx: idx, byType, byRarity };
+}
+
+// REALIZED — the magic items currently ATTRIBUTED to a settlement: NotableItems on the market shelf
+// (merchant-stock custody here) + held by residents (custody = a resident character), bucketed by TT
+// type + rarity; plus an aggregate of loose magical-facet stash lines at the settlement's hex.
+function realizedSettlementMagicItems(campaign, settlementId){
+  const notables = (campaign && Array.isArray(campaign.notableItems)) ? campaign.notableItems : [];
+  const custody = (campaign && Array.isArray(campaign.itemCustody)) ? campaign.itemCustody : [];
+  const residentIds = new Set();
+  (campaign && Array.isArray(campaign.characters) ? campaign.characters : []).forEach(c => { if(_isResident(c, settlementId)) residentIds.add(c.id); });
+  const custOf = {};
+  custody.forEach(r => { if(r && r.status !== 'ended' && !(r.itemId in custOf)) custOf[r.itemId] = r; });
+  const byType = {}; (ACKS.MAGIC_ITEM_TYPE_ORDER || []).forEach(t => { byType[t] = { count:0, names:[] }; });
+  const byRarity = {}; (ACKS.MAGIC_RARITY_TIER_ORDER || []).forEach(r => { byRarity[r] = { count:0, valueGp:0 }; });
+  let onShelf = 0, heldByResidents = 0, totalCount = 0, totalValueGp = 0;
+  for(const ni of notables){
+    if(!ni || ni.status === 'destroyed' || ni.status === 'lost') continue;
+    const cust = custOf[ni.id];
+    const here = cust && ((cust.custodianKind === 'merchant-stock' && cust.custodianId === settlementId)
+                       || (cust.custodianKind === 'character' && residentIds.has(cust.custodianId)));
+    if(!here) continue;
+    if(cust.custodianKind === 'merchant-stock') onShelf++; else heldByResidents++;
+    const t = _notableTypeKey(ni), r = _notableRarity(ni), v = _notableValueGp(ni);
+    totalCount++; totalValueGp += v;
+    if(t && byType[t]){ byType[t].count++; byType[t].names.push({ id: ni.id, name: ni.name || '(unnamed)' }); }
+    if(r && byRarity[r]){ byRarity[r].count++; byRarity[r].valueGp += v; }
+  }
+  let looseMagicalLines = 0;
+  const settlement = (campaign && Array.isArray(campaign.settlements)) ? campaign.settlements.find(s => s && s.id === settlementId) : null;
+  const hexId = settlement && settlement.hexId;
+  if(hexId && campaign && Array.isArray(campaign.stashes)){
+    for(const st of campaign.stashes){
+      if(!st || st.hexId !== hexId || !Array.isArray(st.items)) continue;
+      for(const line of st.items){ if(line && Array.isArray(line.facets) && line.facets.indexOf('magical') >= 0) looseMagicalLines += (Number(line.qty) || 1); }
+    }
+  }
+  return { settlementId, byType, byRarity, totalCount, totalValueGp, onShelf, heldByResidents, looseMagicalLines };
+}
+
+// DELTA — expected availability vs realized stock, per type + per rarity (the SD-6 reconciliation, the
+// magic-item analog of demographicDelta: availablePerMarket/Party vs placed → unplaced slots).
+function settlementMagicItemDelta(campaign, settlement){
+  if(!settlement) return null;
+  const expected = expectedSettlementMagicItems(campaign, settlement);
+  const realized = realizedSettlementMagicItems(campaign, settlement.id);
+  const byType = {};
+  (ACKS.MAGIC_ITEM_TYPE_ORDER || []).forEach(t => {
+    const e = expected.byType[t] || {}, r = realized.byType[t] || {};
+    byType[t] = { availablePerMarket: e.perMarket || 0, availablePerParty: e.perParty || 0, chancePct: e.chancePct || 0,
+                  placed: r.count || 0, unplaced: Math.max(0, (e.perMarket || 0) - (r.count || 0)), names: r.names || [] };
+  });
+  const byRarity = {};
+  (ACKS.MAGIC_RARITY_TIER_ORDER || []).forEach(rk => {
+    const e = expected.byRarity[rk] || {}, r = realized.byRarity[rk] || {};
+    byRarity[rk] = { sellableCapPerMarket: e.perMarket || 0, sellableCapPerParty: e.perParty || 0, chancePct: e.chancePct || 0,
+                     placed: r.count || 0, valueGp: r.valueGp || 0 };
+  });
+  return { settlementId: settlement.id, marketClass: expected.marketClass, marketClassIdx: expected.marketClassIdx,
+           expected, realized, byType, byRarity, totalCount: realized.totalCount, totalValueGp: realized.totalValueGp };
+}
+// One-call convenience for the UI (mirrors settlementDemographics).
+function settlementMagicItemCensus(campaign, settlement){ return settlement ? settlementMagicItemDelta(campaign, settlement) : null; }
+
+// BY NPC LEVEL (plan §8A.1 — the per-individual facet). Thin reads over the availability module's
+// 🔧 IP-light per-level value curve: the magic-item value a leveled NPC holds + its rarity-tier split.
+function expectedNpcMagicItemValue(level){ return (typeof ACKS.npcMagicItemValueGp === 'function') ? ACKS.npcMagicItemValueGp(level) : 0; }
+function expectedNpcMagicItemTiers(level){ return (typeof ACKS.npcMagicItemTierAllocation === 'function') ? ACKS.npcMagicItemTierAllocation(level) : null; }
+
 Object.assign(ACKS, {
+  // SD-6 — the magic-item census (plan §8A.1; reads acks-engine-magic-item-availability.js)
+  expectedSettlementMagicItems, realizedSettlementMagicItems, settlementMagicItemDelta,
+  settlementMagicItemCensus, expectedNpcMagicItemValue, expectedNpcMagicItemTiers,
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
   LEVEL_CLASS_SPLIT, DEMOGRAPHIC_BUCKET_BY_CLASS,

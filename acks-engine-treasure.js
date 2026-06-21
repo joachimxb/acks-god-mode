@@ -758,11 +758,17 @@
       }
     }
 
-    // 4) Captives → Characters at the hex (slave if the rule is on, else imprisoned prisoner).
-    const captives = [];
+    // 4) Captives → Characters at the hex (slave if the rule is on, else imprisoned prisoner),
+    //    EACH lifted into a first-class CONFINEMENT relation (Wave-C) that carries the
+    //    ransom / release / escape lifecycle (createConfinement below). The ransomValueGp on
+    //    the Character is kept as a denormalized convenience (the relation is the canonical
+    //    home for the lifecycle). The captor is the lair when the hoard is a lair-hoard, else
+    //    opts.captor (GM-assigned) or unknown — a hoard's finder is the GM's call.
+    const captives = [], confinements = [];
     if(Array.isArray(hoard.captives) && hoard.captives.length && A.blankCharacter){
       if(!Array.isArray(campaign.characters)) campaign.characters = [];
       const slavery = (typeof A.isHouseRuleEnabled === 'function') && A.isHouseRuleEnabled(campaign, 'slavery');
+      const captor = opts.lairId ? { kind:'lair', id: opts.lairId, label:'lair' } : (opts.captor || null);
       for(const cap of hoard.captives){
         const ch = A.blankCharacter({
           name: _captiveName(cap.description),
@@ -772,9 +778,17 @@
           notes: 'Captive from a generated hoard — ' + (cap.description || '') +
                  ' · base ' + (slavery ? 'slave' : 'ransom') + ' value ' + (cap.valueGp || 0) + ' gp'
         });
-        ch.ransomValueGp = cap.valueGp || 0;   // defensive field; the ransom flow is a future seam
+        ch.ransomValueGp = cap.valueGp || 0;   // denormalized convenience; the confinement relation owns the lifecycle
         campaign.characters.push(ch);
         captives.push(ch);
+        const conf = createConfinement(campaign, {
+          captiveCharacterId: ch.id, captor: captor,
+          confinementType: slavery ? 'slave' : 'ransom', ransomValueGp: cap.valueGp || 0,
+          hexId: opts.hexId || null, confinedAtTurn: atTurn,
+          source: { kind:'treasure', id: opts.lairId || null, label:'generated hoard' },
+          notes: cap.description || ''
+        });
+        if(conf) confinements.push(conf);
       }
     }
 
@@ -792,9 +806,9 @@
     }
 
     // 6) The record-only audit event (Event.context envelope per CLAUDE §8.9).
-    const event = _emitTreasureGenerated(campaign, hoard, stash, captives, opts);
+    const event = _emitTreasureGenerated(campaign, hoard, stash, captives, opts, confinements);
 
-    return { stash, deposited: lines, notables, captives, event };
+    return { stash, deposited: lines, notables, captives, confinements, event };
   }
 
   // generateHoardForLair(campaign, lairId, opts?) — the Monster-Persistence seam (T4).
@@ -824,7 +838,7 @@
   }
 
   // ── Internal: the audit event ──
-  function _emitTreasureGenerated(campaign, hoard, stash, captives, opts){
+  function _emitTreasureGenerated(campaign, hoard, stash, captives, opts, confinements){
     const A = _A();
     if(typeof A.newEvent !== 'function') return null;
     const cal = campaign.calendar || {};
@@ -840,7 +854,7 @@
           stashId: stash ? stash.id : null, lairId: opts.lairId || null,
           coins: hoard.coins, gemCount: (hoard.gems || []).length, jewelryCount: (hoard.jewelry || []).length,
           magicSlotCount: (hoard.magicSlots || []).length, magicItemCount: (hoard.magicItems || []).length,
-          captiveCount: (captives || []).length,
+          captiveCount: (captives || []).length, confinementCount: (confinements || []).length,
           narrative: _hoardNarrative(hoard, totals)
         }
       });
@@ -884,6 +898,295 @@
       Math.round(totals.gp).toLocaleString() + ' gp): ' + (bits.length ? bits.join(', ') : 'empty') + '.';
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // 5. CONFINEMENTS — captives lifted into a first-class relation (Wave-C; cnf-)
+  // ════════════════════════════════════════════════════════════════════════════
+  // A generated hoard's captives (TT p.23 — at the top of the ep/pp/regalia special-
+  // treasure tables) are PEOPLE: they materialize as Characters (above), and each is
+  // bound to a CONFINEMENT relation that owns the ransom / release / escape lifecycle.
+  // The survey (Treasure_Tome_RAW_Survey.md §6.5) names this exact home: "a captive →
+  // a Character (not a line); ransom value on the (Wave-C) confinements relation."
+  //
+  // Why a relation, not a field (Architecture §3.1): the ransom value + status + escape
+  // chance + captor are state with no other home (not the captive's, not the captor's),
+  // the captive AND the captor point at it, and it persists through capture → ransom /
+  // release / escape — three checks pass → lift to campaign.confinements[]. Reverse
+  // indices stay computed (§3.3): confinementsForCaptive / -ForCaptor / activeConfinements.
+  //
+  // RAW grounding: the ransom/slave VALUE is RAW (TT p.23, rolled at capture). The ransom
+  // PAYMENT routes through GP Wave B (wealth-transfer). The monthly ESCAPE check has NO
+  // RAW basis (captives-as-treasure carry no escape rule) — it is a 🔧 tooling lifecycle
+  // (a modest, per-confinement-tunable monthly chance; 0 disables; the GM tunes it).
+  //
+  // Self-registers cnf- + the confinement entity-kind + field-schema + the collection +
+  // the 3 audit event kinds + the slot-70 escape day-consumer, all FROM this module via
+  // the PR #89/#90 kernel (no central-registry edits). RAW core — no house rule.
+
+  // 🔧 No RAW basis — a held captive's default monthly escape chance (a prisoner under
+  // guard, awaiting ransom). GM-tunable per confinement (escapeChanceMonthly); 0 disables.
+  const DEFAULT_ESCAPE_CHANCE = 0.05;
+
+  function _cnfPrefix(){ const A = _A(); return (A.ID_PREFIXES && A.ID_PREFIXES.confinement) || 'cnf'; }
+  function _cnfNewId(){ const A = _A(); return A.newId ? A.newId(_cnfPrefix()) : (_cnfPrefix() + '-' + Math.random().toString(36).slice(2,9)); }
+
+  // blankConfinement(opts) — the captive↔captor relation. Emits ALL lifecycle fields from
+  // creation (incl. resolvedAtTurn:null — the relation-end-field invariant, Inspector C.2)
+  // so the global schema⊆factory invariant holds.
+  function blankConfinement(opts){
+    opts = opts || {};
+    const A = _A();
+    return {
+      id: opts.id || _cnfNewId(),
+      kind: 'confinement',
+      schemaVersion: (A.SCHEMA_VERSION != null) ? A.SCHEMA_VERSION : 2,
+      captiveCharacterId: opts.captiveCharacterId || null,   // the prisoner (a Character) — relation primary key
+      captor: opts.captor || null,                           // { kind:'character'|'party'|'domain'|'lair'|'unknown', id, label }
+      confinementType: opts.confinementType || 'ransom',     // 'ransom' | 'slave' (mirrors the captive's tier at capture)
+      ransomValueGp: Number(opts.ransomValueGp) || 0,        // base ransom/slave value (TT p.23, rolled at capture)
+      status: opts.status || 'held',                         // 'held' | 'ransomed' | 'released' | 'escaped'
+      hexId: opts.hexId || null,                             // where the captive is held
+      escapeChanceMonthly: (opts.escapeChanceMonthly != null) ? Number(opts.escapeChanceMonthly) : DEFAULT_ESCAPE_CHANCE, // 🔧 no RAW basis; 0 disables
+      confinedAtTurn: (opts.confinedAtTurn != null) ? opts.confinedAtTurn : null,
+      resolvedAtTurn: (opts.resolvedAtTurn != null) ? opts.resolvedAtTurn : null,  // set on ransom/release/escape — null while held
+      resolution: opts.resolution || null,                   // null | 'ransomed' | 'released' | 'escaped'
+      lastEscapeCheckTurn: (opts.lastEscapeCheckTurn != null) ? opts.lastEscapeCheckTurn : null,  // the monthly-cadence gate
+      source: opts.source || null,                           // { kind:'treasure', id, label } provenance
+      notes: opts.notes || '',
+      history: Array.isArray(opts.history) ? opts.history : []
+    };
+  }
+
+  // ── Lookups (reverse indices computed; Architecture §3.3) ──
+  function findConfinement(campaign, id){
+    if(!campaign || !id || !Array.isArray(campaign.confinements)) return null;
+    return campaign.confinements.find(c => c && c.id === id) || null;
+  }
+  function confinementsForCaptive(campaign, characterId){
+    if(!campaign || !characterId || !Array.isArray(campaign.confinements)) return [];
+    return campaign.confinements.filter(c => c && c.captiveCharacterId === characterId);
+  }
+  function confinementForCaptive(campaign, characterId){   // the single active confinement of a captive
+    return confinementsForCaptive(campaign, characterId).find(c => c.status === 'held') || null;
+  }
+  function confinementsForCaptor(campaign, captorKind, captorId){
+    if(!campaign || !Array.isArray(campaign.confinements)) return [];
+    return campaign.confinements.filter(c => c && c.captor && c.captor.kind === captorKind &&
+      (captorId == null || c.captor.id === captorId));
+  }
+  function activeConfinements(campaign){
+    if(!campaign || !Array.isArray(campaign.confinements)) return [];
+    return campaign.confinements.filter(c => c && c.status === 'held');
+  }
+
+  // createConfinement(campaign, opts) — the canonical setter (used by materializeHoard +
+  // GM/Inspector authoring). Pushes a blankConfinement, stamps confinedAtTurn + history.
+  function createConfinement(campaign, opts){
+    if(!campaign) return null;
+    opts = opts || {};
+    if(!Array.isArray(campaign.confinements)) campaign.confinements = [];
+    const atTurn = (opts.confinedAtTurn != null) ? opts.confinedAtTurn : (campaign.currentTurn || 1);
+    const conf = blankConfinement(Object.assign({}, opts, { confinedAtTurn: atTurn }));
+    conf.history.push({ turn: atTurn, type:'confined',
+      note: (conf.confinementType === 'slave' ? 'enslaved' : 'taken captive') +
+            (conf.ransomValueGp ? (' · ' + conf.confinementType + ' value ' + conf.ransomValueGp + ' gp') : '') });
+    campaign.confinements.push(conf);
+    return conf;
+  }
+
+  // ── Internal: free the captive Character (imprisoned → active; slave → independent) ──
+  function _freeCaptive(campaign, captiveId, how){
+    const A = _A();
+    const ch = (Array.isArray(campaign.characters) ? campaign.characters : []).find(x => x && x.id === captiveId);
+    if(!ch) return null;
+    if(ch.lifecycleState === 'imprisoned') ch.lifecycleState = 'active';
+    if(ch.socialTier === 'slave') ch.socialTier = 'independent';
+    try {
+      if(typeof A.addCharacterHistory === 'function')
+        A.addCharacterHistory(campaign, ch, 'freed', ch.name + ' is ' + (how || 'freed'), {});
+    } catch(_e){}
+    return ch;
+  }
+
+  // ── Internal: map a captor to a GP-Wave-B wealth handle (the ransom recipient) ──
+  function _captorWealthHandle(captor){
+    if(!captor || !captor.id) return null;
+    if(captor.kind === 'character') return { kind:'character', id: captor.id };
+    if(captor.kind === 'domain')    return { kind:'treasury',  id: captor.id };
+    return null;   // lair / party / unknown — the GM passes opts.recipient explicitly
+  }
+
+  // ── Internal: the record-only audit event (the mortal-wound / hijinks idiom) ──
+  function _emitConfinementEvent(campaign, conf, kind, payload, narrative){
+    const A = _A();
+    if(typeof A.newEvent !== 'function') return null;
+    const cal = (campaign && campaign.calendar) || {};
+    let ev;
+    try {
+      ev = A.newEvent(kind, {
+        submittedBy:'engine', cadence:'monthly-turn', targetTurn: campaign.currentTurn || 1,
+        gameTimeAt:{ year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+        payload: Object.assign({ confinementId: conf.id, captiveCharacterId: conf.captiveCharacterId, narrative }, payload || {})
+      });
+    } catch(_e){ return null; }
+    if(typeof A.setEventContext === 'function'){
+      const rel = [{ kind:'character', id: conf.captiveCharacterId, role:'subject' }];
+      if(conf.captor && conf.captor.kind === 'character' && conf.captor.id) rel.push({ kind:'character', id: conf.captor.id, role:'captor' });
+      A.setEventContext(ev, { primaryHexId: conf.hexId || null, relatedEntities: rel });
+    }
+    ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    ev.appliedAtDay  = campaign.currentDayInMonth || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result:{ narrativeSummary: narrative },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+    return ev;
+  }
+  // Replay handler (record-only — the verb already applied the state).
+  function applyEvent_confinementAudit(campaign, event){
+    const p = (event && event.payload) || {};
+    return { result:{ narrativeSummary: p.narrative || (event && event.kind) || 'confinement event' } };
+  }
+
+  function _captiveLabel(campaign, conf){
+    const ch = (Array.isArray(campaign.characters) ? campaign.characters : []).find(x => x && x.id === conf.captiveCharacterId);
+    return (ch && ch.name) || conf.captiveCharacterId || 'the captive';
+  }
+
+  // ── Lifecycle verbs ──────────────────────────────────────────────────────────
+  // ransomConfinement(campaign, id, { amountGp?, payer?, recipient?, atTurn?, allowOverdraft? })
+  //   Pays the ransom (payer → recipient via GP Wave B), frees the captive, status → ransomed.
+  //   payer defaults to external (the captive's people, off-campaign); recipient defaults to the
+  //   captor's wealth handle (a character/domain holder) else external. A gated payer that can't
+  //   pay → { ok:false, reason:'insufficient-funds' } and the captive is NOT freed.
+  function ransomConfinement(campaign, id, opts){
+    const conf = findConfinement(campaign, id);
+    if(!conf) return { ok:false, reason:'not-found' };
+    if(conf.status !== 'held') return { ok:false, reason:'not-held', confinement: conf };
+    opts = opts || {};
+    const A = _A();
+    const atTurn = (opts.atTurn != null) ? opts.atTurn : (campaign.currentTurn || 1);
+    const amount = (opts.amountGp != null) ? (Number(opts.amountGp) || 0) : (conf.ransomValueGp || 0);
+    const payer = opts.payer || { kind:'external' };
+    const recipient = opts.recipient || _captorWealthHandle(conf.captor) || { kind:'external' };
+    let transfer = null;
+    if(amount > 0 && typeof A.applyWealthTransfer === 'function'){
+      try {
+        transfer = A.applyWealthTransfer(campaign, { amount, source: payer, destination: recipient,
+          reason:'ransom', bucket:'ransom', allowOverdraft: !!opts.allowOverdraft });
+      } catch(e){ return { ok:false, reason:'insufficient-funds', error: String((e && e.message) || e), confinement: conf }; }
+    }
+    _freeCaptive(campaign, conf.captiveCharacterId, 'ransomed');
+    conf.status = 'ransomed'; conf.resolution = 'ransomed'; conf.resolvedAtTurn = atTurn;
+    conf.history.push({ turn: atTurn, type:'ransomed', note: amount + ' gp', payer, recipient });
+    const who = _captiveLabel(campaign, conf);
+    const narrative = who + ' is ransomed for ' + amount.toLocaleString() + ' gp.';
+    const event = _emitConfinementEvent(campaign, conf, 'captive-ransomed',
+      { amountGp: amount, payer, recipient, hexId: conf.hexId, confinementType: conf.confinementType }, narrative);
+    return { ok:true, confinement: conf, amountGp: amount, transfer, event };
+  }
+
+  // releaseConfinement(campaign, id, opts) — the captor lets the captive go (no payment).
+  function releaseConfinement(campaign, id, opts){
+    const conf = findConfinement(campaign, id);
+    if(!conf) return { ok:false, reason:'not-found' };
+    if(conf.status !== 'held') return { ok:false, reason:'not-held', confinement: conf };
+    opts = opts || {};
+    const atTurn = (opts.atTurn != null) ? opts.atTurn : (campaign.currentTurn || 1);
+    _freeCaptive(campaign, conf.captiveCharacterId, 'released');
+    conf.status = 'released'; conf.resolution = 'released'; conf.resolvedAtTurn = atTurn;
+    conf.history.push({ turn: atTurn, type:'released', note: opts.reason || '' });
+    const who = _captiveLabel(campaign, conf);
+    const narrative = who + ' is released.';
+    const event = _emitConfinementEvent(campaign, conf, 'captive-released',
+      { hexId: conf.hexId, confinementType: conf.confinementType }, narrative);
+    return { ok:true, confinement: conf, event };
+  }
+
+  // captiveEscapes(campaign, id, opts) — the captive escapes (flees; the monthly check or a GM call).
+  function captiveEscapes(campaign, id, opts){
+    const conf = findConfinement(campaign, id);
+    if(!conf) return { ok:false, reason:'not-found' };
+    if(conf.status !== 'held') return { ok:false, reason:'not-held', confinement: conf };
+    opts = opts || {};
+    const atTurn = (opts.atTurn != null) ? opts.atTurn : (campaign.currentTurn || 1);
+    _freeCaptive(campaign, conf.captiveCharacterId, 'escaped');
+    conf.status = 'escaped'; conf.resolution = 'escaped'; conf.resolvedAtTurn = atTurn;
+    conf.history.push({ turn: atTurn, type:'escaped', note: (opts.roll != null ? ('roll ' + opts.roll.toFixed(3) + ' < ' + (opts.chance != null ? opts.chance : '?')) : '') });
+    const who = _captiveLabel(campaign, conf);
+    const narrative = who + ' escapes confinement!';
+    const event = _emitConfinementEvent(campaign, conf, 'captive-escaped',
+      { hexId: conf.hexId, escapeChance: (opts.chance != null ? opts.chance : null), roll: (opts.roll != null ? opts.roll : null) }, narrative);
+    return { ok:true, confinement: conf, event };
+  }
+
+  // ── The monthly escape check — a slot-70 day-consumer (rides the Day Clock + commitTurn's
+  //    runDayTickToMonthEnd). Seeded byte-stable previews: the roll is fixed per (confinement,
+  //    turn), so re-opening the day-tick review reproduces it. Gated once per month per held
+  //    confinement (lastEscapeCheckTurn !== currentTurn). 🔧 no RAW basis — escapeChanceMonthly
+  //    (0 disables) is the GM's lever. ──
+  function _cnfHash32(str){
+    let h = 2166136261 >>> 0;                                  // FNV-1a
+    for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function _cnfMulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function _cnfEscapeRng(conf, turn){ return _cnfMulberry32(_cnfHash32('cnf-escape|' + conf.id + '|' + turn)); }
+  function confinementEscapeChance(campaign, conf){
+    if(!conf) return 0;
+    let p = Number(conf.escapeChanceMonthly);
+    if(!(p > 0)) return 0;
+    return Math.min(1, p);
+  }
+  // PURE day-handler (no mutation) — proposes the escape check for each held confinement
+  // not yet checked this turn. ctx.rng overrides the seeded rng (tests).
+  function proposeConfinementEscapeDay(campaign, ctx){
+    ctx = ctx || {};
+    const out = { pendingRecords: [], notableEvents: [] };
+    if(!campaign || !Array.isArray(campaign.confinements)) return out;
+    const turn = campaign.currentTurn || 1;
+    for(const conf of campaign.confinements){
+      if(!conf || conf.status !== 'held') continue;
+      if(conf.lastEscapeCheckTurn === turn) continue;          // already checked this month
+      const chance = confinementEscapeChance(campaign, conf);
+      const rng = ctx.rng || _cnfEscapeRng(conf, turn);
+      const roll = (chance > 0) ? rng() : 1;
+      const escaped = chance > 0 && roll < chance;
+      out.pendingRecords.push({ type:'confinement-escape', confinementId: conf.id, turn, roll, chance, escaped });
+      if(escaped){
+        out.notableEvents.push({ type:'confinement-escape', transient: true,
+          label: _captiveLabel(campaign, conf) + ' escapes confinement!',
+          summary: _captiveLabel(campaign, conf) + ' escapes' });
+      }
+    }
+    return out;
+  }
+  // Apply one ratified escape record (commit half). Always stamps lastEscapeCheckTurn (so the
+  // month isn't re-rolled); frees the captive when escaped.
+  function commitConfinementRecord(campaign, record){
+    if(!campaign || !record || record.type !== 'confinement-escape') return;
+    const conf = findConfinement(campaign, record.confinementId);
+    if(!conf || conf.status !== 'held') return;
+    conf.lastEscapeCheckTurn = record.turn;
+    if(record.escaped) captiveEscapes(campaign, conf.id, { roll: record.roll, chance: record.chance, atTurn: record.turn });
+  }
+  // Direct (non-day-tick) monthly run — a headless commitTurn / a test / a preview can call it.
+  // opts.dryRun returns the proposal without committing. opts.rng injects a deterministic stream.
+  function processConfinementsForTurn(campaign, opts){
+    opts = opts || {};
+    const prop = proposeConfinementEscapeDay(campaign, { rng: opts.rng });
+    if(opts.dryRun) return prop;
+    prop.pendingRecords.forEach(r => commitConfinementRecord(campaign, r));
+    return prop;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // catalog (frozen reference data)
@@ -898,7 +1201,97 @@
     // roll engine
     generateHoard, planHoard, applySpecialTreasures, hoardTotalGp, hoardTotalStone,
     // materializer + lair seam
-    materializeHoard, generateHoardForLair
+    materializeHoard, generateHoardForLair,
+    // Confinements (Wave-C) — the captive↔captor relation + ransom/release/escape lifecycle
+    blankConfinement, createConfinement,
+    findConfinement, confinementsForCaptive, confinementForCaptive, confinementsForCaptor, activeConfinements,
+    ransomConfinement, releaseConfinement, captiveEscapes,
+    confinementEscapeChance, proposeConfinementEscapeDay, commitConfinementRecord, processConfinementsForTurn
   });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SELF-REGISTRATION (the PR #89/#90 kernel) — cnf- prefix + the confinements collection +
+  // the confinement entity-kind + field-schema + the 3 audit event kinds + the slot-70 escape
+  // day-consumer, ALL from this module (no central-registry edits — CLAUDE §15.5 / §9.4). The
+  // registrars are defined in the core (acks-engine.js / events.js / entity-registry.js /
+  // field-schemas.js), all loaded before this module — each call is typeof-guarded so a partial
+  // load never throws. RAW core: no house rule.
+  // ════════════════════════════════════════════════════════════════════════════
+  if(typeof ACKS.registerPrefix === 'function') ACKS.registerPrefix('confinement', 'cnf');
+  // Defensive-read collection (the default): seeded in a fresh campaign, NOT migrate-injected
+  // (so templates stay byte-level migrate-no-ops — the team-session enabler), walked by Import-Domain.
+  if(typeof ACKS.registerCollection === 'function') ACKS.registerCollection('confinements');
+
+  // The 3 record-only audit event kinds — emitted by the ransom/release/escape verbs (NOT
+  // hand-emittable via the Event Wizard → wizardOptOut). The handler is record-only (the verb
+  // already applied the state); it keeps the event well-formed on replay.
+  if(typeof ACKS.registerEventKind === 'function'){
+    ACKS.registerEventKind('captive-ransomed', {
+      schema: { R:{ confinementId:'string', captiveCharacterId:'string' },
+                O:{ amountGp:'number', payer:'object', recipient:'object', hexId:'string', confinementType:'string', narrative:'string' } },
+      wizardOptOut: true, handler: applyEvent_confinementAudit });
+    ACKS.registerEventKind('captive-released', {
+      schema: { R:{ confinementId:'string', captiveCharacterId:'string' },
+                O:{ hexId:'string', confinementType:'string', narrative:'string' } },
+      wizardOptOut: true, handler: applyEvent_confinementAudit });
+    ACKS.registerEventKind('captive-escaped', {
+      schema: { R:{ confinementId:'string', captiveCharacterId:'string' },
+                O:{ hexId:'string', escapeChance:'number', roll:'number', narrative:'string' } },
+      wizardOptOut: true, handler: applyEvent_confinementAudit });
+  }
+
+  // The confinement entity-kind (Inspector ▸ Browse/Create gets it for free).
+  if(typeof ACKS.registerEntityKind === 'function'){
+    ACKS.registerEntityKind({ kind:'confinement', label:'Confinement', pluralLabel:'Confinements', icon:'⛓',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.confinements) || [],
+      find: (c, id) => ((c && c.confinements) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => obj ? (((obj.confinementType === 'slave') ? 'Slave ' : 'Captive ') +
+        (obj.captiveCharacterId || '?') + ' · ' + (obj.status || 'held')) : '' });
+  }
+
+  // The Inspector field-schema (every non-computed field is a blankConfinement key — the global
+  // schema⊆factory invariant; captor/source are object-typed with a null default, so their
+  // sub-fields aren't checked — the loan.collateral pattern).
+  if(typeof ACKS.registerFieldSchema === 'function'){
+    ACKS.registerFieldSchema('confinement', {
+      factory: 'blankConfinement', adminCreate: 'schemaForm',
+      groups: ['Identity','Parties','Terms','Lifecycle'],
+      fields: [
+        { name:'id',                 type:'string', readonly:true, group:'Identity' },
+        { name:'captiveCharacterId', type:'id', idKind:'character', required:true, readonly:true, group:'Identity', description:'The prisoner — relation primary key (free + re-create to change)' },
+        { name:'captor',             type:'object', group:'Parties', description:'Who holds the captive', fields:[
+          { name:'kind',  type:'string', description:"'character' | 'party' | 'domain' | 'lair' | 'unknown'" },
+          { name:'id',    type:'string' },
+          { name:'label', type:'string' } ] },
+        { name:'source',             type:'object', group:'Parties', description:'Provenance (a generated hoard)', fields:[
+          { name:'kind',  type:'string' },
+          { name:'id',    type:'string' },
+          { name:'label', type:'string' } ] },
+        { name:'confinementType',    type:'enum', enumValues:['ransom','slave'], group:'Terms' },
+        { name:'ransomValueGp',      type:'gp', group:'Terms', description:'Base ransom/slave value (TT p.23)' },
+        { name:'escapeChanceMonthly',type:'number', group:'Terms', description:'🔧 Monthly escape chance (0–1); 0 disables. No RAW basis.' },
+        { name:'status',             type:'enum', enumValues:['held','ransomed','released','escaped'], group:'Lifecycle' },
+        { name:'resolution',         type:'string', readonly:true, group:'Lifecycle', description:'How it ended (set by the verb)' },
+        { name:'hexId',              type:'id', idKind:'hex', group:'Lifecycle', description:'Where held' },
+        { name:'confinedAtTurn',     type:'number', group:'Lifecycle' },
+        { name:'resolvedAtTurn',     type:'number', readonly:true, group:'Lifecycle', description:'Set on ransom/release/escape — null while held' },
+        { name:'lastEscapeCheckTurn',type:'number', readonly:true, group:'Lifecycle', description:'The monthly-cadence gate' },
+        { name:'notes',              type:'longText', group:'Lifecycle' },
+        { name:'isActive',           type:'computed', readonly:true, group:'Lifecycle', description:'True while status === held' }
+      ]
+    });
+  }
+
+  // The slot-70 escape day-consumer (the convalescence / settlement-incident idiom). Monthly
+  // cadence via the per-confinement lastEscapeCheckTurn gate; rides commitTurn's runDayTickToMonthEnd.
+  if(typeof ACKS.registerDayConsumer === 'function'){
+    ACKS.registerDayConsumer('confinements', {
+      handler: proposeConfinementEscapeDay,
+      order: 70,
+      pauseTriggers: [],
+      commit: commitConfinementRecord
+    });
+  }
 
 })(typeof window !== 'undefined' ? window : global);

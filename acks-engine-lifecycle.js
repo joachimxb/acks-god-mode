@@ -379,6 +379,17 @@ function processAgingForTurn(campaign, opts){
     (tx.logEntries || []).forEach(l => out.logEntries.push(l));
   } catch(_e){ /* never let a transformation drift-save fail the aging pass */ }
 
+  // CL-4b (burst12, team) — the dynasty succession-law-change clock rides this same monthly hook (the
+  // CL-5 fold pattern — this lane cannot add a named hook to acks-engine.js). processDynastyForTurn is
+  // gated INSIDE on the dynasty-tracking house rule (it no-ops when off / when no law change is due), so
+  // folding it here is inert for every campaign that isn't using the optional layer. Surfaced under
+  // out.dynasty + its log lines merge in.
+  try {
+    const dyn = processDynastyForTurn(campaign, { dryRun, rng });
+    out.dynasty = dyn;
+    (dyn.logEntries || []).forEach(l => out.logEntries.push(l));
+  } catch(_e){ /* never let a dynasty law-change fail the aging pass */ }
+
   return out;
 }
 
@@ -1919,6 +1930,707 @@ Object.assign(ACKS, {
   isTransformed, characterTransformationInfo
 });
 // === end Character Lifecycle CL-5 (team) =====================================
+
+// =============================================================================
+// === Character Lifecycle CL-4b (burst12, team) — the optional DYNASTY layer (AXIOMS 19) ======
+// "Cohorts and Dynasties" (Revised v2), the dynasty half — RUN THE BLOODLINE FORWARD. Where CL-4a
+// (RR pp.311–313) is the RAW-core death economy on one character, CL-4b is the AXIOMS-19 supplement
+// that makes the DYNASTY the unit of play: a first-class Dynasty entity + kinship relations + the
+// succession laws + bloodline traits, over the shipped lifecycle spine (CL-1 aging / CL-4a death).
+//
+// THE SCOPE (the manifest + Plan §11 CL-4b "first slice"): the Dynasty entity (dyn-) + kinship
+//   relations (kin-) + the 10 succession laws (incl. the elective vassal-loyalty bonuses + the
+//   realm-type starting-law table + the 2d4-month law change) + bloodline traits (the 3-generation
+//   rule → 4d6-keep-best-3 children) + a light breeding slice (the racial pregnancy caps + birthChild
+//   + the bastard rule). DEFERRED (noted, not built): education/leveling-over-years, campaign-task
+//   delegation, twins/triplets, the per-active-year fertility roll (birthChild is a manual GM verb).
+//   The AXIOMS-19 "Cohorts" half is NOT lifecycle (a Manual-of-Arms unit → Phase 3 Military).
+//
+// STANDALONE (the manifest): the succession-law half overlaps Politics (electors, vassal loyalty),
+//   but this builds the dynasty/kinship/succession core WITHOUT depending on the Politics lane. The
+//   senatorial-succession seam (a senate approving a law change in a senatorial realm) is a DEFERRED
+//   forward pointer, surfaced as a note, never a build dependency. resolveDynastySuccession PICKS +
+//   RETURNS the heir per the law; the GM (or CL-4a's resolveSuccession, the same module) consumes it —
+//   the two verbs stay composable (principle #1), no auto-coupling.
+//
+// SHAPE (the §2 persistent-state model + the team-session self-registration discipline): a NEW
+//   first-class entity (campaign.dynasties[], dyn-) + a relation collection (campaign.kinships[], kin-,
+//   accessor-only — NOT a registry-browsed kind, the knowledge/itemCustody idiom), both self-registered
+//   FROM THIS MODULE via the PR #89 kernel (registerPrefix / registerCollection / registerEntityKind /
+//   registerFieldSchema / registerHouseRule / registerEventKind) — NO central-file edit. blankDynasty
+//   lives HERE (not entities.js) so the schema⊆factory invariant resolves against it. The character
+//   fields (dynastyId / noble / title / bastard / pregnancies / birthTurn) are ALL defensive-read /
+//   init-on-write — NO blankCharacter seed (the CL-4a heirCharacterId precedent) → the 6 templates +
+//   demo stay migrate-no-ops, no migration. The dynasties/kinships collections default defensive-read
+//   (seedInBlank, NOT lazy-injected) → migrateCampaign never adds them, the no-op invariant holds.
+//   The law-change clock rides processAgingForTurn (the one monthly lifecycle hook this lane has — the
+//   CL-5 drift-clock fold), gated INSIDE on the house rule.
+//
+// Polarity (CLAUDE §6): the dynasty layer is a SUPPLEMENT (AXIOMS 19) → a default-OFF house rule
+//   (`dynasty-tracking`), the elite-troops/AXIOMS-4 + notable-items/AXIOMS-14 precedent. The data is
+//   non-functional AND hidden when off (principle 8): the law-change clock no-ops, and the UI gates.
+//
+// ⚠ IP (§13.6): AXIOMS is a separate Autarch product — the mechanical facts only (the law set + the
+//   vassal-loyalty bonuses + the d6 starting-law table + the fertility caps + the 3-generation rule),
+//   cited AXIOMS 19; never the prose. Same boundary as every other supplement.
+// =============================================================================
+const CL4B_CITE = 'AXIOMS 19';
+const ABILITY_IDS = Object.freeze(['STR', 'INT', 'WIL', 'DEX', 'CON', 'CHA']);   // ACKS abilities (WIL, not WIS)
+const LAW_CHANGE_DICE = '2d4';            // AXIOMS 19 — a succession-law change takes 2d4 months
+const BLOODLINE_GENERATIONS = 3;          // AXIOMS 19 — shared high stat over ≥3 generations earns it
+const BLOODLINE_HIGH_THRESHOLD = 13;      // "a high stat" — ACKS exceptional is 13+ (the GM may tune)
+
+// ── Succession laws (AXIOMS 19) ──────────────────────────────────────────────────────────────────
+// elective (the heir is elected from any dynasty member) vs inheritance (by birthright). Three carry a
+// vassal-loyalty bonus (feudal elective +2 — "making the realm more stable"; gavelkind elective +1;
+// tanistry +1). `heirRule` drives resolveDynastySuccession; `divides` marks the gavelkind laws (the
+// primary heir takes the main title, siblings inherit claims + land — "the perfect conditions for
+// succession crises"). Mechanical facts only (the RAW posture); `rule` is an own-words gloss.
+const SUCCESSION_LAWS = Object.freeze([
+  { id:'feudal-elective',     label:'Feudal Elective',     type:'elective',    vassalLoyaltyBonus:2, heirRule:'elected',        divides:false, cite:CL4B_CITE,
+    rule:'All titles pass to one elected heir (any claimant or dynasty member). Each elector vassal gets one vote; the ruler votes and breaks ties. The most stable system.' },
+  { id:'gavelkind-elective',  label:'Gavelkind Elective',  type:'elective',    vassalLoyaltyBonus:1, heirRule:'elected',        divides:true,  cite:CL4B_CITE,
+    rule:'The primary title passes to an elected heir; other eligible children divide the demesne. Electors vote, the ruler breaks ties.' },
+  { id:'tanistry',            label:'Tanistry',            type:'elective',    vassalLoyaltyBonus:1, heirRule:'elected',        divides:false, cite:CL4B_CITE,
+    rule:'One elected dynasty member inherits all titles; usually more electors than feudal elective. Common among nomads and barbarian tribes.' },
+  { id:'patrician-elective',  label:'Patrician Elective',  type:'elective',    vassalLoyaltyBonus:0, heirRule:'elected',        divides:false, cite:CL4B_CITE,
+    rule:'A council (one member per family) elects one of its own as their leader (doge).' },
+  { id:'gavelkind',           label:'Gavelkind',           type:'inheritance', vassalLoyaltyBonus:0, heirRule:'eldest-child',   divides:true,  cite:CL4B_CITE,
+    rule:'Titles are divided amongst the heirs — the perfect conditions for succession crises (siblings inherit claims and land).' },
+  { id:'primogeniture',       label:'Primogeniture',       type:'inheritance', vassalLoyaltyBonus:0, heirRule:'eldest-child',   divides:false, cite:CL4B_CITE,
+    rule:'The eldest child of the dynasty inherits all titles (by gender law; default: eldest child).' },
+  { id:'ultimogeniture',      label:'Ultimogeniture',      type:'inheritance', vassalLoyaltyBonus:0, heirRule:'youngest-child', divides:false, cite:CL4B_CITE,
+    rule:'The youngest child of the dynasty inherits all titles (by gender law; default: youngest child).' },
+  { id:'seniority',           label:'Seniority',           type:'inheritance', vassalLoyaltyBonus:0, heirRule:'eldest-member',  divides:false, cite:CL4B_CITE,
+    rule:'The eldest member of the dynasty inherits all titles (by gender law).' },
+  { id:'patrician-seniority', label:'Patrician Seniority', type:'inheritance', vassalLoyaltyBonus:0, heirRule:'eldest-member',  divides:false, cite:CL4B_CITE,
+    rule:'The oldest member of the families/council is the leader (doge).' },
+  { id:'open',                label:'Open',                type:'inheritance', vassalLoyaltyBonus:0, heirRule:'most-powerful',   divides:false, cite:CL4B_CITE,
+    rule:'The most powerful descendant inherits all — often combined with polygamy and an unusual number of claimants.' }
+]);
+const SUCCESSION_LAW_BY_ID = Object.freeze(SUCCESSION_LAWS.reduce((m, l) => { m[l.id] = l; return m; }, {}));
+function successionLawById(id){ return SUCCESSION_LAW_BY_ID[id] || null; }
+function successionLawsList(){ return SUCCESSION_LAWS.slice(); }
+const SUCCESSION_LAW_IDS = Object.freeze(SUCCESSION_LAWS.map(l => l.id));
+
+// The realm-type → starting succession-law d6 table (AXIOMS 19). Each realm type's rows cover 1–6.
+const DYNASTY_STARTING_LAW_BY_REALM = Object.freeze({
+  'beastman-tribal':         [ { max:4, law:'tanistry' },        { max:6, law:'open' } ],
+  'human-standard':          [ { max:1, law:'tanistry' },        { max:4, law:'feudal-elective' }, { max:5, law:'gavelkind-elective' }, { max:6, law:'gavelkind' } ],
+  'dwarven-vault':           [ { max:3, law:'seniority' },        { max:6, law:'patrician-seniority' } ],
+  'elven-fastness':          [ { max:6, law:'seniority' } ],
+  'senatorial':              [ { max:3, law:'patrician-elective' },{ max:6, law:'patrician-seniority' } ],
+  'syndicate':               [ { max:4, law:'open' },             { max:6, law:'feudal-elective' } ],
+  'religious-organization':  [ { max:2, law:'feudal-elective' },  { max:3, law:'open' }, { max:6, law:'patrician-elective' } ]
+});
+const _REALM_TYPE_ALIASES = Object.freeze({
+  'human-standard':'human-standard', human:'human-standard', humans:'human-standard', standard:'human-standard', feudal:'human-standard',
+  'beastman-tribal':'beastman-tribal', beastman:'beastman-tribal', beastmen:'beastman-tribal', tribal:'beastman-tribal', tribe:'beastman-tribal', nomad:'beastman-tribal', nomadic:'beastman-tribal', barbarian:'beastman-tribal',
+  'dwarven-vault':'dwarven-vault', dwarf:'dwarven-vault', dwarven:'dwarven-vault', dwarves:'dwarven-vault', vault:'dwarven-vault',
+  'elven-fastness':'elven-fastness', elf:'elven-fastness', elven:'elven-fastness', elves:'elven-fastness', fastness:'elven-fastness',
+  senatorial:'senatorial', senate:'senatorial', republic:'senatorial',
+  syndicate:'syndicate', criminal:'syndicate', guild:'syndicate',
+  'religious-organization':'religious-organization', religious:'religious-organization', theocracy:'religious-organization', church:'religious-organization', temple:'religious-organization', clerical:'religious-organization'
+});
+function _normalizeRealmType(rt){ return _REALM_TYPE_ALIASES[String(rt || '').toLowerCase().trim()] || 'human-standard'; }
+function startingLawTableForRealm(realmType){ return DYNASTY_STARTING_LAW_BY_REALM[_normalizeRealmType(realmType)] || DYNASTY_STARTING_LAW_BY_REALM['human-standard']; }
+function rollStartingSuccessionLaw(realmType, rng){
+  const table = startingLawTableForRealm(realmType);
+  const roll = _d(6, rng);
+  for(const row of table){ if(roll <= row.max) return row.law; }
+  return table[table.length - 1].law;
+}
+
+// Lifetime pregnancy caps (AXIOMS 19): humans & beastmen 12; dwarves/gnomes/halflings 4; elves 2.
+const PREGNANCY_CAPS_BY_RACE = Object.freeze({ human:12, beastman:12, zaharan:12, nobiran:12, dwarf:4, gnome:4, halfling:4, elf:2 });
+const _PREG_RACE_ALIASES = Object.freeze({
+  human:'human', man:'human', men:'human', zaharan:'zaharan', nobiran:'nobiran',
+  beastman:'beastman', beastmen:'beastman', dwarf:'dwarf', dwarven:'dwarf', dwarves:'dwarf',
+  gnome:'gnome', gnomes:'gnome', halfling:'halfling', halflings:'halfling', elf:'elf', elven:'elf', elves:'elf'
+});
+function pregnancyCapForRace(race){
+  const key = _PREG_RACE_ALIASES[String(race || 'human').toLowerCase().trim()] || 'human';
+  return PREGNANCY_CAPS_BY_RACE[key] != null ? PREGNANCY_CAPS_BY_RACE[key] : 12;
+}
+
+// Family-tree markers (AXIOMS 19 — for the UI): a PC '#', an heir '♥', a bastard '○'.
+const FAMILY_TREE_MARKERS = Object.freeze({ pc:'#', heir:'♥', bastard:'○' });
+
+// ── factory ───────────────────────────────────────────────────────────────────────────────────────
+function blankDynasty(opts){
+  opts = opts || {};
+  return {
+    id: opts.id || (global.ACKS && global.ACKS.newId ? global.ACKS.newId('dyn') : 'dyn-' + Math.random().toString(36).slice(2, 9)),
+    kind: 'dynasty',
+    schemaVersion: 2,
+    name: opts.name || '',                                  // the surname / house name
+    coatOfArms: opts.coatOfArms || '',                       // a free-text blazon
+    founderCharacterId: opts.founderCharacterId || null,
+    successionLaw: opts.successionLaw || 'gavelkind',         // RAW default: "your dynasty begins with gavelkind"
+    pendingSuccessionLaw: opts.pendingSuccessionLaw || null,  // an in-progress law change (flips at lawChangeCompletesTurn)
+    lawChangeCompletesTurn: (opts.lawChangeCompletesTurn != null) ? opts.lawChangeCompletesTurn : null,
+    bloodlineTraits: Array.isArray(opts.bloodlineTraits) ? opts.bloodlineTraits.slice() : [],   // ≤1 ability id (AXIOMS: one stat per dynasty)
+    memberCharacterIds: Array.isArray(opts.memberCharacterIds) ? opts.memberCharacterIds.slice() : [],
+    heirLine: Array.isArray(opts.heirLine) ? opts.heirLine.slice() : [],   // ordered succession line (founder first) — drives the 3-gen bloodline check
+    realmType: opts.realmType || 'human-standard',
+    status: opts.status || 'extant',                         // 'extant' | 'extinct' (no heirs ⇒ the game ends)
+    foundedAtTurn: (opts.foundedAtTurn != null) ? opts.foundedAtTurn : null,
+    history: Array.isArray(opts.history) ? opts.history.slice() : []
+  };
+}
+
+// ── small internals ─────────────────────────────────────────────────────────────────────────────
+function _dynHistory(dyn, turn, type, note){ if(!Array.isArray(dyn.history)) dyn.history = []; dyn.history.push({ atTurn: turn, type, note }); }
+function dynastyById(campaign, id){ return ((campaign && campaign.dynasties) || []).find(d => d && d.id === id) || null; }
+function dynastiesInCampaign(campaign){ return (campaign && Array.isArray(campaign.dynasties)) ? campaign.dynasties : []; }
+function characterDynasty(campaign, charOrId){
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId : _findCharacterLC(campaign, charOrId);
+  if(!c || !c.dynastyId) return null;
+  return dynastyById(campaign, c.dynastyId);
+}
+// eldest-first comparator: higher age = older; absent age → earlier birthTurn = older; else stable.
+function _eldestFirst(a, b){
+  const aA = (typeof a.age === 'number') ? a.age : null, bA = (typeof b.age === 'number') ? b.age : null;
+  if(aA != null && bA != null && aA !== bA) return bA - aA;
+  const aB = (typeof a.birthTurn === 'number') ? a.birthTurn : null, bB = (typeof b.birthTurn === 'number') ? b.birthTurn : null;
+  if(aB != null && bB != null && aB !== bB) return aB - bB;
+  if(aA != null && bA == null) return -1;
+  if(bA != null && aA == null) return 1;
+  return 0;
+}
+
+// ── kinship reads ─────────────────────────────────────────────────────────────────────────────────
+// A kinship record: { id (kin-), kind:'kinship', kinType:'parent-child'|'marriage', aCharacterId, bCharacterId,
+//   matrilineal? (marriage), recordedAtTurn }. For parent-child a = parent, b = child.
+function characterKinships(campaign, charId){
+  return ((campaign && campaign.kinships) || []).filter(k => k && (k.aCharacterId === charId || k.bCharacterId === charId));
+}
+function _kinships(campaign){ return (campaign && Array.isArray(campaign.kinships)) ? campaign.kinships : []; }
+function charactersChildren(campaign, parentId){
+  const ids = _kinships(campaign).filter(k => k && k.kinType === 'parent-child' && k.aCharacterId === parentId).map(k => k.bCharacterId);
+  return ids.map(id => _findCharacterLC(campaign, id)).filter(Boolean);
+}
+function characterParents(campaign, childId){
+  const ids = _kinships(campaign).filter(k => k && k.kinType === 'parent-child' && k.bCharacterId === childId).map(k => k.aCharacterId);
+  return ids.map(id => _findCharacterLC(campaign, id)).filter(Boolean);
+}
+function characterSpouses(campaign, charId){
+  const out = [];
+  _kinships(campaign).forEach(k => {
+    if(!k || k.kinType !== 'marriage' || k.endedAtTurn != null) return;
+    if(k.aCharacterId === charId) out.push(_findCharacterLC(campaign, k.bCharacterId));
+    else if(k.bCharacterId === charId) out.push(_findCharacterLC(campaign, k.aCharacterId));
+  });
+  return out.filter(Boolean);
+}
+function _areSpouses(campaign, aId, bId){
+  return _kinships(campaign).some(k => k && k.kinType === 'marriage' && k.endedAtTurn == null &&
+    ((k.aCharacterId === aId && k.bCharacterId === bId) || (k.aCharacterId === bId && k.bCharacterId === aId)));
+}
+function _matrilinealMarriage(campaign, aId, bId){
+  return _kinships(campaign).some(k => k && k.kinType === 'marriage' && k.matrilineal === true &&
+    ((k.aCharacterId === aId && k.bCharacterId === bId) || (k.aCharacterId === bId && k.bCharacterId === aId)));
+}
+
+// dynastyMembers — the resolved member Characters (alive + dead), founder first when present.
+function dynastyMembers(campaign, dynastyId){
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return [];
+  return (dyn.memberCharacterIds || []).map(id => _findCharacterLC(campaign, id)).filter(Boolean);
+}
+function _livingMembers(campaign, dyn){
+  return (dyn.memberCharacterIds || []).map(id => _findCharacterLC(campaign, id))
+    .filter(c => c && c.lifecycleState !== 'deceased' && c.alive !== false);
+}
+
+// dynastyFamilyTree — a flat node list for the UI (each member + its marker + parent ids).
+function dynastyFamilyTree(campaign, dynastyId){
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return [];
+  const heirSet = new Set(dyn.heirLine || []);
+  return (dyn.memberCharacterIds || []).map(id => {
+    const c = _findCharacterLC(campaign, id);
+    if(!c) return null;
+    const marker = (c.controlledBy === 'player') ? FAMILY_TREE_MARKERS.pc
+                 : c.bastard ? FAMILY_TREE_MARKERS.bastard
+                 : heirSet.has(id) ? FAMILY_TREE_MARKERS.heir : '';
+    return { id: c.id, name: c.name, marker, bastard: c.bastard === true, isHeir: heirSet.has(id),
+      isFounder: dyn.founderCharacterId === id, deceased: (c.lifecycleState === 'deceased' || c.alive === false),
+      title: c.title || null, level: Number(c.level) || 0, age: (typeof c.age === 'number') ? c.age : null, birthTurn: (typeof c.birthTurn === 'number') ? c.birthTurn : null,
+      parentIds: characterParents(campaign, id).map(p => p.id) };
+  }).filter(Boolean);
+}
+
+// ── foundDynasty ─────────────────────────────────────────────────────────────────────────────────
+// A titled character founds a dynasty (coat of arms + surname). A lowborn character who receives a title
+// is raised to nobility, becoming the founder of a new dynasty (AXIOMS 19) — so the act ennobles them.
+// Refuses if the character already belongs to a dynasty. successionLaw: opts.successionLaw, else (if a
+// realmType is given) the rolled d6 starting law, else the RAW default 'gavelkind'. Emits dynasty-founded.
+function foundDynasty(campaign, founderCharOrId, opts){
+  opts = opts || {};
+  const founder = (founderCharOrId && typeof founderCharOrId === 'object') ? founderCharOrId : _findCharacterLC(campaign, founderCharOrId);
+  if(!founder) return null;
+  if(founder.dynastyId) return { error:'already-in-dynasty', dynastyId: founder.dynastyId };
+  if(founder.lifecycleState === 'deceased' || founder.alive === false) return { error:'founder-deceased' };
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const realmType = _normalizeRealmType(opts.realmType || 'human-standard');
+  let law = opts.successionLaw && SUCCESSION_LAW_BY_ID[opts.successionLaw] ? opts.successionLaw
+          : (opts.realmType ? rollStartingSuccessionLaw(realmType, rng) : 'gavelkind');
+  const dyn = blankDynasty({
+    name: opts.name || (founder.name ? (founder.name.split(/\s+/).slice(-1)[0]) : 'House'),
+    coatOfArms: opts.coatOfArms || '', founderCharacterId: founder.id,
+    successionLaw: law, realmType, foundedAtTurn: turn,
+    memberCharacterIds: [founder.id], heirLine: [founder.id]
+  });
+  if(!Array.isArray(campaign.dynasties)) campaign.dynasties = [];   // init-on-write (defensive collection)
+  campaign.dynasties.push(dyn);
+  founder.dynastyId = dyn.id;
+  founder.noble = true;                                     // founding raises the line to nobility
+  if(opts.title) founder.title = opts.title;
+  const lawLabel = (SUCCESSION_LAW_BY_ID[law] || {}).label || law;
+  const summary = founder.name + ' founds the dynasty of ' + (dyn.name || '(unnamed house)') + ' (' + lawLabel + ' succession).';
+  _dynHistory(dyn, turn, 'founded', summary);
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, founder, 'dynasty-founded', summary, { dynastyId: dyn.id }); } catch(_e){}
+  _emitDynastyEvent(campaign, 'dynasty-founded', {
+    dynastyId: dyn.id, founderCharacterId: founder.id, name: dyn.name, successionLaw: law, realmType, narrative: summary
+  }, summary, { dynastyId: dyn.id, characters:[{ id: founder.id, role:'subject' }], primaryHexId: founder.currentHexId || null, domainId: founder.currentDomainId || null });
+  return dyn;
+}
+
+// ── recordKinship ────────────────────────────────────────────────────────────────────────────────
+// Record a parent-child or marriage relation (the kin- relation; AXIOMS 19's family tree). For a
+// parent-child relation aCharacterId = parent, bCharacterId = child. A marriage may be matrilineal
+// (children take the mother's dynasty). Idempotent for an identical parent-child link. Emits kinship-recorded.
+function recordKinship(campaign, opts){
+  opts = opts || {};
+  const kinType = opts.kinType;
+  if(kinType !== 'parent-child' && kinType !== 'marriage') return null;
+  const a = _findCharacterLC(campaign, opts.aCharacterId), b = _findCharacterLC(campaign, opts.bCharacterId);
+  if(!a || !b || a.id === b.id) return null;
+  if(!Array.isArray(campaign.kinships)) campaign.kinships = [];   // init-on-write (defensive collection)
+  if(kinType === 'parent-child'){
+    const dup = campaign.kinships.find(k => k && k.kinType === 'parent-child' && k.aCharacterId === a.id && k.bCharacterId === b.id);
+    if(dup) return dup;
+  }
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const rec = {
+    id: (global.ACKS && global.ACKS.newId ? global.ACKS.newId('kin') : 'kin-' + Math.random().toString(36).slice(2, 9)),
+    kind: 'kinship', schemaVersion: 2, kinType, aCharacterId: a.id, bCharacterId: b.id,
+    matrilineal: kinType === 'marriage' ? (opts.matrilineal === true) : false,
+    recordedAtTurn: turn, endedAtTurn: null
+  };
+  campaign.kinships.push(rec);
+  // opts.quiet — birthChild creates the two parent-child links quietly (its own birth event is the
+  // canonical record; the link events would just be noise). A direct GM recordKinship call emits.
+  if(opts.quiet) return rec;
+  const summary = kinType === 'marriage'
+    ? (a.name + ' weds ' + b.name + (rec.matrilineal ? ' (matrilineal)' : '') + '.')
+    : (b.name + ' is recorded as a child of ' + a.name + '.');
+  _emitDynastyEvent(campaign, 'kinship-recorded', {
+    kinType, aCharacterId: a.id, bCharacterId: b.id, matrilineal: rec.matrilineal, narrative: summary
+  }, summary, { characters:[{ id:a.id, role:'subject' }, { id:b.id, role:'recipient' }], primaryHexId: a.currentHexId || null });
+  return rec;
+}
+
+// ── bloodline-trait dice ───────────────────────────────────────────────────────────────────────────
+// A child of a bloodline-trait dynasty rolls 4d6-keep-best-3 for that ability; if BOTH parents' dynasties
+// carry the SAME trait → 5d6-keep-best-3; two DIFFERENT traits → the child benefits from both (AXIOMS 19).
+function _dynastyTraits(campaign, charOrId){
+  const dyn = characterDynasty(campaign, charOrId);
+  return (dyn && Array.isArray(dyn.bloodlineTraits)) ? dyn.bloodlineTraits : [];
+}
+function dynastyChildAbilityDice(campaign, motherId, fatherId, abilityId){
+  const mom = _dynastyTraits(campaign, motherId), dad = _dynastyTraits(campaign, fatherId);
+  const inMom = mom.indexOf(abilityId) >= 0, inDad = dad.indexOf(abilityId) >= 0;
+  if(inMom && inDad) return '5d6k3';     // both dynasties share the trait
+  if(inMom || inDad) return '4d6k3';     // one parent's dynasty carries it (or the two differ — each applies)
+  return '3d6';
+}
+function _rollAbilityDice(spec, rng){
+  const m = String(spec).match(/^(\d+)d6(?:k(\d+))?$/i);
+  const n = m ? parseInt(m[1], 10) : 3;
+  const keep = (m && m[2]) ? parseInt(m[2], 10) : 3;
+  const rolls = [];
+  for(let i = 0; i < n; i++) rolls.push(_d(6, rng));
+  rolls.sort((a, b) => b - a);                               // best first
+  return rolls.slice(0, keep).reduce((s, v) => s + v, 0);
+}
+
+// dynastyEligibleBloodlineTrait — the 3-generation rule (AXIOMS 19). Over the last BLOODLINE_GENERATIONS
+// consecutive members of the dynasty's heir-line, find an ability ALL of them score ≥ threshold for.
+// Returns the ability id (or null). A dynasty already carries ≤1 trait (the AXIOMS cap), so a dynasty
+// with a trait is not re-eligible.
+function dynastyEligibleBloodlineTrait(campaign, dynastyId, opts){
+  opts = opts || {};
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return null;
+  if((dyn.bloodlineTraits || []).length >= 1) return null;   // one stat per dynasty (AXIOMS 19)
+  const gens = opts.generations || BLOODLINE_GENERATIONS;
+  const threshold = (opts.threshold != null) ? opts.threshold : BLOODLINE_HIGH_THRESHOLD;
+  const line = (dyn.heirLine || []).map(id => _findCharacterLC(campaign, id)).filter(Boolean);
+  if(line.length < gens) return null;
+  const recent = line.slice(-gens);
+  for(const ab of ABILITY_IDS){
+    if(recent.every(c => Number(c.abilities && c.abilities[ab]) >= threshold)) return ab;
+  }
+  return null;
+}
+
+// ── birthChild ──────────────────────────────────────────────────────────────────────────────────
+// A light breeding slice (AXIOMS 19). Determines the child's dynasty (the father's, the mother's if the
+// marriage is matrilineal, or — for an unacknowledged bastard — the mother's), the bastard flag (a child
+// whose parents are not spouses), rolls ability scores (3d6 in order, or 4d6/5d6-keep-best-3 for a
+// bloodline-trait ability), checks the mother's lifetime pregnancy cap by race, mints a child Character,
+// records the parent-child kinships, and adds the child to the dynasty. A manual GM verb (the per-active-
+// year fertility roll is deferred). Returns the child Character (or { error }).
+//   opts: { motherCharacterId, fatherCharacterId, name, race, alignment, controlledBy, sex, rng, forcedAbilities }.
+function birthChild(campaign, opts){
+  opts = opts || {};
+  const mother = _findCharacterLC(campaign, opts.motherCharacterId);
+  const father = _findCharacterLC(campaign, opts.fatherCharacterId);
+  if(!mother) return { error:'no-mother' };
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const turn = (campaign && campaign.currentTurn) || 1;
+
+  // Lifetime pregnancy cap by race (AXIOMS 19).
+  const cap = pregnancyCapForRace(mother.race);
+  const had = Number(mother.pregnancies) || 0;
+  if(had >= cap) return { error:'pregnancy-cap-reached', cap, had };
+
+  // Spouse / bastard / dynasty determination.
+  const spouses = father ? _areSpouses(campaign, mother.id, father.id) : false;
+  const bastard = !spouses;                                  // a child whose parents are not spouses is a bastard
+  const matrilineal = father ? _matrilinealMarriage(campaign, mother.id, father.id) : false;
+  let dynastyId = null;
+  if(bastard || matrilineal) dynastyId = mother.dynastyId || null;     // unacknowledged bastards + matrilineal children take the mother's dynasty
+  else dynastyId = (father && father.dynastyId) || mother.dynastyId || null;
+
+  // Ability scores — per-ability dice (the bloodline-trait 4d6/5d6-keep-best-3).
+  const abilities = {};
+  ABILITY_IDS.forEach(ab => {
+    if(opts.forcedAbilities && opts.forcedAbilities[ab] != null){ abilities[ab] = Number(opts.forcedAbilities[ab]); return; }
+    const spec = dynastyChildAbilityDice(campaign, mother.id, (father && father.id) || null, ab);
+    abilities[ab] = _rollAbilityDice(spec, rng);
+  });
+
+  const race = opts.race || (father && !bastard && !matrilineal ? father.race : mother.race) || mother.race || 'human';
+  const childName = opts.name || ((mother.name ? mother.name.split(/\s+/)[0] : 'Child') + "'s child");
+  let child;
+  if(typeof ACKS.blankCharacter === 'function'){
+    child = ACKS.blankCharacter({ name: childName, race, abilities,
+      controlledBy: opts.controlledBy || 'gm', alignment: opts.alignment || (father && father.alignment) || mother.alignment || 'N' });
+  } else {
+    child = { id: 'chr-' + Math.random().toString(36).slice(2, 9), kind:'character', schemaVersion:2, name: childName, race, abilities, level:1, lifecycleState:'active', alive:true };
+  }
+  child.dynastyId = dynastyId;
+  child.bastard = bastard;
+  child.noble = !!((mother.noble) || (father && father.noble));   // a noble's children are never lowborn
+  child.birthTurn = turn;
+  child.pregnancies = 0;
+  if(!Array.isArray(campaign.characters)) campaign.characters = [];
+  campaign.characters.push(child);
+
+  mother.pregnancies = had + 1;
+
+  // Kinship + dynasty membership. The two parent-child links are recorded quietly — the single
+  // birth event below is the canonical record (avoids 3 kinship-recorded events per birth).
+  recordKinship(campaign, { aCharacterId: mother.id, bCharacterId: child.id, kinType:'parent-child', quiet:true });
+  if(father) recordKinship(campaign, { aCharacterId: father.id, bCharacterId: child.id, kinType:'parent-child', quiet:true });
+  const dyn = dynastyId ? dynastyById(campaign, dynastyId) : null;
+  if(dyn && (dyn.memberCharacterIds || []).indexOf(child.id) < 0){ dyn.memberCharacterIds.push(child.id); }
+
+  const summary = childName + ' is born to ' + mother.name + (father ? (' and ' + father.name) : '') + (bastard ? ' (a bastard)' : '') + (dyn ? (' of ' + (dyn.name || 'the dynasty')) : '') + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, child, 'kinship-recorded', summary, { birth:true, bastard, dynastyId }); } catch(_e){}
+  _emitDynastyEvent(campaign, 'kinship-recorded', {
+    kinType:'parent-child', aCharacterId: mother.id, bCharacterId: child.id, childId: child.id,
+    dynastyId, bastard, birth:true, narrative: summary
+  }, summary, { dynastyId: dynastyId || null, characters:[{ id: mother.id, role:'subject' }, { id: child.id, role:'beneficiary' }], primaryHexId: mother.currentHexId || null });
+  return child;
+}
+
+// ── setSuccessionLaw ──────────────────────────────────────────────────────────────────────────────
+// Change a dynasty's succession law (AXIOMS 19: takes 2d4 months before it takes effect; until then the
+// old law is in effect). opts.immediate applies it now (a GM expedite / a test). The pending change flips
+// in processDynastyForTurn (the monthly fold). Returns { months, completesTurn } (pending) or { applied }.
+// NOTE (deferred Politics seam): in a senatorial realm the senate must approve the change — surfaced as
+// a note, not enforced (Politics owns the senate; CL-4b is standalone).
+function setSuccessionLaw(campaign, dynastyId, lawId, opts){
+  opts = opts || {};
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return { error:'no-dynasty' };
+  if(!SUCCESSION_LAW_BY_ID[lawId]) return { error:'unknown-law' };
+  const turn = (campaign && campaign.currentTurn) || 1;
+  if(lawId === dyn.successionLaw && dyn.pendingSuccessionLaw == null) return { applied:true, law:lawId, unchanged:true };
+  if(opts.immediate){
+    const prev = dyn.successionLaw;
+    dyn.successionLaw = lawId; dyn.pendingSuccessionLaw = null; dyn.lawChangeCompletesTurn = null;
+    _dynHistory(dyn, turn, 'law-changed', 'Succession law changed from ' + prev + ' to ' + lawId + '.');
+    return { applied:true, law:lawId, previousLaw:prev };
+  }
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const months = _d(4, rng) + _d(4, rng);                   // 2d4 months
+  dyn.pendingSuccessionLaw = lawId;
+  dyn.lawChangeCompletesTurn = turn + months;
+  _dynHistory(dyn, turn, 'law-change-begun', 'Begins changing succession law to ' + lawId + ' — takes ' + months + ' month' + (months === 1 ? '' : 's') + ' (AXIOMS 19).');
+  return { months, completesTurn: dyn.lawChangeCompletesTurn, pending:lawId };
+}
+
+// ── processDynastyForTurn — the monthly law-change clock (folded into processAgingForTurn) ─────────
+// Gated on the dynasty-tracking house rule (no-ops when off — principle 8). For each dynasty whose
+// pending law change is due (currentTurn ≥ lawChangeCompletesTurn), flips successionLaw → pending. dryRun
+// reports the deterministic facts + mutates nothing (the aging dry-run discipline; no dice here).
+function processDynastyForTurn(campaign, opts){
+  opts = opts || {};
+  const dryRun = !!opts.dryRun;
+  const out = { ran:true, dryRun, lawChanges:[], logEntries:[] };
+  if(!ACKS.isHouseRuleEnabled || !ACKS.isHouseRuleEnabled(campaign, 'dynasty-tracking')) return out;
+  const turn = (campaign && campaign.currentTurn) || 1;
+  ((campaign && campaign.dynasties) || []).forEach(dyn => {
+    if(!dyn || dyn.pendingSuccessionLaw == null || dyn.lawChangeCompletesTurn == null) return;
+    if(turn < dyn.lawChangeCompletesTurn) return;            // not due yet
+    const from = dyn.successionLaw, to = dyn.pendingSuccessionLaw;
+    out.lawChanges.push({ dynastyId: dyn.id, name: dyn.name, fromLaw: from, toLaw: to });
+    if(!dryRun){
+      dyn.successionLaw = to; dyn.pendingSuccessionLaw = null; dyn.lawChangeCompletesTurn = null;
+      const summary = (dyn.name || 'A dynasty') + ' adopts ' + ((SUCCESSION_LAW_BY_ID[to] || {}).label || to) + ' succession (was ' + from + ').';
+      _dynHistory(dyn, turn, 'law-changed', summary);
+      out.logEntries.push('Dynasty — ' + summary);
+    }
+  });
+  return out;
+}
+
+// ── resolveDynastySuccession ──────────────────────────────────────────────────────────────────────
+// Pick the heir per the dynasty's succession law (AXIOMS 19) when a member dies. STANDALONE: it selects +
+// records + returns the heir (+ the vassal-loyalty bonus + the divides flag); it does NOT mutate the
+// deceased / the successor's XP — that is CL-4a's resolveSuccession (the GM/UI feeds heirId to it). Appends
+// the heir to the dynasty's heir-line and awards a bloodline trait if the 3-generation rule is newly met.
+// No living heir ⇒ the dynasty goes extinct ("if you have no heirs, the game ends" — AXIOMS 19). Emits
+// succession-resolved.
+//   opts: { deceasedId, nominee (for elective laws), rng }.
+function resolveDynastySuccession(campaign, dynastyId, opts){
+  opts = opts || {};
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return { error:'no-dynasty' };
+  const law = SUCCESSION_LAW_BY_ID[dyn.successionLaw] || SUCCESSION_LAW_BY_ID['gavelkind'];
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const deceased = opts.deceasedId ? _findCharacterLC(campaign, opts.deceasedId) : null;
+
+  const living = _livingMembers(campaign, dyn).filter(c => !deceased || c.id !== deceased.id);
+  let heir = null;
+  if(living.length){
+    const children = deceased ? charactersChildren(campaign, deceased.id).filter(c => living.indexOf(c) >= 0) : [];
+    switch(law.heirRule){
+      case 'elected': {
+        if(opts.nominee){ const n = _findCharacterLC(campaign, opts.nominee); if(n && living.indexOf(n) >= 0) heir = n; }
+        if(!heir) heir = (children.slice().sort(_eldestFirst)[0]) || (living.slice().sort(_eldestFirst)[0]);
+        break;
+      }
+      case 'eldest-child':   heir = (children.slice().sort(_eldestFirst)[0]) || (living.slice().sort(_eldestFirst)[0]); break;
+      case 'youngest-child': heir = (children.slice().sort(_eldestFirst).slice(-1)[0]) || (living.slice().sort(_eldestFirst).slice(-1)[0]); break;
+      case 'eldest-member':  heir = living.slice().sort(_eldestFirst)[0]; break;
+      case 'most-powerful':  heir = living.slice().sort((a, b) => (Number(b.level) || 0) - (Number(a.level) || 0) || (Number(b.xp) || 0) - (Number(a.xp) || 0))[0]; break;
+      default:               heir = living.slice().sort(_eldestFirst)[0];
+    }
+  }
+
+  if(!heir){
+    dyn.status = 'extinct';
+    const summary = (dyn.name || 'The dynasty') + ' ends — no living heir remains (AXIOMS 19).';
+    _dynHistory(dyn, turn, 'extinct', summary);
+    _emitDynastyEvent(campaign, 'succession-resolved', {
+      dynastyId: dyn.id, deceasedId: deceased ? deceased.id : null, heirId: null, law: dyn.successionLaw,
+      vassalLoyaltyBonus: 0, divides: !!law.divides, dynastyExtinct: true, narrative: summary
+    }, summary, { dynastyId: dyn.id, characters: deceased ? [{ id: deceased.id, role:'subject' }] : [] });
+    return { heirId: null, dynastyExtinct: true, law: dyn.successionLaw, vassalLoyaltyBonus: 0, divides: !!law.divides, candidates: [] };
+  }
+
+  if((dyn.heirLine || []).indexOf(heir.id) < 0) dyn.heirLine.push(heir.id);
+
+  // Bloodline trait — the 3-generation rule (AXIOMS 19), checked after the line extends.
+  let awardedTrait = null;
+  const elig = dynastyEligibleBloodlineTrait(campaign, dyn.id);
+  if(elig){ dyn.bloodlineTraits.push(elig); awardedTrait = elig;
+    _dynHistory(dyn, turn, 'bloodline-trait', (dyn.name || 'The dynasty') + ' earns a ' + elig + ' bloodline trait (3 generations — AXIOMS 19).'); }
+
+  const lawLabel = law.label || dyn.successionLaw;
+  let summary = (heir.name) + ' succeeds' + (deceased ? (' ' + deceased.name) : '') + ' under ' + lawLabel + ' succession';
+  if(law.divides) summary += ' (the demesne divides among the heirs)';
+  if(law.vassalLoyaltyBonus) summary += ' — vassals +' + law.vassalLoyaltyBonus + ' loyalty';
+  if(awardedTrait) summary += '; the line earns a ' + awardedTrait + ' bloodline trait';
+  summary += '.';
+  _dynHistory(dyn, turn, 'succession', summary);
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, heir, 'succession-resolved', summary, { dynastyId: dyn.id }); } catch(_e){}
+  _emitDynastyEvent(campaign, 'succession-resolved', {
+    dynastyId: dyn.id, deceasedId: deceased ? deceased.id : null, heirId: heir.id, law: dyn.successionLaw,
+    vassalLoyaltyBonus: law.vassalLoyaltyBonus, divides: !!law.divides, dynastyExtinct: false, narrative: summary
+  }, summary, { dynastyId: dyn.id, characters: (deceased ? [{ id: deceased.id, role:'subject' }] : []).concat([{ id: heir.id, role:'beneficiary' }]),
+    primaryHexId: heir.currentHexId || null, domainId: heir.currentDomainId || null });
+
+  return { heirId: heir.id, heir, law: dyn.successionLaw, vassalLoyaltyBonus: law.vassalLoyaltyBonus, divides: !!law.divides,
+    dynastyExtinct: false, awardedTrait, candidates: living.map(c => ({ id: c.id, name: c.name, level: Number(c.level) || 0 })) };
+}
+
+// dynastyVassalLoyaltyBonus — the loyalty modifier a dynasty's current succession law confers on its
+// vassals (feudal elective +2, gavelkind elective +1, tanistry +1; else 0) — for Politics/loyalty reads.
+function dynastyVassalLoyaltyBonus(campaign, dynastyId){
+  const dyn = dynastyById(campaign, dynastyId);
+  if(!dyn) return 0;
+  const law = SUCCESSION_LAW_BY_ID[dyn.successionLaw];
+  return law ? (law.vassalLoyaltyBonus || 0) : 0;
+}
+
+// characterDynastyInfo — the char-sheet read accessor (the Lifecycle-cluster Dynasty card): the dynasty
+// name + law + the character's noble/title/bastard/pregnancy status + the trait list + member/heir counts.
+function characterDynastyInfo(campaign, char){
+  if(!char) return { inDynasty:false };
+  const dyn = char.dynastyId ? dynastyById(campaign, char.dynastyId) : null;
+  const cap = pregnancyCapForRace(char.race);
+  const out = {
+    inDynasty: !!dyn, dynastyId: char.dynastyId || null,
+    noble: char.noble === true, title: char.title || null, bastard: char.bastard === true,
+    pregnancies: Number(char.pregnancies) || 0, pregnancyCap: cap, canBear: (Number(char.pregnancies) || 0) < cap,
+    childrenCount: charactersChildren(campaign, char.id).length,
+    spouseCount: characterSpouses(campaign, char.id).length
+  };
+  if(dyn){
+    const law = SUCCESSION_LAW_BY_ID[dyn.successionLaw];
+    out.dynastyName = dyn.name; out.coatOfArms = dyn.coatOfArms || null;
+    out.successionLaw = dyn.successionLaw; out.successionLawLabel = law ? law.label : dyn.successionLaw;
+    out.pendingSuccessionLaw = dyn.pendingSuccessionLaw || null;
+    out.lawChangeCompletesTurn = (dyn.lawChangeCompletesTurn != null) ? dyn.lawChangeCompletesTurn : null;
+    out.vassalLoyaltyBonus = law ? (law.vassalLoyaltyBonus || 0) : 0;
+    out.bloodlineTraits = (dyn.bloodlineTraits || []).slice();
+    out.realmType = dyn.realmType; out.status = dyn.status;
+    out.memberCount = (dyn.memberCharacterIds || []).length;
+    out.isFounder = dyn.founderCharacterId === char.id;
+    out.isHeir = (dyn.heirLine || []).indexOf(char.id) >= 0;
+  }
+  return out;
+}
+
+// =============================================================================
+// Event emit — the record-only audit pattern (the aging/disease/condition/death/transformation idiom).
+// All three CL-4b kinds ride it. cadence 'monthly-turn'; the dynasty + the relevant characters ride the
+// context envelope (the dynasty as subject + the founder/heir as subject/beneficiary).
+// =============================================================================
+function _emitDynastyEvent(campaign, kind, payload, narrative, opts){
+  opts = opts || {};
+  const A = global.ACKS;
+  if(!A || typeof A.newEvent !== 'function') return null;
+  const cal = (campaign && campaign.calendar) || {};
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy:'engine', cadence:'monthly-turn', targetTurn:(campaign && campaign.currentTurn) || 1,
+      gameTimeAt:{ year:cal.year || 1, month:cal.month || 1, day:(campaign && campaign.currentDayInMonth) || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(_e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    const related = [];
+    if(opts.dynastyId) related.push({ kind:'dynasty', id:opts.dynastyId, role:'subject' });
+    (opts.characters || []).forEach(rc => { if(rc && rc.id) related.push({ kind:'character', id:rc.id, role:rc.role || 'subject' }); });
+    A.setEventContext(ev, { primaryHexId: opts.primaryHexId || null, domainId: opts.domainId || null, relatedEntities: related });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+  ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result:{ narrativeSummary:narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+// ── self-registration (the PR #89 kernel — from THIS module, no central-file edit) ────────────────
+// Guarded calls (the registerDayConsumer idiom): each registrar ships from a module that loads BEFORE
+// this one (prefixes/collections = acks-engine.js; house rules = catalogs.js; entity kind = entity-
+// registry.js; field schema = field-schemas.js; event kinds = events.js). A new entity self-registers
+// its prefix + collection + registry kind + field schema + rule + event kinds here (CLAUDE §15.5).
+if(typeof ACKS.registerPrefix === 'function'){
+  ACKS.registerPrefix('dynasty', 'dyn');
+  ACKS.registerPrefix('kinship', 'kin');
+}
+if(typeof ACKS.registerCollection === 'function'){
+  ACKS.registerCollection('dynasties');   // defensive-read default: seeded in blankCampaign, NOT migrate-injected
+  ACKS.registerCollection('kinships');    // (the kin- relation; accessor-only, importable)
+}
+if(typeof ACKS.registerHouseRule === 'function'){
+  ACKS.registerHouseRule({ id:'dynasty-tracking', category:'characters', name:'Dynasties (AXIOMS 19)',
+    source:'AXIOMS 19 "Cohorts and Dynasties" (Revised v2)', default:false,
+    description:'OFF by default. The optional AXIOMS-19 dynasty layer: play the bloodline, not just the character. Founds first-class Dynasties (coat of arms, surname, succession law, bloodline traits) with kinship relations, births, succession laws (incl. the elective vassal-loyalty bonuses + the 2d4-month law change), and the 3-generation bloodline-trait rule. A supplement, so default off (the elite-troops / notable-items precedent). When off the data is non-functional + hidden.' });
+}
+if(typeof ACKS.registerEntityKind === 'function'){
+  ACKS.registerEntityKind({ kind:'dynasty', label:'Dynasty', pluralLabel:'Dynasties', icon:'👑',
+    addressable:true, chronicleable:true,
+    list: (c) => (c && c.dynasties) || [],
+    find: (c, id) => ((c && c.dynasties) || []).find(x => x && x.id === id),
+    displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) });
+}
+if(typeof ACKS.registerFieldSchema === 'function'){
+  ACKS.registerFieldSchema('dynasty', {
+    factory: 'blankDynasty',
+    groups: ['Identity', 'Succession', 'Bloodline', 'Members', 'History'],
+    fields: [
+      { name:'id',                     type:'string',  readonly:true, group:'Identity' },
+      { name:'name',                   type:'string',  required:true, group:'Identity', description:'Surname / house name' },
+      { name:'coatOfArms',             type:'longText', group:'Identity', description:'A free-text blazon' },
+      { name:'realmType',              type:'enum',    enumValues:['human-standard','beastman-tribal','dwarven-vault','elven-fastness','senatorial','syndicate','religious-organization'], group:'Identity', default:'human-standard' },
+      { name:'status',                 type:'enum',    enumValues:['extant','extinct'], group:'Identity', default:'extant' },
+      { name:'founderCharacterId',     type:'id',      idKind:'character', group:'Identity' },
+      { name:'successionLaw',          type:'enum',    enumValues:SUCCESSION_LAW_IDS.slice(), group:'Succession', default:'gavelkind' },
+      { name:'pendingSuccessionLaw',   type:'enum',    enumValues:SUCCESSION_LAW_IDS.slice(), group:'Succession', description:'A law change in progress (flips at the completion turn)' },
+      { name:'lawChangeCompletesTurn', type:'number',  readonly:true, group:'Succession' },
+      { name:'bloodlineTraits',        type:'enumMulti', enumValues:ABILITY_IDS.slice(), group:'Bloodline', description:'≤1 ability earned over 3 generations (AXIOMS 19)' },
+      { name:'memberCharacterIds',     type:'idArray', idKind:'character', group:'Members' },
+      { name:'heirLine',               type:'idArray', idKind:'character', group:'Members', description:'Ordered succession line (founder first)' },
+      { name:'foundedAtTurn',          type:'number',  readonly:true, group:'History' },
+      { name:'history',                type:'history', readonly:true, group:'History' }
+    ]
+  });
+}
+// The three CL-4b event kinds — record-only audit (the verbs already applied state; the handler keeps the
+// event well-formed on replay). All three are Event-Wizard opt-outs (engine-owned). The kernel's `handler`
+// forwards to registerEventHandler.
+function applyEvent_dynastyAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'dynasty' } };
+}
+if(typeof ACKS.registerEventKind === 'function'){
+  ACKS.registerEventKind('dynasty-founded', {
+    schema: { R:{ dynastyId:'string', founderCharacterId:'string' },
+              O:{ name:'string', successionLaw:'string', realmType:'string', narrative:'string' } },
+    wizardOptOut: true, handler: applyEvent_dynastyAudit });
+  ACKS.registerEventKind('kinship-recorded', {
+    schema: { R:{ kinType:'string' },
+              O:{ aCharacterId:'string', bCharacterId:'string', childId:'string', dynastyId:'string', bastard:'boolean', birth:'boolean', matrilineal:'boolean', narrative:'string' } },
+    wizardOptOut: true, handler: applyEvent_dynastyAudit });
+  ACKS.registerEventKind('succession-resolved', {
+    schema: { R:{ dynastyId:'string' },
+              O:{ deceasedId:'string', heirId:'string', law:'string', vassalLoyaltyBonus:'number', divides:'boolean', dynastyExtinct:'boolean', narrative:'string' } },
+    wizardOptOut: true, handler: applyEvent_dynastyAudit });
+}
+
+Object.assign(ACKS, {
+  // data / catalogs
+  SUCCESSION_LAWS, DYNASTY_STARTING_LAW_BY_REALM, PREGNANCY_CAPS_BY_RACE, FAMILY_TREE_MARKERS, CL4B_CITE, LAW_CHANGE_DICE,
+  // catalog lookups
+  successionLawById, successionLawsList, startingLawTableForRealm, rollStartingSuccessionLaw, pregnancyCapForRace,
+  // factory
+  blankDynasty,
+  // verbs
+  foundDynasty, recordKinship, birthChild, setSuccessionLaw, resolveDynastySuccession,
+  // the monthly law-change clock (folded into processAgingForTurn)
+  processDynastyForTurn,
+  // bloodline
+  dynastyEligibleBloodlineTrait, dynastyChildAbilityDice,
+  // reads
+  dynastyById, dynastiesInCampaign, characterDynasty, dynastyMembers, dynastyFamilyTree,
+  characterKinships, charactersChildren, characterParents, characterSpouses,
+  dynastyVassalLoyaltyBonus, characterDynastyInfo
+});
+// === end Character Lifecycle CL-4b (burst12, team) ===========================
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

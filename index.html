@@ -72,13 +72,13 @@
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
 <script src="acks-engine-politics.js?v=2026-06-20-burst11"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-lifecycle.js?v=2026-06-21-b12-lifecycle"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
-<script src="acks-engine-voyages.js?v=2026-06-17-voyages-v5"></script>
+<script src="acks-engine-voyages.js?v=2026-06-21-burst12-voyages"></script>
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
-<script src="acks-engine-delves.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-delves.js?v=2026-06-21-burst12-delves"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
@@ -90,19 +90,21 @@
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-treasure.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-treasure.js?v=2026-06-21-burst12"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-20-burst11"></script>
+<!-- @b12-census (burst12) — the licensed Treasure-Tome magic-item availability/value reference tables (SD-6 census + MI-3 per-Class market gate). ⚠ IP §13.6/§13.9 — mechanical facts only, catalog posture like the monster catalog. Pure data; consumed at call-time by magic-items.js + demographics.js (load order irrelevant). -->
+<script src="acks-engine-magic-item-availability.js?v=2026-06-21-burst12"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-21-burst12"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-19-demogautogen"></script>
+<script src="acks-engine-demographics.js?v=2026-06-21-burst12"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
-<script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
+<script src="acks-engine-generators.js?v=2026-06-21-b12g2"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
@@ -5459,6 +5461,46 @@ document.addEventListener('alpine:init', () => {
                       <p class="text-sm opacity-60 italic mt-1">No one matches — widen the level or scope.</p>
                     </template>
                   </div>
+
+                  <!-- @b12-census (SD-6) — the magic-item census: expected market AVAILABILITY (TT p.27,
+                       by item type, per Class) vs the REALIZED on-hand stock (placed NotableItems + loose
+                       magical caches). The resource analog of the class roster. Always-on RAW tooling. -->
+                  <template x-if="magicCensus()">
+                    <div class="mt-2 pt-2 border-t border-ink/20">
+                      <h4 class="font-semibold text-sm mb-1">🪄 Magic-item census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + magicCensus().marketClass + ' market'"></span></h4>
+                      <p class="text-xs opacity-70 mb-1">Available per month at this market class (TT p.27) vs what's actually placed here. A <span class="font-mono">%</span> = the chance of even one that month (smaller markets). Per-party availability ≈ ÷10.</p>
+                      <div class="overflow-x-auto">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Item type</th><th title="buyable per month at this market (TT Availability by Type)">Avail/mo</th><th>Placed</th><th title="availability not yet placed as NotableItems">Unplaced</th></tr></thead>
+                          <tbody>
+                            <template x-for="row in magicCensusTypeRows()" :key="row.type">
+                              <tr>
+                                <td x-text="row.label"></td>
+                                <td class="font-mono" x-text="_availCellText(row.availablePerMarket, row.chancePct)"></td>
+                                <td :class="row.placed>0 ? 'text-green-800 font-semibold' : ''"
+                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name).join(', ') : ''" x-text="row.placed||0"></td>
+                                <td class="opacity-70" x-text="row.unplaced>0 ? row.unplaced : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-sm mt-1">
+                        <span class="font-semibold" x-text="magicCensus().realized.totalCount"></span> magic item(s) here
+                        (<span x-text="magicCensus().realized.onShelf"></span> on the shelf · <span x-text="magicCensus().realized.heldByResidents"></span> held by residents)
+                        · ~<span x-text="(magicCensus().realized.totalValueGp||0).toLocaleString()"></span> gp
+                        <span x-show="magicCensus().realized.looseMagicalLines>0" class="opacity-60" x-text="'· ' + magicCensus().realized.looseMagicalLines + ' loose magical cache line(s)'"></span>
+                      </p>
+                      <p class="text-xs opacity-70 mt-1">Sell cap/mo by rarity:
+                        <template x-for="rr in magicCensusRarityRows()" :key="rr.rarity"><span x-text="rr.label + ' ' + _availCellText(rr.sellableCapPerMarket, rr.chancePct) + '  '"></span></template>
+                      </p>
+                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 curve — a leveled NPC's magic-item value follows wealth; GM-overridable">
+                        Per-NPC magic-item value (by level): L1 ~<span x-text="(expectedNpcMagicItemValue(1)).toLocaleString()"></span>gp ·
+                        L5 ~<span x-text="(expectedNpcMagicItemValue(5)).toLocaleString()"></span>gp ·
+                        L9 ~<span x-text="(expectedNpcMagicItemValue(9)).toLocaleString()"></span>gp.
+                      </p>
+                    </div>
+                  </template>
                 </div>
               </div>
             </template>
@@ -11977,6 +12019,34 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- === @b12-lifecycle (team) — Lifecycle CL-4b dynasty card (AXIOMS 19). The optional dynasty
+             layer: play the bloodline, not just the character. Gated on the dynasty-tracking house rule
+             (hidden when off — principle 8). Shows the character's dynasty/title/law/traits + a launcher
+             into the Dynasty modal (found · kinship · birth · succession law · family tree). The modal
+             markup lives at the @b12-lifecycle marker in the modal tail; state+methods at the
+             @b12-lifecycle marker in domainApp. — section:char-dynasty / panel:character-dynasty -->
+        <template x-if="characterEditing && dynastyTrackingOn()">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Dynasty <span class="text-sm font-normal opacity-60">(AXIOMS 19)</span></h4>
+              <button @click="dynOpen(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-amber-200 hover:bg-amber-300 font-semibold" title="Found a dynasty, record kinships + births, change the succession law, or resolve a succession (AXIOMS 19)">👑 Dynasty…</button>
+            </div>
+            <template x-if="!dynInfo(characterEditing).inDynasty">
+              <p class="text-sm italic opacity-60">Lowborn — not a member of any dynasty.<span x-show="dynInfo(characterEditing).noble"> (Noble — eligible to found one.)</span></p>
+            </template>
+            <template x-if="dynInfo(characterEditing).inDynasty">
+              <div class="space-y-1 text-sm">
+                <p class="font-semibold">👑 House <span x-text="dynInfo(characterEditing).dynastyName || '(unnamed)'"></span>
+                  <span class="font-normal opacity-70" x-text="(dynInfo(characterEditing).title ? ('· ' + dynInfo(characterEditing).title + ' ') : '') + (dynInfo(characterEditing).isFounder ? '(founder)' : dynInfo(characterEditing).isHeir ? '(heir)' : '') + (dynInfo(characterEditing).status === 'extinct' ? ' · extinct' : '')"></span></p>
+                <p>⚖ <span x-text="dynInfo(characterEditing).successionLawLabel"></span> succession<span x-show="dynInfo(characterEditing).vassalLoyaltyBonus" x-text="' — vassals +' + dynInfo(characterEditing).vassalLoyaltyBonus + ' loyalty'"></span><span x-show="dynInfo(characterEditing).pendingSuccessionLaw" class="opacity-60" x-text="' (changing to ' + dynInfo(characterEditing).pendingSuccessionLaw + ')'"></span></p>
+                <p x-show="dynInfo(characterEditing).bloodlineTraits && dynInfo(characterEditing).bloodlineTraits.length">🩸 Bloodline trait: <span class="font-semibold" x-text="(dynInfo(characterEditing).bloodlineTraits||[]).join(', ')"></span> <span class="opacity-60">(children roll 4d6, keep best 3)</span></p>
+                <p class="opacity-70" x-text="dynInfo(characterEditing).memberCount + ' member' + (dynInfo(characterEditing).memberCount===1?'':'s') + (dynInfo(characterEditing).bastard ? ' · ○ this character is a bastard' : '') + (dynInfo(characterEditing).childrenCount ? (' · ' + dynInfo(characterEditing).childrenCount + ' child' + (dynInfo(characterEditing).childrenCount===1?'':'ren')) : '')"></p>
+              </div>
+            </template>
+          </div>
+        </template>
+        <!-- === end @b12-lifecycle dynasty card === -->
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -17578,7 +17648,7 @@ document.addEventListener('alpine:init', () => {
             <label class="flex items-center gap-1"><input type="checkbox" :checked="svtUI.startParticipantIds.includes(ch.id)" @change="svtToggleParticipant(ch.id)"><span x-text="ch.name || '(unnamed)'"></span></label>
           </template>
         </div>
-        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
+        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). <!-- @b12-delves -->The daily check is seeded — re-opening the Day-Tick review shows the same incident. A combat-risk incident can be ⚔ escalated to a full Encounter. Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
       </div>
     </div>
 
@@ -17642,6 +17712,12 @@ document.addEventListener('alpine:init', () => {
                     <button @click="svtResolveCasualty(document.getElementById('svtcas-' + i).value)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200">Resolve (wound)</button>
                   </div>
                   <template x-if="inc.casualty"><div class="text-xs mt-1 text-red-700" x-text="'⚔ ' + (inc.casualty.name || '') + ' — ' + (inc.casualty.conditionLabel || '') + (inc.casualty.outcome ? ' (' + inc.casualty.outcome + ')' : '')"></div></template>
+                  <!-- @b12-delves: escalate a combat-risk incident → a full Encounter (the shipped #476 E2 panel — run reaction → combat in ⚔ Encounters) -->
+                  <div x-show="inc.combatRisk && !inc.escalatedEncounterId" class="text-xs mt-1">
+                    <button @click="svtEscalate(i)" class="px-2 py-0.5 border border-rose-700/60 text-rose-800 rounded bg-rose-50 hover:bg-rose-100 font-semibold"
+                            title="Mint a full Encounter so the GM can walk the RAW pre-combat procedure (distance → surprise → reaction → combat, RR pp.280–287) in Review ▸ ⚔ Encounters">⚔ Escalate to encounter</button>
+                  </div>
+                  <template x-if="inc.escalatedEncounterId"><div class="text-xs mt-1"><button @click="svtGoToEncounter(inc.escalatedEncounterId)" class="underline text-rose-700 hover:text-rose-900 font-semibold" title="Open the escalated encounter in Review ▸ ⚔ Encounters">⚔ Escalated → open in ⚔ Encounters</button></div></template>
                 </div>
               </template>
             </div>
@@ -17667,6 +17743,27 @@ document.addEventListener('alpine:init', () => {
           <template x-for="s in magicMarketSettlements()" :key="s.id"><option :value="s.id" x-text="(s.name || s.id) + ' · Class ' + magicMarketClassLabel(s)"></option></template>
         </select>
       </label>
+      <!-- @b12-census (MI-3) — what this market deals in, by item type (TT p.27 Availability by Type;
+           the per-Class licensed cells). Per party ≈ ÷10; a % = the monthly chance of even one. -->
+      <template x-if="magicMarketAvail()">
+        <div class="text-xs">
+          <button @click="magicMarketAvailShow = !magicMarketAvailShow" class="underline opacity-80" x-text="(magicMarketAvailShow ? '▾' : '▸') + ' Market availability (Class ' + magicMarketAvail().marketClass + ' — what\'s for sale here)'"></button>
+          <div x-show="magicMarketAvailShow" class="overflow-x-auto mt-1">
+            <table class="bookkeeping text-xs">
+              <thead><tr><th>Item type</th><th title="buyable per month at this market">Avail/mo</th><th title="per adventuring party ≈ ÷10">Per party</th></tr></thead>
+              <tbody>
+                <template x-for="row in magicMarketAvailRows()" :key="row.type">
+                  <tr>
+                    <td x-text="row.label"></td>
+                    <td class="font-mono" x-text="_availCellText(row.perMarket, row.chancePct)"></td>
+                    <td class="font-mono opacity-80" x-text="_availCellText(row.perParty, row.perPartyChancePct)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
       <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Character</span>
         <select x-model="magicMarket.actorId" @change="magicMarket.result=null; magicMarket.sellItemId=''" class="flex-1 min-w-[12rem]">
           <option value="">— pick a character —</option>
@@ -18035,6 +18132,324 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
 <!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
+
+<!-- ════ TEAM SESSION (burst12 2026-06-21) — per-agent NEW modal/overlay/panel markup. Append your markup
+     ONLY after your own @b12-<lane> marker below. None of the 6 lanes adds a top-level tab; each extends an
+     existing view (Demographics / Magic Items / Dungeons / char-sheet / Vessels / Generators tab) or is a
+     wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b12-census     (team) — SD-6/SD-7 magic-item + wealth census panels (Demographics roster) + MI-3 per-Class availability (🪄 Magic Items market). ⚠ IP §13.6/§13.9 — TT availability/value tables as mechanical facts only, like the monster catalog. === -->
+<!-- === @b12-delves     (team) — Delves D5 follow-on: escalate a settlement urban-incident → a full Encounter; the seeded-daily-check readout (World ▸ 🕳️ Dungeons ▸ Settlement Visits). === -->
+<!-- === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: the Dynasty panel (char-sheet Lifecycle) + kinship/succession (dyn- entity). === -->
+<!-- The Dynasty modal (AXIOMS 19) — launched from the char-sheet Dynasty card (dynOpen). Found a dynasty,
+     record marriages + births, change the succession law (2d4 months, or a GM-expedited immediate change),
+     view the family tree, and resolve a succession per the law. Over acks-engine-lifecycle.js (CL-4b). -->
+<template x-if="dynModal.open">
+  <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click.self="dynModal.open=false" @keydown.escape.window="dynModal.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-4" x-data>
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-lg font-bold">👑 Dynasty <span class="text-sm font-normal opacity-70">· AXIOMS 19 · <span x-text="(dynModalChar()||{}).name || ''"></span></span></h3>
+        <button @click="dynModal.open=false" class="text-xl leading-none px-2 hover:text-red-700" title="Close">×</button>
+      </div>
+      <p x-show="dynModal.lastResult" class="text-sm accent-blue mb-2" x-text="dynModal.lastResult"></p>
+
+      <!-- FOUND a dynasty (the character has none) -->
+      <template x-if="dynModalChar() && !dynInfo(dynModalChar()).inDynasty">
+        <div class="space-y-2">
+          <p class="text-sm opacity-70">A titled character founds a dynasty — a coat of arms + a surname. Founding raises a lowborn character to nobility (AXIOMS 19).</p>
+          <label class="block text-sm font-semibold">Surname / house name<input type="text" x-model="dynModal.foundName" placeholder="e.g. Vane" class="w-full text-sm mt-0.5"></label>
+          <label class="block text-sm font-semibold">Coat of arms <span class="font-normal opacity-60">(a free-text blazon)</span><input type="text" x-model="dynModal.foundCoatOfArms" placeholder="e.g. a silver hawk on azure" class="w-full text-sm mt-0.5"></label>
+          <label class="block text-sm font-semibold">Title <span class="font-normal opacity-60">(optional)</span><input type="text" x-model="dynModal.foundTitle" placeholder="e.g. Marquis" class="w-full text-sm mt-0.5"></label>
+          <div class="flex gap-2">
+            <label class="block text-sm font-semibold flex-1">Realm type <span class="font-normal opacity-60">(its starting-law table)</span>
+              <select x-model="dynModal.foundRealmType" class="w-full text-sm mt-0.5"><template x-for="rt in dynRealmTypes()" :key="rt"><option :value="rt" x-text="rt"></option></template></select></label>
+            <label class="block text-sm font-semibold flex-1">Succession law
+              <select x-model="dynModal.foundLaw" class="w-full text-sm mt-0.5"><template x-for="l in dynSuccessionLaws()" :key="l.id"><option :value="l.id" x-text="l.label + (l.vassalLoyaltyBonus ? (' (vassals +' + l.vassalLoyaltyBonus + ')') : '')"></option></template></select></label>
+          </div>
+          <button @click="dynFound()" class="px-3 py-1.5 border border-ink rounded text-sm bg-amber-300 hover:bg-amber-400 font-semibold" :disabled="!dynModal.foundName" :class="!dynModal.foundName ? 'opacity-50 cursor-not-allowed' : ''">👑 Found the dynasty</button>
+        </div>
+      </template>
+
+      <!-- MANAGE an existing dynasty -->
+      <template x-if="dynModalDynasty()">
+        <div class="space-y-3 text-sm">
+          <!-- summary -->
+          <div class="vellum border border-ink/30 rounded p-2">
+            <p class="font-semibold">House <span x-text="dynModalDynasty().name || '(unnamed)'"></span> <span class="font-normal opacity-60" x-text="dynModalDynasty().coatOfArms ? ('— ' + dynModalDynasty().coatOfArms) : ''"></span> <span x-show="dynModalDynasty().status==='extinct'" class="accent-red font-semibold">· EXTINCT</span></p>
+            <p>⚖ <span x-text="(successionLawLabelFor(dynModalDynasty().successionLaw))"></span><span x-show="dynVassalBonus()" x-text="' — vassals +' + dynVassalBonus() + ' loyalty'"></span><span x-show="dynModalDynasty().pendingSuccessionLaw" class="opacity-60" x-text="' (changing to ' + dynModalDynasty().pendingSuccessionLaw + ' at turn ' + dynModalDynasty().lawChangeCompletesTurn + ')'"></span></p>
+            <p x-show="(dynModalDynasty().bloodlineTraits||[]).length">🩸 Bloodline trait: <span class="font-semibold" x-text="(dynModalDynasty().bloodlineTraits||[]).join(', ')"></span></p>
+          </div>
+
+          <!-- family tree -->
+          <div>
+            <p class="font-semibold mb-1">🌳 Family tree <span class="font-normal opacity-60">(# PC · ♥ heir · ○ bastard)</span></p>
+            <ul class="space-y-0.5">
+              <template x-for="n in dynFamilyTree()" :key="n.id">
+                <li class="flex items-center gap-1.5" :class="n.deceased ? 'opacity-50 line-through' : ''">
+                  <span class="w-4 text-center font-bold" x-text="n.marker || '·'"></span>
+                  <span x-text="n.name"></span>
+                  <span class="opacity-60 text-xs" x-text="(n.title ? ('· ' + n.title + ' ') : '') + (n.isFounder ? '· founder' : '') + (n.bastard ? '· bastard' : '') + (n.level ? (' · L' + n.level) : '')"></span>
+                </li>
+              </template>
+              <li x-show="!dynFamilyTree().length" class="opacity-60 italic">No members recorded.</li>
+            </ul>
+          </div>
+
+          <!-- record marriage + birth -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+              <p class="font-semibold">💍 Record a marriage</p>
+              <p class="text-xs opacity-60" x-text="'Spouse for ' + ((dynModalChar()||{}).name || '')"></p>
+              <select x-model="dynModal.marriageSpouseId" class="w-full text-sm"><option value="">— pick a spouse —</option><template x-for="o in dynCharOptions()" :key="o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <label class="flex items-center gap-1.5 text-xs"><input type="checkbox" x-model="dynModal.marriageMatrilineal"> Matrilineal (children take the mother's dynasty)</label>
+              <button @click="dynRecordMarriage()" :disabled="!dynModal.marriageSpouseId" :class="!dynModal.marriageSpouseId?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">💍 Record</button>
+            </div>
+            <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+              <p class="font-semibold">👶 Birth a child</p>
+              <select x-model="dynModal.birthMotherId" class="w-full text-sm"><option value="">— mother —</option><template x-for="o in dynCharOptions()" :key="'m'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <select x-model="dynModal.birthFatherId" class="w-full text-sm"><option value="">— father —</option><template x-for="o in dynCharOptions()" :key="'f'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <input type="text" x-model="dynModal.birthName" placeholder="child's name (optional)" class="w-full text-sm">
+              <button @click="dynBirth()" :disabled="!dynModal.birthMotherId || !dynModal.birthFatherId" :class="(!dynModal.birthMotherId||!dynModal.birthFatherId)?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">👶 Birth</button>
+              <p class="text-xs opacity-50">A child of non-spouses is a bastard. Bloodline-trait abilities roll 4d6, keep best 3.</p>
+            </div>
+          </div>
+
+          <!-- change succession law -->
+          <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+            <p class="font-semibold">⚖ Change the succession law</p>
+            <div class="flex items-center gap-2">
+              <select x-model="dynModal.changeLaw" class="flex-1 text-sm"><option value="">— pick a law —</option><template x-for="l in dynSuccessionLaws()" :key="'c'+l.id"><option :value="l.id" x-text="l.label + (l.vassalLoyaltyBonus ? (' (vassals +' + l.vassalLoyaltyBonus + ')') : '')"></option></template></select>
+              <label class="flex items-center gap-1.5 text-xs whitespace-nowrap"><input type="checkbox" x-model="dynModal.changeImmediate"> Immediate</label>
+              <button @click="dynChangeLaw()" :disabled="!dynModal.changeLaw" :class="!dynModal.changeLaw?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">Change</button>
+            </div>
+            <p class="text-xs opacity-50">A change takes 2d4 months to take effect (it flips on the monthly turn) — unless made immediate. In a senatorial realm RAW requires senate approval (a deferred Politics seam).</p>
+          </div>
+
+          <!-- resolve a succession -->
+          <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+            <p class="font-semibold">⚱ Resolve a succession</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select x-model="dynModal.successionDeceasedId" class="flex-1 text-sm"><option value="">— the deceased member (optional) —</option><template x-for="o in dynMemberOptions()" :key="'d'+o.id"><option :value="o.id" x-text="o.name + (o.deceased ? ' (deceased)' : '')"></option></template></select>
+              <select x-show="dynLawIsElective()" x-model="dynModal.successionNominee" class="flex-1 text-sm"><option value="">— elected nominee (optional) —</option><template x-for="o in dynMemberOptions()" :key="'n'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <button @click="dynResolveSuccession()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100 font-semibold">⚱ Resolve</button>
+            </div>
+            <p class="text-xs opacity-50">Picks the heir by the dynasty's law (eldest/youngest child · eldest member · most powerful · elected). Feed the heir to the character-sheet Lifecycle "Resolve succession" to carry over Reserve XP + the inheritance.</p>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+<!-- === @b12-treasure   (team) — Treasure Wave-C captives→confinements: the Confinements panel (💰 Treasure wizard) — ransom/release/escape (cnf- relation). === -->
+<!-- 🔒 Prisoners FAB — appears once a generated hoard yields a captive (a confinement). Sits above the 💰 Treasure FAB. -->
+<button x-show="currentCampaign && confinementRows().length" @click="openConfinements()" x-cloak
+        class="fixed bottom-20 right-4 px-3 py-2 border-2 border-ink rounded-full shadow-lg bg-stone-200 hover:bg-stone-300 text-sm font-semibold opacity-80 hover:opacity-100 no-print"
+        style="z-index:40" title="Prisoners held — ransom, release, or track escapes (confinement relation)">
+  🔒 Prisoners <span x-show="heldConfinements().length" x-text="'· ' + heldConfinements().length" class="opacity-70"></span></button>
+<div x-show="confinePanel.open" @keydown.escape.window="if(confinePanel.open && !$event.defaultPrevented){ confinePanel.open=false; $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="confinePanel.open=false">
+  <template x-if="confinePanel.open">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full mt-12 p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="font-bold text-lg">🔒 Prisoners & Captives <span class="text-sm font-normal opacity-70">· confinement relation (TT p.23)</span></h2>
+        <button @click="confinePanel.open=false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+      </div>
+      <p class="text-xs opacity-70">Captives taken from generated hoards. Ransom routes the gp to the captor (a character/domain holder, else off-campaign); the ransom value is editable — that is the negotiation. <span class="opacity-60">Escapes also roll automatically each monthly turn (per-prisoner chance below; 0 disables).</span></p>
+
+      <!-- Held -->
+      <div>
+        <h3 class="font-semibold text-sm mb-1">Held <span class="opacity-60" x-text="'(' + heldConfinements().length + ')'"></span></h3>
+        <template x-if="!heldConfinements().length"><p class="text-sm italic opacity-60">No prisoners currently held.</p></template>
+        <div class="space-y-2">
+          <template x-for="conf in heldConfinements()" :key="conf.id">
+            <div class="border border-ink/40 rounded p-2 text-sm">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-semibold" x-text="confineCaptiveName(conf)"></span>
+                  <span class="opacity-60" x-text="conf.confinementType === 'slave' ? ' · slave' : ' · ransom'"></span>
+                  <span class="opacity-60" x-text="' · held by ' + confineCaptorLabel(conf)"></span>
+                </div>
+                <span class="text-xs opacity-50" x-text="conf.hexId ? ('@ ' + conf.hexId) : ''"></span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 mt-2">
+                <label class="flex items-center gap-1 text-xs">💰 value
+                  <input type="number" min="0" x-model.number="conf.ransomValueGp" @change="markDirty(); schedulePersist()" class="w-24 border border-ink rounded px-1 py-0.5 text-right"> gp</label>
+                <label class="flex items-center gap-1 text-xs opacity-70" title="🔧 Monthly escape chance (0–1); 0 disables. No RAW basis.">🏃 escape/mo
+                  <input type="number" min="0" max="1" step="0.05" x-model.number="conf.escapeChanceMonthly" @change="markDirty(); schedulePersist()" class="w-16 border border-ink rounded px-1 py-0.5 text-right"></label>
+                <span class="flex-1"></span>
+                <button @click="ransomCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100 font-semibold">💰 Ransom</button>
+                <button @click="releaseCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100">🕊 Release</button>
+                <button @click="escapeCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100" title="Mark this prisoner as escaped">🏃 Escaped</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Resolved log -->
+      <template x-if="resolvedConfinements().length">
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Resolved <span class="opacity-60" x-text="'(' + resolvedConfinements().length + ')'"></span></h3>
+          <div class="space-y-1">
+            <template x-for="conf in resolvedConfinements()" :key="conf.id">
+              <div class="text-xs opacity-70 flex items-center gap-2">
+                <span x-text="conf.resolution === 'ransomed' ? '💰' : conf.resolution === 'released' ? '🕊' : '🏃'"></span>
+                <span x-text="confineCaptiveName(conf)"></span>
+                <span class="opacity-60" x-text="'— ' + conf.resolution + (conf.resolvedAtTurn != null ? (' · turn ' + conf.resolvedAtTurn) : '')"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <div class="flex justify-end pt-1">
+        <button @click="confinePanel.open=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+      </div>
+    </div>
+  </template>
+</div>
+<!-- === @b12-treasure end === -->
+<!-- === @b12-voyages    (team) — Voyages deferred seams: Vessel-as-Construction-Project + marines-as-Group + port-repair (🚢 Vessels view). === -->
+<!-- === @b12-generators (team) — NPC Generator G2: roster + entourage generation + UI deep-links (🧙 Generators tab; do NOT touch the Demographics roster — that is the @b12-census lane's region). === -->
+<!-- G2 batch generation — a SECOND card on the 🧙 Generators tab (renders below the G1 single-NPC card;
+     both gated on currentView==='generators'). Roster / Ruler's-court / NPC-party modes → a reviewable
+     PREVIEW (per-row ⟳ re-roll via regenProposal / ✕ drop) the GM commits (landRoster → one shipped
+     `generation` event per NPC). Ungated GM tooling — reads the census open-slot accessors READ-ONLY
+     (it never edits the Demographics roster, the @b12-census lane's region). -->
+<div x-show="currentCampaign && currentView === 'generators'" class="px-4 pb-8" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-3">
+    <div class="border-t border-ink/20 pt-4 flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">👥 Roster &amp; Entourage</h2>
+      <span class="text-sm italic opacity-70">Generate a batch of NPCs — a settlement's notables, a ruler's court, or a wandering party — then review (re-roll or drop a row) and add the keepers to your 👥 Characters roster.</span>
+    </div>
+
+    <!-- mode selector -->
+    <div class="flex gap-2 text-sm flex-wrap">
+      <template x-for="m in genBatchModes" :key="m.k">
+        <button @click="genBatch.mode=m.k; genBatchClear()"
+          :class="genBatch.mode===m.k ? 'bg-yellow-300 border-ink font-semibold' : 'border-ink/40 hover:bg-yellow-100'"
+          class="px-3 py-1 border-2 rounded" x-text="m.l"></button>
+      </template>
+    </div>
+
+    <!-- the context form (mode-dependent) -->
+    <div class="vellum border border-ink p-3 rounded text-sm space-y-3">
+      <!-- ROSTER -->
+      <template x-if="genBatch.mode==='roster'">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <label class="flex flex-col">Settlement
+            <select x-model="genBatch.settlementId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none — unhomed)</option>
+              <template x-for="st in genSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Count
+            <input type="number" min="1" max="50" x-model="genBatch.count" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Level range
+            <div class="flex gap-1 items-center">
+              <input type="number" min="0" max="14" x-model="genBatch.minLevel" placeholder="min" class="border border-ink rounded px-1 py-0.5 w-full" title="leave both blank to roll 0th/1st by occupation">
+              <span class="opacity-50">–</span>
+              <input type="number" min="0" max="14" x-model="genBatch.maxLevel" placeholder="max" class="border border-ink rounded px-1 py-0.5 w-full">
+            </div>
+          </label>
+          <label class="flex flex-col">Class
+            <select x-model="genBatch.classKey" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(roll by demographics)</option>
+              <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="flex items-center gap-2 col-span-2 md:col-span-4" x-show="genBatch.settlementId && genBatchHasCensus()">
+            <input type="checkbox" x-model="genBatch.useCensusSlots">
+            <span>Fill the census's <strong>open notable slots</strong> for this settlement <span class="opacity-60" x-text="genBatchOpenSlotsText()"></span></span>
+          </label>
+        </div>
+      </template>
+      <!-- ENTOURAGE -->
+      <template x-if="genBatch.mode==='entourage'">
+        <div class="space-y-2">
+          <label class="flex flex-col max-w-sm">Realm
+            <select x-model="genBatch.domainId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(pick a domain)</option>
+              <template x-for="d in genBatchDomainOptions()" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+            </select>
+          </label>
+          <p class="text-xs opacity-70" x-show="genBatch.domainId" x-text="genBatchEntourageText()"></p>
+          <p class="text-xs opacity-50">Generates the ruler's <strong>court entourage</strong> (magister, guildmaster, annalist) — the offices the realm command structure expects but hasn't staffed. The ruler + the four magistrates are appointed via the Officers tab.</p>
+        </div>
+      </template>
+      <!-- PARTY -->
+      <template x-if="genBatch.mode==='party'">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <label class="flex flex-col">Leader level
+            <input type="number" min="1" max="14" x-model="genBatch.leaderLevel" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Companions
+            <input type="number" min="0" max="12" x-model="genBatch.companions" class="border border-ink rounded px-1 py-0.5" title="henchmen at the leader's level −1 / −2 / −3 (RR p.164)">
+          </label>
+          <label class="flex flex-col">Leader class
+            <select x-model="genBatch.classKey" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(roll)</option>
+              <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Party name
+            <input x-model="genBatch.partyName" placeholder="(auto)" class="border border-ink rounded px-1 py-0.5">
+          </label>
+        </div>
+      </template>
+      <!-- shared: race / detail / seed / generate -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-ink/15 pt-2">
+        <label class="flex flex-col">Race
+          <select x-model="genBatch.race" class="border border-ink rounded px-1 py-0.5">
+            <option value="">(human / by class)</option>
+            <template x-for="r in ['human','dwarf','elf','halfling','nobiran','zaharan']" :key="r"><option :value="r" x-text="r"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col">Detail
+          <select x-model="genBatch.detailLevel" class="border border-ink rounded px-1 py-0.5">
+            <option value="full">Full (rolled)</option>
+            <option value="lightweight">Lightweight stubs</option>
+          </select>
+        </label>
+        <label class="flex flex-col">Seed
+          <input x-model="genBatch.seed" placeholder="(random)" class="border border-ink rounded px-1 py-0.5">
+        </label>
+        <button @click="genBatchRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 w-full">🎲 Generate batch</button>
+      </div>
+    </div>
+
+    <!-- the reviewable preview -->
+    <template x-if="genBatchPreview.length">
+      <div class="vellum border-2 border-ink p-3 rounded space-y-2">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <span class="font-semibold" x-text="genBatchPreview.length + ' NPC' + (genBatchPreview.length===1?'':'s') + ' generated — review, then commit' + (genBatchPartyName ? (' · ' + genBatchPartyName) : '')"></span>
+          <span class="text-xs opacity-50" x-show="genBatchSeed" x-text="'seed: ' + genBatchSeed"></span>
+        </div>
+        <div class="divide-y divide-ink/10">
+          <template x-for="(p, i) in genBatchPreview" :key="p.character.id">
+            <div class="flex items-center gap-2 py-1 text-sm flex-wrap">
+              <span class="font-semibold" x-text="p.character.name"></span>
+              <span class="opacity-80" x-text="p.character.race + ' ' + p.character.class + (p.character.isZerothLevel ? ' (0th)' : ' · L' + p.character.level)"></span>
+              <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80" x-text="'⚒ ' + p.character.occupation"></span>
+              <span x-show="p.office" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="p.office ? ('👑 ' + p.office.label) : ''"></span>
+              <span x-show="p.role==='leader'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded">★ leader</span>
+              <span x-show="p.role==='henchman'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80">⚔ henchman</span>
+              <span x-show="p.slot" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-70" x-text="p.slot ? ('census ' + p.slot.bucket + ' L' + p.slot.level) : ''"></span>
+              <span class="text-xs opacity-50" x-text="(p.character.coins.gp||0).toLocaleString() + ' gp'"></span>
+              <span class="flex-1"></span>
+              <button @click="genBatchRerollOne(i)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100" title="Re-roll this NPC (same context)">⟳</button>
+              <button @click="genBatchRemove(i)" class="px-2 py-0.5 border border-ink/40 rounded text-xs hover:bg-red-100" title="Drop this NPC">✕</button>
+            </div>
+          </template>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button @click="genBatchCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400" x-text="'✓ Add ' + genBatchPreview.length + ' to roster'"></button>
+          <button @click="genBatchClear()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100">Clear</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -19981,6 +20396,214 @@ return {
     };
   },
   _signed(n){ return (n != null && n >= 0 ? '+' : '') + n; },
+  // ════ TEAM SESSION (burst12 2026-06-21) — per-agent domainApp state + methods. Append your Alpine state
+  //      + methods ONLY after your own @b12-<lane> marker below. Self-register engine prefixes / collections /
+  //      events from your OWN module (the kernel shipped PR #89 — no central-registry edits). The Lead
+  //      reconciles this block at integration (CLAUDE §15.4). ════
+  // === @b12-census     (team) — SD-6/SD-7 census + MI-3 per-Class availability: state + methods ===
+  // SD-6 magic-item census (over acks-engine-demographics.js + acks-engine-magic-item-availability.js,
+  // TT p.27, ⚠ IP §13.6/§13.9 catalog posture). Two read surfaces: the Demographics roster census +
+  // the 🪄 magic-market availability readout. Always-on RAW tooling (the TT availability math; OQ-8).
+  _availCellText(perMarket, chancePct){ if(perMarket && perMarket > 0) return String(perMarket); if(chancePct && chancePct > 0) return chancePct + '%'; return '—'; },
+  magicCensus(){ const s = this.demoSettlement && this.demoSettlement(); return s ? window.ACKS.settlementMagicItemCensus(this.currentCampaign, s) : null; },
+  magicCensusTypeRows(){ const c = this.magicCensus(); if(!c) return []; const L = window.ACKS.MAGIC_ITEM_TYPE_LABEL || {};
+    return (window.ACKS.MAGIC_ITEM_TYPE_ORDER || []).map(t => Object.assign({ type:t, label:(L[t] || t) }, c.byType[t] || {})); },
+  magicCensusRarityRows(){ const c = this.magicCensus(); if(!c) return []; const L = window.ACKS.MAGIC_RARITY_TIER_LABEL || {};
+    return (window.ACKS.MAGIC_RARITY_TIER_ORDER || []).map(r => Object.assign({ rarity:r, label:(L[r] || r) }, c.byRarity[r] || {})); },
+  // the 🪄 magic-market modal's availability table (the chosen settlement's market class)
+  magicMarketAvailShow: false,
+  magicMarketAvail(){ const id = this.magicMarket && this.magicMarket.settlementId; if(!id) return null;
+    const s = (this.currentCampaign && this.currentCampaign.settlements || []).find(x => x && x.id === id);
+    return s ? window.ACKS.expectedSettlementMagicItems(this.currentCampaign, s) : null; },
+  magicMarketAvailRows(){ const a = this.magicMarketAvail(); if(!a) return []; const L = window.ACKS.MAGIC_ITEM_TYPE_LABEL || {};
+    return (window.ACKS.MAGIC_ITEM_TYPE_ORDER || []).map(t => Object.assign({ type:t, label:(L[t] || t) }, a.byType[t] || {})); },
+  // the by-NPC-level magic-item value (the per-individual facet) — a component wrapper so the Demographics
+  // census markup resolves it in Alpine scope (the engine fn lives on window.ACKS, not the component).
+  expectedNpcMagicItemValue(level){ return (typeof window.ACKS.expectedNpcMagicItemValue === 'function') ? window.ACKS.expectedNpcMagicItemValue(level) : 0; },
+  // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
+  // ── Escalate a combat-risk urban incident into a full Encounter (the shipped #476 E-layer), then
+  //    deep-link to the resolution panel. svtIncidents() is a simple reverse of v.incidents, so the
+  //    display index i maps to the real index (len-1)-i (no Alpine-proxy indexOf needed). ──
+  svtEscalate(i){
+    const c = this.currentCampaign; const v = this.svtSelected(); if(!v || !Array.isArray(v.incidents)) return;
+    const realIndex = (v.incidents.length - 1) - i;   // svtIncidents() reverses v.incidents
+    const res = window.ACKS.escalateSettlementIncident(c, v.id, { incidentIndex: realIndex });
+    this.markDirty(); this.schedulePersist();
+    if(res && res.encounter){ this.showToast('⚔ Escalated to an encounter — ' + (res.encounter.name || 'a fight') + ' · resolve it in Review ▸ ⚔ Encounters', 6000); }
+    else { this.showToast('Could not escalate this incident.', 3000); }
+  },
+  svtGoToEncounter(encId){
+    if(!encId) return;
+    this.svtUI.open = false;                                          // close the Settlement-Visit modal
+    this.currentView = 'review'; this.reviewSubView = 'encounters';   // land on the ⚔ Encounters work queue
+    if(typeof this.openEncounterModal === 'function') this.openEncounterModal(encId);   // open the resolution panel
+  },
+  // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
+  // The optional AXIOMS-19 dynasty layer over acks-engine-lifecycle.js (foundDynasty / recordKinship /
+  // birthChild / setSuccessionLaw / resolveDynastySuccession + the reads). One modal (dynModal); the card
+  // lives in the char-sheet lifecycle cluster; both gated on the dynasty-tracking house rule.
+  dynModal: { open:false, charId:'',
+    foundName:'', foundCoatOfArms:'', foundRealmType:'human-standard', foundLaw:'gavelkind', foundTitle:'',
+    changeLaw:'', changeImmediate:false, marriageSpouseId:'', marriageMatrilineal:false,
+    birthMotherId:'', birthFatherId:'', birthName:'', successionDeceasedId:'', successionNominee:'', lastResult:'' },
+  dynastyTrackingOn(){ const A=window.ACKS; return !!(A && A.isHouseRuleEnabled && A.isHouseRuleEnabled(this.currentCampaign, 'dynasty-tracking')); },
+  dynInfo(ch){ const A=window.ACKS; return (ch && A && A.characterDynastyInfo) ? A.characterDynastyInfo(this.currentCampaign, ch) : { inDynasty:false }; },
+  dynModalChar(){ return (this.currentCampaign?.characters||[]).find(x => x && x.id === this.dynModal.charId) || null; },
+  dynModalDynasty(){ const ch=this.dynModalChar(); const A=window.ACKS; return (ch && ch.dynastyId && A && A.dynastyById) ? A.dynastyById(this.currentCampaign, ch.dynastyId) : null; },
+  dynSuccessionLaws(){ return (window.ACKS && window.ACKS.successionLawsList) ? window.ACKS.successionLawsList() : []; },
+  successionLawLabelFor(id){ const l=(window.ACKS && window.ACKS.successionLawById) ? window.ACKS.successionLawById(id) : null; return l ? l.label : (id || '—'); },
+  dynLawIsElective(){ const d=this.dynModalDynasty(); if(!d) return false; const l=window.ACKS.successionLawById(d.successionLaw); return !!(l && l.type==='elective'); },
+  dynVassalBonus(){ const d=this.dynModalDynasty(); const A=window.ACKS; return (d && A && A.dynastyVassalLoyaltyBonus) ? A.dynastyVassalLoyaltyBonus(this.currentCampaign, d.id) : 0; },
+  dynRealmTypes(){ return Object.keys((window.ACKS && window.ACKS.DYNASTY_STARTING_LAW_BY_REALM) || {}); },
+  dynFamilyTree(){ const d=this.dynModalDynasty(); const A=window.ACKS; return (d && A && A.dynastyFamilyTree) ? A.dynastyFamilyTree(this.currentCampaign, d.id) : []; },
+  dynMemberOptions(){ const d=this.dynModalDynasty(); const A=window.ACKS; if(!d) return []; return (A.dynastyMembers(this.currentCampaign, d.id)||[]).map(c=>({ id:c.id, name:c.name, deceased:(c.lifecycleState==='deceased'||c.alive===false) })); },
+  dynCharOptions(){ return (this.currentCampaign?.characters||[]).filter(x => x && x.alive !== false && x.lifecycleState !== 'deceased').map(x=>({ id:x.id, name:x.name })); },
+  dynCharName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return c?c.name:'—'; },
+  _dynTouch(msg){ if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist(); if(msg && this.showToast) this.showToast(msg, 3000); },
+  dynOpen(ch){
+    this.dynModal = Object.assign({}, this.dynModal, { open:true, charId:ch.id,
+      foundName:(ch.name ? ch.name.split(/\s+/).slice(-1)[0] : ''), foundCoatOfArms:'', foundRealmType:'human-standard', foundLaw:'gavelkind', foundTitle:(ch.title||''),
+      changeLaw:'', changeImmediate:false, marriageSpouseId:'', marriageMatrilineal:false,
+      birthMotherId:'', birthFatherId:'', birthName:'', successionDeceasedId:'', successionNominee:'', lastResult:'' });
+  },
+  dynFound(){ const m=this.dynModal; const A=window.ACKS; if(!A||!A.foundDynasty) return;
+    const res = A.foundDynasty(this.currentCampaign, m.charId, { name:m.foundName, coatOfArms:m.foundCoatOfArms, realmType:m.foundRealmType, successionLaw:m.foundLaw||undefined, title:m.foundTitle||undefined });
+    if(res && res.error){ this._dynTouch('Cannot found: ' + res.error); return; }
+    this._dynTouch('Founded the dynasty of ' + (res.name || '(unnamed)') + '.'); },
+  dynChangeLaw(){ const m=this.dynModal; const d=this.dynModalDynasty(); if(!d||!m.changeLaw) return; const A=window.ACKS;
+    const res = A.setSuccessionLaw(this.currentCampaign, d.id, m.changeLaw, { immediate:m.changeImmediate });
+    if(res && res.error){ this._dynTouch('Cannot change: ' + res.error); return; }
+    this._dynTouch(res.applied ? ('Succession law changed to ' + m.changeLaw + '.') : ('Law change to ' + m.changeLaw + ' begins — ' + res.months + ' month' + (res.months===1?'':'s') + '.')); m.changeLaw=''; },
+  dynRecordMarriage(){ const m=this.dynModal; if(!m.marriageSpouseId) return; const A=window.ACKS;
+    A.recordKinship(this.currentCampaign, { kinType:'marriage', aCharacterId:m.charId, bCharacterId:m.marriageSpouseId, matrilineal:m.marriageMatrilineal });
+    this._dynTouch('Marriage recorded.'); m.marriageSpouseId=''; },
+  dynBirth(){ const m=this.dynModal; if(!m.birthMotherId||!m.birthFatherId) return; const A=window.ACKS;
+    const res = A.birthChild(this.currentCampaign, { motherCharacterId:m.birthMotherId, fatherCharacterId:m.birthFatherId, name:m.birthName||undefined });
+    if(res && res.error){ this._dynTouch('No birth: ' + res.error + (res.cap!=null ? (' (cap ' + res.cap + ')') : '')); return; }
+    this._dynTouch((res.name || 'A child') + ' is born' + (res.bastard ? ' (a bastard)' : '') + '.'); m.birthName=''; },
+  dynResolveSuccession(){ const m=this.dynModal; const d=this.dynModalDynasty(); if(!d) return; const A=window.ACKS;
+    const res = A.resolveDynastySuccession(this.currentCampaign, d.id, { deceasedId:m.successionDeceasedId||undefined, nominee:m.successionNominee||undefined });
+    if(res && res.error){ this._dynTouch('Cannot resolve: ' + res.error); return; }
+    m.lastResult = res.dynastyExtinct ? 'The dynasty ends — no living heir (the game ends).'
+      : ('Heir: ' + this.dynCharName(res.heirId) + (res.vassalLoyaltyBonus ? (' · vassals +' + res.vassalLoyaltyBonus + ' loyalty') : '') + (res.divides ? ' · the demesne divides' : '') + (res.awardedTrait ? (' · earned a ' + res.awardedTrait + ' bloodline trait') : ''));
+    this._dynTouch(res.dynastyExtinct ? 'The dynasty is extinct.' : ('Succession resolved → ' + this.dynCharName(res.heirId) + '.')); },
+  // === @b12-treasure   (team) — Treasure Wave-C confinements: state + methods ===
+  // The 🔒 Prisoners panel — thin UI over the confinement engine (ransom/release/escape verbs +
+  // the auto-monthly escape check). Captives auto-lift into confinements on materializeHoard.
+  confinePanel: { open:false },
+  confinementRows(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.confinements)) ? this.currentCampaign.confinements : []; },
+  heldConfinements(){ return this.confinementRows().filter(c => c && c.status === 'held'); },
+  resolvedConfinements(){ return this.confinementRows().filter(c => c && c.status !== 'held')
+      .slice().sort((a,b) => (b.resolvedAtTurn||0) - (a.resolvedAtTurn||0)); },
+  openConfinements(){ this.confinePanel.open = true; },
+  confineCaptiveName(conf){
+    const c = this.currentCampaign && (this.currentCampaign.characters||[]).find(x => x && x.id === conf.captiveCharacterId);
+    return (c && c.name) || conf.captiveCharacterId || 'the captive';
+  },
+  confineCaptorLabel(conf){
+    const cap = conf && conf.captor;
+    if(!cap) return 'unknown';
+    if(cap.kind === 'character'){ const c = (this.currentCampaign.characters||[]).find(x => x && x.id === cap.id); return (c && c.name) || cap.label || 'a captor'; }
+    if(cap.kind === 'domain'){ const d = (this.domains||[]).find(x => x && x.id === cap.id); return (d && d.name) || cap.label || 'a domain'; }
+    if(cap.kind === 'lair') return cap.label || 'a lair';
+    return cap.label || cap.kind || 'unknown';
+  },
+  ransomCaptive(conf){
+    const r = window.ACKS.ransomConfinement(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not ransom: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('💰 ' + this.confineCaptiveName(conf) + ' ransomed for ' + (r.amountGp||0).toLocaleString() + ' gp.');
+  },
+  releaseCaptive(conf){
+    const r = window.ACKS.releaseConfinement(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not release: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🕊 ' + this.confineCaptiveName(conf) + ' released.');
+  },
+  escapeCaptive(conf){
+    const r = window.ACKS.captiveEscapes(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not mark escaped: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🏃 ' + this.confineCaptiveName(conf) + ' escaped.');
+  },
+  // === @b12-voyages    (team) — Voyages deferred seams (vessel-construction / marines / port-repair): state + methods ===
+  // === @b12-generators (team) — NPC Generator G2 (rosters / entourages / deep-links): state + methods ===
+  // The batch-generation card on the 🧙 Generators tab (below the G1 single-NPC card). Calls the shipped
+  // ACKS.generateRoster / generateEntourage / generateNpcParty (which READ the census open-slot
+  // accessors read-only — never editing the Demographics roster, the @b12-census lane's region), shows
+  // a reviewable PREVIEW (per-row ⟳ via regenProposal / ✕ drop), and lands the keepers via landRoster
+  // (one shipped `generation` event per NPC). Ungated GM tooling — distinct from the census's gated
+  // SD-2b auto-fill. Reuses G1's genClassOptions() / genSettlementOptions().
+  genBatch: { mode:'roster', settlementId:'', domainId:'', count:6, minLevel:'', maxLevel:'', classKey:'',
+    race:'', detailLevel:'full', seed:'', useCensusSlots:false, leaderLevel:5, companions:3, partyName:'' },
+  // the three batch modes (in JS, so the apostrophe in "Ruler's court" is safe — an Alpine attribute
+  // expression is HTML-decoded first, so an inline &#39; would break the string literal).
+  genBatchModes: [{ k:'roster', l:'🏘 Settlement roster' }, { k:'entourage', l:"👑 Ruler's court" }, { k:'party', l:'🎒 NPC party' }],
+  genBatchPreview: [],
+  genBatchSeed: null,
+  genBatchPartyName: '',
+  genBatchDomainOptions(){
+    const ds = this.domains || (this.currentCampaign && this.currentCampaign.domains) || [];
+    return ds.map(d => ({ id:d.id, name:d.name || d.id }));
+  },
+  genBatchHasCensus(){ return typeof window.ACKS.demographicOpenNotableSlots === 'function'; },
+  _genBatchSettlement(){ const c=this.currentCampaign; return (c && Array.isArray(c.settlements)) ? (c.settlements.find(s=>s && s.id===this.genBatch.settlementId) || null) : null; },
+  genBatchOpenSlotsText(){
+    const st = this._genBatchSettlement(); if(!st || !this.genBatchHasCensus()) return '';
+    const minL = (this.genBatch.minLevel!=='' && this.genBatch.minLevel!=null) ? (parseInt(this.genBatch.minLevel,10)||1) : 1;
+    const slots = window.ACKS.demographicOpenNotableSlots(this.currentCampaign, st, { minLevel:minL }) || [];
+    const n = slots.reduce((s,x)=>s+x.open,0);
+    return n ? ('— ' + n + ' open at L≥' + minL) : '— none open at this level';
+  },
+  genBatchEntourageText(){
+    const A=window.ACKS; if(typeof A.realmCommandStructure!=='function' || !this.genBatch.domainId) return '';
+    const rc = A.realmCommandStructure(this.currentCampaign, this.genBatch.domainId); if(!rc) return '';
+    const open = rc.offices.filter(o=>!o.filled && o.mapsTo==='entourage' && o.bucket);
+    if(!open.length) return (rc.titleLabel||'Realm') + ' — every court office is filled; a small generic court will be generated.';
+    return (rc.titleLabel||'Realm') + ' — open court offices: ' + open.map(o=>o.label + ' (L' + o.expectedLevel + ')').join(', ') + '.';
+  },
+  genBatchRun(){
+    if(!this.currentCampaign){ this.showToast('Load a campaign first.', 3000, 'warn'); return; }
+    const b = this.genBatch;
+    const seed = (b.seed!=='' && b.seed!=null) ? b.seed : ('batch-' + Math.floor(Math.random()*1e9));
+    this.genBatchSeed = seed;
+    const opts = { detailLevel: (b.detailLevel==='lightweight'?'lightweight':'full'), seed };
+    const num = v => (v!=='' && v!=null) ? Number(v) : undefined;
+    try {
+      if(b.mode==='roster'){
+        const ctx = { settlementId: b.settlementId || null, count: num(b.count), minLevel: num(b.minLevel), maxLevel: num(b.maxLevel),
+          race: b.race || undefined, useCensusSlots: !!(b.settlementId && b.useCensusSlots) };
+        if(b.classKey && !ctx.useCensusSlots) ctx.class = b.classKey;
+        this.genBatchPreview = window.ACKS.generateRoster(this.currentCampaign, ctx, opts);
+        this.genBatchPartyName = '';
+      } else if(b.mode==='entourage'){
+        if(!b.domainId){ this.showToast('Pick a realm first.', 3000, 'warn'); return; }
+        this.genBatchPreview = window.ACKS.generateEntourage(this.currentCampaign, b.domainId, Object.assign({}, opts, { race: b.race || undefined }));
+        this.genBatchPartyName = '';
+      } else if(b.mode==='party'){
+        const party = window.ACKS.generateNpcParty(this.currentCampaign, Object.assign({}, opts, {
+          leaderLevel: num(b.leaderLevel), companions: num(b.companions), leaderClass: b.classKey || undefined,
+          race: b.race || undefined, partyName: b.partyName || undefined }));
+        this.genBatchPreview = [party.leader].concat(party.companions || []).filter(Boolean);
+        this.genBatchPartyName = party.partyName;
+      }
+    } catch(e){ this.showToast('Generation failed: ' + e.message, 4000, 'error'); this.genBatchPreview = []; return; }
+    if(!this.genBatchPreview.length) this.showToast('Nothing generated for this context.', 3000);
+  },
+  genBatchRerollOne(i){
+    const p = this.genBatchPreview[i]; if(!p) return;
+    const re = window.ACKS.regenProposal(this.currentCampaign, p, { detailLevel: (this.genBatch.detailLevel==='lightweight'?'lightweight':'full'), seed: 'reroll-' + Math.floor(Math.random()*1e9) });
+    this.genBatchPreview.splice(i, 1, re);
+  },
+  genBatchRemove(i){ this.genBatchPreview.splice(i, 1); },
+  genBatchClear(){ this.genBatchPreview = []; this.genBatchPartyName = ''; },
+  genBatchCommit(){
+    if(!this.genBatchPreview.length) return;
+    const landed = window.ACKS.landRoster(this.currentCampaign, this.genBatchPreview.slice(), {});
+    this.genBatchPreview = []; this.genBatchPartyName = '';
+    if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist();
+    this.showToast('👥 ' + landed.length + ' NPC' + (landed.length===1?'':'s') + ' added to the roster.', 4000, 'success');
+  },
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +

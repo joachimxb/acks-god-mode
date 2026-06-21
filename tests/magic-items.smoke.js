@@ -420,10 +420,15 @@ section('Market availability — rarity × market class, per-party 10%, monthly 
   const av = ACKS.magicItemMarketAvailability(camp, rareItem, set, { direction:'sell' });
   ok('rare IS transactable at a Class III market', av.transactable === true && av.rarity === 'rare' && av.marketClass === 'III');
   ok('per-party = 10% of per-market (≥1)', av.perPartyMax >= 1 && av.monthlyRemaining === av.perPartyMax);
-  // legendary at Class III → too small
+  // legendary at Class III → RAW TT (burst12 licensed cells): transactable at a % CHANCE, where the
+  // pre-burst12 placeholder ladder hard-refused it. A genuine market-too-small refusal now only on the
+  // SELL axis at the Class VI "–" cell.
   const leg = ACKS.createNotableFromCatalog(camp, 'wondrous-legendary');         // base 150000, legendary
-  const la = ACKS.magicItemMarketAvailability(camp, leg, set, {});
-  ok('legendary is NOT transactable at Class III (market-too-small-for-rarity)', la.transactable === false && la.reason === 'market-too-small-for-rarity');
+  const la = ACKS.magicItemMarketAvailability(camp, leg, set, { direction:'sell' });
+  ok('legendary IS now transactable at Class III at a % chance (RAW TT p.27 sell cell = 12%)', la.transactable === true && la.cellKind === 'chance' && la.chancePct === 12);
+  const vi0 = mkMarket(); vi0.settlements[0].marketClass = 'VI';
+  const laVi = ACKS.magicItemMarketAvailability(vi0, ACKS.createNotableFromCatalog(vi0, 'wondrous-legendary'), set1(vi0), { direction:'sell' });
+  ok('legendary SELL at Class VI is refused (TT "–" cell → market-too-small-for-rarity)', laVi.transactable === false && laVi.reason === 'market-too-small-for-rarity');
   // a Class I market CAN handle legendary
   const big = mkMarket(); big.settlements[0].marketClass = 'I';
   const laBig = ACKS.magicItemMarketAvailability(big, ACKS.createNotableFromCatalog(big, 'wondrous-legendary'), set1(big), {});
@@ -479,10 +484,11 @@ section('Sell — TT spread, GP Wave B payout, custody → merchant-stock');
   const ni2 = hold(camp2, ACKS.createNotableFromCatalog(camp2, 'weapon-plus-1'), 'chr-1');  // uncommon? base 5000 → uncommon, found ×1 = 5000
   const r2 = ACKS.sellMagicItem(camp2, { itemId: ni2.id, sellerCharacterId:'chr-1', settlementId:'set-1', proceedsHandle:{ kind:'external' } });
   ok('proceeds can route to an alternate handle (external sink → seller purse unchanged)', r2.ok === true && camp2.characters[0].coins.gp === 60000);
-  // a market too small refuses (legendary at Class III)
-  const leg = hold(camp, ACKS.createNotableFromCatalog(camp, 'wondrous-legendary'), 'chr-1');
-  ok('sell a legendary at Class III is refused (too small)', ACKS.sellMagicItem(camp, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1' }).error === 'market-too-small-for-rarity');
-  ok('…but gmOverride forces it through', ACKS.sellMagicItem(camp, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1', gmOverride:true }).ok === true);
+  // a market too small refuses a legendary on the SELL axis (TT "–" at Class VI; RAW TT p.27)
+  const viS = mkMarket(); viS.settlements[0].marketClass = 'VI';
+  const leg = hold(viS, ACKS.createNotableFromCatalog(viS, 'wondrous-legendary'), 'chr-1');
+  ok('sell a legendary at Class VI is refused (too small)', ACKS.sellMagicItem(viS, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1' }).error === 'market-too-small-for-rarity');
+  ok('…but gmOverride forces it through', ACKS.sellMagicItem(viS, { itemId: leg.id, sellerCharacterId:'chr-1', settlementId:'set-1', gmOverride:true }).ok === true);
 }
 
 // ── 18. Buy a magic item (existing listing + from catalog; affordability; rollback) ─────────────────
@@ -509,11 +515,15 @@ section('Buy — existing listing + mint-from-catalog, affordability, atomic rol
   const rPoor = ACKS.buyMagicItem(poor, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'weapon-plus-2' });
   ok('insufficient funds refused', rPoor.ok === false && rPoor.error === 'insufficient-funds' && rPoor.need === 33750);
   ok('the minted item is rolled back on failure (no orphan Notable)', poor.notableItems.length === nBefore && poor.characters[0].coins.gp === 100);
-  // a too-small market refuses a legendary catalog buy + rolls back
-  const camp3 = mkMarket();
-  const nB3 = camp3.notableItems.length;
-  const r3 = ACKS.buyMagicItem(camp3, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'wondrous-legendary' });
-  ok('legendary buy at Class III refused + rolled back', r3.ok === false && r3.error === 'market-too-small-for-rarity' && camp3.notableItems.length === nB3);
+  // RAW TT correction (burst12): a legendary CAN now be bought at a Class III market (a % chance by
+  // type), where the pre-burst12 placeholder hard-refused it — given the buyer can afford the ×2.25 price.
+  const rich = mkMarket(); rich.characters[0].coins.gp = 400000;
+  const r3 = ACKS.buyMagicItem(rich, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'wondrous-legendary' });
+  ok('legendary buy at Class III now SUCCEEDS (RAW TT; was hard-refused by the placeholder), cost ×2.25 = 337500', r3.ok === true && r3.costGp === 337500);
+  // …and an unaffordable legendary buy still refuses + rolls back the minted item
+  const poorLeg = mkMarket(); const nBpl = poorLeg.notableItems.length;
+  const rPL = ACKS.buyMagicItem(poorLeg, { buyerCharacterId:'chr-1', settlementId:'set-1', catalogKey:'wondrous-legendary' });
+  ok('an unaffordable legendary buy refuses + rolls back', rPL.ok === false && rPL.error === 'insufficient-funds' && poorLeg.notableItems.length === nBpl);
   ok('buy(unknown buyer) → error', ACKS.buyMagicItem(camp, { buyerCharacterId:'nope', settlementId:'set-1', catalogKey:'potion-common' }).error === 'unknown-buyer');
 }
 

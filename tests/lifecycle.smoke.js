@@ -991,5 +991,239 @@ section('CL-5 transformation — migrate-no-op (the demo carries transformationS
 }
 
 // =============================================================================
+// === Character Lifecycle CL-4b (burst12, team) — the Dynasty layer (AXIOMS 19) ================
+// Locks the AXIOMS-19 RAW: the 10 succession laws + their vassal-loyalty bonuses (feudal elective +2,
+// gavelkind elective / tanistry +1), the realm-type starting-law d6 table (each covering 1–6), the
+// racial pregnancy caps (human/beastman 12, dwarf/gnome/halfling 4, elf 2), the bastard rule (a child
+// whose parents aren't spouses), the bloodline 3-generation rule (→ 4d6/5d6-keep-best-3 children), the
+// heir-selection per law (eldest/youngest/eldest-member/most-powerful/elected), extinction (no heir),
+// the 2d4-month law change + its monthly-clock completion (folded into processAgingForTurn), the
+// self-registration (dyn-/kin- prefixes, dynasties/kinships collections, the dynasty entity-kind +
+// field-schema, the dynasty-tracking rule, the 3 record-only events), and the migrate-no-op.
+const RNG6 = () => 0.99;   // d6 → 6 (used for 2d4 → 8, d6 → 6)
+function mkDynC(opts) { const c = mkCampaign(opts); c.houseRules = { 'dynasty-tracking': { enabled: true } }; c.dynasties = []; c.kinships = []; return c; }
+
+section('CL-4b dynasty — self-registration (the PR #89 kernel, from acks-engine-lifecycle.js)');
+{
+  ok('dyn-/kin- prefixes registered', ACKS.ID_PREFIXES.dynasty === 'dyn' && ACKS.ID_PREFIXES.kinship === 'kin');
+  ok('dynasties + kinships collections registered (importable)', ACKS.importableCollections().includes('dynasties') && ACKS.importableCollections().includes('kinships'));
+  ok('dynasties seeded in a fresh blankCampaign (defensive default)', Array.isArray(ACKS.blankCampaign({ name: 't' }).dynasties));
+  ok('dynasty-tracking house rule registered (characters, default OFF)', (function () { const r = ACKS.lookupHouseRule('dynasty-tracking'); return r && r.category === 'characters' && r.default === false; })());
+  ok('dynasty entity kind registered (👑, browsable)', !!ACKS.entityKind('dynasty') && ACKS.entityIcon('dynasty') === '👑');
+  ok('dynasty field-schema registered (factory blankDynasty)', (ACKS.FIELD_SCHEMAS.dynasty || {}).factory === 'blankDynasty');
+  ok('the 3 event kinds are known', ACKS.isEventKindKnown('dynasty-founded') && ACKS.isEventKindKnown('kinship-recorded') && ACKS.isEventKindKnown('succession-resolved'));
+  ok('all 3 are Event-Wizard opt-outs (engine-owned, record-only)', !ACKS.isWizardEmittable('dynasty-founded') && !ACKS.isWizardEmittable('kinship-recorded') && !ACKS.isWizardEmittable('succession-resolved'));
+  // schema ⊆ factory (the smoke.js Wave-C global invariant, asserted locally)
+  const keys = new Set(Object.keys(ACKS.blankDynasty({})));
+  const extras = ACKS.FIELD_SCHEMAS.dynasty.fields.filter(f => f.type !== 'computed').map(f => f.name).filter(n => !keys.has(n));
+  ok('every dynasty schema field is a blankDynasty key (schema ⊆ factory)', extras.length === 0, 'extras: [' + extras.join(', ') + ']');
+  ok('the dynasty field-schema validates clean', ACKS.validateFieldSchema('dynasty', ACKS.FIELD_SCHEMAS.dynasty).ok);
+}
+
+section('CL-4b dynasty — succession-law catalog + the realm-type starting-law d6 table (AXIOMS 19)');
+{
+  ok('10 succession laws', ACKS.successionLawsList().length === 10);
+  ok('vassal-loyalty bonuses: feudal elective +2, gavelkind elective +1, tanistry +1, open 0',
+    ACKS.successionLawById('feudal-elective').vassalLoyaltyBonus === 2 && ACKS.successionLawById('gavelkind-elective').vassalLoyaltyBonus === 1 &&
+    ACKS.successionLawById('tanistry').vassalLoyaltyBonus === 1 && ACKS.successionLawById('open').vassalLoyaltyBonus === 0);
+  ok('gavelkind laws carry the divides flag', ACKS.successionLawById('gavelkind').divides === true && ACKS.successionLawById('gavelkind-elective').divides === true && ACKS.successionLawById('primogeniture').divides === false);
+  // the d6 table — first row (roll 1) + last row (roll 6) per realm type
+  ok('human-standard d6: 1→tanistry, 2→feudal-elective, 5→gavelkind-elective, 6→gavelkind',
+    ACKS.rollStartingSuccessionLaw('human-standard', RNG0) === 'tanistry' && ACKS.rollStartingSuccessionLaw('human-standard', RNG6) === 'gavelkind');
+  ok('beastman/tribal d6: 1-4 tanistry, 5-6 open', ACKS.rollStartingSuccessionLaw('beastman', RNG0) === 'tanistry' && ACKS.rollStartingSuccessionLaw('tribal', RNG6) === 'open');
+  ok('elven fastness d6: 1-6 seniority', ACKS.rollStartingSuccessionLaw('elf', RNG0) === 'seniority' && ACKS.rollStartingSuccessionLaw('elven-fastness', RNG6) === 'seniority');
+  ok('dwarven vault d6: 1-3 seniority, 4-6 patrician-seniority', ACKS.rollStartingSuccessionLaw('dwarf', RNG0) === 'seniority' && ACKS.rollStartingSuccessionLaw('dwarven-vault', RNG6) === 'patrician-seniority');
+  ok('senatorial d6: 1-3 patrician-elective, 4-6 patrician-seniority', ACKS.rollStartingSuccessionLaw('senatorial', RNG0) === 'patrician-elective' && ACKS.rollStartingSuccessionLaw('senatorial', RNG6) === 'patrician-seniority');
+  ok('syndicate d6: 1-4 open, 5-6 feudal-elective', ACKS.rollStartingSuccessionLaw('syndicate', RNG0) === 'open' && ACKS.rollStartingSuccessionLaw('syndicate', RNG6) === 'feudal-elective');
+  ok('religious-org d6: 1-2 feudal-elective, 6 patrician-elective', ACKS.rollStartingSuccessionLaw('religious-organization', RNG0) === 'feudal-elective' && ACKS.rollStartingSuccessionLaw('theocracy', RNG6) === 'patrician-elective');
+  ok('every realm d6 table covers 1-6 (no gap)', Object.keys(ACKS.DYNASTY_STARTING_LAW_BY_REALM).every(rt => { const t = ACKS.startingLawTableForRealm(rt); return t[t.length - 1].max === 6 && t[0].max >= 1; }));
+  // pregnancy caps
+  ok('pregnancy caps: human/beastman 12, dwarf/gnome/halfling 4, elf 2',
+    ACKS.pregnancyCapForRace('human') === 12 && ACKS.pregnancyCapForRace('beastman') === 12 &&
+    ACKS.pregnancyCapForRace('dwarf') === 4 && ACKS.pregnancyCapForRace('gnome') === 4 && ACKS.pregnancyCapForRace('halfling') === 4 && ACKS.pregnancyCapForRace('elf') === 2);
+}
+
+section('CL-4b dynasty — foundDynasty (ennobles, default law, guards)');
+{
+  const c = mkDynC();
+  const k = mkChar(c, { id: 'k', name: 'Aelric Vane', extra: { level: 8 } });
+  const dyn = ACKS.foundDynasty(c, 'k', { name: 'Vane', successionLaw: 'primogeniture', title: 'Marquis' });
+  ok('mints a dyn- dynasty', dyn && dyn.id.indexOf('dyn-') === 0 && dyn.kind === 'dynasty');
+  ok('the founder is ennobled + linked + titled', k.noble === true && k.dynastyId === dyn.id && k.title === 'Marquis');
+  ok('founder seeds members + heir-line', dyn.memberCharacterIds.length === 1 && dyn.memberCharacterIds[0] === 'k' && dyn.heirLine[0] === 'k');
+  ok('emits one dynasty-founded event', c.eventLog.filter(e => e.event.kind === 'dynasty-founded').length === 1);
+  ok('the founder gets a character.history entry', (k.history || []).some(h => h.type === 'dynasty-founded'));
+  ok('re-founding errors (already in a dynasty)', (ACKS.foundDynasty(c, 'k', {}) || {}).error === 'already-in-dynasty');
+  // default law = gavelkind (RAW) when none given + no realmType
+  const c2 = mkDynC(); mkChar(c2, { id: 'g', name: 'Gwen' });
+  ok('default succession law is gavelkind (RAW)', ACKS.foundDynasty(c2, 'g', { name: 'G' }).successionLaw === 'gavelkind');
+  // realmType roll picks from the d6 table
+  const c3 = mkDynC(); mkChar(c3, { id: 'h', name: 'Hrok', race: 'beastman' });
+  ok('a realmType rolls a starting law from the table', ['tanistry', 'open'].includes(ACKS.foundDynasty(c3, 'h', { name: 'H', realmType: 'beastman', rng: RNG0 }).successionLaw));
+  // deceased guard
+  const c4 = mkDynC(); const dead = mkChar(c4, { id: 'd', name: 'Dead', extra: { alive: false, lifecycleState: 'deceased' } });
+  ok('a deceased character cannot found a dynasty', (ACKS.foundDynasty(c4, 'd', {}) || {}).error === 'founder-deceased');
+}
+
+section('CL-4b dynasty — kinship + birthChild (bastard, caps, membership, trait dice)');
+{
+  const c = mkDynC();
+  const k = mkChar(c, { id: 'k', name: 'Aelric', race: 'human' });
+  const q = mkChar(c, { id: 'q', name: 'Mira', race: 'human' });
+  const dyn = ACKS.foundDynasty(c, 'k', { name: 'Vane', successionLaw: 'primogeniture' });
+  const marr = ACKS.recordKinship(c, { kinType: 'marriage', aCharacterId: 'k', bCharacterId: 'q' });
+  ok('marriage relation is recorded (kin-)', marr && marr.id.indexOf('kin-') === 0 && marr.kinType === 'marriage');
+  ok('spouse reads back', ACKS.characterSpouses(c, 'k').some(s => s.id === 'q'));
+  ok('marriage emits kinship-recorded', c.eventLog.some(e => e.event.kind === 'kinship-recorded'));
+  c.currentTurn = 2;
+  const heir = ACKS.birthChild(c, { motherCharacterId: 'q', fatherCharacterId: 'k', name: 'Edric', rng: RNG6 });
+  ok('a legitimate child: not a bastard, in the father’s dynasty, noble, birthTurn stamped', heir && heir.bastard === false && heir.dynastyId === dyn.id && heir.noble === true && heir.birthTurn === 2);
+  ok('the child joins the dynasty members', dyn.memberCharacterIds.includes(heir.id));
+  ok('parent-child kinships recorded (both parents)', ACKS.charactersChildren(c, 'k').some(x => x.id === heir.id) && ACKS.charactersChildren(c, 'q').some(x => x.id === heir.id));
+  ok('the mother’s pregnancy count incremented', q.pregnancies === 1);
+  // bastard: a child whose parents are not spouses
+  const lover = mkChar(c, { id: 'l', name: 'Sera' });
+  const bast = ACKS.birthChild(c, { motherCharacterId: 'l', fatherCharacterId: 'k', name: 'Bram', rng: RNG6 });
+  ok('a child of non-spouses is a bastard (mother’s dynasty: none → null)', bast.bastard === true && bast.dynastyId === null);
+  ok('a bastard of a noble parent is still noble (never lowborn)', bast.noble === true);
+  // pregnancy cap (elf = 2)
+  const ec = mkDynC(); const em = mkChar(ec, { id: 'em', race: 'elf' }); const ef = mkChar(ec, { id: 'ef', race: 'elf' });
+  ACKS.recordKinship(ec, { kinType: 'marriage', aCharacterId: 'em', bCharacterId: 'ef' }); ACKS.foundDynasty(ec, 'ef', { name: 'Silvar' });
+  ACKS.birthChild(ec, { motherCharacterId: 'em', fatherCharacterId: 'ef', rng: RNG6 });
+  ACKS.birthChild(ec, { motherCharacterId: 'em', fatherCharacterId: 'ef', rng: RNG6 });
+  ok('the racial pregnancy cap is enforced (elf 2 → 3rd refused)', (ACKS.birthChild(ec, { motherCharacterId: 'em', fatherCharacterId: 'ef', rng: RNG6 }) || {}).error === 'pregnancy-cap-reached' && em.pregnancies === 2);
+  // matrilineal marriage → children take the mother's dynasty
+  const mc = mkDynC(); const mm = mkChar(mc, { id: 'mm', name: 'Ruler' }); const fm = mkChar(mc, { id: 'fm', name: 'Consort' });
+  const md = ACKS.foundDynasty(mc, 'mm', { name: 'Matriline' });
+  ACKS.recordKinship(mc, { kinType: 'marriage', aCharacterId: 'mm', bCharacterId: 'fm', matrilineal: true });
+  const mch = ACKS.birthChild(mc, { motherCharacterId: 'mm', fatherCharacterId: 'fm', name: 'Issa', rng: RNG6 });
+  ok('matrilineal: child takes the mother’s dynasty + is legitimate', mch.dynastyId === md.id && mch.bastard === false);
+  // trait dice
+  const tc = mkDynC(); const ta = mkChar(tc, { id: 'ta' }); ACKS.foundDynasty(tc, 'ta', { name: 'A' }); ACKS.dynastyById(tc, ta.dynastyId).bloodlineTraits = ['STR'];
+  const tb = mkChar(tc, { id: 'tb' }); ACKS.foundDynasty(tc, 'tb', { name: 'B' }); ACKS.dynastyById(tc, tb.dynastyId).bloodlineTraits = ['STR'];
+  ok('child ability dice: 1 parent trait → 4d6k3, both → 5d6k3, none → 3d6',
+    ACKS.dynastyChildAbilityDice(tc, 'ta', 'x', 'STR') === '4d6k3' && ACKS.dynastyChildAbilityDice(tc, 'ta', 'tb', 'STR') === '5d6k3' && ACKS.dynastyChildAbilityDice(tc, 'ta', 'tb', 'INT') === '3d6');
+  // a duplicate parent-child link is idempotent
+  const dc = mkDynC(); mkChar(dc, { id: 'p' }); mkChar(dc, { id: 'ch' });
+  const r1 = ACKS.recordKinship(dc, { kinType: 'parent-child', aCharacterId: 'p', bCharacterId: 'ch' });
+  const r2 = ACKS.recordKinship(dc, { kinType: 'parent-child', aCharacterId: 'p', bCharacterId: 'ch' });
+  ok('a duplicate parent-child kinship is idempotent', r1 === r2 && dc.kinships.length === 1);
+}
+
+section('CL-4b dynasty — succession resolution per law');
+{
+  // primogeniture → eldest child; ultimogeniture → youngest child
+  function lineWithTwoChildren(law) {
+    const c = mkDynC(); const k = mkChar(c, { id: 'k', name: 'King' }); ACKS.foundDynasty(c, 'k', { name: 'L', successionLaw: law });
+    c.currentTurn = 2; const elder = ACKS.birthChild(c, { motherCharacterId: 'k', fatherCharacterId: 'k', name: 'Elder', rng: RNG6 });
+    c.currentTurn = 5; const younger = ACKS.birthChild(c, { motherCharacterId: 'k', fatherCharacterId: 'k', name: 'Younger', rng: RNG6 });
+    k.alive = false; k.lifecycleState = 'deceased';
+    return { c, dynId: k.dynastyId, elder, younger, res: ACKS.resolveDynastySuccession(c, k.dynastyId, { deceasedId: 'k' }) };
+  }
+  const prim = lineWithTwoChildren('primogeniture');
+  ok('primogeniture → the eldest child (born first)', prim.res.heirId === prim.elder.id);
+  const ult = lineWithTwoChildren('ultimogeniture');
+  ok('ultimogeniture → the youngest child (born last)', ult.res.heirId === ult.younger.id);
+  ok('the heir extends the heir-line', prim.c.dynasties[0].heirLine.includes(prim.elder.id) && prim.c.dynasties[0].heirLine[0] === 'k');
+  ok('succession emits succession-resolved + the heir gets a history entry', prim.c.eventLog.some(e => e.event.kind === 'succession-resolved') && (prim.elder.history || []).some(h => h.type === 'succession-resolved'));
+
+  // seniority → eldest living member (by age)
+  {
+    const c = mkDynC();
+    const a = mkChar(c, { id: 'a', name: 'A', age: 60 }); ACKS.foundDynasty(c, 'a', { name: 'S', successionLaw: 'seniority' });
+    const b = mkChar(c, { id: 'b', name: 'B', age: 40 }); const d = mkChar(c, { id: 'd', name: 'D', age: 20 });
+    const dyn = ACKS.dynastyById(c, a.dynastyId); dyn.memberCharacterIds.push('b', 'd'); b.dynastyId = dyn.id; d.dynastyId = dyn.id;
+    a.alive = false; a.lifecycleState = 'deceased';
+    ok('seniority → the eldest living member', ACKS.resolveDynastySuccession(c, dyn.id, { deceasedId: 'a' }).heirId === 'b');
+  }
+  // open → most-powerful (highest level)
+  {
+    const c = mkDynC();
+    const a = mkChar(c, { id: 'a', extra: { level: 6 } }); ACKS.foundDynasty(c, 'a', { name: 'O', successionLaw: 'open' });
+    const b = mkChar(c, { id: 'b', extra: { level: 9 } }); const d = mkChar(c, { id: 'd', extra: { level: 3 } });
+    const dyn = ACKS.dynastyById(c, a.dynastyId); dyn.memberCharacterIds.push('b', 'd'); b.dynastyId = dyn.id; d.dynastyId = dyn.id;
+    a.alive = false; a.lifecycleState = 'deceased';
+    ok('open → the most powerful descendant (highest level)', ACKS.resolveDynastySuccession(c, dyn.id, { deceasedId: 'a' }).heirId === 'b');
+  }
+  // feudal-elective → the nominee + the +2 vassal-loyalty bonus
+  {
+    const c = mkDynC();
+    const a = mkChar(c, { id: 'a', extra: { level: 8 } }); ACKS.foundDynasty(c, 'a', { name: 'E', successionLaw: 'feudal-elective' });
+    const b = mkChar(c, { id: 'b', extra: { level: 2 } }); const dyn = ACKS.dynastyById(c, a.dynastyId); dyn.memberCharacterIds.push('b'); b.dynastyId = dyn.id;
+    a.alive = false; a.lifecycleState = 'deceased';
+    const res = ACKS.resolveDynastySuccession(c, dyn.id, { deceasedId: 'a', nominee: 'b' });
+    ok('feudal-elective → the GM’s nominee + the +2 vassal-loyalty bonus', res.heirId === 'b' && res.vassalLoyaltyBonus === 2);
+    ok('dynastyVassalLoyaltyBonus reads the current law’s bonus', ACKS.dynastyVassalLoyaltyBonus(c, dyn.id) === 2);
+    ok('gavelkind succession carries the divides flag', (function () { const cc = mkDynC(); const x = mkChar(cc, { id: 'x' }); ACKS.foundDynasty(cc, 'x', { name: 'G', successionLaw: 'gavelkind' }); cc.currentTurn = 2; ACKS.birthChild(cc, { motherCharacterId: 'x', fatherCharacterId: 'x', rng: RNG6 }); x.alive = false; x.lifecycleState = 'deceased'; return ACKS.resolveDynastySuccession(cc, x.dynastyId, { deceasedId: 'x' }).divides === true; })());
+  }
+  // extinction — no living heir
+  {
+    const c = mkDynC(); const last = mkChar(c, { id: 'last', name: 'Last' }); ACKS.foundDynasty(c, 'last', { name: 'Doomed' });
+    last.alive = false; last.lifecycleState = 'deceased';
+    const res = ACKS.resolveDynastySuccession(c, last.dynastyId, { deceasedId: 'last' });
+    ok('no living heir → the dynasty goes extinct (the game ends)', res.dynastyExtinct === true && res.heirId === null && ACKS.dynastyById(c, last.dynastyId).status === 'extinct');
+  }
+}
+
+section('CL-4b dynasty — bloodline trait over 3 generations (AXIOMS 19)');
+{
+  const c = mkDynC();
+  const g1 = mkChar(c, { id: 'g1', name: 'G1', age: 60, abilities: { STR: 15, INT: 10, WIL: 10, DEX: 10, CON: 10, CHA: 10 } });
+  const dyn = ACKS.foundDynasty(c, 'g1', { name: 'Strongarm', successionLaw: 'seniority' });
+  const g2 = mkChar(c, { id: 'g2', name: 'G2', age: 40, abilities: { STR: 14, INT: 10, WIL: 10, DEX: 10, CON: 10, CHA: 10 } });
+  const g3 = mkChar(c, { id: 'g3', name: 'G3', age: 20, abilities: { STR: 16, INT: 10, WIL: 10, DEX: 10, CON: 10, CHA: 10 } });
+  dyn.memberCharacterIds.push('g2', 'g3'); g2.dynastyId = dyn.id; g3.dynastyId = dyn.id;
+  ACKS.recordKinship(c, { kinType: 'parent-child', aCharacterId: 'g1', bCharacterId: 'g2' });
+  ACKS.recordKinship(c, { kinType: 'parent-child', aCharacterId: 'g2', bCharacterId: 'g3' });
+  ok('a dynasty starts with no bloodline trait', dyn.bloodlineTraits.length === 0);
+  ok('eligibility is null before the 3rd generation joins the heir-line', ACKS.dynastyEligibleBloodlineTrait(c, dyn.id) === null);
+  g1.alive = false; g1.lifecycleState = 'deceased'; ACKS.resolveDynastySuccession(c, dyn.id, { deceasedId: 'g1' }); // heir g2
+  g2.alive = false; g2.lifecycleState = 'deceased'; const r = ACKS.resolveDynastySuccession(c, dyn.id, { deceasedId: 'g2' }); // heir g3 → 3-gen line
+  ok('after 3 generations sharing STR ≥ 13 the dynasty earns the STR bloodline trait', dyn.bloodlineTraits.includes('STR') && r.awardedTrait === 'STR');
+  ok('a child then rolls 4d6-keep-best-3 for the trait ability', ACKS.dynastyChildAbilityDice(c, 'g3', 'x', 'STR') === '4d6k3');
+  ok('a dynasty earns only ONE bloodline trait (the AXIOMS cap)', (function () { ACKS.dynastyEligibleBloodlineTrait(c, dyn.id); return dyn.bloodlineTraits.length === 1; })());
+}
+
+section('CL-4b dynasty — succession-law change (2d4 months) + the monthly clock');
+{
+  const c = mkDynC();
+  const k = mkChar(c, { id: 'k', name: 'King', age: 40 }); ACKS.foundDynasty(c, 'k', { name: 'V', successionLaw: 'primogeniture' });
+  const dyn = ACKS.dynastyById(c, k.dynastyId);
+  // immediate (GM expedite)
+  const imm = ACKS.setSuccessionLaw(c, dyn.id, 'seniority', { immediate: true });
+  ok('immediate change applies now', imm.applied === true && dyn.successionLaw === 'seniority');
+  ok('an unknown law is rejected', (ACKS.setSuccessionLaw(c, dyn.id, 'not-a-law', {}) || {}).error === 'unknown-law');
+  // pending (2d4 months)
+  const lc = ACKS.setSuccessionLaw(c, dyn.id, 'feudal-elective', { rng: RNG6 }); // 2d4 with d4→4 → 8 months
+  ok('a normal change is pending for 2d4 months (RNG6 → 4+4 = 8)', lc.months === 8 && lc.completesTurn === (c.currentTurn + 8) && dyn.pendingSuccessionLaw === 'feudal-elective' && dyn.successionLaw === 'seniority');
+  // the clock: before the completion turn → still the old law
+  c.currentTurn = lc.completesTurn - 1; ACKS.processAgingForTurn(c, { rng: RNG_HI });
+  ok('before the completion turn the law has not changed', dyn.successionLaw === 'seniority' && dyn.pendingSuccessionLaw === 'feudal-elective');
+  // at the completion turn → the law flips (folded into processAgingForTurn)
+  c.currentTurn = lc.completesTurn; const aged = ACKS.processAgingForTurn(c, { rng: RNG_HI });
+  ok('at the completion turn the monthly clock flips the law (the processAgingForTurn fold)', dyn.successionLaw === 'feudal-elective' && dyn.pendingSuccessionLaw === null && (aged.dynasty.lawChanges || []).length === 1);
+  // dry-run mutates nothing
+  const c2 = mkDynC(); const k2 = mkChar(c2, { id: 'k2', age: 40 }); ACKS.foundDynasty(c2, 'k2', { name: 'W' });
+  const d2 = ACKS.dynastyById(c2, k2.dynastyId); ACKS.setSuccessionLaw(c2, d2.id, 'open', { rng: RNG0 }); // d4→1 → 2 months
+  c2.currentTurn = c2.currentTurn + 2; const pre = d2.successionLaw;
+  const dry = ACKS.processAgingForTurn(c2, { dryRun: true, rng: RNG_HI });
+  ok('dry-run reports the pending change but mutates nothing', d2.successionLaw === pre && d2.pendingSuccessionLaw === 'open' && (dry.dynasty.lawChanges || []).length === 1);
+}
+
+section('CL-4b dynasty — rule-gating + migrate-no-op');
+{
+  // processDynastyForTurn no-ops when the rule is off (even with a pending change present)
+  const c = mkDynC(); const k = mkChar(c, { id: 'k', age: 40 }); ACKS.foundDynasty(c, 'k', { name: 'V' });
+  const dyn = ACKS.dynastyById(c, k.dynastyId); ACKS.setSuccessionLaw(c, dyn.id, 'open', { rng: RNG0 }); // 2 months
+  c.houseRules = {}; c.currentTurn = c.currentTurn + 5; // rule now OFF, well past completion
+  const off = ACKS.processDynastyForTurn(c, {});
+  ok('the law-change clock no-ops when dynasty-tracking is OFF (principle 8)', off.lawChanges.length === 0 && dyn.successionLaw !== 'open');
+  // migrate-no-op: the demo carries no dynasties/kinships; migrate does not inject them
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('migrateCampaign does NOT inject dynasties/kinships (no-op invariant)', !('dynasties' in demo) && !('kinships' in demo));
+  ok('no demo character carries a dynastyId', demo.characters.every(c => c.dynastyId == null || c.dynastyId === undefined));
+}
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? '✅' : '❌') + ' lifecycle.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('   failures: ' + failures.join(' · ')); process.exit(1); }
