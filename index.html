@@ -18060,7 +18060,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- mode selector -->
     <div class="flex gap-2 text-sm flex-wrap">
-      <template x-for="m in [{k:'roster',l:'🏘 Settlement roster'},{k:'entourage',l:'👑 Ruler&#39;s court'},{k:'party',l:'🎒 NPC party'}]" :key="m.k">
+      <template x-for="m in genBatchModes" :key="m.k">
         <button @click="genBatch.mode=m.k; genBatchClear()"
           :class="genBatch.mode===m.k ? 'bg-yellow-300 border-ink font-semibold' : 'border-ink/40 hover:bg-yellow-100'"
           class="px-3 py-1 border-2 rounded" x-text="m.l"></button>
@@ -20150,6 +20150,9 @@ return {
   // SD-2b auto-fill. Reuses G1's genClassOptions() / genSettlementOptions().
   genBatch: { mode:'roster', settlementId:'', domainId:'', count:6, minLevel:'', maxLevel:'', classKey:'',
     race:'', detailLevel:'full', seed:'', useCensusSlots:false, leaderLevel:5, companions:3, partyName:'' },
+  // the three batch modes (in JS, so the apostrophe in "Ruler's court" is safe — an Alpine attribute
+  // expression is HTML-decoded first, so an inline &#39; would break the string literal).
+  genBatchModes: [{ k:'roster', l:'🏘 Settlement roster' }, { k:'entourage', l:"👑 Ruler's court" }, { k:'party', l:'🎒 NPC party' }],
   genBatchPreview: [],
   genBatchSeed: null,
   genBatchPartyName: '',
