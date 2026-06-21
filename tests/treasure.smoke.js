@@ -20,7 +20,10 @@ function ok(name, cond, detail){ if(cond){ pass++; } else { fail++; failures.pus
 function section(t){ console.log('\n--- ' + t + ' ---'); }
 // Deterministic PRNG (mulberry32) — no Math.random in the suite, so failures reproduce.
 function mb(seed){ let a = seed >>> 0; return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-function freshCampaign(extra){ return Object.assign({ currentTurn:3, currentDayInMonth:1, calendar:{ year:1, month:1, day:1 }, stashes:[], characters:[], eventLog:[], notableItems:[], itemCustody:[], houseRules:{}, lairs:[] }, extra || {}); }
+function freshCampaign(extra){ return Object.assign({ currentTurn:3, currentDayInMonth:1, calendar:{ year:1, month:1, day:1 }, stashes:[], characters:[], confinements:[], eventLog:[], notableItems:[], itemCustody:[], houseRules:{}, lairs:[] }, extra || {}); }
+// Find a Type-R hoard that carries at least one captive (R's ep/pp/regalia captive bands miss
+// most of the time), deterministically, so the captive assertions are seed-robust.
+function captiveHoard(){ for(let s=0;s<800;s++){ const h = ACKS.generateHoard({ treasureType:'R', rng: mb(5000+s) }); ACKS.applySpecialTreasures(h, { rng: mb(6000+s) }); if(h.captives.length) return h; } return null; }
 
 // =============================================================================
 section('Exports present (catalog + roll engine + materializer)');
@@ -322,6 +325,133 @@ ok('reproduces with fixed rng (deterministic specialTreasures + coins)', JSON.st
 // A different seed substitutes a different set (the lot rolls are real, not constant).
 const tlC = buildTypeL(); ACKS.applySpecialTreasures(tlC, { rng: mb(99) });
 ok('a different rng → a different substitution set (real d20 lot rolls)', JSON.stringify(tlA.specialTreasures) !== JSON.stringify(tlC.specialTreasures) || JSON.stringify(tlA.coins) !== JSON.stringify(tlC.coins));
+
+// =============================================================================
+section('Wave-C — confinements: the captive↔captor relation (cnf-) + lifecycle');
+// =============================================================================
+// Exports + self-registration (FROM the treasure module via the PR #89/#90 kernel).
+['blankConfinement','createConfinement','findConfinement','confinementsForCaptive','confinementForCaptive',
+ 'confinementsForCaptor','activeConfinements','ransomConfinement','releaseConfinement','captiveEscapes',
+ 'confinementEscapeChance','proposeConfinementEscapeDay','commitConfinementRecord','processConfinementsForTurn']
+  .forEach(k => ok('export ' + k, typeof ACKS[k] === 'function'));
+ok('self-reg: cnf- prefix registered FROM the module', ACKS.ID_PREFIXES && ACKS.ID_PREFIXES.confinement === 'cnf');
+ok('self-reg: confinements collection registered', ACKS.registeredCollections().some(c => c.name === 'confinements'));
+ok('self-reg: confinements is defensive-read (NOT migrate-injected — template no-op enabler)',
+  !ACKS.lazyDefaultCollections().includes('confinements') && ACKS.seededCollections().includes('confinements'));
+ok('self-reg: confinement entity-kind registered (⛓)', !!(ACKS.ENTITY_KINDS && ACKS.ENTITY_KINDS.confinement) && ACKS.entityIcon('confinement') === '⛓');
+ok('self-reg: confinement field-schema registered (factory blankConfinement)', ACKS.FIELD_SCHEMAS.confinement && ACKS.FIELD_SCHEMAS.confinement.factory === 'blankConfinement');
+['captive-ransomed','captive-released','captive-escaped'].forEach(k => {
+  ok('self-reg: event kind ' + k + ' known', typeof ACKS.isEventKindKnown === 'function' && ACKS.isEventKindKnown(k));
+  ok('self-reg: ' + k + ' is wizard-opt-out (owned by the verbs)', ACKS.isWizardEmittable(k) === false);
+});
+// schema ⊆ factory (the local mirror of the global invariant in smoke.js — catches drift here).
+{ const fk = new Set(Object.keys(ACKS.blankConfinement({})));
+  const extras = ACKS.FIELD_SCHEMAS.confinement.fields.filter(f => f.type !== 'computed').map(f => f.name).filter(n => !fk.has(n));
+  ok('confinement schema fields ⊆ blankConfinement keys', extras.length === 0, 'extras: [' + extras.join(', ') + ']'); }
+
+// blankConfinement shape + the relation-end-field invariant (resolvedAtTurn emitted from creation).
+const cb = ACKS.blankConfinement({ captiveCharacterId:'chr-x', ransomValueGp:500 });
+ok('blankConfinement: kind/status/type defaults + ransom + end-fields-from-creation', cb.kind === 'confinement' && cb.status === 'held' && cb.confinementType === 'ransom' && cb.ransomValueGp === 500 && cb.resolvedAtTurn === null && cb.resolution === null && cb.lastEscapeCheckTurn === null);
+
+// materializeHoard auto-lifts each captive into a confinement.
+const cCamp = freshCampaign();
+const cHoard = captiveHoard();
+ok('found a captive-bearing R hoard', !!cHoard && cHoard.captives.length > 0);
+const cRes = ACKS.materializeHoard(cCamp, cHoard, { hexId:'hex-cnf' });
+ok('materialize returns a confinements[] (count = captives)', Array.isArray(cRes.confinements) && cRes.confinements.length === cHoard.captives.length);
+ok('one confinement per captive on campaign.confinements', cCamp.confinements.length === cHoard.captives.length);
+const cf = cCamp.confinements[0];
+ok('confinement shape: held + ransom + value + captiveId + hex + confinedAtTurn', cf.status === 'held' && cf.confinementType === 'ransom' && cf.ransomValueGp > 0 && cf.captiveCharacterId === cRes.captives[0].id && cf.hexId === 'hex-cnf' && cf.confinedAtTurn === cCamp.currentTurn);
+ok('confinement carries the treasure provenance', cf.source && cf.source.kind === 'treasure');
+ok('captive Character is imprisoned + ransomValueGp denormalized', cRes.captives[0].lifecycleState === 'imprisoned' && cRes.captives[0].ransomValueGp === cf.ransomValueGp);
+ok('treasure-generated event reports confinementCount', cRes.event.payload.confinementCount === cHoard.captives.length);
+
+// Lookups (reverse indices computed).
+ok('findConfinement', ACKS.findConfinement(cCamp, cf.id) === cf);
+ok('confinementsForCaptive', ACKS.confinementsForCaptive(cCamp, cf.captiveCharacterId)[0] === cf);
+ok('confinementForCaptive (the active one)', ACKS.confinementForCaptive(cCamp, cf.captiveCharacterId) === cf);
+ok('activeConfinements lists held ones', ACKS.activeConfinements(cCamp).length === cCamp.confinements.length);
+
+// lair-hoard → the captor is the lair.
+const cnfLairCamp = freshCampaign();
+const cnfLair = ACKS.blankLair({ name:'Slaver Den', hexId:'hex-l', treasureType:'R' }); cnfLairCamp.lairs.push(cnfLair);
+let cnfLr = null; for(let s=0;s<400 && !cnfLr;s++){ const r = ACKS.generateHoardForLair(cnfLairCamp, cnfLair.id, { withSpecialTreasures:true, rng: mb(9000+s) }); if(r && r.confinements && r.confinements.length){ cnfLr = r; } else { cnfLairCamp.confinements = []; cnfLairCamp.characters = []; cnfLairCamp.stashes = []; cnfLairCamp.eventLog = []; } }
+ok('generateHoardForLair lifts captives bound to the lair captor', !!cnfLr && cnfLr.confinements[0].captor && cnfLr.confinements[0].captor.kind === 'lair' && cnfLr.confinements[0].captor.id === cnfLair.id);
+
+// Ransom — frees the captive, status ransomed, event, guarded re-ransom.
+const r1 = ACKS.ransomConfinement(cCamp, cf.id);
+ok('ransom ok', r1.ok === true);
+ok('ransom: status ransomed + resolution + resolvedAtTurn', cf.status === 'ransomed' && cf.resolution === 'ransomed' && cf.resolvedAtTurn === cCamp.currentTurn);
+ok('ransom frees the captive (imprisoned → active)', cCamp.characters.find(c => c.id === cf.captiveCharacterId).lifecycleState === 'active');
+ok('ransom emits captive-ransomed (in the eventLog)', r1.event && r1.event.kind === 'captive-ransomed' && cCamp.eventLog.some(e => e.event.kind === 'captive-ransomed'));
+ok('ransom amount = the confinement ransom value by default', r1.amountGp === cf.ransomValueGp);
+ok('re-ransoming a resolved confinement is guarded', ACKS.ransomConfinement(cCamp, cf.id).ok === false);
+
+// Ransom → a character captor: gp flows to that captor (GP Wave B).
+const rcCamp = freshCampaign();
+const captor = ACKS.blankCharacter({ name:'Lord Captor', coins:{ pp:0, gp:0, ep:0, sp:0, cp:0 } });
+rcCamp.characters.push(captor);
+const prisoner = ACKS.blankCharacter({ name:'Prisoner', lifecycleState:'imprisoned', currentHexId:'hex-y' });
+rcCamp.characters.push(prisoner);
+const rcConf = ACKS.createConfinement(rcCamp, { captiveCharacterId: prisoner.id, captor:{ kind:'character', id: captor.id, label:'Lord Captor' }, ransomValueGp:1000, hexId:'hex-y' });
+const capGpBefore = (captor.coins && captor.coins.gp) || captor.personalGp || 0;
+const r2 = ACKS.ransomConfinement(rcCamp, rcConf.id);
+const capGpAfter = (rcCamp.characters[0].coins && rcCamp.characters[0].coins.gp) || rcCamp.characters[0].personalGp || 0;
+ok('ransom → character captor: gp flows to the captor (+1000)', r2.ok && (capGpAfter - capGpBefore) === 1000);
+
+// Release — frees the captive, no payment.
+const relCamp = freshCampaign();
+const relP = ACKS.blankCharacter({ name:'RelP', lifecycleState:'imprisoned' }); relCamp.characters.push(relP);
+const relConf = ACKS.createConfinement(relCamp, { captiveCharacterId: relP.id, ransomValueGp:200 });
+const r3 = ACKS.releaseConfinement(relCamp, relConf.id);
+ok('release ok + status released + frees the captive + event', r3.ok && relConf.status === 'released' && relConf.resolution === 'released' && relP.lifecycleState === 'active' && r3.event.kind === 'captive-released');
+
+// Escape — the monthly seeded check (slot-70 day-consumer / processConfinementsForTurn).
+const escCamp = freshCampaign();
+const escP = ACKS.blankCharacter({ name:'EscP', lifecycleState:'imprisoned', currentHexId:'hex-e' }); escCamp.characters.push(escP);
+const escConf = ACKS.createConfinement(escCamp, { captiveCharacterId: escP.id, ransomValueGp:300, escapeChanceMonthly:1 });
+const escProp = ACKS.processConfinementsForTurn(escCamp, {});
+ok('escape (chance 1): status escaped + frees captive + lastEscapeCheckTurn stamped', escConf.status === 'escaped' && escConf.resolution === 'escaped' && escP.lifecycleState === 'active' && escConf.lastEscapeCheckTurn === escCamp.currentTurn);
+ok('escape emits captive-escaped (carries the roll + chance)', escCamp.eventLog.some(e => e.event.kind === 'captive-escaped') && escProp.pendingRecords.length === 1);
+
+// Escape chance 0 → never escapes, but the cadence gate IS stamped (so the month isn't re-rolled).
+const noEsc = freshCampaign();
+const neP = ACKS.blankCharacter({ name:'NeP', lifecycleState:'imprisoned' }); noEsc.characters.push(neP);
+const neConf = ACKS.createConfinement(noEsc, { captiveCharacterId: neP.id, escapeChanceMonthly:0 });
+ACKS.processConfinementsForTurn(noEsc, {});
+ok('escape chance 0: stays held + lastEscapeCheckTurn stamped', neConf.status === 'held' && neConf.lastEscapeCheckTurn === noEsc.currentTurn);
+ok('confinementEscapeChance clamps to [0,1]', ACKS.confinementEscapeChance(noEsc, { escapeChanceMonthly:5 }) === 1 && ACKS.confinementEscapeChance(noEsc, { escapeChanceMonthly:0 }) === 0);
+
+// Monthly cadence — re-running the same turn proposes nothing (the lastEscapeCheckTurn gate).
+const cadCamp = freshCampaign();
+const cadP = ACKS.blankCharacter({ name:'CadP', lifecycleState:'imprisoned' }); cadCamp.characters.push(cadP);
+const cadConf = ACKS.createConfinement(cadCamp, { captiveCharacterId: cadP.id, escapeChanceMonthly:0.5 });
+ACKS.processConfinementsForTurn(cadCamp, {});
+const reRun = ACKS.processConfinementsForTurn(cadCamp, { dryRun:true });
+ok('cadence: re-running the same turn proposes nothing (once-per-month gate)', reRun.pendingRecords.length === 0);
+cadCamp.currentTurn = 4;   // next month → the gate re-opens (if still held)
+ok('cadence: a new turn re-opens the check', cadConf.status !== 'held' || ACKS.processConfinementsForTurn(cadCamp, { dryRun:true }).pendingRecords.length === 1);
+
+// Seeded determinism — a dry-run reproduces the identical roll (byte-stable preview).
+const seedCamp = freshCampaign();
+const seedP = ACKS.blankCharacter({ name:'SeedP', lifecycleState:'imprisoned' }); seedCamp.characters.push(seedP);
+ACKS.createConfinement(seedCamp, { captiveCharacterId: seedP.id, escapeChanceMonthly:0.5 });
+const d1 = ACKS.processConfinementsForTurn(seedCamp, { dryRun:true }).pendingRecords[0];
+const d2 = ACKS.processConfinementsForTurn(seedCamp, { dryRun:true }).pendingRecords[0];
+ok('escape preview is seeded byte-stable (dry-run twice → identical roll, no mutation)', d1.roll === d2.roll && seedCamp.confinements[0].status === 'held' && seedCamp.confinements[0].lastEscapeCheckTurn === null);
+
+// Slavery rule → confinementType slave; freeing a slave manumits (socialTier → independent).
+const slvCamp = freshCampaign({ houseRules: { slavery: { enabled: true } } });
+let slvH = null; for(let s=0;s<800 && !slvH;s++){ const h = ACKS.generateHoard({ treasureType:'R', rng: mb(7000+s) }); ACKS.applySpecialTreasures(h, { rng: mb(7500+s) }); if(h.captives.length) slvH = h; }
+ok('found a captive hoard (slavery)', !!slvH);
+const slvRes = ACKS.materializeHoard(slvCamp, slvH, { hexId:'hex-slv' });
+const slvConf = slvCamp.confinements[0];
+ok('slavery rule ON → confinementType slave + captive socialTier slave', slvConf.confinementType === 'slave' && slvRes.captives[0].socialTier === 'slave');
+ACKS.releaseConfinement(slvCamp, slvConf.id);
+ok('freeing a slave manumits (socialTier slave → independent)', slvCamp.characters.find(c => c.id === slvConf.captiveCharacterId).socialTier === 'independent');
+
+// No new HOUSE RULE from this lane (RAW core — the escape check is tooling, not a gated rule).
+ok('NO confinement/captive/ransom house rule (RAW core; the lane adds none)', !ACKS.HOUSERULES_REGISTRY || !ACKS.HOUSERULES_REGISTRY.some(r => /confine|captiv|ransom/i.test(r.id)));
 
 // =============================================================================
 section('Summary');
