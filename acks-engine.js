@@ -10792,6 +10792,47 @@ function isSiteEligibleForKind(campaign, hex, kind, subtype){
   return { eligible:true, reason:null };
 }
 
+// ── Construction Wave G — builder class-restriction advisory (RR pp.386–388 + JJ p.121; 2026-06-21) ──
+// The class-bound kinds (sanctum / dungeon / vault) carry a class-restriction. JJ p.121: anyone CAN build
+// any structure, so this NEVER blocks — it's a soft heads-up the Wizard surfaces. A kind's class-bound
+// downstream EFFECT only fires for the matching class:
+//   • sanctum / dungeon — an ARCANE caster of L9+ (RR p.386): a mage's sanctum draws apprentices/companions
+//     (attractToSanctum), a mage's (L9+) dungeon auto-attunes on completion (onDungeonConstructed). A
+//     non-mage builds the structure, but it draws nothing / isn't attuned until an eligible mage owns/attunes.
+//   • vault — a DWARVEN stronghold (RR p.353 / BTA): the Vaultguard/Craftpriest bonuses (the dwarven-
+//     civilization wave) apply only for a dwarf.
+// The "builder" is the owner character; for a domain-owned project we read the domain's ruler. Late-binds
+// isArcaneCaster (acks-engine-sanctums.js, loads after this). Returns { matched, advisory, ownerName }.
+function constructionBuilderClassAdvisory(campaign, opts){
+  opts = opts || {};
+  const kind = opts.kind;
+  if(kind !== 'sanctum' && kind !== 'dungeon' && kind !== 'vault') return { matched:true, advisory:'', ownerName:null };
+  const chars = (campaign && campaign.characters) || [];
+  let owner = null;
+  if(opts.ownerCharacterId) owner = chars.find(c => c && c.id === opts.ownerCharacterId) || null;
+  else if(opts.ownerDomainId){
+    const dom = (campaign && (campaign.domains || []).find(d => d && d.id === opts.ownerDomainId)) || null;
+    if(dom) owner = chars.find(c => c && c.id === dom.rulerCharacterId) || null;
+  }
+  const ownerName = owner ? (owner.name || owner.id) : null;
+  if(kind === 'vault'){
+    const isDwarf = !!owner && /dwarf|dwarven|vaultguard|craftpriest/i.test(((owner.race || '') + ' ' + (owner.class || '')));
+    if(isDwarf) return { matched:true, advisory:'', ownerName };
+    if(!owner)  return { matched:false, advisory:'A vault is a dwarven stronghold (RR p.353) — assign a dwarven Vaultguard/Craftpriest owner for the dwarven bonuses. It still builds without one.', ownerName:null };
+    return { matched:false, advisory:ownerName + ' is not a dwarf — the vault builds, but the dwarven Vaultguard/Craftpriest bonuses won’t apply (JJ p.121).', ownerName };
+  }
+  // sanctum / dungeon — arcane L9+
+  const A = global.ACKS || {};
+  const arcane = !!owner && typeof A.isArcaneCaster === 'function' && A.isArcaneCaster(owner);
+  const l9 = !!owner && (Number(owner.level) || 0) >= 9;
+  if(arcane && l9) return { matched:true, advisory:'', ownerName };
+  const effect   = (kind === 'sanctum') ? 'draws apprentices + companions' : 'auto-attunes the owner';
+  const fallback = (kind === 'sanctum') ? 'draws no apprentices until an arcane caster owns it' : 'won’t attune until an arcane L9+ caster attunes to it';
+  if(!owner) return { matched:false, advisory:'Assign an arcane caster (L9+) owner so the ' + kind + ' ' + effect + ' on completion (RR p.386). It still builds without one.', ownerName:null };
+  const why = !arcane ? (ownerName + ' is not an arcane caster') : (ownerName + ' is below 9th level');
+  return { matched:false, advisory:why + ' — the ' + kind + ' builds, but ' + fallback + ' (JJ p.121).', ownerName };
+}
+
 // ── Construction Wave C — Construction Wizard engine (the creation verb + forecast; 2026-06-18) ──
 // The day-tick consumer (proposeConstructionDay) already ADVANCES a structure Project — it accrues
 // totalDailyOutputCf(workerCounts) per day toward laborRequired, completes at laborRequired, and the
@@ -11881,7 +11922,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
   proposeConstructionDay, commitConstructionRecord,
   // Construction-specific helpers
-  isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind,
+  isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind, constructionBuilderClassAdvisory,
   tickConstructionByDays, tickConstructionMonthly,
   // Wave Construction-C — the Construction Wizard engine (creation verb + forecast; 2026-06-18)
   startConstructionProject, projectConstructionForecast, projectRequiresSupervisor, projectSupervisorCostAdequacy,

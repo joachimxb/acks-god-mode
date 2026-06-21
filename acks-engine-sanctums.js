@@ -765,6 +765,12 @@
     const masterId = opts.masterId || _sanctumMasterId(cst);
     const master = _findChar(campaign, masterId);
     if(!cst || !master) return { ok: false, reason: 'no-sanctum-or-master', companions: [], apprentices: [] };
+    // Wave G (RR p.386) — only an ARCANE caster draws apprentices + companions. A cross-class builder gets
+    // the sanctum Constructible (it still establishes — facilities scaffold + the sanctum-established event)
+    // but NO arcane attraction (JJ p.121: anyone CAN build; the class-bound effect only fires for a mage).
+    // Gating here covers both call sites — the initial draw (onSanctumConstructed) AND the yearly draw
+    // (processSanctumsForTurn); mirrors the dungeon's already-gated auto-attune (canOperateDungeon).
+    if(!isArcaneCaster(master)) return { ok: false, reason: 'master-not-arcane', companions: [], apprentices: [] };
     const rng = _rng(opts);
     const isInitial = opts.isInitial === true;
     const hexId = cst.hexId || master.currentHexId || null;
