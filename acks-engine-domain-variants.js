@@ -490,8 +490,10 @@ function processTerrainTransformationForTurn(campaign, opts) {
   if (!ruleOn) return out;
   out.ran = true;
   const turn = campaign.currentTurn || 1;
+  const onlyDomain = opts.domainId || null;                     // scope a manual UI apply to one domain (the monthly commit passes none ⇒ campaign-wide)
   for (const hex of campaign.hexes) {
     if (!hex) continue;
+    if (onlyDomain && hex.domainId !== onlyDomain) continue;
     if (terrainBaseOf(hex.terrain) === 'water') continue;       // no transformation for open water
     if (!raceTransformsLand(hex.dominantFamilyRace)) continue;  // dwarven/gnomish/elven skip (RAW)
     const fam = Math.max(0, Number(hex.families) || 0);

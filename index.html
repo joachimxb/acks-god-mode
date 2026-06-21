@@ -5965,6 +5965,51 @@ document.addEventListener('alpine:init', () => {
               </template>
             </div>
             <!-- === end @b13-domvariants === -->
+            <!-- === @b14-domvariants (team) — Terrain Transformation panel (Phase 5 §4; JJ p.412) === -->
+            <div class="md:col-span-2 vellum border border-ink p-3 rounded">
+              <h2 class="font-bold text-lg mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
+              <p class="text-sm opacity-70 mb-2">As a hex's human/halfling/beastman population grows past <span class="font-mono">186</span> then <span class="font-mono">326</span> families, the land itself changes — deserts irrigated to grassland, forests cleared, swamps dredged, hills and mountains terraced (bidirectional: depopulation reverts). Dwarven/gnomish/elven hexes do not transform land. Enable <em>Terrain Transformation</em> in ⚙ House Rules to let the world evolve on the monthly turn.</p>
+              <template x-if="!terrainTransformRuleOn()">
+                <p class="text-sm italic opacity-60 mb-2">The <span class="font-mono">terrain-transformation</span> house rule is off — terrain is static (RAW default). The lineage below previews what would happen if it were enabled.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length === 0">
+                <p class="text-sm italic opacity-60">No populated land hexes in this domain.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length > 0">
+                <div>
+                  <table class="text-sm w-full">
+                    <thead>
+                      <tr class="text-left opacity-70 border-b border-ink/30">
+                        <th class="pr-2 py-1">Hex</th>
+                        <th class="pr-2 py-1 text-right">Families</th>
+                        <th class="pr-2 py-1 text-center" title="0 = natural (1–185) · 1 = 186–325 · 2 = 326–780 families">Stage</th>
+                        <th class="pr-2 py-1" title="The hex's original (pre-transformation) terrain">Natural</th>
+                        <th class="pr-2 py-1">Current</th>
+                        <th class="pr-2 py-1" title="What the hex will become on the next monthly turn (a stage crossing)">Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="h in domainTerrainTransformInfo(selectedDomain).hexes" :key="h.hexId">
+                        <tr class="border-b border-ink/10" :class="h.pending ? 'text-amber-800' : ''">
+                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
+                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
+                          <td class="pr-2 py-1 text-center font-mono" x-text="h.stage"></td>
+                          <td class="pr-2 py-1 opacity-70" x-text="h.transformed ? h.naturalLabel : '—'"></td>
+                          <td class="pr-2 py-1" x-text="h.currentLabel"></td>
+                          <td class="pr-2 py-1" x-text="h.pending ? ((h.pending.direction === 'reversion' ? '↩ ' : '→ ') + h.pending.toLabel) : '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                  <div class="mt-2 flex items-center gap-3" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length > 0">
+                    <span class="text-sm text-amber-800" x-text="domainTerrainTransformInfo(selectedDomain).pending.length + ' hex' + (domainTerrainTransformInfo(selectedDomain).pending.length === 1 ? '' : 'es') + ' will transform on the next monthly turn.'"></span>
+                    <button class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" @click="applyTerrainTransformations(selectedDomain)">Apply now</button>
+                  </div>
+                  <p class="text-sm italic opacity-60 mt-2" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length === 0">No hexes are crossing a transformation threshold.</p>
+                </div>
+              </template>
+            </div>
+            <!-- === end @b14-domvariants === -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
@@ -19658,6 +19703,53 @@ return {
   //      data props + methods AFTER its own @b14-<lane> marker (disjoint lines → clean merge at integration).
   //      UI markup goes in each lane's OWN subsystem region (disjoint — no marker needed there). ════
   // === @b14-domvariants  (team) — Domain Variants P5-TERR (Terrain Transformation): state + methods ===
+  // Thin Alpine pass-throughs over acks-engine-domain-variants.js (Phase 5 §4; JJ p.412). The terrain-
+  // transformation logic lives in the engine; these read it for the Economy-tab 🏔 panel. The processor
+  // recomputes on read (no stored UI state). Loads after the engine via window.ACKS.
+  terrainTransformRuleOn(){
+    return !!(this.currentCampaign && window.ACKS && window.ACKS.isHouseRuleEnabled
+      && window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'terrain-transformation'));
+  },
+  _terrainPairLabel(t){
+    if(!t || !t.terrain) return '—';
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    return cap(t.terrain) + (t.subtype ? ' (' + t.subtype + ')' : '');
+  },
+  // The per-domain terrain-transformation readout: each populated land hex's lineage (natural → current,
+  // with the population stage) + any pending stage-crossing (a dry-run, scoped to this domain).
+  domainTerrainTransformInfo(d){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !d || !A || !A.hexTerrainLineage) return { ruleOn:false, hexes:[], pending:[] };
+    const ruleOn = !!(A.isHouseRuleEnabled && A.isHouseRuleEnabled(c, 'terrain-transformation'));
+    const hexes = (A.hexesForDomain ? (A.hexesForDomain(c, d.id) || []) : [])
+      .filter(h => h && (Number(h.families) || 0) > 0 && A.terrainBase(h.terrain) !== 'water');
+    const pendingAll = (A.processTerrainTransformationForTurn
+      ? (A.processTerrainTransformationForTurn(c, { dryRun:true, domainId:d.id }).transformations || []) : []);
+    const pendByHex = {}; pendingAll.forEach(t => { pendByHex[t.hexId] = t; });
+    const rows = hexes.map(h => {
+      const lin = A.hexTerrainLineage(h);
+      const pend = pendByHex[h.id] || null;
+      return {
+        hexId: h.id,
+        hexLabel: (A.hexName && A.hexName(h)) || h.name || ((A.terrainBase(h.terrain) || 'hex') + (h.id ? ' · ' + h.id : '')),
+        families: lin.families, stage: lin.stage, transformed: lin.transformed,
+        naturalLabel: this._terrainPairLabel(lin.natural), currentLabel: this._terrainPairLabel(lin.current),
+        pending: pend ? { toLabel: this._terrainPairLabel({ terrain:pend.toTerrain, subtype:pend.toSubtype }), direction: pend.direction, toStage: pend.toStage } : null,
+      };
+    });
+    return { ruleOn, hexes: rows, pending: pendingAll };
+  },
+  // GM "Apply now": commit this domain's pending terrain transformations immediately (otherwise they
+  // apply on the next monthly turn — idempotent either way). Scoped to the domain via opts.domainId.
+  applyTerrainTransformations(d){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !d || !A || !A.processTerrainTransformationForTurn) return;
+    const r = A.processTerrainTransformationForTurn(c, { domainId:d.id });
+    const n = (r.transformations || []).length;
+    this.showToast(n > 0 ? ('🏔 ' + n + ' hex' + (n === 1 ? '' : 'es') + ' transformed (JJ p.412)') : 'No hexes crossed a transformation threshold');
+    if(typeof this.persistCampaignSoon === 'function') this.persistCampaignSoon();
+    else if(typeof this.saveToLocal === 'function') this.saveToLocal();
+  },
   // === @b14-construction (team) — Construction siege-support (circumvallation / war-machine field-assembly / siege-hijinks): state + methods ===
   // === @b14-politics     (team) — Politics P-5 generative Senate Wizard (materialize a populated senate): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
