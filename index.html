@@ -1148,7 +1148,8 @@ document.addEventListener('alpine:init', () => {
         <input type="text" x-model="dungeonsSearch" placeholder="Search name, hex…" class="w-56">
         <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
         <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
-        <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon (RR p.386) — a Construction Project that mints a Dungeon entity + auto-attunes an arcane L9+ owner; monsters then auto-arrive + lair within it via Vagaries of Incursion">🏗 Build a dungeon</button>
+        <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon INSTANTLY (RR p.386) — the admin shortcut: completes now, mints a Dungeon entity + auto-attunes an arcane L9+ owner. For a labor-paid build over time, use 🏗 Build over time.">🏗 Build a dungeon</button>
+        <button @click="openConstructionWizard({ kind:'dungeon', totalCost:30000 })" class="px-2 py-0.5 border border-ink rounded bg-purple-50 hover:bg-purple-100" title="Build a dungeon over time (RR p.386 / p.174) — the RAW-timed Construction Wizard: pay labor, advance the Day Clock, and it mints the Dungeon on completion (auto-attuning an arcane L9+ owner).">🏗 Build over time</button>
         <button @click="openWildForay()" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Abstract Wilderness foray (JJ ch.13) — resolve an expedition's combat against a lair or wandering monster on one roll; clearing a lair moves the hex toward secure (JJ p.68)">🗺 Wilderness foray</button>
       </div>
     </div>
@@ -2848,6 +2849,14 @@ document.addEventListener('alpine:init', () => {
           </label>
         </template>
       </div>
+
+      <!-- Wave G — builder class-restriction advisory (RR pp.386–388 + JJ p.121). Soft + non-blocking:
+           sanctum/dungeon want an arcane L9+ owner; a vault wants a dwarf. It never blocks the build. -->
+      <template x-if="constructionWizardClassAdvisory()">
+        <div class="border border-amber-400 rounded p-2 text-xs" style="background:rgba(245,158,11,.12)">
+          ⚠ <span x-text="constructionWizardClassAdvisory()"></span>
+        </div>
+      </template>
 
       <!-- Forecast -->
       <template x-if="constructionWizardForecast()">
@@ -12839,9 +12848,10 @@ document.addEventListener('alpine:init', () => {
           <div class="space-y-2">
             <p class="text-sm italic opacity-70 py-2">No sanctum. A sanctum (RR p.386 — a 15,000 gp stronghold) houses an arcane caster's research facilities and attracts apprentices &amp; companions who serve as research assistants.</p>
             <template x-if="canBuildSanctumUI(characterEditing)">
-              <div>
-                <button @click="establishSanctum(characterEditing)" :disabled="!characterEditing.currentHexId" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm disabled:opacity-40" title="Establish a completed sanctum at this character's hex (the Admin verb; RAW-timed construction lands with the Construction Wizard)">✨ Establish a sanctum here</button>
-                <span class="text-xs opacity-50 ml-2" x-show="!characterEditing.currentHexId">Set this character's hex (Location tab) first.</span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button @click="establishSanctum(characterEditing)" :disabled="!characterEditing.currentHexId" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm disabled:opacity-40" title="Establish a completed sanctum INSTANTLY at this character's hex (the admin shortcut). For a labor-paid build over time, use 🏗 Build over time.">✨ Establish (instant)</button>
+                <button @click="openConstructionWizard({ kind:'sanctum', ownerCharacterId: characterEditing.id, siteHexId: characterEditing.currentHexId || '', totalCost:15000 })" :disabled="!characterEditing.currentHexId" class="px-2 py-0.5 border border-ink rounded bg-purple-50 hover:bg-purple-100 text-sm disabled:opacity-40" title="Build a sanctum over time (RR p.386 / p.174) — the RAW-timed Construction Wizard: pay labor, advance the Day Clock, and it establishes + draws apprentices on completion.">🏗 Build over time</button>
+                <span class="text-xs opacity-50" x-show="!characterEditing.currentHexId">Set this character's hex (Location tab) first.</span>
               </div>
             </template>
             <template x-if="!canBuildSanctumUI(characterEditing)">
@@ -23410,16 +23420,22 @@ return {
   //    under-construction Project that the Day Clock / Advance Month builds toward completion. Launched
   //    from the Inspector Create→Project (Admin) + the Domain Stronghold tab (deep-link prefill). ──
   constructionWizardKinds(){
+    const A = window.ACKS, camp = this.currentCampaign;
+    const on = (id) => !!(camp && A.isHouseRuleEnabled && A.isHouseRuleEnabled(camp, id));
     return [
       { key:'stronghold-component', label:'Stronghold component (Keep, Tower, Wall…)' },
       { key:'settlement-building',  label:'Settlement building' },
       { key:'vessel',               label:'Vessel (ship / boat)' },
       { key:'war-machine',          label:'War machine (catapult, ballista, ram, siege tower…)' },  /* @b13-construction (Wave D) */
-      { key:'sanctum',              label:'Sanctum' },
-      { key:'dungeon',              label:'Dungeon' },
-      { key:'mine',                 label:'Mine' },
-      { key:'vault',                label:'Vault' },
-      { key:'hideout',              label:'Hideout' },
+      { key:'sanctum',              label:'Sanctum' },                                                       /* Wave G */
+      { key:'dungeon',              label:'Dungeon' },                                                       /* Wave G */
+      // Wave G — `mine` is the dwarven-mining subsystem's build surface; `vault` is a dwarven-civilization
+      // stronghold. Each is hidden when its house rule is OFF (CLAUDE §5.8 — off ⇒ hidden + non-functional;
+      // §6 polarity: these are supplement/content-pack kinds, default OFF). Existing built mines/vaults still
+      // render from their own data — gating only hides the picker option.
+      ...(on('dwarven-mining')       ? [{ key:'mine',  label:'Mine' }]  : []),
+      ...(on('dwarven-civilization') ? [{ key:'vault', label:'Vault' }] : []),
+      { key:'hideout',              label:'Hideout' },                                                       /* Wave G */
       { key:'field-fortification',  label:'Field fortification (palisade, rampart, ditch, border fort)' },  /* Wave H — renamed from 'fortification' to match the W5 border fort */
       { key:'civic-monument',       label:'Civic monument (statue, triumphal arch)' },                      /* Wave H */
       { key:'trap',                 label:'Trap' },                                                          /* Wave H */
@@ -23444,7 +23460,26 @@ return {
     if(k === 'trap')                 return 'A built trap (RR p.133). The builder needs the Trapping proficiency. Pick one, then set its cost.';
     if(k === 'field-fortification')  return 'A field work (RR p.133 + p.451). Pick one, then set its cost.';
     if(k === 'road')                 return 'A road, priced per mile ÷ the terrain movement multiplier (RR p.133). Pick a surface, then set the total cost.';
-    return 'Per-kind catalogs land in later waves — enter the RR cost for now.';
+    // Wave G — the class-bound + dwarven kinds (no fixed catalog: free-form cost + a class/site advisory).
+    if(k === 'sanctum')  return 'An arcane caster’s sanctum (RR p.386 — threshold 15,000gp). Owned by an arcane L9+ caster it draws apprentices + companions on completion; a non-mage can build the structure, but it draws no apprentices.';
+    if(k === 'dungeon')  return 'A built dungeon (RR p.386 — Structure Costs). On completion it mints a Dungeon and auto-attunes an arcane L9+ owner; monsters then arrive + lair within it (Vagaries of Incursion). The instant 🏗 Build a dungeon on the Arcane tab is the admin shortcut.';
+    if(k === 'mine')     return 'A mine — the physical workings (BTA Ch.8 / AXIOMS 17). Ore yield + royalties run through the domain economy (the dwarven-mining subsystem); this builds the structure. Best sited in hills / mountains.';
+    if(k === 'vault')    return 'A dwarven vault — an underground dwarven stronghold (RR p.353 / BTA). The Vaultguard / Craftpriest bonuses apply for a dwarf owner. Best sited in hills / mountains.';
+    if(k === 'hideout')  return 'A hideout (RR p.360 — threshold 5,000gp). A thief / assassin’s hideout anchors a crime syndicate (Hijinks); anyone can build the structure.';
+    return 'Enter the RR cost for the structure.';
+  },
+  // Wave G — the builder class-restriction advisory (RR pp.386–388 + JJ p.121). Soft + non-blocking: a
+  // sanctum/dungeon wants an arcane L9+ owner; a vault wants a dwarf. Returns the advisory string (or '' when
+  // matched / N/A). The modal shows it as an amber heads-up; the submit gate never reads it (anyone CAN build).
+  constructionWizardClassAdvisory(){
+    const cw = this.constructionWizard, A = window.ACKS;
+    if(cw.repairTargetId || !A.constructionBuilderClassAdvisory) return '';
+    const r = A.constructionBuilderClassAdvisory(this.currentCampaign, {
+      kind: cw.kind,
+      ownerCharacterId: cw.ownerKind === 'character' ? (cw.ownerCharacterId || null) : null,
+      ownerDomainId:    cw.ownerKind === 'domain'    ? (cw.ownerDomainId    || null) : null
+    });
+    return (r && !r.matched) ? r.advisory : '';
   },
   openConstructionWizard(prefill){
     prefill = prefill || {};
@@ -23553,8 +23588,12 @@ return {
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
     // A catalog-driven kind (stronghold-component / vessel / war-machine / settlement-building / the
-    // Wave-H kinds) re-fills its cost from the pick, so zero it on a kind switch; free-form kinds keep it.
+    // Wave-H kinds) re-fills its cost from the pick, so zero it on a kind switch. Wave G's free-form
+    // class-bound kinds get a sensible RAW default the GM adjusts (RR p.386 sanctum/dungeon, p.353 vault,
+    // p.360 hideout); any other free-form kind (mine — BTA-variable) resets to 0.
+    const G_DEFAULT = { sanctum:15000, dungeon:30000, vault:15000, hideout:5000 };
     if(cw.kind === 'stronghold-component' || this.constructionWizardHasCatalog()) cw.totalCost = 0;
+    else cw.totalCost = G_DEFAULT[cw.kind] || 0;
   },
   constructionWizardPickStructure(key){
     const cw = this.constructionWizard;
