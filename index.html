@@ -104,7 +104,7 @@
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-21-burst12"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
-<script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
+<script src="acks-engine-generators.js?v=2026-06-21-b12g2"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
@@ -18310,6 +18310,146 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b12-treasure end === -->
 <!-- === @b12-voyages    (team) — Voyages deferred seams: Vessel-as-Construction-Project + marines-as-Group + port-repair (🚢 Vessels view). === -->
 <!-- === @b12-generators (team) — NPC Generator G2: roster + entourage generation + UI deep-links (🧙 Generators tab; do NOT touch the Demographics roster — that is the @b12-census lane's region). === -->
+<!-- G2 batch generation — a SECOND card on the 🧙 Generators tab (renders below the G1 single-NPC card;
+     both gated on currentView==='generators'). Roster / Ruler's-court / NPC-party modes → a reviewable
+     PREVIEW (per-row ⟳ re-roll via regenProposal / ✕ drop) the GM commits (landRoster → one shipped
+     `generation` event per NPC). Ungated GM tooling — reads the census open-slot accessors READ-ONLY
+     (it never edits the Demographics roster, the @b12-census lane's region). -->
+<div x-show="currentCampaign && currentView === 'generators'" class="px-4 pb-8" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-3">
+    <div class="border-t border-ink/20 pt-4 flex items-baseline gap-3 flex-wrap">
+      <h2 class="text-xl font-bold">👥 Roster &amp; Entourage</h2>
+      <span class="text-sm italic opacity-70">Generate a batch of NPCs — a settlement's notables, a ruler's court, or a wandering party — then review (re-roll or drop a row) and add the keepers to your 👥 Characters roster.</span>
+    </div>
+
+    <!-- mode selector -->
+    <div class="flex gap-2 text-sm flex-wrap">
+      <template x-for="m in genBatchModes" :key="m.k">
+        <button @click="genBatch.mode=m.k; genBatchClear()"
+          :class="genBatch.mode===m.k ? 'bg-yellow-300 border-ink font-semibold' : 'border-ink/40 hover:bg-yellow-100'"
+          class="px-3 py-1 border-2 rounded" x-text="m.l"></button>
+      </template>
+    </div>
+
+    <!-- the context form (mode-dependent) -->
+    <div class="vellum border border-ink p-3 rounded text-sm space-y-3">
+      <!-- ROSTER -->
+      <template x-if="genBatch.mode==='roster'">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <label class="flex flex-col">Settlement
+            <select x-model="genBatch.settlementId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(none — unhomed)</option>
+              <template x-for="st in genSettlementOptions()" :key="st.id"><option :value="st.id" x-text="st.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Count
+            <input type="number" min="1" max="50" x-model="genBatch.count" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Level range
+            <div class="flex gap-1 items-center">
+              <input type="number" min="0" max="14" x-model="genBatch.minLevel" placeholder="min" class="border border-ink rounded px-1 py-0.5 w-full" title="leave both blank to roll 0th/1st by occupation">
+              <span class="opacity-50">–</span>
+              <input type="number" min="0" max="14" x-model="genBatch.maxLevel" placeholder="max" class="border border-ink rounded px-1 py-0.5 w-full">
+            </div>
+          </label>
+          <label class="flex flex-col">Class
+            <select x-model="genBatch.classKey" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(roll by demographics)</option>
+              <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="flex items-center gap-2 col-span-2 md:col-span-4" x-show="genBatch.settlementId && genBatchHasCensus()">
+            <input type="checkbox" x-model="genBatch.useCensusSlots">
+            <span>Fill the census's <strong>open notable slots</strong> for this settlement <span class="opacity-60" x-text="genBatchOpenSlotsText()"></span></span>
+          </label>
+        </div>
+      </template>
+      <!-- ENTOURAGE -->
+      <template x-if="genBatch.mode==='entourage'">
+        <div class="space-y-2">
+          <label class="flex flex-col max-w-sm">Realm
+            <select x-model="genBatch.domainId" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(pick a domain)</option>
+              <template x-for="d in genBatchDomainOptions()" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+            </select>
+          </label>
+          <p class="text-xs opacity-70" x-show="genBatch.domainId" x-text="genBatchEntourageText()"></p>
+          <p class="text-xs opacity-50">Generates the ruler's <strong>court entourage</strong> (magister, guildmaster, annalist) — the offices the realm command structure expects but hasn't staffed. The ruler + the four magistrates are appointed via the Officers tab.</p>
+        </div>
+      </template>
+      <!-- PARTY -->
+      <template x-if="genBatch.mode==='party'">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <label class="flex flex-col">Leader level
+            <input type="number" min="1" max="14" x-model="genBatch.leaderLevel" class="border border-ink rounded px-1 py-0.5">
+          </label>
+          <label class="flex flex-col">Companions
+            <input type="number" min="0" max="12" x-model="genBatch.companions" class="border border-ink rounded px-1 py-0.5" title="henchmen at the leader's level −1 / −2 / −3 (RR p.164)">
+          </label>
+          <label class="flex flex-col">Leader class
+            <select x-model="genBatch.classKey" class="border border-ink rounded px-1 py-0.5">
+              <option value="">(roll)</option>
+              <template x-for="o in genClassOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Party name
+            <input x-model="genBatch.partyName" placeholder="(auto)" class="border border-ink rounded px-1 py-0.5">
+          </label>
+        </div>
+      </template>
+      <!-- shared: race / detail / seed / generate -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-ink/15 pt-2">
+        <label class="flex flex-col">Race
+          <select x-model="genBatch.race" class="border border-ink rounded px-1 py-0.5">
+            <option value="">(human / by class)</option>
+            <template x-for="r in ['human','dwarf','elf','halfling','nobiran','zaharan']" :key="r"><option :value="r" x-text="r"></option></template>
+          </select>
+        </label>
+        <label class="flex flex-col">Detail
+          <select x-model="genBatch.detailLevel" class="border border-ink rounded px-1 py-0.5">
+            <option value="full">Full (rolled)</option>
+            <option value="lightweight">Lightweight stubs</option>
+          </select>
+        </label>
+        <label class="flex flex-col">Seed
+          <input x-model="genBatch.seed" placeholder="(random)" class="border border-ink rounded px-1 py-0.5">
+        </label>
+        <button @click="genBatchRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400 w-full">🎲 Generate batch</button>
+      </div>
+    </div>
+
+    <!-- the reviewable preview -->
+    <template x-if="genBatchPreview.length">
+      <div class="vellum border-2 border-ink p-3 rounded space-y-2">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <span class="font-semibold" x-text="genBatchPreview.length + ' NPC' + (genBatchPreview.length===1?'':'s') + ' generated — review, then commit' + (genBatchPartyName ? (' · ' + genBatchPartyName) : '')"></span>
+          <span class="text-xs opacity-50" x-show="genBatchSeed" x-text="'seed: ' + genBatchSeed"></span>
+        </div>
+        <div class="divide-y divide-ink/10">
+          <template x-for="(p, i) in genBatchPreview" :key="p.character.id">
+            <div class="flex items-center gap-2 py-1 text-sm flex-wrap">
+              <span class="font-semibold" x-text="p.character.name"></span>
+              <span class="opacity-80" x-text="p.character.race + ' ' + p.character.class + (p.character.isZerothLevel ? ' (0th)' : ' · L' + p.character.level)"></span>
+              <span class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80" x-text="'⚒ ' + p.character.occupation"></span>
+              <span x-show="p.office" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded" x-text="p.office ? ('👑 ' + p.office.label) : ''"></span>
+              <span x-show="p.role==='leader'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded">★ leader</span>
+              <span x-show="p.role==='henchman'" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-80">⚔ henchman</span>
+              <span x-show="p.slot" class="text-xs px-1.5 py-0.5 border border-ink/40 rounded opacity-70" x-text="p.slot ? ('census ' + p.slot.bucket + ' L' + p.slot.level) : ''"></span>
+              <span class="text-xs opacity-50" x-text="(p.character.coins.gp||0).toLocaleString() + ' gp'"></span>
+              <span class="flex-1"></span>
+              <button @click="genBatchRerollOne(i)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100" title="Re-roll this NPC (same context)">⟳</button>
+              <button @click="genBatchRemove(i)" class="px-2 py-0.5 border border-ink/40 rounded text-xs hover:bg-red-100" title="Drop this NPC">✕</button>
+            </div>
+          </template>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button @click="genBatchCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-green-300 hover:bg-green-400" x-text="'✓ Add ' + genBatchPreview.length + ' to roster'"></button>
+          <button @click="genBatchClear()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100">Clear</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -20388,6 +20528,82 @@ return {
   },
   // === @b12-voyages    (team) — Voyages deferred seams (vessel-construction / marines / port-repair): state + methods ===
   // === @b12-generators (team) — NPC Generator G2 (rosters / entourages / deep-links): state + methods ===
+  // The batch-generation card on the 🧙 Generators tab (below the G1 single-NPC card). Calls the shipped
+  // ACKS.generateRoster / generateEntourage / generateNpcParty (which READ the census open-slot
+  // accessors read-only — never editing the Demographics roster, the @b12-census lane's region), shows
+  // a reviewable PREVIEW (per-row ⟳ via regenProposal / ✕ drop), and lands the keepers via landRoster
+  // (one shipped `generation` event per NPC). Ungated GM tooling — distinct from the census's gated
+  // SD-2b auto-fill. Reuses G1's genClassOptions() / genSettlementOptions().
+  genBatch: { mode:'roster', settlementId:'', domainId:'', count:6, minLevel:'', maxLevel:'', classKey:'',
+    race:'', detailLevel:'full', seed:'', useCensusSlots:false, leaderLevel:5, companions:3, partyName:'' },
+  // the three batch modes (in JS, so the apostrophe in "Ruler's court" is safe — an Alpine attribute
+  // expression is HTML-decoded first, so an inline &#39; would break the string literal).
+  genBatchModes: [{ k:'roster', l:'🏘 Settlement roster' }, { k:'entourage', l:"👑 Ruler's court" }, { k:'party', l:'🎒 NPC party' }],
+  genBatchPreview: [],
+  genBatchSeed: null,
+  genBatchPartyName: '',
+  genBatchDomainOptions(){
+    const ds = this.domains || (this.currentCampaign && this.currentCampaign.domains) || [];
+    return ds.map(d => ({ id:d.id, name:d.name || d.id }));
+  },
+  genBatchHasCensus(){ return typeof window.ACKS.demographicOpenNotableSlots === 'function'; },
+  _genBatchSettlement(){ const c=this.currentCampaign; return (c && Array.isArray(c.settlements)) ? (c.settlements.find(s=>s && s.id===this.genBatch.settlementId) || null) : null; },
+  genBatchOpenSlotsText(){
+    const st = this._genBatchSettlement(); if(!st || !this.genBatchHasCensus()) return '';
+    const minL = (this.genBatch.minLevel!=='' && this.genBatch.minLevel!=null) ? (parseInt(this.genBatch.minLevel,10)||1) : 1;
+    const slots = window.ACKS.demographicOpenNotableSlots(this.currentCampaign, st, { minLevel:minL }) || [];
+    const n = slots.reduce((s,x)=>s+x.open,0);
+    return n ? ('— ' + n + ' open at L≥' + minL) : '— none open at this level';
+  },
+  genBatchEntourageText(){
+    const A=window.ACKS; if(typeof A.realmCommandStructure!=='function' || !this.genBatch.domainId) return '';
+    const rc = A.realmCommandStructure(this.currentCampaign, this.genBatch.domainId); if(!rc) return '';
+    const open = rc.offices.filter(o=>!o.filled && o.mapsTo==='entourage' && o.bucket);
+    if(!open.length) return (rc.titleLabel||'Realm') + ' — every court office is filled; a small generic court will be generated.';
+    return (rc.titleLabel||'Realm') + ' — open court offices: ' + open.map(o=>o.label + ' (L' + o.expectedLevel + ')').join(', ') + '.';
+  },
+  genBatchRun(){
+    if(!this.currentCampaign){ this.showToast('Load a campaign first.', 3000, 'warn'); return; }
+    const b = this.genBatch;
+    const seed = (b.seed!=='' && b.seed!=null) ? b.seed : ('batch-' + Math.floor(Math.random()*1e9));
+    this.genBatchSeed = seed;
+    const opts = { detailLevel: (b.detailLevel==='lightweight'?'lightweight':'full'), seed };
+    const num = v => (v!=='' && v!=null) ? Number(v) : undefined;
+    try {
+      if(b.mode==='roster'){
+        const ctx = { settlementId: b.settlementId || null, count: num(b.count), minLevel: num(b.minLevel), maxLevel: num(b.maxLevel),
+          race: b.race || undefined, useCensusSlots: !!(b.settlementId && b.useCensusSlots) };
+        if(b.classKey && !ctx.useCensusSlots) ctx.class = b.classKey;
+        this.genBatchPreview = window.ACKS.generateRoster(this.currentCampaign, ctx, opts);
+        this.genBatchPartyName = '';
+      } else if(b.mode==='entourage'){
+        if(!b.domainId){ this.showToast('Pick a realm first.', 3000, 'warn'); return; }
+        this.genBatchPreview = window.ACKS.generateEntourage(this.currentCampaign, b.domainId, Object.assign({}, opts, { race: b.race || undefined }));
+        this.genBatchPartyName = '';
+      } else if(b.mode==='party'){
+        const party = window.ACKS.generateNpcParty(this.currentCampaign, Object.assign({}, opts, {
+          leaderLevel: num(b.leaderLevel), companions: num(b.companions), leaderClass: b.classKey || undefined,
+          race: b.race || undefined, partyName: b.partyName || undefined }));
+        this.genBatchPreview = [party.leader].concat(party.companions || []).filter(Boolean);
+        this.genBatchPartyName = party.partyName;
+      }
+    } catch(e){ this.showToast('Generation failed: ' + e.message, 4000, 'error'); this.genBatchPreview = []; return; }
+    if(!this.genBatchPreview.length) this.showToast('Nothing generated for this context.', 3000);
+  },
+  genBatchRerollOne(i){
+    const p = this.genBatchPreview[i]; if(!p) return;
+    const re = window.ACKS.regenProposal(this.currentCampaign, p, { detailLevel: (this.genBatch.detailLevel==='lightweight'?'lightweight':'full'), seed: 'reroll-' + Math.floor(Math.random()*1e9) });
+    this.genBatchPreview.splice(i, 1, re);
+  },
+  genBatchRemove(i){ this.genBatchPreview.splice(i, 1); },
+  genBatchClear(){ this.genBatchPreview = []; this.genBatchPartyName = ''; },
+  genBatchCommit(){
+    if(!this.genBatchPreview.length) return;
+    const landed = window.ACKS.landRoster(this.currentCampaign, this.genBatchPreview.slice(), {});
+    this.genBatchPreview = []; this.genBatchPartyName = '';
+    if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist();
+    this.showToast('👥 ' + landed.length + ' NPC' + (landed.length===1?'':'s') + ' added to the roster.', 4000, 'success');
+  },
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +

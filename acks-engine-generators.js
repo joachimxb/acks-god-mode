@@ -553,10 +553,197 @@
     return ev;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // G2 — BATCH GENERATION (settlement rosters / ruler entourages / NPC parties)
+  // ════════════════════════════════════════════════════════════════════════════
+  // Each generator returns an ARRAY of G1 proposals ({character, provenance, …}) — NOT landed. The UI
+  // reviews them (re-roll / drop a row) and lands the kept ones via landRoster → the shipped
+  // landGeneratedNPC (one `generation` event per NPC, each with its own §8.9 context envelope). NO new
+  // entity / prefix / event / migration — pure batch orchestration over generateNPC + READ-ONLY
+  // demographics reads (demographicOpenNotableSlots / realmCommandStructure; the census lane owns that
+  // module — these are call-time reads on the shared global.ACKS, never edits). The census's own SD-2b
+  // auto-fill is the GATED reconcile-the-roster path on the Demographics view; THIS is the UNGATED GM
+  // authoring tool on the 🧙 Generators tab — like the G1 single-NPC card, it proposes and the GM
+  // commits (CLAUDE §5 #1). Late-binds the demographics reads (they may be absent in a headless test).
+
+  // Per-index batch opts: a base seed → distinct reproducible streams "<seed>:<i>" (the G1 _resolveRng
+  // FNV-hashes a string seed, so the indices give independent NPCs); a null base seed → a shared
+  // advancing rng (or Math.random) so a one-shot GM batch still varies. NOTE: when a per-index seed is
+  // present we DON'T pass rng (else _resolveRng's rng-first rule would make every NPC identical).
+  function _batchOpts(opts, i) {
+    opts = opts || {};
+    const common = { detailLevel: opts.detailLevel, attributeMethod: opts.attributeMethod, submittedBy: opts.submittedBy };
+    if (opts.seed != null) return Object.assign(common, { seed: String(opts.seed) + ':' + i });
+    return Object.assign(common, { rng: opts.rng });
+  }
+  function _findSettlement(campaign, id) {
+    const AC = _A();
+    if (id && typeof AC.findSettlement === 'function') { const s = AC.findSettlement(campaign, id); if (s) return s; }
+    return (campaign && Array.isArray(campaign.settlements)) ? (campaign.settlements.find(s => s && s.id === id) || null) : null;
+  }
+  // Build ONE batch proposal: generateNPC(ctx) + apply post-generation fields (homeDomainId /
+  // liegeCharacterId — generateNPC homes only via settlementId, so the realm-court / party-liege
+  // pointers are set here, the SD-2b pattern) + attach the row tags (slot / office / role) + a
+  // TRANSIENT `_regen` descriptor (ctx + post) so the UI's per-row ⟳ regenerates with the SAME
+  // context. `_regen` is in-memory only — landRoster ignores it, it is never serialized. → null on fail.
+  function _propose(campaign, ctx, opts, post, tags) {
+    const p = generateNPC(campaign, ctx, opts);
+    if (!p || !p.character) return null;
+    if (post) Object.assign(p.character, post);
+    if (tags) { for (const k in tags) if (tags[k] != null) p[k] = tags[k]; }
+    p._regen = { ctx: Object.assign({}, ctx), post: post || null };
+    return p;
+  }
+
+  // generateRoster(campaign, ctx, opts) → N proposals for a context.
+  //   ctx (all optional): settlementId (homes each + lets useCensusSlots read the census) · domainId ·
+  //     hexId · count (default 6, capped 50) · minLevel / maxLevel (a per-NPC level range) · class /
+  //     bucket (fix the class; else generateNPC rolls by demographics → a varied roster) · race ·
+  //     useCensusSlots (read demographicOpenNotableSlots — one NPC per OPEN notable slot, read-only)
+  //   → [{character, provenance, slot?}] (slot = the census {bucket,level} it filled, when censused).
+  function generateRoster(campaign, ctx, opts) {
+    ctx = ctx || {}; opts = opts || {};
+    const AC = _A();
+    const out = [];
+    const settlement = ctx.settlementId ? _findSettlement(campaign, ctx.settlementId) : null;
+    const baseCtx = {
+      settlementId: ctx.settlementId || null,
+      domainId: ctx.domainId || (settlement && settlement.domainId) || null,
+      hexId: ctx.hexId || (settlement && settlement.hexId) || null,
+      race: ctx.race || undefined,
+      controlledBy: ctx.controlledBy || 'gm',
+      socialTier: ctx.socialTier || 'independent'
+    };
+    // census-driven: one NPC per OPEN notable slot (a read-only consume of the census's open-slot read).
+    if (ctx.useCensusSlots && settlement && typeof AC.demographicOpenNotableSlots === 'function') {
+      const minLevel = (ctx.minLevel != null) ? Number(ctx.minLevel) : 1;
+      const cap = Math.max(1, Math.min(50, (ctx.count != null) ? Number(ctx.count) : 12));
+      const slots = AC.demographicOpenNotableSlots(campaign, settlement, { minLevel }) || [];
+      for (const s of slots) {
+        for (let k = 0; k < s.open && out.length < cap; k++) {
+          const p = _propose(campaign, Object.assign({}, baseCtx, { bucket: s.bucket, targetLevel: s.level }), _batchOpts(opts, out.length), null, { slot: { bucket: s.bucket, level: s.level } });
+          if (p) out.push(p);
+        }
+        if (out.length >= cap) break;
+      }
+      return out;
+    }
+    // plain batch: `count` NPCs at the form's class/race, each level fixed (targetLevel) or rolled in a
+    // [minLevel, maxLevel] range; else generateNPC's own occupation roll decides (0th-or-1st).
+    const count = Math.max(1, Math.min(50, (ctx.count != null) ? Number(ctx.count) : 6));
+    for (let i = 0; i < count; i++) {
+      const c = Object.assign({}, baseCtx);
+      if (ctx.class) c.class = ctx.class;
+      if (ctx.bucket) c.bucket = ctx.bucket;
+      if (ctx.targetLevel != null) c.targetLevel = Number(ctx.targetLevel);
+      else if (ctx.minLevel != null || ctx.maxLevel != null) {
+        const lo = (ctx.minLevel != null) ? Number(ctx.minLevel) : 1;
+        const hi = (ctx.maxLevel != null) ? Math.max(lo, Number(ctx.maxLevel)) : lo;
+        c.targetLevel = lo + _int(_resolveRng(_batchOpts(opts, 'lvl-' + i)), (hi - lo + 1));
+      }
+      const p = _propose(campaign, c, _batchOpts(opts, i), null, null);
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
+  // generateEntourage(campaign, domainId, opts) → a ruler's COURT: one NPC per OPEN entourage office of
+  //   the realm command structure (READ realmCommandStructure — magister / guildmaster / annalist; the
+  //   ruler + the four magistrates are appointed via their own UIs, so only the entourage offices
+  //   generate), at the office's expected level + bucket, homed to the realm (homeDomainId — set
+  //   post-generation, the SD-2b pattern, since generateNPC homes only via settlementId). Falls back to
+  //   a generic court (opts.count leveled retainers) when realmCommandStructure is unavailable.
+  //   → [{character, provenance, office?:{key,label,bucket,expectedLevel}}].
+  function generateEntourage(campaign, domainId, opts) {
+    opts = opts || {};
+    const AC = _A();
+    const out = [];
+    const rc = (typeof AC.realmCommandStructure === 'function') ? AC.realmCommandStructure(campaign, domainId) : null;
+    const offices = (rc && Array.isArray(rc.offices)) ? rc.offices.filter(o => !o.filled && o.mapsTo === 'entourage' && o.bucket) : [];
+    if (offices.length) {
+      offices.forEach((o, i) => {
+        const p = _propose(campaign, { bucket: o.bucket, targetLevel: o.expectedLevel, domainId, controlledBy: 'gm', socialTier: 'independent' },
+          _batchOpts(opts, i), { homeDomainId: domainId }, { office: { key: o.key, label: o.label, bucket: o.bucket, expectedLevel: o.expectedLevel } });
+        if (p) out.push(p);
+      });
+      return out;
+    }
+    const count = Math.max(1, Math.min(12, (opts.count != null) ? Number(opts.count) : 3));
+    for (let i = 0; i < count; i++) {
+      const p = _propose(campaign, { domainId, controlledBy: 'gm', socialTier: 'independent' }, _batchOpts(opts, i), { homeDomainId: domainId }, null);
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
+  // generateNpcParty(campaign, opts) → a wandering NPC party: a LEADER + `companions` henchmen at the
+  //   leader's level − 1…−3 (RAW RR p.164: a henchman is ≤ the patron's level − 1; the index spreads
+  //   −1/−2/−3). Pure generation (no census). The companions are lieged to the leader via the soft
+  //   pointer the roster reads (character.liegeCharacterId + socialTier 'henchman') — a full Wave-A
+  //   henchmanship relation (the cap + loyalty) is a refinement the GM formalizes. opts: leaderLevel
+  //   (default 5) · companions (default 3) · leaderClass / leaderBucket · race · hexId / domainId
+  //   (where the party stands) · partyName · detailLevel · seed.
+  //   → { leader:{character,provenance}, companions:[{character,provenance,role:'henchman'}], partyName, leaderLevel }.
+  function generateNpcParty(campaign, opts) {
+    opts = opts || {};
+    const leaderLevel = Math.max(1, Math.min(14, (opts.leaderLevel != null) ? Number(opts.leaderLevel) : 5));
+    const nCompanions = Math.max(0, Math.min(12, (opts.companions != null) ? Number(opts.companions) : 3));
+    const where = { hexId: opts.hexId || null, domainId: opts.domainId || null, race: opts.race || undefined, controlledBy: 'gm' };
+    const lp = _propose(campaign, Object.assign({}, where, {
+      targetLevel: leaderLevel, class: opts.leaderClass || undefined, bucket: opts.leaderBucket || undefined, socialTier: 'independent'
+    }), _batchOpts(opts, 'leader'), null, { role: 'leader' });
+    const leaderId = (lp && lp.character) ? lp.character.id : null;
+    const companions = [];
+    for (let i = 0; i < nCompanions; i++) {
+      const lvl = Math.max(1, leaderLevel - 1 - (i % 3));   // −1 / −2 / −3, repeating
+      const cp = _propose(campaign, Object.assign({}, where, { targetLevel: lvl, socialTier: 'henchman' }),
+        _batchOpts(opts, 'comp-' + i), (leaderId ? { liegeCharacterId: leaderId } : null), { role: 'henchman' });
+      if (cp) companions.push(cp);
+    }
+    return { leader: lp, companions, partyName: opts.partyName || (lp && lp.character ? (lp.character.name + "'s band") : 'NPC party'), leaderLevel };
+  }
+
+  // landRoster(campaign, proposals, opts) — land each proposal via the shipped landGeneratedNPC (one
+  //   `generation` event per NPC, the shared event kind). Accepts the {character,provenance} array
+  //   generateRoster/generateEntourage return, OR the {leader,companions} party object (flattened
+  //   leader-first). → [Character…] (the landed objects).
+  function landRoster(campaign, proposals, opts) {
+    opts = opts || {};
+    let list = [];
+    if (Array.isArray(proposals)) list = proposals;
+    else if (proposals && proposals.leader) list = [proposals.leader].concat(proposals.companions || []);
+    const landed = [];
+    for (const p of list) {
+      if (!p || !p.character) continue;
+      const c = landGeneratedNPC(campaign, p, opts);
+      if (c) landed.push(c);
+    }
+    return landed;
+  }
+
+  // regenProposal(campaign, proposal, opts) — the UI's per-row ⟳: re-roll ONE proposal with a fresh
+  //   seed but the SAME context (the `_regen` descriptor _propose attached), preserving the row tags
+  //   (slot / office / role) + the post fields (homeDomainId / liegeCharacterId). Returns a NEW
+  //   proposal (a fresh Character id) the caller swaps into the batch. A proposal with no `_regen`
+  //   (e.g. an externally-built one) is returned unchanged.
+  function regenProposal(campaign, proposal, opts) {
+    opts = opts || {};
+    if (!proposal || !proposal._regen) return proposal;
+    const r = proposal._regen;
+    const seed = (opts.seed != null) ? opts.seed : null;
+    const np = _propose(campaign, Object.assign({}, r.ctx),
+      { detailLevel: opts.detailLevel, attributeMethod: opts.attributeMethod, seed: seed, rng: (seed == null ? opts.rng : undefined) },
+      r.post,
+      { slot: proposal.slot, office: proposal.office, role: proposal.role });
+    return np || proposal;
+  }
+
   // ── exports ──
   Object.assign(A, {
     // the generator + the land/convenience verbs
     generateNPC, landGeneratedNPC, generateAndLandNPC,
+    // G2 — batch generation (rosters / entourages / NPC parties) + the batch land + per-row re-roll
+    generateRoster, generateEntourage, generateNpcParty, landRoster, regenProposal,
     // pure derivations (the consume-seam + the smoke-tested RAW oracle)
     attackThrowFor, savingThrowsFor, rollAttributes, rollHp, acFor, rollOccupation,
     rollProficiencies, rollAge, npcWealthFor, rollAppearance, rollClassBucket,
