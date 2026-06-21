@@ -273,6 +273,69 @@
     return 'healthy';
   }
 
+  // ── Per-day feeding (RR p.276) — the journey-consumer seam ───────────────────
+  // PURE: reads the journey's mounts + its animal-feed/water stores, returns the day's
+  // per-mount feeding outcome as absolutes (the resolveDaySurvival / computeShipProvisionDay
+  // pattern). The journey day-tick calls this (gated by ignore-rations), records the result,
+  // and applyMountFeedingDay replays it on commit; a reroll reverts from the _preDay snapshot.
+  //   opts.forcedMarch   — the day's pace is forced-march (grazers can't graze, RR p.276)
+  //   opts.hasFreshWater — the hex has a free water source (river/lake/settlement) → no water drawn
+  //   opts.terrain       — the hex terrain key ('barrens'/'desert' block non-native grazing)
+  function resolveMountFeedingDay(campaign, journey, opts){
+    opts = opts || {};
+    const out = { tracked:false, mounts:[], foodStoreAfter:0, waterStoreAfter:0,
+                  foodConsumed:0, waterConsumed:0, anyShort:false, anyStarving:false, anyDehydrated:false };
+    const herd = mountsForJourney(campaign, journey).filter(m => mountClass(m) && m.condition !== 'dead');
+    if(!herd.length) return out;
+    out.tracked = true;
+    const sup = (journey && journey.supplies) || {};
+    let foodStore = Number(sup.animalFeed) || 0;
+    let waterStore = Number(sup.animalWater) || 0;
+    out.foodStoreAfter = foodStore; out.waterStoreAfter = waterStore;
+    const forcedMarch = !!opts.forcedMarch;
+    const freeWater = !!opts.hasFreshWater;
+    const grazeBlocked = (opts.terrain === 'barrens' || opts.terrain === 'desert');  // RR p.276 — only native grazers
+    for(const m of herd){
+      const needF = mountDailyFoodSt(m), needW = mountDailyWaterSt(m);
+      // FOOD: graze free (grazer, not force-marched, terrain permits) else draw from the store
+      let grazed=false, fedFood=false;
+      if(mountIsGrazer(m) && !forcedMarch && !grazeBlocked){ grazed=true; fedFood=true; }
+      else if(foodStore >= needF){ foodStore -= needF; out.foodConsumed += needF; fedFood=true; }
+      // WATER: camels need none; a fresh source waters free; else draw from the store
+      let fedWater=false, freeW=false;
+      if(mountIsDesertDromedary(m)){ fedWater=true; }
+      else if(freeWater){ fedWater=true; freeW=true; }
+      else if(waterStore >= needW){ waterStore -= needW; out.waterConsumed += needW; fedWater=true; }
+      // deficit ladders (RR p.276): a fed day resets to 0, a short day +1
+      let fDef = fedFood ? 0 : (Number(m.foodDeficitDays)||0) + 1;
+      let wDef = fedWater ? 0 : (Number(m.waterDeficitDays)||0) + 1;
+      const flags = { hungry:fDef>=1, underfed:fDef>=2, starving:fDef>=7, dehydrated:wDef>=1 };
+      if(!fedFood || !fedWater) out.anyShort = true;
+      if(flags.starving) out.anyStarving = true;
+      if(flags.dehydrated) out.anyDehydrated = true;
+      out.mounts.push({ mountId:m.id, name:(m.name || mountClassLabel(m.catalogKey)),
+        fedFood, fedWater, grazed, freeWater:freeW, needFood:needF, needWater:needW,
+        foodDeficitDays:fDef, waterDeficitDays:wDef, flags });
+    }
+    out.foodStoreAfter = foodStore; out.waterStoreAfter = waterStore;
+    return out;
+  }
+  // Replay the feeding outcome onto the campaign (idempotent SETs — safe to re-apply). Mirrors
+  // applyDaySurvival/applyVoyageDayState: the tick already resolved; commit just writes the absolutes.
+  function applyMountFeedingDay(campaign, journey, result){
+    if(!campaign || !journey || !result || !result.tracked) return;
+    journey.supplies = journey.supplies || {};
+    journey.supplies.animalFeed = result.foodStoreAfter;
+    journey.supplies.animalWater = result.waterStoreAfter;
+    for(const r of (result.mounts || [])){
+      const m = findMount(campaign, r.mountId);
+      if(!m) continue;
+      m.foodDeficitDays = r.foodDeficitDays;
+      m.waterDeficitDays = r.waterDeficitDays;
+      m.conditionFlags = { hungry:!!r.flags.hungry, underfed:!!r.flags.underfed, starving:!!r.flags.starving, dehydrated:!!r.flags.dehydrated };
+    }
+  }
+
   // ── Record-only audit event kinds (PR #89 kernel — self-registered, no events.js edit) ──
   function applyEvent_mountAudit(campaign, event){
     const p = (event && event.payload) || {};
@@ -300,7 +363,8 @@
     mountBardingAc, mountBardingLoadSt,
     mountRiderWeightSt, mountCargoWeightSt, mountNormalLoadSt, mountMaxLoadSt,
     mountCurrentLoadSt, mountLoadBand, mountExpeditionMi,
-    mountDailyFoodSt, mountDailyWaterSt, mountFeedingStatus
+    mountDailyFoodSt, mountDailyWaterSt, mountFeedingStatus,
+    resolveMountFeedingDay, applyMountFeedingDay
   });
 
 })(typeof window !== 'undefined' ? window : global);
