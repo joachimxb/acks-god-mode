@@ -943,7 +943,9 @@ section('D5 follow-on — the slot-66 daily check is SEEDED + byte-stable on rev
 (function(){
   function mkHoled(){ const c = mkVisit(); c.eventLog = [];
     ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'holed-up' });
-    return c; }
+    c.settlementVisits[0].id = 'svt-fixed';   // pin the id so the seed sequence is deterministic (the
+    return c; }                               // seed folds the visit id; an unpinned id makes the
+                                              // "8-day window has incidents" check ~4% flaky)
   const sel = p => p.pendingRecords.filter(r => r.type === 'settlement-incident');
   // (a) proposeSettlementVisitDay (the consumer) on UNCHANGED state re-runs byte-identical — no Math.random
   const c = mkHoled();
@@ -962,7 +964,7 @@ section('D5 follow-on — the slot-66 daily check is SEEDED + byte-stable on rev
   // (d) different days draw different seeds (it is NOT the same incident every day). Pin the visit id
   // so the seed sequence is deterministic (the seed folds the visit id, which blankSettlementVisit
   // mints randomly), then assert variety + reproducibility.
-  const c4 = mkHoled(); c4.settlementVisits[0].id = 'svt-fixed';
+  const c4 = mkHoled();   // mkHoled pins the visit id → the seed sequence is deterministic
   function keysOver(c){ const ks = []; for(let d = 6; d <= 20; d++){ const p = ACKS.proposeSettlementVisitDay(c, { dayInMonth:d, days:1 }); ks.push((p.pendingRecords[0] && p.pendingRecords[0].incident.incidentKey) || '-'); } return ks; }
   const k1 = keysOver(c4), k2 = keysOver(c4);
   ok('the 15-day key sequence is reproducible (deterministic seed)', JSON.stringify(k1) === JSON.stringify(k2));
