@@ -133,6 +133,81 @@
     return list.filter(c => c && c.constructibleKind === 'settlement-building' && c.damageState !== 'destroyed' && c.constructionState !== 'being-demolished');
   }
 
+  // ── Wave H catalogs (RR p.133) — civic monuments / traps / field fortifications / roads ──
+  // The long tail of constructible kinds. All EDITABLE-cost (a pick fills the RAW default; the GM adjusts
+  // it for the RAW modifiers — rock-cut −10% / colour +5% on monuments, accessories on traps, per-mile ×
+  // miles ÷ terrain on roads). Same shape as the settlement-building catalog. IP: values + cites only.
+
+  // RR p.133 "Civic Facilities and Monuments" — the decorative monuments (the baths/theater are functional
+  // settlement-buildings, Wave E). `colorModifier` flags the rock-cut −10% / prized-colour +5% adjustment.
+  const CIVIC_MONUMENT_CATALOG = [
+    { key:'statue-10',      label:"Statue, marble (10' tall)",   cost:200,     colorModifier:true, page:'RR p.133', note:'A marble statue. Rock-cut −10% / prized colour +5% (RR p.133) — adjust the cost.' },
+    { key:'statue-25',      label:"Statue, marble (25' tall)",   cost:3125,    colorModifier:true, page:'RR p.133', note:'A marble statue. Rock-cut −10% / prized colour +5% (RR p.133) — adjust the cost.' },
+    { key:'statue-50',      label:"Statue, marble (50' tall)",   cost:25000,   colorModifier:true, page:'RR p.133', note:'A grand marble statue. Rock-cut −10% / prized colour +5% (RR p.133) — adjust the cost.' },
+    { key:'statue-100',     label:"Statue, marble (100' tall)",  cost:200000,  colorModifier:true, page:'RR p.133', note:'A colossal marble statue. Rock-cut −10% / prized colour +5% (RR p.133) — adjust the cost.' },
+    { key:'statue-250',     label:"Statue, marble (250' tall)",  cost:3125000, colorModifier:true, page:'RR p.133', note:'A wonder-of-the-world statue. Rock-cut −10% / prized colour +5% (RR p.133) — adjust the cost.' },
+    { key:'triumphal-arch', label:'Triumphal arch, quadrifrontal', cost:10000, colorModifier:true, page:'RR p.133', note:"A 30'×30'×30' quadrifrontal arch (RR p.133). Rock-cut −10% / prized colour +5% — adjust the cost." }
+  ].map(Object.freeze);
+
+  // RR p.133 "Traps" — built traps (the builder needs the Trapping proficiency, errata r4). Accessories —
+  // pit spikes +100gp, concealed pit cover +500gp (RR p.133) — are GM-added, so the cost is editable.
+  const TRAP_CATALOG = [
+    { key:'arrow-firing',     label:'Arrow-firing trap',   cost:400,  page:'RR p.133', note:'Fires as a 1st-level fighter, 1d6+1 piercing (RR p.133).' },
+    { key:'ceiling-collapse', label:'Ceiling collapse',    cost:1200, page:'RR p.133', note:"10'×10', Blast save or 1d6 bludgeoning (RR p.133)." },
+    { key:'dart-firing',      label:'Dart-firing trap',    cost:380,  page:'RR p.133', note:'Fires as a 1st-level fighter, 1d4+1 piercing (RR p.133).' },
+    { key:'deadfall',         label:'Deadfall',            cost:20,   page:'RR p.133', note:"5' diameter, Blast save or 1d12 bludgeoning (RR p.133)." },
+    { key:'earth-pit',        label:'Excavated earth pit', cost:20,   page:'RR p.133', note:"10'×10'×10', concealed, 1d6 bludgeoning (RR p.133)." },
+    { key:'fire',             label:'Fire trap',           cost:500,  page:'RR p.133', note:"10' diameter oil, Blast save or 1d8 fire for 2 rounds (RR p.133)." },
+    { key:'needle-firing',    label:'Needle-firing trap',  cost:120,  page:'RR p.133', note:'1 damage (RR p.133).' },
+    { key:'portcullis',       label:'Portcullis trap',     cost:1850, page:'RR p.133', note:'Falls downward, Blast save or 1d6 bludgeoning (RR p.133).' },
+    { key:'rock-cut-pit',     label:'Rock-cut pit',        cost:500,  page:'RR p.133', note:"10'×10'×10', concealed by a rug, 1d6 bludgeoning (RR p.133)." },
+    { key:'rolling-rock',     label:'Rolling rock',        cost:400,  page:'RR p.133', note:"5' boulder rolls 30', Blast save or 1d6 bludgeoning (RR p.133)." },
+    { key:'scything-blade',   label:'Scything blade',      cost:550,  page:'RR p.133', note:"Swings in a 10' line, Blast save or 1d8 slashing (RR p.133)." },
+    { key:'spring-snare',     label:'Spring snare',        cost:20,   page:'RR p.133', note:"Snatches 10' up, Paralysis save or 1d6 seismic + restrained (RR p.133)." },
+    { key:'swinging-log',     label:'Swinging log',        cost:55,   page:'RR p.133', note:"Swings in a 10' line, Blast save or 1d8 bludgeoning (RR p.133)." },
+    { key:'whipping-branch',  label:'Whipping branch',     cost:10,   page:'RR p.133', note:'Swings from a tree as a 1st-level fighter, 1d6+1 piercing (RR p.133).' }
+  ].map(Object.freeze);
+
+  // RR p.133 + the W5 army-built border fort (RR p.451). The crude works (`crude:true`) degrade in weather
+  // when the Wave-I crude-construction-weather rule is on.
+  const FIELD_FORTIFICATION_CATALOG = [
+    { key:'border-fort',     label:'Border fort (Class VI market)', cost:10000, page:'RR p.451', note:'A 10,000gp army-built supply-base fort (RR p.451) — serves as a Class VI market; designate it in the army supply bases.' },
+    { key:'palisade-wooden', label:"Palisade, wood (100')",        cost:125,  page:'RR p.133', note:"100' × 7.5' high (RR p.133)." },
+    { key:'palisade-crude',  label:"Palisade, crude (100')",       cost:13,   crude:true, page:'RR p.133', note:"100' × 7.5' high; crude (RR p.133) — degrades in weather." },
+    { key:'rampart-rammed',  label:"Rampart, rammed earth (100')", cost:300,  page:'RR p.133', note:"100' × 10' high × 15' thick (RR p.133)." },
+    { key:'rampart-piled',   label:"Rampart, piled earth (100')",  cost:30,   crude:true, page:'RR p.133', note:"100' × 10' high × 15' thick; crude (RR p.133) — degrades in weather." },
+    { key:'ditch',           label:"Ditch / moat, unfilled (100')",cost:400,  page:'RR p.133', note:"100' × 20' wide × 10' deep (RR p.133)." },
+    { key:'ditch-crude',     label:"Ditch, crude (100')",          cost:40,   crude:true, page:'RR p.133', note:"100' × 20' wide × 10' deep; crude (RR p.133) — degrades in weather." }
+  ].map(Object.freeze);
+
+  // RR p.133 "Roads" — per-MILE cost (÷ the terrain movement multiplier in rough terrain). The Wizard cost
+  // is editable (per-mile × miles ÷ terrain). The hex-movement EFFECT of a built road is a Journeys follow-on.
+  const ROAD_CATALOG = [
+    { key:'leveled-earth-8',  label:"Road, leveled earth (8' wide)",  cost:100, perMile:true, page:'RR p.133', note:'100gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' },
+    { key:'leveled-earth-10', label:"Road, leveled earth (10' wide)", cost:125, perMile:true, page:'RR p.133', note:'125gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' },
+    { key:'gravel-8',         label:"Road, gravel (8' wide)",         cost:200, perMile:true, page:'RR p.133', note:'200gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' },
+    { key:'gravel-10',        label:"Road, gravel (10' wide)",        cost:250, perMile:true, page:'RR p.133', note:'250gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' },
+    { key:'paved-8',          label:"Road, paved (8' wide)",          cost:400, perMile:true, page:'RR p.133', note:'400gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' },
+    { key:'paved-10',         label:"Road, paved (10' wide)",         cost:500, perMile:true, page:'RR p.133', note:'500gp per mile; ÷ the terrain movement multiplier in rough terrain (RR p.133). Set the total = per-mile × miles ÷ terrain.' }
+  ].map(Object.freeze);
+  [CIVIC_MONUMENT_CATALOG, TRAP_CATALOG, FIELD_FORTIFICATION_CATALOG, ROAD_CATALOG].forEach(Object.freeze);
+
+  // A generic catalog lookup over the EDITABLE-cost kinds (settlement-building + the Wave-H kinds), so the
+  // Wizard's subtype options / note / submit-gate read one helper. Vessel + war machine keep their own
+  // fixed-cost path (a different module + shape). Returns the frozen catalog array, or null for a kind
+  // with no subtype catalog (stronghold-component uses STRONGHOLD_CATALOG; the rest take a free-form cost).
+  function constructionSubtypeCatalog(kind){
+    switch(kind){
+      case 'settlement-building': return SETTLEMENT_BUILDING_CATALOG;
+      case 'civic-monument':      return CIVIC_MONUMENT_CATALOG;
+      case 'trap':                return TRAP_CATALOG;
+      case 'field-fortification': return FIELD_FORTIFICATION_CATALOG;
+      case 'road':                return ROAD_CATALOG;
+      default:                    return null;
+    }
+  }
+  function findConstructionSubtype(kind, key){ const c = constructionSubtypeCatalog(kind); return (c && key) ? (c.find(x => x && x.key === key) || null) : null; }
+
   // ── vessel construction — the construction SIDE of the shipped voyages seam ──
   // The materialization (Project → Vessel) is voyages's onVesselConstructed + its day-tick
   // consumer; this just hands the Wizard the VESSEL_CATALOG cost so a vessel Project is costed
@@ -278,7 +353,10 @@
     warMachinesForOwner, warMachineSiegeContribution, warMachineSiegeBonusUnits, warMachineBombardmentPerDay,
     // Wave E — settlement buildings
     SETTLEMENT_BUILDING_CATALOG,
-    findSettlementBuilding, settlementBuildingCatalogList, settlementBuildingLabel, settlementBuildingsAtHex
+    findSettlementBuilding, settlementBuildingCatalogList, settlementBuildingLabel, settlementBuildingsAtHex,
+    // Wave H — civic monuments / traps / field fortifications / roads + the generic subtype lookup
+    CIVIC_MONUMENT_CATALOG, TRAP_CATALOG, FIELD_FORTIFICATION_CATALOG, ROAD_CATALOG,
+    constructionSubtypeCatalog, findConstructionSubtype
   });
 
 })(typeof window !== 'undefined' ? window : global);

@@ -2752,18 +2752,18 @@ document.addEventListener('alpine:init', () => {
       <!-- === @b13-construction (team) — Wave D: vessel + war-machine catalog subtype pickers (RR p.316 / pp.136–137).
            Pick a class → cost + name fill from the catalog. The vessel mints via the shipped voyages seam on
            completion; the war machine mints a kind:'war-machine' Constructible that feeds sieges. === -->
-      <template x-if="constructionWizard.kind === 'vessel' || constructionWizard.kind === 'war-machine' || constructionWizard.kind === 'settlement-building'">
+      <template x-if="constructionWizardHasCatalog()">
         <label class="block">
-          <span x-text="constructionWizard.kind === 'vessel' ? 'Vessel class (RR p.316):' : constructionWizard.kind === 'war-machine' ? 'War machine (RR pp.136–137):' : 'Building (JJ pp.217–221 + RR p.133):'"></span>
+          <span x-text="constructionWizardSubtypeLabel()"></span>
           <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
             <option value="">— pick one —</option>
             <template x-for="o in constructionWizardSubtypeOptions()" :key="o.key">
               <option :value="o.key" x-text="o.label + ' — ' + o.costGp.toLocaleString() + ' gp'"></option>
             </template>
           </select>
-          <!-- vessel/war-machine show their note here (their cost is fixed); settlement-building shows its
-               note by the editable cost field below (so it isn't doubled). -->
-          <p class="text-[11px] opacity-60 mt-0.5" x-show="constructionWizard.kind !== 'settlement-building'" x-text="constructionWizardKindNote()"></p>
+          <!-- vessel/war-machine show their note here (fixed cost); the editable-cost catalog kinds show
+               their note by the cost field below (so it isn't doubled). -->
+          <p class="text-[11px] opacity-60 mt-0.5" x-show="constructionWizardFixedCost()" x-text="constructionWizardKindNote()"></p>
         </label>
       </template>
       <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
@@ -19415,11 +19415,22 @@ return {
     const A = window.ACKS, cw = this.constructionWizard;
     if(cw.kind === 'vessel')      return (A.vesselConstructionCatalog ? A.vesselConstructionCatalog() : ((A.VESSEL_CATALOG)||[])).map(v => ({ key:v.key, label:v.label, costGp:v.costGp||0 }));
     if(cw.kind === 'war-machine') return (A.warMachineCatalogList ? A.warMachineCatalogList() : []).map(m => ({ key:m.key, label:m.label, costGp:m.costGp||0 }));
-    // Wave E — settlement buildings: a catalog pick that fills a DEFAULT cost the GM can then raise
-    // (minCost = the RAW threshold the cost can't drop below; 0 = freely GM-set). So the modal shows
-    // BOTH the subtype picker AND the editable cost field for this kind.
-    if(cw.kind === 'settlement-building') return (A.settlementBuildingCatalogList ? A.settlementBuildingCatalogList() : []).map(b => ({ key:b.key, label:b.label, costGp:b.cost||0, minCost:b.minCost||0 }));
+    // Wave E + H — the editable-cost catalog kinds (settlement-building / civic-monument / trap /
+    // field-fortification / road): a catalog pick fills a DEFAULT cost the GM can then raise (minCost =
+    // the RAW threshold the cost can't drop below; 0 = freely GM-set). One generic lookup; the modal shows
+    // BOTH the subtype picker AND the editable cost field for these kinds.
+    const cat = A.constructionSubtypeCatalog ? A.constructionSubtypeCatalog(cw.kind) : null;
+    if(cat) return cat.map(b => ({ key:b.key, label:b.label, costGp:b.cost||0, minCost:b.minCost||0 }));
     return [];
+  },
+  // The current kind has a subtype catalog → the subtype picker shows. Fixed-cost kinds (vessel /
+  // war-machine) take their cost from the pick; the editable-cost kinds show the cost field too.
+  constructionWizardHasCatalog(){ return this.constructionWizardSubtypeOptions().length > 0; },
+  constructionWizardFixedCost(){ const k = this.constructionWizard.kind; return k === 'vessel' || k === 'war-machine'; },
+  constructionWizardSubtypeLabel(){
+    return ({ 'vessel':'Vessel class (RR p.316):', 'war-machine':'War machine (RR pp.136–137):',
+      'settlement-building':'Building (JJ pp.217–221 + RR p.133):', 'civic-monument':'Monument (RR p.133):',
+      'trap':'Trap (RR p.133):', 'field-fortification':'Field work (RR p.133):', 'road':'Road surface (RR p.133):' })[this.constructionWizard.kind] || 'Subtype:';
   },
   // Pick a vessel class / war machine → set the subtype (reusing cw.structureKey, already plumbed to
   // constructibleSubtype + the site-eligibility check) + fill cost + default name from the catalog.
@@ -23398,9 +23409,10 @@ return {
       { key:'mine',                 label:'Mine' },
       { key:'vault',                label:'Vault' },
       { key:'hideout',              label:'Hideout' },
-      { key:'fortification',        label:'Fortification' },
-      { key:'civic-monument',       label:'Civic monument' },
-      { key:'road',                 label:'Road / bridge' }
+      { key:'field-fortification',  label:'Field fortification (palisade, rampart, ditch, border fort)' },  /* Wave H — renamed from 'fortification' to match the W5 border fort */
+      { key:'civic-monument',       label:'Civic monument (statue, triumphal arch)' },                      /* Wave H */
+      { key:'trap',                 label:'Trap' },                                                          /* Wave H */
+      { key:'road',                 label:'Road / bridge' }                                                 /* Wave H */
     ];
   },
   constructionWizardKindNote(){
@@ -23408,11 +23420,19 @@ return {
     // @b13-construction (Wave D) — vessels + war machines are catalog-driven (RR p.316 / pp.136–137).
     if(k === 'vessel') return 'Pick a waterway-adjacent site + a class. On completion it is launched as a real Vessel (RR p.316).';
     if(k === 'war-machine') return 'A buildable war machine (RR pp.136–137). On completion it can be brought to a siege (it feeds the Sieges-Simplified bonus + bombardment). Needs a siege engineer / engineer supervisor (RR p.174).';
-    if(k === 'settlement-building'){
-      const b = window.ACKS.findSettlementBuilding ? window.ACKS.findSettlementBuilding(this.constructionWizard.structureKey) : null;
-      if(b) return b.note + (b.minCost > 0 ? (' Minimum ' + b.minCost.toLocaleString() + 'gp — build grander if you like.') : ' Raise the cost for a grander building.') + (b.enables ? ' Enables ' + b.enables + ' when built.' : '');
-      return 'Requires a settlement at the site (JJ pp.217–221 + RR p.133). Pick a building, then set its cost.';
+    // Wave E + H — the editable-cost catalog kinds: once a subtype is picked, show its note (the RAW cite +
+    // any threshold / downstream-enables for settlement buildings); before a pick, a per-kind hint.
+    const ent = window.ACKS.findConstructionSubtype ? window.ACKS.findConstructionSubtype(k, this.constructionWizard.structureKey) : null;
+    if(ent){
+      let n = ent.note || '';
+      if(k === 'settlement-building') n += (ent.minCost > 0 ? (' Minimum ' + ent.minCost.toLocaleString() + 'gp — build grander if you like.') : ' Raise the cost for a grander building.') + (ent.enables ? (' Enables ' + ent.enables + ' when built.') : '');
+      return n;
     }
+    if(k === 'settlement-building')  return 'Requires a settlement at the site (JJ pp.217–221 + RR p.133). Pick a building, then set its cost.';
+    if(k === 'civic-monument')       return 'A decorative monument (RR p.133). Pick one, then set its cost (rock-cut −10% / prized colour +5%).';
+    if(k === 'trap')                 return 'A built trap (RR p.133). The builder needs the Trapping proficiency. Pick one, then set its cost.';
+    if(k === 'field-fortification')  return 'A field work (RR p.133 + p.451). Pick one, then set its cost.';
+    if(k === 'road')                 return 'A road, priced per mile ÷ the terrain movement multiplier (RR p.133). Pick a surface, then set the total cost.';
     return 'Per-kind catalogs land in later waves — enter the RR cost for now.';
   },
   openConstructionWizard(prefill){
@@ -23502,10 +23522,9 @@ return {
     // Reset the per-kind picks when the kind changes (the catalog structure only applies to strongholds).
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
-    // @b13-construction (Wave D) — vessel + war-machine cost comes from the catalog pick, so zero it
-    // on a kind switch (the user re-picks a class) alongside the stronghold-component reset. Wave E:
-    // settlement-building also re-fills its cost from the building pick, so zero it too.
-    if(cw.kind === 'stronghold-component' || cw.kind === 'vessel' || cw.kind === 'war-machine' || cw.kind === 'settlement-building') cw.totalCost = 0;
+    // A catalog-driven kind (stronghold-component / vessel / war-machine / settlement-building / the
+    // Wave-H kinds) re-fills its cost from the pick, so zero it on a kind switch; free-form kinds keep it.
+    if(cw.kind === 'stronghold-component' || this.constructionWizardHasCatalog()) cw.totalCost = 0;
   },
   constructionWizardPickStructure(key){
     const cw = this.constructionWizard;
@@ -23574,10 +23593,11 @@ return {
     if(!cw.name || !cw.name.trim()) return 'Name the structure';
     if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
     if((cw.kind === 'vessel' || cw.kind === 'war-machine') && !cw.structureKey) return cw.kind === 'vessel' ? 'Pick a vessel class' : 'Pick a war machine';  /* @b13-construction (Wave D) */
-    if(cw.kind === 'settlement-building'){
-      if(!cw.structureKey) return 'Pick a building';
-      const b = window.ACKS.findSettlementBuilding ? window.ACKS.findSettlementBuilding(cw.structureKey) : null;
-      if(b && b.minCost > 0 && Number(cw.totalCost) < b.minCost) return 'Cost must be at least ' + b.minCost.toLocaleString() + 'gp for a ' + b.label;
+    // Wave E + H — the editable-cost catalog kinds need a subtype pick + cost ≥ the RAW threshold (minCost).
+    if(window.ACKS.constructionSubtypeCatalog && window.ACKS.constructionSubtypeCatalog(cw.kind)){
+      if(!cw.structureKey) return 'Pick a ' + (({ 'settlement-building':'building', 'civic-monument':'monument', 'trap':'trap', 'field-fortification':'field work', 'road':'road surface' })[cw.kind] || 'subtype');
+      const ent = window.ACKS.findConstructionSubtype(cw.kind, cw.structureKey);
+      if(ent && ent.minCost > 0 && Number(cw.totalCost) < ent.minCost) return 'Cost must be at least ' + ent.minCost.toLocaleString() + 'gp for a ' + ent.label;
     }
     if(!(Number(cw.totalCost) > 0)) return 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
