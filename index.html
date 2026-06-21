@@ -2721,21 +2721,29 @@ document.addEventListener('alpine:init', () => {
 <div x-show="constructionWizard.open" @keydown.escape.window="if(constructionWizard.open){ closeConstructionWizard(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak @click.self="closeConstructionWizard()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
-      <h3 class="font-bold text-lg">🏗 Build a structure</h3>
+      <h3 class="font-bold text-lg" x-text="constructionWizard.repairTargetId ? '🔧 Repair a structure' : '🏗 Build a structure'"></h3>
       <button @click="closeConstructionWizard()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
-      <p class="text-xs opacity-70">Construction is labor-paid and takes time (RR p.174). This raises an <span class="font-semibold">under-construction project</span> — advance the Day Clock / Advance Month and it builds toward completion, then becomes a real structure. (The instant <span class="font-semibold">+ add component</span> on the Stronghold tab is the admin shortcut.)</p>
+      <p class="text-xs opacity-70" x-show="!constructionWizard.repairTargetId">Construction is labor-paid and takes time (RR p.174). This raises an <span class="font-semibold">under-construction project</span> — advance the Day Clock / Advance Month and it builds toward completion, then becomes a real structure. (The instant <span class="font-semibold">+ add component</span> on the Stronghold tab is the admin shortcut.)</p>
 
-      <!-- Kind -->
-      <label class="flex items-center gap-2 flex-wrap">What to build:
+      <!-- Wave F — repair mode banner (the kind/subtype are fixed to the damaged target; cost = repair cost) -->
+      <template x-if="constructionWizard.repairTargetId">
+        <div class="border border-amber-400 rounded p-2 text-sm" style="background:rgba(245,158,11,.12)">
+          🔧 <span class="font-semibold">Repairing</span> <span x-text="constructionWizardRepairTargetLabel()"></span>. It is restored to intact on completion (RR p.339 — cost scales with the damage). Assign a crew + supervisor, then advance the Day Clock.
+        </div>
+      </template>
+
+      <!-- Kind (hidden in repair mode — the kind is the target's) -->
+      <label class="flex items-center gap-2 flex-wrap" x-show="!constructionWizard.repairTargetId">What to build:
         <select x-model="constructionWizard.kind" @change="constructionWizardOnKind()" class="border border-ink rounded px-1 py-0.5 text-sm">
           <template x-for="k in constructionWizardKinds()" :key="k.key"><option :value="k.key" x-text="k.label"></option></template>
         </select>
       </label>
 
-      <!-- What: stronghold-component → catalog structure picker (RR r10 p.132); else name + GM cost -->
-      <template x-if="constructionWizard.kind === 'stronghold-component'">
+      <!-- What: stronghold-component → catalog structure picker (RR r10 p.132); else name + GM cost.
+           Hidden in repair mode — the structure is the damaged target's. -->
+      <template x-if="constructionWizard.kind === 'stronghold-component' && !constructionWizard.repairTargetId">
         <label class="block">Structure <span class="opacity-60 font-normal">(RR r10 p.132)</span>:
           <select :value="constructionWizard.structureKey" @change="constructionWizardPickStructure($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
             <option value="">— pick a structure —</option>
@@ -2752,7 +2760,7 @@ document.addEventListener('alpine:init', () => {
       <!-- === @b13-construction (team) — Wave D: vessel + war-machine catalog subtype pickers (RR p.316 / pp.136–137).
            Pick a class → cost + name fill from the catalog. The vessel mints via the shipped voyages seam on
            completion; the war machine mints a kind:'war-machine' Constructible that feeds sieges. === -->
-      <template x-if="constructionWizardHasCatalog()">
+      <template x-if="constructionWizardHasCatalog() && !constructionWizard.repairTargetId">
         <label class="block">
           <span x-text="constructionWizardSubtypeLabel()"></span>
           <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
@@ -2767,13 +2775,14 @@ document.addEventListener('alpine:init', () => {
         </label>
       </template>
       <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
-           settlement-building falls here too — a building pick above fills the default, the GM may raise it. -->
-      <template x-if="constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine'">
+           settlement-building falls here too — a building pick above fills the default, the GM may raise it.
+           In REPAIR mode (Wave F) the cost field always shows (prefilled with the RR p.339 repair cost). -->
+      <template x-if="constructionWizard.repairTargetId || (constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine')">
         <div class="space-y-1">
-          <label class="block">Cost (gp):
+          <label class="block"><span x-text="constructionWizard.repairTargetId ? 'Repair cost (gp):' : 'Cost (gp):'"></span>
             <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
           </label>
-          <p class="text-[11px] opacity-60" x-text="constructionWizardKindNote()"></p>
+          <p class="text-[11px] opacity-60" x-show="!constructionWizard.repairTargetId" x-text="constructionWizardKindNote()"></p>
         </div>
       </template>
 
@@ -13698,6 +13707,8 @@ document.addEventListener('alpine:init', () => {
                 <span class="px-1.5 rounded bg-amber-100 border border-amber-300" x-text="b.fnLabel"></span>
                 <span x-show="b.enables" class="opacity-60" x-text="'· enables ' + b.enables"></span>
                 <span x-show="b.damageState && b.damageState !== 'intact'" class="accent-red font-semibold" x-text="'· ' + b.damageState"></span>
+                <!-- Wave F — a damaged building offers a repair launcher (opens the Wizard in repair mode). -->
+                <button x-show="b.damageState && b.damageState !== 'intact'" @click="openConstructionWizard({ repairTargetConstructibleId: b.id }); closeHexDetail();" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-amber-100 hover:bg-amber-200" title="Repair this damaged building (RR p.339) — built over time via the Construction Wizard">🔧 Repair</button>
               </li>
             </template>
             <template x-for="p in settlementBuildingProjectsAtHex(worldHexEditingHex())" :key="p.id">
@@ -23437,6 +23448,17 @@ return {
   },
   openConstructionWizard(prefill){
     prefill = prefill || {};
+    // Wave F — repair mode: prefill from the damaged target Constructible (kind/subtype/site/owner fixed
+    // to the target; cost = the RR p.339 repair cost; the GM adjusts the crew + supervisor).
+    if(prefill.repairTargetConstructibleId){
+      const A = window.ACKS, t = A.findConstructible ? A.findConstructible(this.currentCampaign, prefill.repairTargetConstructibleId) : null;
+      if(t) prefill = Object.assign({
+        kind: t.constructibleKind, componentType: '',
+        name: 'Repair: ' + (t.name || t.constructibleSubtype || t.constructibleKind),
+        totalCost: A.constructionRepairCost ? A.constructionRepairCost(t) : 0,
+        siteHexId: t.hexId || '', ownerDomainId: t.ownerDomainId || '', ownerCharacterId: t.ownerCharacterId || ''
+      }, prefill);
+    }
     const firstDom = (this.domains || [])[0];
     this.constructionWizard = {
       open: true,
@@ -23450,10 +23472,18 @@ return {
       ownerCharacterId: prefill.ownerCharacterId || '',
       siteHexId: prefill.siteHexId || '',
       laborers: 0, masons: 0, carpenters: 0, smiths: 0,
-      supervisorIds: []
+      supervisorIds: [],
+      repairTargetId: prefill.repairTargetConstructibleId || ''
     };
   },
   closeConstructionWizard(){ this.constructionWizard.open = false; },
+  // Wave F — the label of the Constructible being repaired (name + damage state), for the repair banner.
+  constructionWizardRepairTargetLabel(){
+    const id = this.constructionWizard.repairTargetId; if(!id) return '';
+    const t = window.ACKS.findConstructible ? window.ACKS.findConstructible(this.currentCampaign, id) : null;
+    if(!t) return id;
+    return (t.name || t.constructibleSubtype || t.constructibleKind) + ' (' + (t.damageState || 'damaged') + ')';
+  },
   // ── Follower Attraction (Construction Wave C — RR p.334) ──
   // The Stronghold-tab card is eligibility-DERIVED (shown whenever the ruler is name-level with a
   // qualifying stronghold and hasn't yet attracted followers); the modal rolls → reviews → materializes.
@@ -23590,16 +23620,19 @@ return {
   },
   constructionWizardSubmitReason(){
     const cw = this.constructionWizard;
-    if(!cw.name || !cw.name.trim()) return 'Name the structure';
-    if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
-    if((cw.kind === 'vessel' || cw.kind === 'war-machine') && !cw.structureKey) return cw.kind === 'vessel' ? 'Pick a vessel class' : 'Pick a war machine';  /* @b13-construction (Wave D) */
-    // Wave E + H — the editable-cost catalog kinds need a subtype pick + cost ≥ the RAW threshold (minCost).
-    if(window.ACKS.constructionSubtypeCatalog && window.ACKS.constructionSubtypeCatalog(cw.kind)){
-      if(!cw.structureKey) return 'Pick a ' + (({ 'settlement-building':'building', 'civic-monument':'monument', 'trap':'trap', 'field-fortification':'field work', 'road':'road surface' })[cw.kind] || 'subtype');
-      const ent = window.ACKS.findConstructionSubtype(cw.kind, cw.structureKey);
-      if(ent && ent.minCost > 0 && Number(cw.totalCost) < ent.minCost) return 'Cost must be at least ' + ent.minCost.toLocaleString() + 'gp for a ' + ent.label;
+    if(!cw.name || !cw.name.trim()) return cw.repairTargetId ? 'Name the work' : 'Name the structure';
+    // Build-only gates (skipped in Wave-F repair mode — the kind/subtype are fixed to the target).
+    if(!cw.repairTargetId){
+      if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
+      if((cw.kind === 'vessel' || cw.kind === 'war-machine') && !cw.structureKey) return cw.kind === 'vessel' ? 'Pick a vessel class' : 'Pick a war machine';  /* @b13-construction (Wave D) */
+      // Wave E + H — the editable-cost catalog kinds need a subtype pick + cost ≥ the RAW threshold (minCost).
+      if(window.ACKS.constructionSubtypeCatalog && window.ACKS.constructionSubtypeCatalog(cw.kind)){
+        if(!cw.structureKey) return 'Pick a ' + (({ 'settlement-building':'building', 'civic-monument':'monument', 'trap':'trap', 'field-fortification':'field work', 'road':'road surface' })[cw.kind] || 'subtype');
+        const ent = window.ACKS.findConstructionSubtype(cw.kind, cw.structureKey);
+        if(ent && ent.minCost > 0 && Number(cw.totalCost) < ent.minCost) return 'Cost must be at least ' + ent.minCost.toLocaleString() + 'gp for a ' + ent.label;
+      }
     }
-    if(!(Number(cw.totalCost) > 0)) return 'Cost must be greater than 0';
+    if(!(Number(cw.totalCost) > 0)) return cw.repairTargetId ? 'Repair cost must be greater than 0' : 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
     if(cw.ownerKind === 'character' && !cw.ownerCharacterId) return 'Pick an owner character';
     if(!cw.siteHexId) return 'Pick a site hex';
@@ -23623,20 +23656,28 @@ return {
       workerCounts: this.constructionWizardWorkerCounts(),
       supervisorCharacterIds: (cw.supervisorIds || []).slice()
     };
-    if(cw.kind === 'stronghold-component'){
+    // Wave F — repair mode: flag the Project so completion restores the target (rather than spawning a
+    // new Constructible). A stronghold-component repair must NOT add a fresh component (no completionSpec).
+    if(cw.repairTargetId){ opts.isRepair = true; opts.repairTargetConstructibleId = cw.repairTargetId; }
+    if(cw.kind === 'stronghold-component' && !cw.repairTargetId){
       opts.completionSpec = { componentType: cw.componentType || '', structures: cw.structureKey ? [{ structureKey: cw.structureKey, quantity: 1 }] : [] };
     }
     // Wave E — a settlement-building is embedded in its hex's settlement: carry the settlement link so the
     // completed Constructible knows its settlement (the data layer + the function-chip readout).
-    if(cw.kind === 'settlement-building' && cw.siteHexId && window.ACKS.settlementForHex){
+    if(cw.kind === 'settlement-building' && !cw.repairTargetId && cw.siteHexId && window.ACKS.settlementForHex){
       const st = window.ACKS.settlementForHex(camp, cw.siteHexId);
       if(st) opts.siteSettlementId = st.id;
     }
     const p = window.ACKS.startConstructionProject(camp, opts);
     if(!p){ this.showToast && this.showToast('Could not start the project.'); return; }
-    // Audit: emit construction-project-started (the handler stamps the 'started' history + a narrative).
+    // Audit: emit the start event (the handler stamps the 'started' history + a narrative). Repair mode
+    // emits construction-repair-started (it marks the target in-repair); build mode construction-project-started.
     if(!Array.isArray(camp.eventLog)) camp.eventLog = [];
-    const ev = window.ACKS.newEvent('construction-project-started', {
+    const ev = cw.repairTargetId
+      ? window.ACKS.newEvent('construction-repair-started', {
+          payload: { projectId: p.id, repairTargetConstructibleId: cw.repairTargetId, totalCost: opts.totalCost, laborRequired: p.laborRequired },
+          submittedBy: 'gm', targetTurn: camp.currentTurn || 1, status: 'applied' })
+      : window.ACKS.newEvent('construction-project-started', {
       payload: { projectId: p.id, ownerDomainId: opts.ownerDomainId || undefined, ownerCharacterId: opts.ownerCharacterId || undefined,
                  siteHexId: opts.siteHexId || undefined, constructibleKind: opts.constructibleKind,
                  constructibleSubtype: opts.constructibleSubtype || undefined, totalCost: opts.totalCost, laborRequired: p.laborRequired },
@@ -30556,7 +30597,7 @@ return {
   recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
   recruitSpecialistModal: { open: false, domainId: null, typeKey: '', detailLevel: 'lightweight' },  // 🎖 Recruit-officer/specialist (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
-  constructionWizard: { open: false, kind: 'stronghold-component', structureKey: '', componentType: '', name: '', totalCost: 0, ownerKind: 'domain', ownerDomainId: '', ownerCharacterId: '', siteHexId: '', laborers: 0, masons: 0, carpenters: 0, smiths: 0, supervisorIds: [] },  // 🏗 Construction Wizard (Domain ▸ Stronghold + Inspector)
+  constructionWizard: { open: false, kind: 'stronghold-component', structureKey: '', componentType: '', name: '', totalCost: 0, ownerKind: 'domain', ownerDomainId: '', ownerCharacterId: '', siteHexId: '', laborers: 0, masons: 0, carpenters: 0, smiths: 0, supervisorIds: [], repairTargetId: '' },  // 🏗 Construction Wizard (Domain ▸ Stronghold + Inspector; repairTargetId set = Wave-F repair mode)
   followerArrival: { open: false, domainId: '', proposal: null },  // 🎺 Follower Arrival modal (Domain ▸ Stronghold — RR p.334)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit

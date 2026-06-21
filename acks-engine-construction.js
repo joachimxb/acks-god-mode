@@ -208,6 +208,21 @@
   }
   function findConstructionSubtype(kind, key){ const c = constructionSubtypeCatalog(kind); return (c && key) ? (c.find(x => x && x.key === key) || null) : null; }
 
+  // ── Wave F — repair cost (RR p.339: cost ∝ the fraction of structure lost) ──
+  // (shpLost / maxShp) × buildValue when SHP is tracked; else a damageState-fraction estimate. Pure.
+  const _DAMAGE_FRACTION = { intact: 0, damaged: 0.25, breached: 0.5, ruined: 0.75, destroyed: 1 };
+  function constructionRepairCost(cst){
+    if(!cst) return 0;
+    const bv = cst.buildValue || 0;
+    if(cst.maxShp != null && cst.currentShp != null && cst.maxShp > 0){
+      const lost = Math.max(0, cst.maxShp - cst.currentShp);
+      return Math.round(bv * (lost / cst.maxShp));
+    }
+    return Math.round(bv * (_DAMAGE_FRACTION[cst.damageState] || 0));
+  }
+  // Whether a Constructible needs repair (damaged / breached / ruined / destroyed; not intact).
+  function constructibleNeedsRepair(cst){ return !!cst && cst.damageState && cst.damageState !== 'intact'; }
+
   // ── vessel construction — the construction SIDE of the shipped voyages seam ──
   // The materialization (Project → Vessel) is voyages's onVesselConstructed + its day-tick
   // consumer; this just hands the Wizard the VESSEL_CATALOG cost so a vessel Project is costed
@@ -356,7 +371,9 @@
     findSettlementBuilding, settlementBuildingCatalogList, settlementBuildingLabel, settlementBuildingsAtHex,
     // Wave H — civic monuments / traps / field fortifications / roads + the generic subtype lookup
     CIVIC_MONUMENT_CATALOG, TRAP_CATALOG, FIELD_FORTIFICATION_CATALOG, ROAD_CATALOG,
-    constructionSubtypeCatalog, findConstructionSubtype
+    constructionSubtypeCatalog, findConstructionSubtype,
+    // Wave F — damage + repair
+    constructionRepairCost, constructibleNeedsRepair
   });
 
 })(typeof window !== 'undefined' ? window : global);

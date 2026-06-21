@@ -2824,6 +2824,24 @@ function applyEvent_constructionCompleted(campaign, event){
   if(!proj){ return { result: { narrativeSummary: 'construction-completed: project not found' } }; }
   proj.lifecycleState = 'complete';
   proj.completedAtTurn = campaign.currentTurn || null;
+  // ── Wave F — a REPAIR project restores its target instead of spawning a new Constructible ──
+  // (before this, a completing isRepair project fell through to the generic spawn below and created a
+  // spurious duplicate Constructible). Restore the target's SHP + damageState (+ its sub-structures);
+  // v1 is a full restore — partial repair is a later refinement.
+  if(proj.isRepair && proj.repairTargetConstructibleId){
+    const target = _findConstructibleInternal(campaign, proj.repairTargetConstructibleId);
+    if(target){
+      if(target.maxShp != null) target.currentShp = target.maxShp;
+      target.damageState = 'intact';
+      target.constructionState = 'complete';
+      if(target.operationalState === 'abandoned') target.operationalState = 'operational';
+      (target.subStructures || []).forEach(s => { if(s){ if(s.maxShp != null) s.currentShp = s.maxShp; s.damageState = 'intact'; } });
+      _pushConstructionHistory(target, { turn: campaign.currentTurn || null, type: 'repaired', narrative: 'Repaired — restored to intact.' });
+    }
+    _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Repair complete on ' + (target ? (target.name || target.id) : proj.repairTargetConstructibleId) });
+    return { result: { projectId: proj.id, constructibleId: target ? target.id : null,
+      narrativeSummary: 'Repair complete — ' + (target ? (target.name || 'the structure') : 'the structure') + ' restored to intact.' } };
+  }
   // Spawn the Constructible. Wave A pattern — minimal viable Constructible.
   // Wave C+ populates per-kind functionData + subStructures.
   const A = (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || null;
@@ -2953,6 +2971,16 @@ function applyEvent_constructionDamaged(campaign, event){
     if(sub){
       sub.currentShp = Math.max(0, (sub.currentShp ?? sub.maxShp ?? 0) - (p.shpLost||0));
       sub.damageState = sub.currentShp === 0 ? 'destroyed' : (sub.currentShp <= (sub.maxShp||0)/2 ? 'breached' : 'damaged');
+      // Multi-story cascade (D@W Battles): destroying a story collapses every story ABOVE it. Each
+      // sub-structure carries a `level` (0 = ground); a destroyed story takes the higher levels with it.
+      if(sub.currentShp === 0){
+        const lvl = sub.level || 0;
+        cst.subStructures.forEach(s => {
+          if(s && s !== sub && (s.level || 0) > lvl && s.damageState !== 'destroyed'){
+            s.currentShp = 0; s.damageState = 'destroyed';
+          }
+        });
+      }
     }
   } else {
     cst.currentShp = Math.max(0, (cst.currentShp ?? cst.maxShp ?? 0) - (p.shpLost||0));
@@ -2961,6 +2989,10 @@ function applyEvent_constructionDamaged(campaign, event){
       cst.damageState = cst.currentShp === 0 ? 'destroyed' : (cst.currentShp <= max/4 ? 'ruined' : (cst.currentShp <= max/2 ? 'breached' : 'damaged'));
     } else {
       cst.damageState = 'damaged';
+    }
+    // A structure reduced to 0 SHP takes every sub-structure with it (the whole thing has collapsed).
+    if(cst.currentShp === 0 && Array.isArray(cst.subStructures)){
+      cst.subStructures.forEach(s => { if(s){ s.currentShp = 0; s.damageState = 'destroyed'; } });
     }
   }
   _pushConstructionHistory(cst, {
