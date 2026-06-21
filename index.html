@@ -102,7 +102,7 @@
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-21-burst12"></script>
+<script src="acks-engine-demographics.js?v=2026-06-21-sd7-wealth"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-21-b12g2"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
@@ -5498,6 +5498,44 @@ document.addEventListener('alpine:init', () => {
                         Per-NPC magic-item value (by level): L1 ~<span x-text="(expectedNpcMagicItemValue(1)).toLocaleString()"></span>gp ·
                         L5 ~<span x-text="(expectedNpcMagicItemValue(5)).toLocaleString()"></span>gp ·
                         L9 ~<span x-text="(expectedNpcMagicItemValue(9)).toLocaleString()"></span>gp.
+                      </p>
+                    </div>
+                  </template>
+
+                  <!-- SD-7a — the wealth census: the gold this town's LEVELED NPCs are expected to hold
+                       (the per-level wealth curve, Econometrics §7) vs what its homed residents actually
+                       carry (coin purse + owned caches). The wealth analog of the roster + magic-item
+                       census. Always-on RAW tooling. -->
+                  <template x-if="wealthCensus()">
+                    <div class="mt-2 pt-2 border-t border-ink/20">
+                      <h4 class="font-semibold text-sm mb-1">💰 Wealth census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + wealthCensus().marketClass + ' market'"></span></h4>
+                      <p class="text-xs opacity-70 mb-1">The gold this town's notable (leveled) NPCs are expected to hold (🔧 IP-light Econometrics §7 curve, GM-overridable) vs what its homed residents actually carry (purse + owned caches). The 0th-level commoner masses are the domain economy, not this per-NPC census.</p>
+                      <div class="overflow-x-auto">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Level</th><th title="expected leveled NPCs at this level">NPCs</th><th title="expected wealth per NPC (Econometrics §7 curve)">gp/NPC</th><th title="expected total wealth at this level">Expected</th><th title="homed residents at this level">Here</th><th title="wealth actually held by those residents (purse + owned caches)">Realized</th></tr></thead>
+                          <tbody>
+                            <template x-for="row in wealthCensusRows()" :key="row.level">
+                              <tr x-show="row.expectedNpcs >= 0.5 || row.realizedResidents > 0">
+                                <td x-text="'L' + row.level"></td>
+                                <td class="opacity-70" x-text="row.expectedNpcs >= 0.05 ? (Math.round(row.expectedNpcs*10)/10) : '—'"></td>
+                                <td class="font-mono opacity-70" x-text="row.perNpcGp.toLocaleString()"></td>
+                                <td x-text="Math.round(row.expectedGp).toLocaleString()"></td>
+                                <td :class="row.realizedResidents>0 ? 'text-green-800 font-semibold' : ''"
+                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name+' ('+Math.round(n.gp).toLocaleString()+'gp)').join(', ') : ''" x-text="row.realizedResidents||'—'"></td>
+                                <td :class="row.realizedGp>0 ? 'text-green-800' : 'opacity-50'" x-text="row.realizedGp>0 ? Math.round(row.realizedGp).toLocaleString() : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-sm mt-1">
+                        Expected ~<span class="font-semibold" x-text="Math.round(wealthCensus().expectedGp).toLocaleString()"></span> gp across <span x-text="Math.round(wealthCensus().expected.totalNpcs)"></span> leveled NPC(s)
+                        · realized <span class="font-semibold" x-text="Math.round(wealthCensus().realizedGp).toLocaleString()"></span> gp held by <span x-text="wealthCensus().realized.residents"></span> homed resident(s).
+                      </p>
+                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 fitted curve — wealth follows the demographic pyramid; GM-overridable">
+                        Per-NPC wealth (by level): L1 ~<span x-text="expectedNpcWealth(1).toLocaleString()"></span>gp ·
+                        L7 ~<span x-text="expectedNpcWealth(7).toLocaleString()"></span>gp ·
+                        L14 ~<span x-text="expectedNpcWealth(14).toLocaleString()"></span>gp.
                       </p>
                     </div>
                   </template>
@@ -20420,6 +20458,11 @@ return {
   // the by-NPC-level magic-item value (the per-individual facet) — a component wrapper so the Demographics
   // census markup resolves it in Alpine scope (the engine fn lives on window.ACKS, not the component).
   expectedNpcMagicItemValue(level){ return (typeof window.ACKS.expectedNpcMagicItemValue === 'function') ? window.ACKS.expectedNpcMagicItemValue(level) : 0; },
+  // SD-7a wealth census (over acks-engine-demographics.js; the fitted per-level wealth curve, Econometrics §7).
+  // Expected leveled-NPC wealth vs what homed residents actually carry (purse + owned caches). Always-on RAW tooling.
+  wealthCensus(){ const s = this.demoSettlement && this.demoSettlement(); return s ? window.ACKS.settlementWealthCensus(this.currentCampaign, s) : null; },
+  wealthCensusRows(){ const c = this.wealthCensus(); return c ? c.byLevel : []; },
+  expectedNpcWealth(level){ return (typeof window.ACKS.expectedNpcWealth === 'function') ? window.ACKS.expectedNpcWealth(level) : 0; },
   // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
   // ── Escalate a combat-risk urban incident into a full Encounter (the shipped #476 E-layer), then
   //    deep-link to the resolution panel. svtIncidents() is a simple reverse of v.incidents, so the

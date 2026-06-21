@@ -628,6 +628,66 @@ ok('rural fill: a domain with no rural hexes refuses', (() => {
   return ACKS.autoFillDomainCountryside(c, c.domains[0], { rng: mkRng(9) }).reason === 'no-rural-hexes';
 })());
 
+// ── 14. SD-7a — the wealth census (plan §8A.2; Econometrics §7) ────────────────────────────────────
+section('SD-7a — the wealth census');
+{   // block scope — keep these locals out of the file's shared script scope (wc/setW/etc.)
+['npcWealthGp','realizedCharacterWealthGp','expectedSettlementWealth','realizedSettlementWealth',
+ 'settlementWealthDelta','settlementWealthCensus','expectedNpcWealth'].forEach(fn =>
+  ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function'));
+
+// the fitted per-level wealth curve — the two explicit §7 anchors + monotonicity
+ok('npcWealthGp(0) = 70 (the explicit 0th-level anchor)', ACKS.npcWealthGp(0) === 70, 'got ' + ACKS.npcWealthGp(0));
+ok('npcWealthGp(14) ≈ 12,982,800 (the 14th-level anchor, within ±2%)', Math.abs(ACKS.npcWealthGp(14) - 12982800) / 12982800 < 0.02, 'got ' + ACKS.npcWealthGp(14));
+let wmono = true; for(let l = 1; l <= 14; l++){ if(!(ACKS.npcWealthGp(l) > ACKS.npcWealthGp(l - 1))) wmono = false; }
+ok('npcWealthGp is strictly monotonic L0..L14', wmono);
+ok('npcWealthGp(7) is mid-curve (1k < v < 100k)', ACKS.npcWealthGp(7) > 1000 && ACKS.npcWealthGp(7) < 100000, 'got ' + ACKS.npcWealthGp(7));
+ok('npcWealthGp tolerates a non-number → 0', ACKS.npcWealthGp(undefined) === 0 && ACKS.npcWealthGp('x') === 0);
+ok('expectedNpcWealth(L) === npcWealthGp(L)', ACKS.expectedNpcWealth(5) === ACKS.npcWealthGp(5));
+
+// realizedCharacterWealthGp — the multi-denomination coin purse (canonical) + owned stashes
+const wc = ACKS.blankCampaign({ name:'wealth' });
+const wChar = { id:'chr-w', name:'Crassus', level:5, class:'Venturer', homeSettlementId:'set-w',
+  coins:{ pp:2, gp:100, ep:0, sp:20, cp:0 } };   // 2×5 + 100 + 20×0.1 = 112 gp-equiv
+wc.characters.push(wChar);
+ok('realizedCharacterWealthGp: the multi-denomination purse gp-equiv (112)', ACKS.realizedCharacterWealthGp(wc, wChar) === 112, 'got ' + ACKS.realizedCharacterWealthGp(wc, wChar));
+// a personal cache stash he owns adds its gp value (stashTotalGp is the oracle — robust vs the item model)
+wc.stashes.push({ id:'stash-w', kind:'cache', ownerCharacterId:'chr-w', hexId:null,
+  items:[ { facets:['coin'], denomination:'gp', qty:500 } ] });
+const stashGp = ACKS.stashTotalGp(wc.stashes[0]);
+const realW = ACKS.realizedCharacterWealthGp(wc, wChar);
+ok('the cache stash has positive gp value', stashGp > 0, 'got ' + stashGp);
+ok('realizedCharacterWealthGp: purse + owned-stash gp (112 + ' + stashGp + ')', realW === 112 + stashGp, 'got ' + realW);
+ok('realizedCharacterWealthGp(no char) = 0', ACKS.realizedCharacterWealthGp(wc, null) === 0);
+
+// settlement census — expected from the roster × the curve; realized from homed residents
+const setW = { id:'set-w', families:80 };   // Class VI
+wc.settlements.push(setW);
+const expW = ACKS.expectedSettlementWealth(wc, setW);
+ok('expectedSettlementWealth: 14 level rows', expW.byLevel.length === 14);
+ok('expectedSettlementWealth: per-level gp = expected count × the curve', Math.abs(expW.byLevel[0].gp - (expW.byLevel[0].expectedNpcs * ACKS.npcWealthGp(1))) < 1e-6);
+ok('expectedSettlementWealth: totalGp = Σ per-level gp', Math.abs(expW.totalGp - expW.byLevel.reduce((s, r) => s + r.gp, 0)) < 1e-6);
+ok('expectedSettlementWealth: a populated Class VI town expects some leveled-NPC wealth', expW.totalGp > 0);
+
+const realSettW = ACKS.realizedSettlementWealth(wc, 'set-w');
+ok('realizedSettlementWealth: counts the one homed resident', realSettW.residents === 1 && realSettW.totalGp === realW, 'got ' + JSON.stringify({ r: realSettW.residents, gp: realSettW.totalGp }));
+ok('realizedSettlementWealth: the resident lands on his level row (L5)', realSettW.byLevel[4].residents === 1 && realSettW.byLevel[4].gp === realW);
+
+const delW = ACKS.settlementWealthCensus(wc, setW);
+ok('settlementWealthCensus: marketClass + expectedGp + realizedGp surfaced', delW.marketClass === 'VI' && delW.expectedGp > 0 && delW.realizedGp === realW);
+ok('settlementWealthCensus: a per-level row carries expected + realized', delW.byLevel[4].realizedResidents === 1 && delW.byLevel[4].realizedGp === realW && typeof delW.byLevel[4].expectedNpcs === 'number');
+ok('settlementWealthCensus: names the richest residents (sorted desc)', Array.isArray(delW.byLevel[4].names) && delW.byLevel[4].names[0].name === 'Crassus');
+
+// a deceased resident is excluded (the _isResident gate)
+wChar.lifecycleState = 'deceased';
+ok('settlementWealthCensus: a deceased resident is excluded', ACKS.realizedSettlementWealth(wc, 'set-w').residents === 0);
+wChar.lifecycleState = undefined;
+
+// derive-don't-store: the accessors are pure — no campaign mutation (no new field / migration)
+const wBefore = JSON.stringify(wc);
+ACKS.settlementWealthCensus(wc, setW); ACKS.expectedSettlementWealth(wc, setW); ACKS.npcWealthGp(9);
+ok('the wealth census is pure (no campaign mutation)', JSON.stringify(wc) === wBefore);
+}
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
