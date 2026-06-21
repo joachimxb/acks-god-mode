@@ -218,6 +218,119 @@ ok('a generation event REPLAYS cleanly (audit handler well-formed)', (() => {
 })());
 
 // =============================================================================
+section('G2 — batch generation exports');
+// =============================================================================
+ok('ACKS.generateRoster / generateEntourage / generateNpcParty / landRoster are functions',
+  typeof ACKS.generateRoster === 'function' && typeof ACKS.generateEntourage === 'function'
+  && typeof ACKS.generateNpcParty === 'function' && typeof ACKS.landRoster === 'function');
+
+// =============================================================================
+section('G2 — generateRoster (plain batch): count, level range, homing, NON-mutating preview');
+// =============================================================================
+const g2set = (camp.settlements && camp.settlements[0]) || null;
+const g2RoCamp = freshDemo();
+const g2RoSet = (g2RoCamp.settlements && g2RoCamp.settlements[0]) || null;
+const g2charsBefore = g2RoCamp.characters.length, g2evBefore = (g2RoCamp.eventLog || []).length;
+const g2roster = ACKS.generateRoster(g2RoCamp, { count: 5, minLevel: 1, maxLevel: 3, settlementId: g2RoSet ? g2RoSet.id : null }, { seed: 'g2-ro' });
+ok('generateRoster returns `count` proposals', Array.isArray(g2roster) && g2roster.length === 5);
+ok('every proposal is the G1 shape {character, provenance}', g2roster.every(p => p && p.character && p.provenance));
+ok('every NPC level is within [minLevel, maxLevel]', g2roster.every(p => p.character.level >= 1 && p.character.level <= 3));
+ok('every NPC homed to the settlement', g2RoSet ? g2roster.every(p => p.character.homeSettlementId === g2RoSet.id) : true);
+ok('PREVIEW is NON-mutating — campaign.characters + eventLog UNCHANGED until land',
+  g2RoCamp.characters.length === g2charsBefore && (g2RoCamp.eventLog || []).length === g2evBefore);
+ok('count clamps to [1,50] (a 0 count → 1, a 999 → 50)',
+  ACKS.generateRoster(g2RoCamp, { count: 0 }, { seed: 'c0' }).length === 1
+  && ACKS.generateRoster(g2RoCamp, { count: 999 }, { seed: 'c9' }).length === 50);
+
+// =============================================================================
+section('G2 — generateRoster (census-driven): one NPC per OPEN notable slot (read-only)');
+// =============================================================================
+// the demo Saltspur has open notable slots the census expects but no homed NPC fills — generate them.
+if(g2set && typeof ACKS.demographicOpenNotableSlots === 'function'){
+  const slots = ACKS.demographicOpenNotableSlots(camp, g2set, { minLevel: 5 }) || [];
+  ok('demographic open-slot read returns slots for the demo settlement', slots.length > 0, 'slots=' + slots.length);
+  const cen = ACKS.generateRoster(freshDemo(), { settlementId: g2set.id, useCensusSlots: true, minLevel: 5, count: 6 }, { seed: 'g2-cen' });
+  ok('census roster respects the count cap', cen.length <= 6 && cen.length > 0);
+  ok('every census NPC is tagged with the slot it fills {bucket,level}',
+    cen.every(p => p.slot && p.slot.bucket && typeof p.slot.level === 'number'));
+  ok("every census NPC's level matches its slot level", cen.every(p => p.character.level === p.slot.level));
+  ok('every census NPC buckets back to its slot bucket (generateNPC resolved the class from the bucket)',
+    cen.every(p => ACKS.coreBucketForCharacter(camp, p.character) === p.slot.bucket));
+} else {
+  ok('census-slot path skipped (demographics module / demo settlement absent)', true);
+}
+
+// =============================================================================
+section('G2 — generateEntourage: fills the OPEN entourage offices at expected level/bucket, homed');
+// =============================================================================
+const g2dom = (camp.domains && camp.domains[0]) || null;
+if(g2dom && typeof ACKS.realmCommandStructure === 'function'){
+  const rc = ACKS.realmCommandStructure(camp, g2dom.id);
+  const openOffices = rc.offices.filter(o => !o.filled && o.mapsTo === 'entourage' && o.bucket);
+  const entCamp = freshDemo();
+  const entCharsBefore = entCamp.characters.length;
+  const ent = ACKS.generateEntourage(entCamp, g2dom.id, { seed: 'g2-ent' });
+  ok('entourage generates one NPC per open entourage office', ent.length === openOffices.length, 'got ' + ent.length + ' want ' + openOffices.length);
+  ok('every entourage NPC carries its office {key,label,bucket,expectedLevel}',
+    ent.every(p => p.office && p.office.key && p.office.bucket && typeof p.office.expectedLevel === 'number'));
+  ok("every entourage NPC's level = the office's expected level", ent.every(p => p.character.level === p.office.expectedLevel));
+  ok('every entourage NPC buckets to its office bucket', ent.every(p => ACKS.coreBucketForCharacter(camp, p.character) === p.office.bucket));
+  ok('every entourage NPC homed to the realm (homeDomainId)', ent.every(p => p.character.homeDomainId === g2dom.id));
+  ok('entourage PREVIEW is non-mutating', entCamp.characters.length === entCharsBefore);
+  ok('only ENTOURAGE offices generate (no ruler / magistrate slots)',
+    ent.every(p => ['magister','guildmaster','annalist'].indexOf(p.office.key) >= 0));
+} else {
+  ok('entourage path skipped (realmCommandStructure / demo domain absent)', true);
+}
+
+// =============================================================================
+section('G2 — generateNpcParty: leader + companions (≤ leader−1), lieged as henchmen');
+// =============================================================================
+const g2party = ACKS.generateNpcParty(camp, { leaderLevel: 7, companions: 4, seed: 'g2-pty' });
+ok('party returns { leader, companions, partyName, leaderLevel }',
+  g2party && g2party.leader && Array.isArray(g2party.companions) && g2party.partyName && g2party.leaderLevel === 7);
+ok('leader at leaderLevel', g2party.leader.character.level === 7);
+ok('the right number of companions', g2party.companions.length === 4);
+ok('every companion ≤ leader − 1 (RAW henchman cap, RR p.164)', g2party.companions.every(c => c.character.level <= 6 && c.character.level >= 1));
+ok('companion levels spread −1 / −2 / −3 (then repeat)',
+  JSON.stringify(g2party.companions.map(c => c.character.level)) === JSON.stringify([6, 5, 4, 6]));
+ok('every companion is lieged to the leader (the soft patron pointer)',
+  g2party.companions.every(c => c.character.liegeCharacterId === g2party.leader.character.id));
+ok("every companion's socialTier is henchman", g2party.companions.every(c => c.character.socialTier === 'henchman'));
+ok('party default name = "<leader>\'s band"', g2party.partyName === g2party.leader.character.name + "'s band");
+ok('a 0-companion party is just a leader', ACKS.generateNpcParty(camp, { leaderLevel: 3, companions: 0, seed: 'solo' }).companions.length === 0);
+
+// =============================================================================
+section('G2 — landRoster: lands an array OR a party object → one `generation` event per NPC');
+// =============================================================================
+const landCamp = freshDemo();
+const lcBefore = landCamp.characters.length, leBefore = (landCamp.eventLog || []).length;
+const lcRoster = ACKS.generateRoster(landCamp, { count: 3, settlementId: (landCamp.settlements[0] || {}).id }, { seed: 'g2-land' });
+const lcLanded = ACKS.landRoster(landCamp, lcRoster, {});
+ok('landRoster(array) lands every kept proposal', lcLanded.length === 3 && landCamp.characters.length === lcBefore + 3);
+ok('landRoster emits ONE generation event per NPC', (landCamp.eventLog || []).length === leBefore + 3);
+ok('every appended event is kind=generation', (landCamp.eventLog || []).slice(-3).every(e => e.event.kind === 'generation'));
+ok('landed characters are the same objects (ids match the proposals)',
+  lcLanded.every((c, i) => c.id === lcRoster[i].character.id));
+// land a party object (flattened leader-first)
+const ptyCamp = freshDemo();
+const pcBefore = ptyCamp.characters.length;
+const ptyLanded = ACKS.landRoster(ptyCamp, ACKS.generateNpcParty(ptyCamp, { leaderLevel: 5, companions: 2, seed: 'g2-pl' }), {});
+ok('landRoster(partyObject) flattens leader + companions', ptyLanded.length === 3 && ptyCamp.characters.length === pcBefore + 3);
+ok('the leader lands first', ptyLanded[0].socialTier !== 'henchman' && ptyLanded.slice(1).every(c => c.socialTier === 'henchman'));
+
+// =============================================================================
+section('G2 — determinism: a seeded batch is byte-reproducible');
+// =============================================================================
+const detA = ACKS.generateRoster(freshDemo(), { count: 4, minLevel: 1, maxLevel: 5 }, { seed: 'g2-det' })
+  .map(p => p.character.name + '|' + p.character.level + '|' + p.character.class);
+const detB = ACKS.generateRoster(freshDemo(), { count: 4, minLevel: 1, maxLevel: 5 }, { seed: 'g2-det' })
+  .map(p => p.character.name + '|' + p.character.level + '|' + p.character.class);
+ok('same seed → identical roster (names + levels + classes)', JSON.stringify(detA) === JSON.stringify(detB));
+ok('the batch is varied (per-index seeds give distinct NPCs, not N clones)',
+  new Set(ACKS.generateRoster(freshDemo(), { count: 6 }, { seed: 'g2-var' }).map(p => p.character.name + p.character.level)).size > 1);
+
+// =============================================================================
 section('Data-footprint guard — no new entity/prefix; blankCharacter UNTOUCHED (migration-free)');
 // =============================================================================
 ok('gen- prefix stays UNUSED (a run is an event, not an entity)', !ACKS.ID_PREFIXES || ACKS.ID_PREFIXES.generation === undefined);
