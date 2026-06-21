@@ -12158,6 +12158,12 @@ document.addEventListener('alpine:init', () => {
                 <p>⚖ <span x-text="dynInfo(characterEditing).successionLawLabel"></span> succession<span x-show="dynInfo(characterEditing).vassalLoyaltyBonus" x-text="' — vassals +' + dynInfo(characterEditing).vassalLoyaltyBonus + ' loyalty'"></span><span x-show="dynInfo(characterEditing).pendingSuccessionLaw" class="opacity-60" x-text="' (changing to ' + dynInfo(characterEditing).pendingSuccessionLaw + ')'"></span></p>
                 <p x-show="dynInfo(characterEditing).bloodlineTraits && dynInfo(characterEditing).bloodlineTraits.length">🩸 Bloodline trait: <span class="font-semibold" x-text="(dynInfo(characterEditing).bloodlineTraits||[]).join(', ')"></span> <span class="opacity-60">(children roll 4d6, keep best 3)</span></p>
                 <p class="opacity-70" x-text="dynInfo(characterEditing).memberCount + ' member' + (dynInfo(characterEditing).memberCount===1?'':'s') + (dynInfo(characterEditing).bastard ? ' · ○ this character is a bastard' : '') + (dynInfo(characterEditing).childrenCount ? (' · ' + dynInfo(characterEditing).childrenCount + ' child' + (dynInfo(characterEditing).childrenCount===1?'':'ren')) : '')"></p>
+                <!-- === @b13-lifecycle (team) — fertility/education/delegation at-a-glance (open the 👑 Dynasty modal to act) === -->
+                <p x-show="famInfo(characterEditing).pregnant || famInfo(characterEditing).education || (famInfo(characterEditing).delegation && famInfo(characterEditing).delegation.mode!=='hands-on')" class="opacity-70 text-xs">
+                  <span x-show="famInfo(characterEditing).pregnant" x-text="'🤰 due in ' + famInfo(characterEditing).dueInMonths + ' mo'"></span>
+                  <span x-show="famInfo(characterEditing).education" x-text="(famInfo(characterEditing).pregnant?' · ':'') + '🎓 educating (' + (famInfo(characterEditing).education||{}).tutorLabel + ')'"></span>
+                  <span x-show="famInfo(characterEditing).delegation && famInfo(characterEditing).delegation.mode!=='hands-on'" x-text="((famInfo(characterEditing).pregnant||famInfo(characterEditing).education)?' · ':'') + '🏛 ' + (famInfo(characterEditing).delegation||{}).label"></span>
+                </p>
               </div>
             </template>
           </div>
@@ -18351,6 +18357,49 @@ document.addEventListener('alpine:init', () => {
             </div>
             <p class="text-xs opacity-50">Picks the heir by the dynasty's law (eldest/youngest child · eldest member · most powerful · elected). Feed the heir to the character-sheet Lifecycle "Resolve succession" to carry over Reserve XP + the inheritance.</p>
           </div>
+
+          <!-- === @b13-lifecycle (team) — CL-4b deepening: fertility · education · delegation (AXIOMS 19) === -->
+          <template x-if="dynModalChar()">
+            <div class="space-y-2 border-t border-ink/20 pt-2">
+              <p class="font-semibold opacity-80">CL-4b deepening <span class="font-normal opacity-60">· run the bloodline forward (AXIOMS 19)</span></p>
+              <!-- fertility -->
+              <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+                <p class="font-semibold">🤰 Fertility <span class="font-normal opacity-50" x-text="'· ' + (dynModalChar()||{}).name"></span></p>
+                <p class="opacity-80" x-text="famFertilityText(dynModalChar())"></p>
+                <label class="flex items-center gap-1.5 text-xs"><input type="checkbox" :checked="dynModalChar().fertilitySuspended===true" @change="famToggleSuspend()"> Suspend fertility (no automatic conception)</label>
+                <p class="text-xs opacity-50">A married couple of bearing age conceives automatically on the monthly turn (~9-month term; twins/triplets on extreme rolls; elves keep the favored of two; lifetime caps human/beastman 12 · dwarf/gnome/halfling 4 · elf 2). Set a character's <em>sex</em> in the Inspector to refine who bears.</p>
+              </div>
+              <!-- education -->
+              <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+                <p class="font-semibold">🎓 Education</p>
+                <p class="opacity-80" x-text="famEducationText(dynModalChar())"></p>
+                <div class="flex flex-wrap items-end gap-2">
+                  <label class="text-xs">Tutor<select x-model="famUi.eduTutor" class="block text-sm"><template x-for="t in famTutors()" :key="t.id"><option :value="t.id" x-text="t.label + (t.monthlyCostGp ? (' (' + t.monthlyCostGp + ' gp/mo)') : '')"></option></template></select></label>
+                  <label class="text-xs">Focus <span class="opacity-50">(a proficiency)</span><input type="text" x-model="famUi.eduFocus" placeholder="e.g. Leadership" class="block text-sm" style="width:9rem"></label>
+                  <label class="text-xs">Payer <span class="opacity-50">(optional)</span><select x-model="famUi.eduPayerId" class="block text-sm"><option value="">— GM-funded —</option><template x-for="o in famCharOptions()" :key="'ep'+o.id"><option :value="o.id" x-text="o.name"></option></template></select></label>
+                  <button @click="famEducate()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100 font-semibold">🎓 Educate</button>
+                  <button x-show="famInfo(dynModalChar()).education" @click="famEndEducation()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-stone-200">Stop</button>
+                </div>
+                <div class="flex items-end gap-2">
+                  <label class="text-xs">Reserve XP <span class="opacity-50">(starts an heir higher)</span><input type="number" min="0" x-model="famUi.reserveAmount" placeholder="all" class="block text-sm" style="width:6rem"></label>
+                  <button @click="famApplyReserve()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">Apply reserve XP</button>
+                </div>
+                <p class="text-xs opacity-50">~1 year to level 1, scaling up — XP accrues on the monthly turn (the focus proficiency is granted at the first level). Reserve XP (this character's CL-4a fund) jump-starts a level.</p>
+              </div>
+              <!-- delegation -->
+              <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+                <p class="font-semibold">🏛 Delegation</p>
+                <p class="opacity-80" x-text="famDelegationText(dynModalChar())"></p>
+                <div class="flex flex-wrap items-end gap-2">
+                  <label class="text-xs">Mode<select x-model="famUi.delMode" class="block text-sm"><template x-for="m in famDelegationModes()" :key="m.id"><option :value="m.id" x-text="m.label"></option></template></select></label>
+                  <label class="text-xs" x-show="famUi.delMode!=='hands-on'">Regent / steward<select x-model="famUi.delDelegateId" class="block text-sm"><option value="">— pick —</option><template x-for="o in famCharOptions()" :key="'dl'+o.id"><option :value="o.id" x-text="o.name"></option></template></select></label>
+                  <button @click="famDelegate()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100 font-semibold">🏛 Set</button>
+                </div>
+                <p class="text-xs opacity-50">Delegation frees a titled ruler to adventure while a steward runs the realm (the activity-budget / Politics consumer — the freed activity, the realm running itself — is a forward seam).</p>
+              </div>
+            </div>
+          </template>
+          <!-- === end @b13-lifecycle deepening section === -->
         </div>
       </template>
     </div>
@@ -19006,6 +19055,24 @@ return {
   // === @b13-construction  (team) — Construction Wave D (vessels / war machines / siege-support): state + methods ===
   // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
+  // The three deferred AXIOMS-19 mechanics over acks-engine-lifecycle.js (educateCharacter /
+  // applyReserveXpToHeir / delegateAuthority / characterFamilyInfo + the fertility auto-roll that rides
+  // the monthly turn via processFamilyForTurn). Surfaced in the b12 Dynasty card + modal (per the modal's
+  // dynModalChar()); gated on the dynasty-tracking house rule (the b12 dynastyTrackingOn()). Reuses the
+  // b12 _dynTouch (markDirty + schedulePersist + showToast).
+  famUi: { eduTutor:'basic', eduFocus:'', eduPayerId:'', reserveAmount:'', delMode:'hands-on', delDelegateId:'' },
+  famInfo(ch){ const A=window.ACKS; if(!ch || !A || !A.characterFamilyInfo) return { fertile:false, delegation:{ mode:'hands-on' } }; try { return A.characterFamilyInfo(this.currentCampaign, ch); } catch(e){ return { fertile:false, delegation:{ mode:'hands-on' } }; } },
+  famTutors(){ return (window.ACKS && window.ACKS.educationTutorsList) ? window.ACKS.educationTutorsList() : []; },
+  famDelegationModes(){ return (window.ACKS && window.ACKS.delegationModesList) ? window.ACKS.delegationModesList() : []; },
+  famCharOptions(){ return (this.currentCampaign?.characters||[]).filter(x => x && x.alive !== false && x.lifecycleState !== 'deceased').map(x=>({ id:x.id, name:x.name })); },
+  famFertilityText(ch){ const i=this.famInfo(ch); if(i.pregnant) return '🤰 Pregnant — due in ' + i.dueInMonths + ' month' + (i.dueInMonths===1?'':'s') + '.'; if(i.fertile) return 'Fertile — ~' + Math.round((i.annualFertility||0)*100) + '%/active-year conception, ' + i.pregnancies + '/' + i.pregnancyCap + ' lifetime pregnancies. A married couple conceives automatically each monthly turn.'; const why = i.fertilitySuspended ? 'fertility suspended' : !i.sexCanBear ? 'not a bearing sex' : !i.fertileAge ? 'not of bearing age' : ((i.pregnancies||0) >= (i.pregnancyCap||0) ? 'lifetime cap reached' : 'unmarried, or no eligible partner'); return 'Not currently bearing (' + why + ').'; },
+  famEducationText(ch){ const e=this.famInfo(ch).education; if(!e) return 'Not in education.'; return 'In education — ' + e.tutorLabel + ', +' + e.xpPerMonth + ' XP/mo' + (e.focus ? (', focus: ' + e.focus + (e.focusGranted?' ✓':'')) : '') + ' · level ' + e.level + '.'; },
+  famDelegationText(ch){ const d=this.famInfo(ch).delegation; if(!d || d.mode==='hands-on') return 'Hands-On — the ruler runs the realm personally.'; return d.label + ' — ' + (d.delegate ? ('delegate: ' + d.delegate.name + (d.delegate.deceased?' (deceased!)':'')) : (d.delegateMissing?'delegate missing':'no delegate')) + (d.freesRuler ? ' · free to adventure' : '') + '.'; },
+  famEducate(){ const ch=this.dynModalChar(); if(!ch || !window.ACKS) return; const res=window.ACKS.educateCharacter(this.currentCampaign, ch.id, { tutor:this.famUi.eduTutor, focus:this.famUi.eduFocus||undefined, payerCharacterId:this.famUi.eduPayerId||undefined }); if(res && res.error){ this._dynTouch('Cannot educate: ' + res.error); return; } this._dynTouch(ch.name + ' begins education under a ' + (this.famUi.eduTutor) + ' tutor.'); },
+  famEndEducation(){ const ch=this.dynModalChar(); if(!ch || !window.ACKS) return; window.ACKS.endEducation(this.currentCampaign, ch.id); this._dynTouch(ch.name + "'s education ends."); },
+  famApplyReserve(){ const ch=this.dynModalChar(); if(!ch || !window.ACKS) return; const amt=this.famUi.reserveAmount!=='' ? (parseInt(this.famUi.reserveAmount,10)||0) : null; const res=window.ACKS.applyReserveXpToHeir(this.currentCampaign, ch.id, amt!=null?{amount:amt}:{}); if(res && res.error){ this._dynTouch('Cannot apply: ' + res.error); return; } this.famUi.reserveAmount=''; this._dynTouch(res.moved ? (ch.name + ' gains ' + res.moved + ' reserve XP (level ' + res.heirLevel + ').') : 'No reserve XP available.'); },
+  famDelegate(){ const ch=this.dynModalChar(); if(!ch || !window.ACKS) return; const res=window.ACKS.delegateAuthority(this.currentCampaign, ch.id, { mode:this.famUi.delMode, delegateCharacterId:this.famUi.delDelegateId||undefined }); if(res && res.error){ this._dynTouch('Cannot delegate: ' + res.error); return; } this._dynTouch(res.freesRuler ? (ch.name + ' delegates the realm — free to adventure.') : (ch.name + ' sets ' + res.mode + ' governance.')); },
+  famToggleSuspend(){ const ch=this.dynModalChar(); if(!ch) return; ch.fertilitySuspended = !(ch.fertilitySuspended===true); this._dynTouch(ch.fertilitySuspended ? (ch.name + ' suspends fertility.') : (ch.name + ' resumes fertility.')); },
   // === @b13-customclasses (team) — Custom Classes W2 (power compendium + trade-offs / drawbacks): state + methods ===
   // === @b13-religion      (team) — Religion R6 (apotheosis upkeep + dungeon co-extraction): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
