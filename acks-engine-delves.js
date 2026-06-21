@@ -1303,6 +1303,94 @@
     return { characterId, wound, outcome: rec ? rec.outcome : null, conditionLabel: rec ? rec.conditionLabel : null };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Delves D5 follow-on (burst12) — (1) escalate a combat-risk urban incident into a full Encounter
+  // (the shipped #476 E-layer); (2) seed the slot-66 daily check so the day-tick review is byte-stable.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Seeded preview rng (the journey / survival idiom — acks-engine-subsystems.js _jHash32 /
+  //    _jMulberry32). Defined LOCALLY (a bare cross-module private call would be a cross-module-lint
+  //    finding). The fingerprint captures everything that determines the day's incident: the world
+  //    day (so consecutive days in a multi-day advance differ — the orchestrator increments
+  //    ctx.dayInMonth per day), the per-loop offset, the visit id + mode, the incident count so far
+  //    (a committed prior-day incident re-seeds the next day), and the participant set (adding/
+  //    removing someone re-previews). Re-opening the day-tick review on UNCHANGED committed state
+  //    reproduces the IDENTICAL incident — the journey/survival preview-determinism guarantee. ──
+  function _delveHash32(str){ let h = 2166136261 >>> 0; for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function _delveMulberry32(seed){ let a = seed >>> 0; return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function _settlementPreviewFingerprint(campaign, v, ctx, dayOffset){
+    ctx = ctx || {};
+    const cal = (campaign && campaign.calendar) || {};
+    return JSON.stringify({
+      d: ctx.dayInMonth || (campaign && campaign.currentDayInMonth) || 1, y: cal.year || 1, m: cal.month || 1,
+      off: dayOffset || 0, id: v.id, mode: v.mode || 'holed-up',
+      inc: (Array.isArray(v.incidents) ? v.incidents.length : 0),
+      pp: (v.participantCharacterIds || []).slice().sort()
+    });
+  }
+  function _seededSettlementRng(campaign, v, ctx, dayOffset){ return _delveMulberry32(_delveHash32(_settlementPreviewFingerprint(campaign, v, ctx, dayOffset))); }
+
+  // ── The urban foe a combat-risk incident escalates into (JJ p.83). 🔧 v1: the counts are tooling
+  //    defaults (JJ prints no precise mob size for these incidents at this abstraction) — the GM
+  //    overrides on the minted Encounter. category 'civilized' (urban humans), scale 'settlement'. ──
+  function _settlementFoeProfile(incidentKey, rng){
+    switch(incidentKey){
+      case 'footpad':       return { label: 'a footpad / mugger', count: 1,                                      name: 'Footpad in {s}', verb: 'A footpad turns violent in {s}' };
+      case 'drunken-brawl': return { label: 'brawlers',           count: 1 + _rollOne(4, rng),                   name: 'Brawl in {s}',   verb: 'A drunken brawl in {s} draws the party in' };
+      case 'riot':          return { label: 'a rioting mob',      count: 6 + _rollOne(6, rng) + _rollOne(6, rng), name: 'Riot in {s}',    verb: 'A riot engulfs the party in {s}' };
+      default:              return { label: 'urban assailants',   count: 1 + _rollOne(4, rng),                   name: 'Trouble in {s}', verb: 'Trouble turns to a fight in {s}' };
+    }
+  }
+
+  // ── escalateSettlementIncident — the GM verb (propose-ratify, principle #1): a combat-risk urban
+  //    incident becomes a first-class Encounter so the GM runs the RAW pre-combat procedure (reaction
+  //    → combat) in the shipped #476 E2 resolution panel (Review ▸ ⚔ Encounters). READ-ONLY consume of
+  //    the shipped ACKS.createEncounter (acks-engine.js, loaded first) — we mint a well-formed
+  //    Encounter; the panel + resolveEncounter are unchanged. The abstract-wound path
+  //    (resolveSettlementCasualty) stays the quick alternative. Idempotent — re-escalating returns the
+  //    existing Encounter. Targets opts.incident (object) / opts.incidentIndex, else the latest
+  //    unescalated combat-risk incident. Emits the record-only urban-incident-escalated audit. ──
+  function escalateSettlementIncident(campaign, visitId, opts){
+    opts = opts || {};
+    const A = global.ACKS;
+    const v = (typeof visitId === 'object') ? visitId : findSettlementVisit(campaign, visitId);
+    if(!v || !Array.isArray(v.incidents) || typeof A.createEncounter !== 'function') return null;
+    let rec = null;
+    if(opts.incident && v.incidents.indexOf(opts.incident) >= 0) rec = opts.incident;
+    else if(typeof opts.incidentIndex === 'number' && v.incidents[opts.incidentIndex]) rec = v.incidents[opts.incidentIndex];
+    else { for(let i = v.incidents.length - 1; i >= 0; i--){ const r = v.incidents[i]; if(r && r.combatRisk && !r.escalatedEncounterId){ rec = r; break; } } }
+    if(!rec || !rec.combatRisk) return null;
+    if(rec.escalatedEncounterId && typeof A.findEncounter === 'function'){
+      const ex = A.findEncounter(campaign, rec.escalatedEncounterId);
+      if(ex) return { encounter: ex, incident: rec, alreadyEscalated: true };
+    }
+    const sName = _settlementName(campaign, v.settlementId);
+    const foe = _settlementFoeProfile(rec.incidentKey, opts.rng);
+    const participants = (v.participantCharacterIds || []).slice();
+    const enc = A.createEncounter(campaign, {
+      scale: 'settlement', trigger: 'settlement-incident', category: 'civilized',
+      hexId: v.hexId || null, name: foe.name.replace('{s}', sName),
+      occurredOnDayInMonth: (campaign.currentDayInMonth) || null,
+      createReason: 'settlement-incident-escalated',
+      partySide: { partyId: v.partyId || null, characterIds: participants,
+                   faceCharacterId: rec.affectedCharacterId || participants[0] || null,
+                   sizeCount: participants.length || null },
+      monsterSide: { source: 'fresh', label: foe.label, count: foe.count, encounterKind: 'urban' }
+    });
+    if(!enc) return null;
+    rec.escalatedEncounterId = enc.id;
+    rec.escalated = true;
+    const narrative = foe.verb.replace('{s}', sName) + ' — it becomes a fight (' + rec.cite + ').';
+    const rel = [{ kind:'settlementVisit', id: v.id, role:'site' }, { kind:'encounter', id: enc.id, role:'subject' }];
+    if(rec.affectedCharacterId) rel.push({ kind:'character', id: rec.affectedCharacterId, role:'subject' });
+    const ev = _emitDelveEvent(campaign, 'urban-incident-escalated', {
+      visitId: v.id, settlementId: v.settlementId, incidentKey: rec.incidentKey,
+      encounterId: enc.id, combatRisk: true, affectedCharacterId: rec.affectedCharacterId || null
+    }, { primaryHexId: v.hexId || null, narrative, relatedEntities: rel });
+    rec.escalatedEventId = ev ? ev.id : null;
+    return { encounter: enc, incident: rec };
+  }
+
   // ── The holed-up day-cadence consumer (slot 66 — between sage-commission 64 and the encounter
   //    stack 80). A holed-up visit makes 1 incident check / day; an incident occurs on 5+ on 1d6
   //    (JJ p.80). The wandering / looking-for-trouble modes are GM-pressed (rollAndApplySettlement-
@@ -1311,11 +1399,14 @@
   function proposeSettlementVisitDay(campaign, ctx){
     ctx = ctx || {};
     const days = (typeof ctx.days === 'number' && ctx.days > 0) ? ctx.days : 1;
-    const rng = ctx.rng;
     const out = { pendingRecords: [], notableEvents: [], encounters: [] };
     _settlementVisits(campaign).forEach(v => {
       if(!v || v.status !== 'active' || v.mode !== 'holed-up') return;
       for(let d = 0; d < days; d++){
+        // SEEDED — byte-stable preview (the journey / survival idiom): an injected ctx.rng overrides
+        // (tests / scriptable ticks); else seed each visit-day from a committed-state fingerprint so
+        // re-opening the day-tick review reproduces the IDENTICAL incident (no re-roll on re-open).
+        const rng = ctx.rng || _seededSettlementRng(campaign, v, ctx, d);
         const check = _rollOne(6, rng);                 // 1 check/day; an incident occurs on 5+ (JJ p.80)
         if(check < 5) continue;
         const inc = rollSettlementIncident(campaign, v, { afterDark: false, rng });
@@ -1333,7 +1424,13 @@
     if(!campaign || !record || record.type !== 'settlement-incident') return;
     const v = findSettlementVisit(campaign, record.visitId);
     if(!v) return;
-    applySettlementIncident(campaign, v, record.incident, {});
+    // Apply a CLONE so the proposal's record.incident stays pristine. proposeDayTick commits each
+    // day's record to a THROWAWAY working copy as it accumulates a multi-day advance; mutating
+    // record.incident in place leaks the random eventId that applySettlementIncident mints on that
+    // working copy back into the reviewed record (the one field that broke byte-equality on re-open).
+    // The clone keeps the seeded incident byte-identical on every review re-open; the REAL campaign
+    // still gets the applied incident (with its own urban-incident event) at the real commit.
+    applySettlementIncident(campaign, v, JSON.parse(JSON.stringify(record.incident)), {});
   }
 
   // Self-register the slot-66 'settlement-incidents' day-consumer (the religion / convalescence
@@ -1344,6 +1441,22 @@
       order: 66,
       pauseTriggers: ['encounter'],
       commit: commitSettlementVisitRecord
+    });
+  }
+
+  // ── Self-register the burst12 follow-on event kind (the §15.5 / PR #89 kernel; events.js loads
+  //    first, so ACKS.registerEventKind exists here). Record-only audit — escalateSettlementIncident
+  //    already minted the Encounter + linked the incident; this keeps the event well-formed on replay
+  //    (records the narrative). The GM authors via the panel, not the Event Wizard → wizardOptOut. ──
+  if(typeof ACKS.registerEventKind === 'function'){
+    ACKS.registerEventKind('urban-incident-escalated', {
+      schema: {
+        R: { visitId: 'string', incidentKey: 'string' },
+        O: { settlementId: 'string', encounterId: 'string', combatRisk: 'boolean',
+             affectedCharacterId: 'string', narrative: 'string' }
+      },
+      wizardOptOut: true,
+      handler: function(campaign, event){ const p = (event && event.payload) || {}; return { result: { narrativeSummary: p.narrative || 'urban incident escalated to an encounter' } }; }
     });
   }
 
@@ -1394,7 +1507,9 @@
     startSettlementVisit, departSettlementVisit,
     rollSettlementIncident, applySettlementIncident, rollAndApplySettlementIncident,
     resolveSettlementCasualty,
-    proposeSettlementVisitDay, commitSettlementVisitRecord
+    proposeSettlementVisitDay, commitSettlementVisitRecord,
+    // ── D5 follow-on (burst12) — escalate a combat-risk incident → a full Encounter ──
+    escalateSettlementIncident
   });
 
 })(typeof window !== 'undefined' ? window : global);

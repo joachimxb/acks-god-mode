@@ -78,7 +78,7 @@
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
-<script src="acks-engine-delves.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine-delves.js?v=2026-06-21-burst12-delves"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
@@ -17648,7 +17648,7 @@ document.addEventListener('alpine:init', () => {
             <label class="flex items-center gap-1"><input type="checkbox" :checked="svtUI.startParticipantIds.includes(ch.id)" @change="svtToggleParticipant(ch.id)"><span x-text="ch.name || '(unnamed)'"></span></label>
           </template>
         </div>
-        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
+        <p class="text-xs italic opacity-60 mt-1">A holed-up stay makes one urban-incident check per day on the Day Clock (5+ on 1d6, JJ p.80). <!-- @b12-delves -->The daily check is seeded — re-opening the Day-Tick review shows the same incident. A combat-risk incident can be ⚔ escalated to a full Encounter. Wandering / looking-for-trouble are GM-pressed — use 🎲 Roll an incident.</p>
       </div>
     </div>
 
@@ -17712,6 +17712,12 @@ document.addEventListener('alpine:init', () => {
                     <button @click="svtResolveCasualty(document.getElementById('svtcas-' + i).value)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200">Resolve (wound)</button>
                   </div>
                   <template x-if="inc.casualty"><div class="text-xs mt-1 text-red-700" x-text="'⚔ ' + (inc.casualty.name || '') + ' — ' + (inc.casualty.conditionLabel || '') + (inc.casualty.outcome ? ' (' + inc.casualty.outcome + ')' : '')"></div></template>
+                  <!-- @b12-delves: escalate a combat-risk incident → a full Encounter (the shipped #476 E2 panel — run reaction → combat in ⚔ Encounters) -->
+                  <div x-show="inc.combatRisk && !inc.escalatedEncounterId" class="text-xs mt-1">
+                    <button @click="svtEscalate(i)" class="px-2 py-0.5 border border-rose-700/60 text-rose-800 rounded bg-rose-50 hover:bg-rose-100 font-semibold"
+                            title="Mint a full Encounter so the GM can walk the RAW pre-combat procedure (distance → surprise → reaction → combat, RR pp.280–287) in Review ▸ ⚔ Encounters">⚔ Escalate to encounter</button>
+                  </div>
+                  <template x-if="inc.escalatedEncounterId"><div class="text-xs mt-1"><button @click="svtGoToEncounter(inc.escalatedEncounterId)" class="underline text-rose-700 hover:text-rose-900 font-semibold" title="Open the escalated encounter in Review ▸ ⚔ Encounters">⚔ Escalated → open in ⚔ Encounters</button></div></template>
                 </div>
               </template>
             </div>
@@ -20275,6 +20281,23 @@ return {
   // census markup resolves it in Alpine scope (the engine fn lives on window.ACKS, not the component).
   expectedNpcMagicItemValue(level){ return (typeof window.ACKS.expectedNpcMagicItemValue === 'function') ? window.ACKS.expectedNpcMagicItemValue(level) : 0; },
   // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
+  // ── Escalate a combat-risk urban incident into a full Encounter (the shipped #476 E-layer), then
+  //    deep-link to the resolution panel. svtIncidents() is a simple reverse of v.incidents, so the
+  //    display index i maps to the real index (len-1)-i (no Alpine-proxy indexOf needed). ──
+  svtEscalate(i){
+    const c = this.currentCampaign; const v = this.svtSelected(); if(!v || !Array.isArray(v.incidents)) return;
+    const realIndex = (v.incidents.length - 1) - i;   // svtIncidents() reverses v.incidents
+    const res = window.ACKS.escalateSettlementIncident(c, v.id, { incidentIndex: realIndex });
+    this.markDirty(); this.schedulePersist();
+    if(res && res.encounter){ this.showToast('⚔ Escalated to an encounter — ' + (res.encounter.name || 'a fight') + ' · resolve it in Review ▸ ⚔ Encounters', 6000); }
+    else { this.showToast('Could not escalate this incident.', 3000); }
+  },
+  svtGoToEncounter(encId){
+    if(!encId) return;
+    this.svtUI.open = false;                                          // close the Settlement-Visit modal
+    this.currentView = 'review'; this.reviewSubView = 'encounters';   // land on the ⚔ Encounters work queue
+    if(typeof this.openEncounterModal === 'function') this.openEncounterModal(encId);   // open the resolution panel
+  },
   // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
   // The optional AXIOMS-19 dynasty layer over acks-engine-lifecycle.js (foundDynasty / recordKinship /
   // birthChild / setSuccessionLaw / resolveDynastySuccession + the reads). One modal (dynModal); the card
