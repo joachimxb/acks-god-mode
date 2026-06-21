@@ -1955,19 +1955,32 @@
     const rng = (typeof opts.rng === 'function') ? opts.rng
       : _polMulberry32(_polHash32(apex.id + '|' + seats + '|' + realmFamilies + '|' + seed));
 
-    // step 3 — leading-senator count (rolled); draw that many real realm notables (highest-level first)
+    // step 3 — leading-senator count (rolled). Seat the realm's real notables first (highest-level
+    // first); when opts.fillWithGenerated, MINT the shortfall as fresh senator Characters at commit
+    // (RR p.357 — "the Judge creates the leading senators"; a thin/new realm with too few notables
+    // would otherwise convene a leaderless senate). Placeholders are pure DATA here (characterId null,
+    // generated:true); the NPC is minted in materializeSenate, so this propose step stays mutation-free
+    // + seeded (the preview reproduces; minting — which mutates — is deferred to the commit step).
+    const fillWithGenerated = !!opts.fillWithGenerated;
     const rolledLeadingCount = Math.max(1, _rollDice(chars.leading, rng));
     const pool = senateMaterializeCandidates(campaign, apex, { minLevel: minSenatorLevel, extraCharacterIds: opts.extraCharacterIds });
     const poolSize = pool.length;
-    const seatCount0 = Math.min(rolledLeadingCount, poolSize);
+    const realSeatCount = Math.min(rolledLeadingCount, poolSize);
+    const generatedSeatCount = fillWithGenerated ? Math.max(0, rolledLeadingCount - realSeatCount) : 0;
+    const seatCount0 = realSeatCount + generatedSeatCount;
     // step 5 — an influence value per leading senator; sort desc so the most notable carries the most.
     const influences = [];
     for(let i = 0; i < seatCount0; i++) influences.push(Math.max(1, _rollDice(chars.influence, rng)));
     influences.sort((a, b) => b - a);
-    let seated = pool.slice(0, seatCount0).map((cand, i) => ({
+    let seated = pool.slice(0, realSeatCount).map((cand, i) => ({
       characterId: cand.characterId, name: cand.name, level: cand.level, class: cand.class, source: cand.source,
       votes: influences[i] || 1
     }));
+    // the shortfall — to-be-generated leading senators (minted at commit, at the RR p.357 min level).
+    for(let g = 0; g < generatedSeatCount; g++) seated.push({
+      characterId: null, name: '(to be generated)', level: minSenatorLevel, class: '', source: 'generated',
+      generated: true, votes: influences[realSeatCount + g] || 1
+    });
     // RAW influence accounting (RR p.357): if Σ influence > seats, drop the least-influential leading
     // senators until it fits.
     seated.sort((a, b) => b.votes - a.votes);
@@ -2011,6 +2024,7 @@
         landDescription: requirements.landDescription, families: requirements.families, bribe: Object.assign({}, requirements.bribe) },
       senators: seated, factions, independentMinorVotes,
       rolledLeadingCount, seatedCount: seated.length, poolSize, poolShort: poolSize < rolledLeadingCount,
+      generatedCount: seated.filter(s => s.generated).length, realCount: seated.filter(s => !s.generated).length, fillWithGenerated,
       rulingFactionIndex, leadingFactionIndex, seed
     };
   }
@@ -2037,6 +2051,29 @@
     if(!Array.isArray(campaign.factions)) campaign.factions = [];
     if(!Array.isArray(campaign.senatorships)) campaign.senatorships = [];
 
+    // Mint any to-be-generated leading senators (§5.2 — reuse the SHIPPED NPC generator). LATE-BOUND:
+    // in index.html generators.js loads AFTER politics.js, so resolve generateAndLandNPC at CALL time,
+    // never at module load (the realmCommandStructure / findResidents late-bind discipline). Seeded per
+    // a wizard-seed-derived per-seat seed; each minted senator is a real Character homed to the realm
+    // (landGeneratedNPC also records its own `generation` event). Defensive: if the generator is absent
+    // (a headless context without generators.js), the placeholder is skipped — never seated as a null.
+    const Agen = _A();
+    const canGenerate = typeof Agen.generateAndLandNPC === 'function';
+    const mintedByIndex = {};
+    let mintedCount = 0;
+    plan.senators.forEach((s, i) => {
+      if(!s || !s.generated || s.characterId || !canGenerate) return;
+      const genSeed = _polHash32(apex.id + '|gen-senator|' + i + '|' + (plan.seed != null ? plan.seed : 1));
+      let ch = null;
+      try {
+        ch = Agen.generateAndLandNPC(campaign,
+          { targetLevel: s.level || plan.minSenatorLevel, domainId: apex.id,
+            socialTier: 'independent', controlledBy: 'gm', placementRole: 'domain-npc' },
+          { seed: genSeed });
+      } catch(e){ ch = null; }
+      if(ch && ch.id){ mintedByIndex[i] = ch; mintedCount++; }
+    });
+
     const req = plan.requirements;
     const senate = blankSenate({
       realmDomainId: apex.id,
@@ -2051,7 +2088,7 @@
       },
       independentMinorSenatorVotes: plan.independentMinorVotes,
       establishedAtTurn: turn,
-      history: [{ turn, type: 'materialized', seats: plan.seats, leadingSenators: plan.seatedCount, families: plan.realmFamilies }]
+      history: [{ turn, type: 'materialized', seats: plan.seats, leadingSenators: plan.seatedCount, generated: mintedCount, families: plan.realmFamilies }]
     });
     campaign.senates.push(senate);
 
@@ -2066,14 +2103,17 @@
     });
 
     const senatorships = [];
-    plan.senators.forEach(s => {
+    plan.senators.forEach((s, i) => {
+      const minted = mintedByIndex[i];
+      const charId = s.characterId || (minted && minted.id) || null;
+      if(!charId) return;                                  // an unmintable placeholder (defensive) — never seat a null senator
       const seat = blankSenatorship({
-        senatorCharacterId: s.characterId, senateId: senate.id, rank: 'leading', votes: s.votes,
+        senatorCharacterId: charId, senateId: senate.id, rank: 'leading', votes: s.votes,
         factionId: (s.factionIndex != null) ? (factionIdByIndex[s.factionIndex] || null) : null,
         policyObjectives: (s.objectives || []).slice(),
         bribeCostByPeriod: { day: req.bribe.day, week: req.bribe.week, month: req.bribe.month, year: req.bribe.year },
         isSecretInfluence: true, seatedAtTurn: turn,
-        history: [{ turn, type: 'materialized', source: s.source || '' }]
+        history: [{ turn, type: 'materialized', source: s.source || '', generated: !!minted }]
       });
       campaign.senatorships.push(seat);
       senatorships.push(seat);
@@ -2088,10 +2128,11 @@
         factions: plan.factions.length, independentMinorVotes: plan.independentMinorVotes,
         realmFamilies: plan.realmFamilies, minSenatorLevel: plan.minSenatorLevel,
         narrative: 'A ' + plan.seats + '-seat senate is convened over ' + (apex.name || 'the realm') + ' — ' +
-          senatorships.length + ' leading senators in ' + plan.factions.length + ' faction' + (plan.factions.length === 1 ? '' : 's') + ' (RR pp.355–360).'
+          senatorships.length + ' leading senators' + (mintedCount ? ' (' + mintedCount + ' newly generated)' : '') +
+          ' in ' + plan.factions.length + ' faction' + (plan.factions.length === 1 ? '' : 's') + ' (RR pp.355–360).'
       }, senate, apex.rulerCharacterId || null, senatorships.map(s => ({ senatorCharacterId: s.senatorCharacterId })));
     }
-    return { ok: true, senate,
+    return { ok: true, senate, mintedCount,
       factions: plan.factions.map(f => findFaction(campaign, factionIdByIndex[f.index])).filter(Boolean),
       senatorships, plan };
   }

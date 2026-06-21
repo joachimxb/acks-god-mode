@@ -17845,6 +17845,10 @@ document.addEventListener('alpine:init', () => {
         </label>
       </template>
       <button @click="senGenReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Re-roll the senate (a new seed)">⟳ Re-roll</button>
+      <!-- @b14-politics — NPC-minting fill: generate fresh senators when the realm has too few real notables (RR p.357) -->
+      <label class="text-xs flex items-center gap-1.5 ml-auto" title="When the realm has fewer qualifying notables than the rolled leading-senator count, mint fresh senator NPCs (via the NPC generator) to fill the seats — RR p.357 'the Judge creates the leading senators'. Off → the shortfall stays anonymous independent votes.">
+        <input type="checkbox" x-model="senGen.fillWithGenerated" @change="senGenRepreview()"> Generate missing senators
+      </label>
     </div>
 
     <template x-if="senGen.plan">
@@ -17853,16 +17857,19 @@ document.addEventListener('alpine:init', () => {
           <div class="sm:col-span-2 font-semibold" x-text="'A ' + senGen.plan.seats + '-seat senate over ' + senGen.plan.apexName"></div>
           <div>Ruler: <strong x-text="(senGen.plan.rulerName||'(none)') + ' · L' + senGen.plan.rulerLevel"></strong></div>
           <div>Min senator level: <strong x-text="senGen.plan.minSenatorLevel"></strong> <span class="opacity-60" x-text="'(' + senGen.plan.requirements.title + ')'"></span></div>
-          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span></div>
+          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span><template x-if="senGen.plan.generatedCount > 0"><span class="text-green-700" x-text="' · ' + senGen.plan.generatedCount + ' newly generated'"></span></template></div>
           <div>Influence each: <strong x-text="senGen.plan.influenceDiceLabel"></strong></div>
           <div>Factions: <strong x-text="senGen.plan.factions.length"></strong></div>
           <div>Independent minor votes: <strong x-text="senGen.plan.independentMinorVotes.toLocaleString()"></strong></div>
         </div>
-        <template x-if="senGen.plan.poolShort">
-          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below.'"></div>
+        <template x-if="senGen.plan.poolShort && senGen.plan.generatedCount > 0">
+          <div class="text-xs p-1.5 bg-green-50 border border-green-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — the wizard will mint ' + senGen.plan.generatedCount + ' fresh senator' + (senGen.plan.generatedCount===1?'':'s') + ' to fill the seats (RR p.357). Untick “Generate missing senators” to leave them anonymous instead.'"></div>
+        </template>
+        <template x-if="senGen.plan.poolShort && senGen.plan.generatedCount === 0">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below, or tick “Generate missing senators”.'"></div>
         </template>
         <template x-if="senGen.plan.seatedCount===0">
-          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — seat at least one below, or the senate is convened all as independent minor senators.</div>
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — tick “Generate missing senators” to mint a leading senate, seat one below, or convene it all as independent minor senators.</div>
         </template>
 
         <div class="border border-ink rounded p-3">
@@ -17870,9 +17877,11 @@ document.addEventListener('alpine:init', () => {
           <table class="bookkeeping text-sm w-full">
             <thead><tr><th>Senator</th><th class="text-right">Lvl</th><th class="text-right">Votes</th><th>Faction</th><th>Objectives</th></tr></thead>
             <tbody>
-              <template x-for="s in senGen.plan.senators" :key="s.characterId">
-                <tr>
-                  <td><span class="font-semibold" x-text="s.name"></span> <span class="text-xs opacity-60" x-text="'· ' + s.source"></span></td>
+              <template x-for="(s, idx) in senGen.plan.senators" :key="s.characterId || ('gen-' + idx)">
+                <tr :class="s.generated ? 'opacity-90' : ''">
+                  <td><span class="font-semibold" x-text="s.name"></span>
+                    <template x-if="s.generated"><span class="text-[10px] px-1 rounded bg-green-100 border border-green-300 ml-1" title="a freshly generated senator NPC (minted on materialize)">✦ new</span></template>
+                    <template x-if="!s.generated"><span class="text-xs opacity-60" x-text="'· ' + s.source"></span></template></td>
                   <td class="text-right" x-text="s.level"></td>
                   <td class="text-right" x-text="s.votes"></td>
                   <td class="text-xs" x-text="senGenFactionName(s.factionIndex)"></td>
@@ -20949,7 +20958,7 @@ return {
   // The generative Senate Wizard — thin UI over acks-engine-politics.js (proposeSenateMaterialization /
   // materializeSenate + senateMaterializeCandidates). Reads the SHIPPED demographics census to draw
   // senators; mints sen-/fac-/snr-; sets the apex governance senatorial; emits one senate-materialized.
-  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, plan:null },
+  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, fillWithGenerated:true, plan:null },
   // the realm apexes (no liege) — where a senate can be convened (self-contained; not @b10's helper)
   senGenApexRows(){
     const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
@@ -20977,7 +20986,8 @@ return {
     const p = window.ACKS.proposeSenateMaterialization(c, {
       domainId: this.senGen.apexId,
       seats: (this.senGen.seats != null && this.senGen.seats !== '') ? Number(this.senGen.seats) : undefined,
-      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice()
+      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice(),
+      fillWithGenerated: !!this.senGen.fillWithGenerated      // @b14-politics — mint senators to fill the shortfall
     });
     this.senGen.plan = (p && p.ok) ? p : null;
     // snap the seats input to the clamped senate size so the field always shows the real value
