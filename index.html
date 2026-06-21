@@ -108,6 +108,8 @@
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
+<!-- @b13-construction (team) — Phase 4 Construction Wave D (vessels / war machines). The WAR_MACHINE_CATALOG + the war-machine materializer + the siege feed; self-registers war-machine-built. Late-binds the construction/voyages/sieges core, so load order is irrelevant (it reads global.ACKS at call time); placed before player-view (which must stay last). -->
+<script src="acks-engine-construction.js?v=2026-06-21-b13-wave-d"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
@@ -2745,7 +2747,22 @@ document.addEventListener('alpine:init', () => {
           </select>
         </label>
       </template>
-      <template x-if="constructionWizard.kind !== 'stronghold-component'">
+      <!-- === @b13-construction (team) — Wave D: vessel + war-machine catalog subtype pickers (RR p.316 / pp.136–137).
+           Pick a class → cost + name fill from the catalog. The vessel mints via the shipped voyages seam on
+           completion; the war machine mints a kind:'war-machine' Constructible that feeds sieges. === -->
+      <template x-if="constructionWizard.kind === 'vessel' || constructionWizard.kind === 'war-machine'">
+        <label class="block">
+          <span x-text="constructionWizard.kind === 'vessel' ? 'Vessel class (RR p.316):' : 'War machine (RR pp.136–137):'"></span>
+          <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            <option value="">— pick one —</option>
+            <template x-for="o in constructionWizardSubtypeOptions()" :key="o.key">
+              <option :value="o.key" x-text="o.label + ' — ' + o.costGp.toLocaleString() + ' gp'"></option>
+            </template>
+          </select>
+          <p class="text-[11px] opacity-60 mt-0.5" x-text="constructionWizardKindNote()"></p>
+        </label>
+      </template>
+      <template x-if="constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine'">
         <div class="space-y-1">
           <label class="block">Cost (gp):
             <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
@@ -19004,6 +19021,23 @@ function domainApp(){
 return {
   // === @b13 TEAM SESSION insertion zone — each lane appends its state+methods AFTER ITS OWN marker line (distinct lines → clean auto-merge). Do not touch another lane's marker. ===
   // === @b13-construction  (team) — Construction Wave D (vessels / war machines / siege-support): state + methods ===
+  // Catalog-driven subtype options for the Construction Wizard (vessel → VESSEL_CATALOG, RR p.316;
+  // war-machine → WAR_MACHINE_CATALOG, RR pp.136–137). Returns [{key,label,costGp}] for the picker.
+  constructionWizardSubtypeOptions(){
+    const A = window.ACKS, cw = this.constructionWizard;
+    if(cw.kind === 'vessel')      return (A.vesselConstructionCatalog ? A.vesselConstructionCatalog() : ((A.VESSEL_CATALOG)||[])).map(v => ({ key:v.key, label:v.label, costGp:v.costGp||0 }));
+    if(cw.kind === 'war-machine') return (A.warMachineCatalogList ? A.warMachineCatalogList() : []).map(m => ({ key:m.key, label:m.label, costGp:m.costGp||0 }));
+    return [];
+  },
+  // Pick a vessel class / war machine → set the subtype (reusing cw.structureKey, already plumbed to
+  // constructibleSubtype + the site-eligibility check) + fill cost + default name from the catalog.
+  constructionWizardPickSubtype(key){
+    const cw = this.constructionWizard;
+    cw.structureKey = key;
+    const o = this.constructionWizardSubtypeOptions().find(x => x.key === key);
+    if(o){ cw.totalCost = o.costGp; if(!cw.name || !cw.name.trim()) cw.name = o.label; }
+    else { cw.totalCost = 0; }
+  },
   // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
   // === @b13-customclasses (team) — Custom Classes W2 (power compendium + trade-offs / drawbacks): state + methods ===
@@ -22774,6 +22808,7 @@ return {
       { key:'stronghold-component', label:'Stronghold component (Keep, Tower, Wall…)' },
       { key:'settlement-building',  label:'Settlement building' },
       { key:'vessel',               label:'Vessel (ship / boat)' },
+      { key:'war-machine',          label:'War machine (catapult, ballista, ram, siege tower…)' },  /* @b13-construction (Wave D) */
       { key:'sanctum',              label:'Sanctum' },
       { key:'dungeon',              label:'Dungeon' },
       { key:'mine',                 label:'Mine' },
@@ -22786,7 +22821,9 @@ return {
   },
   constructionWizardKindNote(){
     const k = this.constructionWizard.kind;
-    if(k === 'vessel') return 'Pick a waterway-adjacent site. Vessel catalogs land in a later wave — enter the RR cost.';
+    // @b13-construction (Wave D) — vessels + war machines are catalog-driven (RR p.316 / pp.136–137).
+    if(k === 'vessel') return 'Pick a waterway-adjacent site + a class. On completion it is launched as a real Vessel (RR p.316).';
+    if(k === 'war-machine') return 'A buildable war machine (RR pp.136–137). On completion it can be brought to a siege (it feeds the Sieges-Simplified bonus + bombardment). Needs a siege engineer / engineer supervisor (RR p.174).';
     if(k === 'settlement-building') return 'Requires a settlement at the site. Building catalogs land in a later wave — enter the cost.';
     return 'Per-kind catalogs land in later waves — enter the RR cost for now.';
   },
@@ -22877,7 +22914,9 @@ return {
     // Reset the per-kind picks when the kind changes (the catalog structure only applies to strongholds).
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
-    if(cw.kind === 'stronghold-component') cw.totalCost = 0;
+    // @b13-construction (Wave D) — vessel + war-machine cost comes from the catalog pick, so zero it
+    // on a kind switch (the user re-picks a class) alongside the stronghold-component reset.
+    if(cw.kind === 'stronghold-component' || cw.kind === 'vessel' || cw.kind === 'war-machine') cw.totalCost = 0;
   },
   constructionWizardPickStructure(key){
     const cw = this.constructionWizard;
@@ -22945,6 +22984,7 @@ return {
     const cw = this.constructionWizard;
     if(!cw.name || !cw.name.trim()) return 'Name the structure';
     if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
+    if((cw.kind === 'vessel' || cw.kind === 'war-machine') && !cw.structureKey) return cw.kind === 'vessel' ? 'Pick a vessel class' : 'Pick a war machine';  /* @b13-construction (Wave D) */
     if(!(Number(cw.totalCost) > 0)) return 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
     if(cw.ownerKind === 'character' && !cw.ownerCharacterId) return 'Pick an owner character';
