@@ -103,7 +103,7 @@ check('3 specialist machines NOT scored',    unscored.length === 3 && unscored.e
 // ─────────────────────────────────────────────────────────────────────────────
 const kinds = (typeof ACKS.registeredEventKinds === 'function') ? ACKS.registeredEventKinds() : (ACKS.EVENT_KINDS || []);
 check('war-machine-built registered',        kinds.indexOf('war-machine-built') >= 0);
-check('siege-construction-built NOT registered (deferred follow-on)', kinds.indexOf('siege-construction-built') < 0);
+check('siege-construction-built registered (siege-support shipped, burst14)', kinds.indexOf('siege-construction-built') >= 0);
 {
   const optouts = ACKS.EVENT_WIZARD_OPTOUT;
   const isOptOut = optouts ? (typeof optouts.has === 'function' ? optouts.has('war-machine-built') : (optouts.indexOf ? optouts.indexOf('war-machine-built') >= 0 : false)) : false;

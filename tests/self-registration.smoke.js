@@ -199,7 +199,8 @@ const EXP_HR_IDS = [
   "rumors-auto-emit", "rumors-manual", "rumors-proliferation", "seasonal-trade-modifiers", "senate-auto-vote", "separating-land-and-lordship",
   "simplified-fatigue", "slavery", "stronghold-by-buildings", "syndicate-auto-tribute", "vagaries-of-battle", "vagaries-of-incursion",
   "vagaries-of-recruitment", "vagaries-of-war", "dynasty-tracking",
-  "construction-vagaries", "crude-construction-weather"   // Phase 4 Construction Wave I (2026-06-21)
+  "construction-vagaries", "crude-construction-weather",   // Phase 4 Construction Wave I (2026-06-21)
+  "terrain-transformation"   // Phase 5 Domain Variants P5-TERR (burst14, 2026-06-21)
 ];
 const EXP_HR_CATS = ['domain','construction','mercantile','characters','world','encounters','military','rumors','knowledge','hijinks','cultural'];
 // The 7 default:true rules — the behaviour-critical set (isHouseRuleEnabled returns true for these
@@ -208,7 +209,7 @@ const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living
 
 section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
 const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
-ok('exactly 71 house rules seeded', hrIds.length === 71, 'got ' + hrIds.length);
+ok('exactly 72 house rules seeded', hrIds.length === 72, 'got ' + hrIds.length);
 ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
 ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
   'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');
@@ -338,7 +339,7 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
 // schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
-const EV_KINDS_COUNT = 185, EV_SCHEMAS_COUNT = 185, EV_OPTOUT_COUNT = 159;
+const EV_KINDS_COUNT = 187, EV_SCHEMAS_COUNT = 187, EV_OPTOUT_COUNT = 161;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',

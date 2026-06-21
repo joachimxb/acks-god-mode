@@ -1209,6 +1209,84 @@ ok('P-7 wizard adds nothing to migrateCampaign', (function(){
 })());
 
 // =============================================================================
+// P-5 — the NPC-minting fill (burst14 2026-06-21). fillWithGenerated: when the realm has too few real
+// notables to seat the rolled leading-senator count, the wizard MINTS the shortfall as fresh senator
+// Characters via the SHIPPED NPC generator (RR p.357 "the Judge creates the leading senators"). The
+// propose step stays pure (placeholders are data; characterId null); materializeSenate mints them
+// (late-bound generateAndLandNPC), homed to the realm, seeded-deterministic, reusing senate-materialized.
+// Backward-compat: WITHOUT the flag the plan is byte-identical to burst11 (the assertions above prove it).
+// =============================================================================
+section('P-5 — NPC-minting fill on an empty realm (propose stays pure)');
+(function(){
+  // an empty/thin realm: a 14th-level ruler but NO qualifying notable (the L8 magistrate is below the
+  // min senator level 13; no GM extras) → the candidate pool is empty.
+  const c = genFix(14, 0);
+  const noFill = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 15, seed: 3 });
+  ok('no-fill on an empty realm seats ZERO leading senators (burst11 behaviour preserved)', noFill.seatedCount === 0 && noFill.generatedCount === 0 && noFill.realCount === 0);
+  ok('no-fill plan exposes the new fields (fillWithGenerated=false)', noFill.fillWithGenerated === false && noFill.generatedCount === 0 && noFill.realCount === 0);
+
+  const p = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 15, seed: 3, fillWithGenerated: true });
+  ok('fill plan ok + flagged', p.ok === true && p.fillWithGenerated === true);
+  ok('fill seats ≥ 1 leading senator on an empty realm', p.seatedCount >= 1);
+  ok('all seated are GENERATED placeholders (no real notables to draw)', p.realCount === 0 && p.generatedCount === p.seatedCount);
+  ok('placeholders carry NO characterId yet (minted at commit) + the generated flag', p.senators.every(s => s.generated === true && s.characterId === null));
+  ok('placeholders still carry rolled influence + 1d3 objectives + a faction', p.senators.every(s => s.votes >= 1 && s.objectives.length >= 1 && s.objectives.length <= 3 && s.factionIndex != null));
+  ok('propose mutates nothing (no minting in the pure step)', c.characters.length === 7 && c.senates.length === 0 && c.eventLog.length === 0);
+
+  const p2 = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 15, seed: 3, fillWithGenerated: true });
+  ok('fill preview is seeded-deterministic (same seed → identical plan)', JSON.stringify(p) === JSON.stringify(p2));
+  const p9 = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 15, seed: 9, fillWithGenerated: true });
+  ok('a new seed re-rolls the fill plan', JSON.stringify(p) !== JSON.stringify(p9));
+})();
+
+section('P-5 — NPC-minting fill: commit mints real, homed senator Characters');
+(function(){
+  const c = genFix(14, 0);
+  const charsBefore = c.characters.length;
+  const plan = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 15, seed: 3, fillWithGenerated: true });
+  const r = ACKS.materializeSenate(c, { domainId:'dom-apex', plan });
+  ok('materialize ok + reports mintedCount', r.ok === true && r.mintedCount === plan.generatedCount && r.mintedCount >= 1);
+  ok('minted exactly mintedCount NEW Characters', c.characters.length === charsBefore + r.mintedCount);
+  ok('every minted senator is a REAL Character, generated + homed to the apex realm', c.senatorships.every(s => { const ch = c.characters.find(x => x.id === s.senatorCharacterId); return ch && ch.generated === true && ch.currentDomainId === 'dom-apex'; }));
+  ok('senatorships seat every planned senator (none dropped — the generator is present)', c.senatorships.length === plan.senators.length);
+  ok('senatorships record the generated provenance in history', c.senatorships.every(s => s.history[0] && s.history[0].generated === true));
+  ok('minted senators are NOT the ruler', c.senatorships.every(s => s.senatorCharacterId !== 'chr-ruler'));
+  ok('factions formed over the minted senators', c.factions.length === plan.factions.length && c.factions.length >= 1);
+  ok('emitted ONE senate-materialized event', c.eventLog.filter(x => x.event && x.event.kind === 'senate-materialized').length === 1);
+  const ev = c.eventLog.find(x => x.event && x.event.kind === 'senate-materialized').event;
+  ok('event narrative notes the newly-generated senators', /newly generated/.test(ev.payload.narrative));
+  ok('senate history records the generated count', (c.senates[0].history[0] || {}).generated === r.mintedCount);
+  ok('each minted NPC also recorded its own generation event', c.eventLog.filter(x => x.event && x.event.kind === 'generation').length === r.mintedCount);
+  ok('apex governance set senatorial', ACKS.isSenatorialRealm(c, c.domains[0]) === true);
+
+  // commit-determinism of the minted senators' STATS (id-independent): same seed → same names
+  const c2 = genFix(14, 0);
+  const r2 = ACKS.materializeSenate(c2, { domainId:'dom-apex', seats: 15, seed: 3, fillWithGenerated: true });
+  const names1 = c.senatorships.map(s => (c.characters.find(x=>x.id===s.senatorCharacterId)||{}).name).sort();
+  const names2 = c2.senatorships.map(s => (c2.characters.find(x=>x.id===s.senatorCharacterId)||{}).name).sort();
+  ok('minting is seeded-deterministic (same seed → same senator names)', names1.length >= 1 && JSON.stringify(names1) === JSON.stringify(names2));
+})();
+
+section('P-5 — NPC-minting fill: a SHORTFALL seats real notables FIRST, mints the remainder');
+(function(){
+  // a mid-band realm (4..50 seats, 2d6 leading / 2d6 influence — no influence multiplier, so a roomy
+  // seats count avoids the Σ-influence>seats trim): pool = the L8 magistrate + chr-a only (2 reals).
+  const c = genFix(8, 30000);
+  const noFill = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 50, seed: 4, extraCharacterIds: ['chr-a'] });
+  const p = ACKS.proposeSenateMaterialization(c, { domainId:'dom-apex', seats: 50, seed: 4, extraCharacterIds: ['chr-a'], fillWithGenerated: true });
+  ok('shortfall: a rolled leading count exceeds the 2-real pool', noFill.poolSize === 2 && noFill.rolledLeadingCount > 2);
+  ok('shortfall: no-fill caps seated at the real pool, mints nothing', noFill.generatedCount === 0 && noFill.realCount <= 2);
+  ok('shortfall: fill is genuinely MIXED — real notables + minted', p.realCount >= 1 && p.generatedCount >= 1 && p.seatedCount === p.realCount + p.generatedCount);
+  ok('shortfall: every real seat is a real notable; every generated seat is an id-less placeholder',
+    p.senators.filter(s=>!s.generated).every(s => ['chr-mag1','chr-a'].indexOf(s.characterId) >= 0) &&
+    p.senators.filter(s=>s.generated).every(s => s.characterId === null));
+  const charsBefore = c.characters.length;
+  const r = ACKS.materializeSenate(c, { domainId:'dom-apex', plan: p });
+  ok('shortfall commit: mints ONLY the shortfall (the reals are not re-minted)', r.mintedCount === p.generatedCount && c.characters.length === charsBefore + p.generatedCount);
+  ok('shortfall commit: the real notables keep their original Character ids', c.senatorships.filter(s => ['chr-mag1','chr-a'].indexOf(s.senatorCharacterId) >= 0).length === p.realCount);
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

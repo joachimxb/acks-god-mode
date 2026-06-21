@@ -487,7 +487,10 @@
     const prof = siegeStrongholdProfile(campaign, siege);
     const weeksPrep = Math.max(0, Number(opts.weeksPrep) || 0);
     siege.blockade.inPlace = true;
-    siege.blockade.circumvallationFeet = Math.max(0, Number(opts.circumvallationFeet) || 0);
+    // Preserve any circumvallation already raised by a siege-construction Project (Construction
+    // siege-support, burst14) — take the greater of the pre-built feet and any feet passed here, so
+    // formally establishing the blockade after building the ring doesn't wipe it.
+    siege.blockade.circumvallationFeet = Math.max(siege.blockade.circumvallationFeet || 0, Number(opts.circumvallationFeet) || 0);
     siege.blockade.weeksPrep = weeksPrep;
     siege.blockade.storedSuppliesGp = siegeStoredSupplies(prof.unitCapacity, weeksPrep);
     siege.blockade.suppliesExhausted = false;
@@ -689,6 +692,71 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Siege-support construction effects (RR p.474 / p.449 / pp.474–475 — burst14).
+  // The apply-side a completed kind:'siege-construction' Project feeds. acks-engine-construction.js
+  // raises + completes the Projects (Construction Wizard + the slot-51 day-consumer);
+  // these mutate the siege. Sieges owns siege state, so the setters live here; the
+  // Project machinery + the materializer live in construction.js. The circumvallation MATH
+  // (circumvallationFeetToEncircle / blockadeUnitsAfterCircumvallation / circumvallationCostGp)
+  // already ships above — these just write the result onto the siege.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // addCircumvallation(campaign, siegeId, feet) — add `feet` of circumvallation to a siege's
+  // blockade (RR p.474: each 250' replaces 2 blockading units; a full ring → −4 smuggling). Ensures
+  // the blockade object exists (a ring can be built before a formal blockade is established) but does
+  // NOT start the supply clock (that's establishBlockade). Additive — multiple ring segments
+  // accumulate. Returns { ok, feet (new total), addedFeet, feetToEncircle, fullyEncircled, unitsRequired }.
+  function addCircumvallation(campaign, siegeId, feet){
+    const siege = _siege(campaign, siegeId);
+    if(!siege) return { ok: false, reason: 'no-siege' };
+    if(siege.status === 'resolved') return { ok: false, reason: 'resolved' };
+    const add = Math.max(0, Number(feet) || 0);
+    if(!siege.blockade) siege.blockade = { inPlace: false, circumvallationFeet: 0, weeksPrep: 0, storedSuppliesGp: 0, suppliesExhausted: false };
+    siege.blockade.circumvallationFeet = (siege.blockade.circumvallationFeet || 0) + add;
+    const prof = siegeStrongholdProfile(campaign, siege);
+    const feetToEncircle = circumvallationFeetToEncircle(prof.unitCapacity);
+    const fullyEncircled = feetToEncircle > 0 && siege.blockade.circumvallationFeet >= feetToEncircle;
+    const unitsRequired = blockadeUnitsAfterCircumvallation(prof.unitCapacity, siege.blockade.circumvallationFeet);
+    _siegeHistory(campaign, siege, 'circumvallation',
+      '+' + add.toLocaleString() + "' circumvallation (" + siege.blockade.circumvallationFeet.toLocaleString() + "' total" + (fullyEncircled ? ' — ring complete, −4 smuggling' : '') + ').');
+    return { ok: true, siege, feet: siege.blockade.circumvallationFeet, addedFeet: add, feetToEncircle, fullyEncircled, unitsRequired };
+  }
+
+  // assembleSiegeArtillery(campaign, siegeId, machineSubtype, count) — add a field-assembled war
+  // machine to a siege's besieger artillery (RR p.449). machineSubtype keys SIEGE_BONUS_UNITS /
+  // SIEGE_BOMBARDMENT (the construction.js WAR_MACHINE_CATALOG keys match). count defaults to 1.
+  // The assembled engine joins the bombardment + the Sieges-Simplified assault bonus.
+  function assembleSiegeArtillery(campaign, siegeId, machineSubtype, count){
+    const siege = _siege(campaign, siegeId);
+    if(!siege) return { ok: false, reason: 'no-siege' };
+    if(siege.status === 'resolved') return { ok: false, reason: 'resolved' };
+    if(!machineSubtype) return { ok: false, reason: 'no-machine' };
+    const n = Math.max(1, Number(count) || 1);
+    if(!siege.besiegerArtillery) siege.besiegerArtillery = {};
+    siege.besiegerArtillery[machineSubtype] = (siege.besiegerArtillery[machineSubtype] || 0) + n;
+    if(siege.resolutionMode !== 'detailed') siege.resolutionMode = 'detailed';   // artillery is a detailed-siege feature
+    _siegeHistory(campaign, siege, 'artillery-assembled',
+      'Field-assembled ' + n + ' × ' + machineSubtype + ' (joins the bombardment + the assault bonus).');
+    return { ok: true, siege, machineSubtype, count: n, artillery: Object.assign({}, siege.besiegerArtillery) };
+  }
+
+  // Whether the besieger's circumvallation ring is complete (the RR p.474 −4-smuggling threshold).
+  function siegeFullyCircumvallated(campaign, siege){
+    if(!siege || !siege.blockade) return false;
+    const prof = siegeStrongholdProfile(campaign, siege);
+    const feetToEncircle = circumvallationFeetToEncircle(prof.unitCapacity);
+    return feetToEncircle > 0 && (siege.blockade.circumvallationFeet || 0) >= feetToEncircle;
+  }
+
+  // The siege-hijinks SMUGGLING modifier the circumvallation supplies (RR pp.474–475). A COMPLETE ring
+  // imposes −4 on a smuggler's Sneaking throw. This is Construction's contribution only — the Hijinks /
+  // Military-W6 layer adds the besieger's Strategic Ability + resolves the throw + the supply delta
+  // (each −1 shifts the smuggled value ∓1,000gp around a 1,000gp/level base). Read hook, not a verb.
+  function siegeSmugglingModifier(campaign, siege){
+    return siegeFullyCircumvallated(campaign, siege) ? -4 : 0;
+  }
+
   // ── exports ───────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // RAW tables (exposed for the UI + tests)
@@ -708,6 +776,8 @@
     findSiege, activeSieges, siegesAtHex, siegesForDomain,
     // setters
     startSiege, establishBlockade, recordBombardment, launchSiegeAssault, resolveSiege,
+    // siege-support construction effects (burst14 — the apply-side construction.js feeds)
+    addCircumvallation, assembleSiegeArtillery, siegeFullyCircumvallated, siegeSmugglingModifier,
     // day-tick consumer (exposed for tests; registered below)
     proposeSiegeDay, commitSiegeRecord
   });

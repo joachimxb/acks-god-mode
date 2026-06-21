@@ -2778,12 +2778,49 @@ document.addEventListener('alpine:init', () => {
       <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
            settlement-building falls here too — a building pick above fills the default, the GM may raise it.
            In REPAIR mode (Wave F) the cost field always shows (prefilled with the RR p.339 repair cost). -->
-      <template x-if="constructionWizard.repairTargetId || (constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine')">
+      <template x-if="constructionWizard.repairTargetId || (constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine' && constructionWizard.kind !== 'siege-construction')">
         <div class="space-y-1">
           <label class="block"><span x-text="constructionWizard.repairTargetId ? 'Repair cost (gp):' : 'Cost (gp):'"></span>
             <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
           </label>
           <p class="text-[11px] opacity-60" x-show="!constructionWizard.repairTargetId" x-text="constructionWizardKindNote()"></p>
+        </div>
+      </template>
+      <!-- === @b14-construction (team) — siege-support works: target siege + work + the per-work parameter
+           (RR p.474 circumvallation / p.449 war-machine field-assembly). Cost is DERIVED (1gp/ft · 1/100 the
+           machine cost); the Project is labor-timed on the Day Clock and feeds the siege on completion. === -->
+      <template x-if="constructionWizard.kind === 'siege-construction' && !constructionWizard.repairTargetId">
+        <div class="space-y-2 border border-ink/30 rounded p-2 bg-white/30">
+          <label class="block text-sm">Target siege:
+            <select x-model="constructionWizard.siegeId" @change="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— pick a siege —</option>
+              <template x-for="o in siegeWizardSiegeOptions()" :key="o.id"><option :value="o.id" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="block text-sm">Siege work:
+            <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— pick one —</option>
+              <template x-for="o in constructionWizardSubtypeOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <template x-if="constructionWizard.structureKey === 'circumvallation'">
+            <label class="block text-sm">Length (ft) <span class="opacity-60 text-xs">(≥2,500' segments · 1gp/ft)</span>
+              <input type="number" min="2500" step="250" x-model.number="constructionWizard.circumvallationFeet" @input="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            </label>
+          </template>
+          <template x-if="constructionWizard.structureKey === 'war-machine-assembly'">
+            <div>
+              <label class="block text-sm">War machine to assemble:
+                <select x-model="constructionWizard.assemblyMachineId" @change="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+                  <option value="">— pick a built war machine —</option>
+                  <template x-for="o in siegeWizardMachineOptions()" :key="o.id"><option :value="o.id" x-text="o.label + ' — assemble ' + o.cost.toLocaleString() + 'gp'"></option></template>
+                </select>
+              </label>
+              <p class="text-[11px] text-amber-700 mt-0.5" x-show="siegeWizardMachineOptions().length === 0">No built war machines available — build one (kind: War machine) first, then field-assemble it here.</p>
+            </div>
+          </template>
+          <p class="text-[11px] opacity-70" x-text="constructionWizardKindNote()"></p>
+          <p class="text-[11px]">Derived cost: <span class="font-semibold" x-text="(Number(constructionWizard.totalCost)||0).toLocaleString()"></span> gp · labor-timed on the Day Clock.</p>
         </div>
       </template>
 
@@ -5965,6 +6002,51 @@ document.addEventListener('alpine:init', () => {
               </template>
             </div>
             <!-- === end @b13-domvariants === -->
+            <!-- === @b14-domvariants (team) — Terrain Transformation panel (Phase 5 §4; JJ p.412) === -->
+            <div class="md:col-span-2 vellum border border-ink p-3 rounded">
+              <h2 class="font-bold text-lg mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
+              <p class="text-sm opacity-70 mb-2">As a hex's human/halfling/beastman population grows past <span class="font-mono">186</span> then <span class="font-mono">326</span> families, the land itself changes — deserts irrigated to grassland, forests cleared, swamps dredged, hills and mountains terraced (bidirectional: depopulation reverts). Dwarven/gnomish/elven hexes do not transform land. Enable <em>Terrain Transformation</em> in ⚙ House Rules to let the world evolve on the monthly turn.</p>
+              <template x-if="!terrainTransformRuleOn()">
+                <p class="text-sm italic opacity-60 mb-2">The <span class="font-mono">terrain-transformation</span> house rule is off — terrain is static (RAW default). The lineage below previews what would happen if it were enabled.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length === 0">
+                <p class="text-sm italic opacity-60">No populated land hexes in this domain.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length > 0">
+                <div>
+                  <table class="text-sm w-full">
+                    <thead>
+                      <tr class="text-left opacity-70 border-b border-ink/30">
+                        <th class="pr-2 py-1">Hex</th>
+                        <th class="pr-2 py-1 text-right">Families</th>
+                        <th class="pr-2 py-1 text-center" title="0 = natural (1–185) · 1 = 186–325 · 2 = 326–780 families">Stage</th>
+                        <th class="pr-2 py-1" title="The hex's original (pre-transformation) terrain">Natural</th>
+                        <th class="pr-2 py-1">Current</th>
+                        <th class="pr-2 py-1" title="What the hex will become on the next monthly turn (a stage crossing)">Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="h in domainTerrainTransformInfo(selectedDomain).hexes" :key="h.hexId">
+                        <tr class="border-b border-ink/10" :class="h.pending ? 'text-amber-800' : ''">
+                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
+                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
+                          <td class="pr-2 py-1 text-center font-mono" x-text="h.stage"></td>
+                          <td class="pr-2 py-1 opacity-70" x-text="h.transformed ? h.naturalLabel : '—'"></td>
+                          <td class="pr-2 py-1" x-text="h.currentLabel"></td>
+                          <td class="pr-2 py-1" x-text="h.pending ? ((h.pending.direction === 'reversion' ? '↩ ' : '→ ') + h.pending.toLabel) : '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                  <div class="mt-2 flex items-center gap-3" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length > 0">
+                    <span class="text-sm text-amber-800" x-text="domainTerrainTransformInfo(selectedDomain).pending.length + ' hex' + (domainTerrainTransformInfo(selectedDomain).pending.length === 1 ? '' : 'es') + ' will transform on the next monthly turn.'"></span>
+                    <button class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" @click="applyTerrainTransformations(selectedDomain)">Apply now</button>
+                  </div>
+                  <p class="text-sm italic opacity-60 mt-2" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length === 0">No hexes are crossing a transformation threshold.</p>
+                </div>
+              </template>
+            </div>
+            <!-- === end @b14-domvariants === -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
@@ -15173,6 +15255,22 @@ document.addEventListener('alpine:init', () => {
                     <button @click="siegeResolve(currentSiege(),'lifted')" class="px-2 py-1 border-2 rounded text-xs" style="border-color:#7a1f1f;color:#7a1f1f">↩ Lift (withdraw)</button>
                   </div>
                 </div>
+                <!-- === @b14-construction (team) — 🧱 Siege works: build-over-time circumvallation + war-machine
+                     field-assembly (RR p.474 / p.449). The instant ⛓ blockade above is the admin shortcut; these
+                     are labor-timed Construction Projects raised via the Wizard that feed the siege on completion. === -->
+                <div class="border border-ink/30 rounded p-2">
+                  <p class="font-semibold text-sm mb-1">🧱 Siege works <span class="opacity-60 font-normal text-xs">(RR p.474 / p.449 — built over time)</span></p>
+                  <p class="text-xs mb-1" x-text="siegeWorksReadout(currentSiege())"></p>
+                  <div class="flex flex-wrap gap-2">
+                    <button @click="openSiegeWorkWizard(currentSiege(), 'circumvallation')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">🧱 Raise circumvallation (build)</button>
+                    <button @click="openSiegeWorkWizard(currentSiege(), 'war-machine-assembly')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">⚙ Field-assemble a war machine</button>
+                  </div>
+                  <template x-if="siegeWorksProjects(currentSiege()).length">
+                    <ul class="text-xs space-y-0.5 mt-1">
+                      <template x-for="p in siegeWorksProjects(currentSiege())" :key="p.id"><li class="opacity-80" x-text="'· ' + p.label"></li></template>
+                    </ul>
+                  </template>
+                </div>
               </div>
             </template>
 
@@ -17845,6 +17943,10 @@ document.addEventListener('alpine:init', () => {
         </label>
       </template>
       <button @click="senGenReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Re-roll the senate (a new seed)">⟳ Re-roll</button>
+      <!-- @b14-politics — NPC-minting fill: generate fresh senators when the realm has too few real notables (RR p.357) -->
+      <label class="text-xs flex items-center gap-1.5 ml-auto" title="When the realm has fewer qualifying notables than the rolled leading-senator count, mint fresh senator NPCs (via the NPC generator) to fill the seats — RR p.357 'the Judge creates the leading senators'. Off → the shortfall stays anonymous independent votes.">
+        <input type="checkbox" x-model="senGen.fillWithGenerated" @change="senGenRepreview()"> Generate missing senators
+      </label>
     </div>
 
     <template x-if="senGen.plan">
@@ -17853,16 +17955,19 @@ document.addEventListener('alpine:init', () => {
           <div class="sm:col-span-2 font-semibold" x-text="'A ' + senGen.plan.seats + '-seat senate over ' + senGen.plan.apexName"></div>
           <div>Ruler: <strong x-text="(senGen.plan.rulerName||'(none)') + ' · L' + senGen.plan.rulerLevel"></strong></div>
           <div>Min senator level: <strong x-text="senGen.plan.minSenatorLevel"></strong> <span class="opacity-60" x-text="'(' + senGen.plan.requirements.title + ')'"></span></div>
-          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span></div>
+          <div>Leading senators: <strong x-text="senGen.plan.seatedCount"></strong> <span class="opacity-60" x-text="'(rolled ' + senGen.plan.leadingDiceLabel + ' = ' + senGen.plan.rolledLeadingCount + ')'"></span><template x-if="senGen.plan.generatedCount > 0"><span class="text-green-700" x-text="' · ' + senGen.plan.generatedCount + ' newly generated'"></span></template></div>
           <div>Influence each: <strong x-text="senGen.plan.influenceDiceLabel"></strong></div>
           <div>Factions: <strong x-text="senGen.plan.factions.length"></strong></div>
           <div>Independent minor votes: <strong x-text="senGen.plan.independentMinorVotes.toLocaleString()"></strong></div>
         </div>
-        <template x-if="senGen.plan.poolShort">
-          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below.'"></div>
+        <template x-if="senGen.plan.poolShort && senGen.plan.generatedCount > 0">
+          <div class="text-xs p-1.5 bg-green-50 border border-green-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — the wizard will mint ' + senGen.plan.generatedCount + ' fresh senator' + (senGen.plan.generatedCount===1?'':'s') + ' to fill the seats (RR p.357). Untick “Generate missing senators” to leave them anonymous instead.'"></div>
+        </template>
+        <template x-if="senGen.plan.poolShort && senGen.plan.generatedCount === 0">
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded" x-text="'Only ' + senGen.plan.poolSize + ' realm notable' + (senGen.plan.poolSize===1?'':'s') + ' qualify (level ≥ ' + senGen.plan.minSenatorLevel + ') — fewer leading senators than rolled; the rest vote as ' + senGen.plan.independentMinorVotes.toLocaleString() + ' independent minor senators. Seat more below, or tick “Generate missing senators”.'"></div>
         </template>
         <template x-if="senGen.plan.seatedCount===0">
-          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — seat at least one below, or the senate is convened all as independent minor senators.</div>
+          <div class="text-xs p-1.5 bg-amber-50 border border-amber-300 rounded">No qualifying realm notables — tick “Generate missing senators” to mint a leading senate, seat one below, or convene it all as independent minor senators.</div>
         </template>
 
         <div class="border border-ink rounded p-3">
@@ -17870,9 +17975,11 @@ document.addEventListener('alpine:init', () => {
           <table class="bookkeeping text-sm w-full">
             <thead><tr><th>Senator</th><th class="text-right">Lvl</th><th class="text-right">Votes</th><th>Faction</th><th>Objectives</th></tr></thead>
             <tbody>
-              <template x-for="s in senGen.plan.senators" :key="s.characterId">
-                <tr>
-                  <td><span class="font-semibold" x-text="s.name"></span> <span class="text-xs opacity-60" x-text="'· ' + s.source"></span></td>
+              <template x-for="(s, idx) in senGen.plan.senators" :key="s.characterId || ('gen-' + idx)">
+                <tr :class="s.generated ? 'opacity-90' : ''">
+                  <td><span class="font-semibold" x-text="s.name"></span>
+                    <template x-if="s.generated"><span class="text-[10px] px-1 rounded bg-green-100 border border-green-300 ml-1" title="a freshly generated senator NPC (minted on materialize)">✦ new</span></template>
+                    <template x-if="!s.generated"><span class="text-xs opacity-60" x-text="'· ' + s.source"></span></template></td>
                   <td class="text-right" x-text="s.level"></td>
                   <td class="text-right" x-text="s.votes"></td>
                   <td class="text-xs" x-text="senGenFactionName(s.factionIndex)"></td>
@@ -19436,6 +19543,7 @@ return {
     const A = window.ACKS, cw = this.constructionWizard;
     if(cw.kind === 'vessel')      return (A.vesselConstructionCatalog ? A.vesselConstructionCatalog() : ((A.VESSEL_CATALOG)||[])).map(v => ({ key:v.key, label:v.label, costGp:v.costGp||0 }));
     if(cw.kind === 'war-machine') return (A.warMachineCatalogList ? A.warMachineCatalogList() : []).map(m => ({ key:m.key, label:m.label, costGp:m.costGp||0 }));
+    if(cw.kind === 'siege-construction') return (A.siegeConstructionCatalogList ? A.siegeConstructionCatalogList() : []).map(s => ({ key:s.key, label:s.label, costGp:0 }));  /* @b14-construction */
     // Wave E + H — the editable-cost catalog kinds (settlement-building / civic-monument / trap /
     // field-fortification / road): a catalog pick fills a DEFAULT cost the GM can then raise (minCost =
     // the RAW threshold the cost can't drop below; 0 = freely GM-set). One generic lookup; the modal shows
@@ -19446,7 +19554,7 @@ return {
   },
   // The current kind has a subtype catalog → the subtype picker shows. Fixed-cost kinds (vessel /
   // war-machine) take their cost from the pick; the editable-cost kinds show the cost field too.
-  constructionWizardHasCatalog(){ return this.constructionWizardSubtypeOptions().length > 0; },
+  constructionWizardHasCatalog(){ return this.constructionWizard.kind !== 'siege-construction' && this.constructionWizardSubtypeOptions().length > 0; },  /* @b14-construction: siege works use their own picker (derived cost) */
   constructionWizardFixedCost(){ const k = this.constructionWizard.kind; return k === 'vessel' || k === 'war-machine'; },
   constructionWizardSubtypeLabel(){
     return ({ 'vessel':'Vessel class (RR p.316):', 'war-machine':'War machine (RR pp.136–137):',
@@ -19461,6 +19569,8 @@ return {
     const o = this.constructionWizardSubtypeOptions().find(x => x.key === key);
     if(o){ cw.totalCost = o.costGp; if(!cw.name || !cw.name.trim()) cw.name = o.label; }
     else { cw.totalCost = 0; }
+    // @b14-construction — a siege work's cost is derived from its secondary input (feet / machine), not the catalog.
+    if(cw.kind === 'siege-construction'){ cw.assemblyMachineId = ''; if(key === 'circumvallation' && !(cw.circumvallationFeet >= 2500)) cw.circumvallationFeet = 2500; this.siegeWizardSyncCost(); }
   },
   // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
   // Pastoralist economics readouts + the economyType setter. Logic lives in acks-engine-domain-variants.js;
@@ -19654,6 +19764,134 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast(dn ? '🔗 The chaplain co-extracts divine power from the dungeon' : 'Co-extraction unlinked');
   },
+  // ════ TEAM SESSION (burst14 2026-06-21) — per-lane Alpine state + methods. Each builder inserts its
+  //      data props + methods AFTER its own @b14-<lane> marker (disjoint lines → clean merge at integration).
+  //      UI markup goes in each lane's OWN subsystem region (disjoint — no marker needed there). ════
+  // === @b14-domvariants  (team) — Domain Variants P5-TERR (Terrain Transformation): state + methods ===
+  // Thin Alpine pass-throughs over acks-engine-domain-variants.js (Phase 5 §4; JJ p.412). The terrain-
+  // transformation logic lives in the engine; these read it for the Economy-tab 🏔 panel. The processor
+  // recomputes on read (no stored UI state). Loads after the engine via window.ACKS.
+  terrainTransformRuleOn(){
+    return !!(this.currentCampaign && window.ACKS && window.ACKS.isHouseRuleEnabled
+      && window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'terrain-transformation'));
+  },
+  _terrainPairLabel(t){
+    if(!t || !t.terrain) return '—';
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    return cap(t.terrain) + (t.subtype ? ' (' + t.subtype + ')' : '');
+  },
+  // The per-domain terrain-transformation readout: each populated land hex's lineage (natural → current,
+  // with the population stage) + any pending stage-crossing (a dry-run, scoped to this domain).
+  domainTerrainTransformInfo(d){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !d || !A || !A.hexTerrainLineage) return { ruleOn:false, hexes:[], pending:[] };
+    const ruleOn = !!(A.isHouseRuleEnabled && A.isHouseRuleEnabled(c, 'terrain-transformation'));
+    const hexes = (A.hexesForDomain ? (A.hexesForDomain(c, d.id) || []) : [])
+      .filter(h => h && (Number(h.families) || 0) > 0 && A.terrainBase(h.terrain) !== 'water');
+    const pendingAll = (A.processTerrainTransformationForTurn
+      ? (A.processTerrainTransformationForTurn(c, { dryRun:true, domainId:d.id }).transformations || []) : []);
+    const pendByHex = {}; pendingAll.forEach(t => { pendByHex[t.hexId] = t; });
+    const rows = hexes.map(h => {
+      const lin = A.hexTerrainLineage(h);
+      const pend = pendByHex[h.id] || null;
+      return {
+        hexId: h.id,
+        hexLabel: (A.hexName && A.hexName(h)) || h.name || ((A.terrainBase(h.terrain) || 'hex') + (h.id ? ' · ' + h.id : '')),
+        families: lin.families, stage: lin.stage, transformed: lin.transformed,
+        naturalLabel: this._terrainPairLabel(lin.natural), currentLabel: this._terrainPairLabel(lin.current),
+        pending: pend ? { toLabel: this._terrainPairLabel({ terrain:pend.toTerrain, subtype:pend.toSubtype }), direction: pend.direction, toStage: pend.toStage } : null,
+      };
+    });
+    return { ruleOn, hexes: rows, pending: pendingAll };
+  },
+  // GM "Apply now": commit this domain's pending terrain transformations immediately (otherwise they
+  // apply on the next monthly turn — idempotent either way). Scoped to the domain via opts.domainId.
+  applyTerrainTransformations(d){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !d || !A || !A.processTerrainTransformationForTurn) return;
+    const r = A.processTerrainTransformationForTurn(c, { domainId:d.id });
+    const n = (r.transformations || []).length;
+    this.showToast(n > 0 ? ('🏔 ' + n + ' hex' + (n === 1 ? '' : 'es') + ' transformed (JJ p.412)') : 'No hexes crossed a transformation threshold');
+    if(typeof this.persistCampaignSoon === 'function') this.persistCampaignSoon();
+    else if(typeof this.saveToLocal === 'function') this.saveToLocal();
+  },
+  // === @b14-construction (team) — Construction siege-support (circumvallation / war-machine field-assembly / siege-hijinks): state + methods ===
+  // The buildable siege-support works (RR p.474 / p.449) are raised through the Construction Wizard
+  // (kind 'siege-construction') and read back on the Siege panel. The Wizard cost is DERIVED (1gp/ft
+  // for circumvallation; 1/100 the machine cost for assembly), so these helpers feed the picker, sync
+  // the cost, and render the siege-panel readout. The siege state is the source of truth (the engine
+  // writes siege.blockade.circumvallationFeet / siege.besiegerArtillery on completion).
+  // The active sieges a siege-support Project can target (the Wizard's siege picker).
+  siegeWizardSiegeOptions(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!c || !A.activeSieges) return [];
+    return A.activeSieges(c).map(s => ({ id: s.id, label: s.name || s.id }));
+  },
+  // The built war machines available to field-assemble at the selected siege (Wave-D war-machine
+  // Constructibles, not destroyed, not already assembled at this siege). The GM picks which is theirs.
+  siegeWizardMachineOptions(){
+    const A = window.ACKS, c = this.currentCampaign, cw = this.constructionWizard;
+    if(!c || !cw.siegeId) return [];
+    return (c.constructibles || []).filter(m => m && m.constructibleKind === 'war-machine'
+        && m.damageState !== 'destroyed'
+        && !(m.functionData && m.functionData.assembledAtSiegeId === cw.siegeId))
+      .map(m => ({ id: m.id, subtype: m.constructibleSubtype,
+        label: (m.name || A.warMachineLabel(m.constructibleSubtype)),
+        cost: A.warMachineAssemblyCostGp ? A.warMachineAssemblyCostGp(m.constructibleSubtype) : 0 }));
+  },
+  // Keep cw.totalCost in sync with the derived siege-work cost (circumvallation 1gp/ft; assembly
+  // 1/100 the machine's build cost). Called from the secondary-input handlers + subtype pick.
+  siegeWizardSyncCost(){
+    const A = window.ACKS, cw = this.constructionWizard;
+    if(cw.kind !== 'siege-construction') return;
+    if(cw.structureKey === 'circumvallation'){
+      cw.totalCost = A.circumvallationProjectCostGp ? A.circumvallationProjectCostGp(Number(cw.circumvallationFeet) || 0) : (Number(cw.circumvallationFeet) || 0);
+    } else if(cw.structureKey === 'war-machine-assembly'){
+      const m = this.siegeWizardMachineOptions().find(x => x.id === cw.assemblyMachineId);
+      cw.totalCost = m ? m.cost : 0;
+    } else { cw.totalCost = 0; }
+  },
+  // 🧱 Siege-panel readout — circumvallation progress (feet → blockade-unit relief + complete-ring /
+  // −4-smuggling) + assembled artillery. Reads the engine directly (the siege is the source of truth).
+  siegeWorksReadout(siege){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!siege || !c) return '';
+    const prof = A.siegeStrongholdProfile ? A.siegeStrongholdProfile(c, siege) : { unitCapacity: 0 };
+    const feet = (siege.blockade && siege.blockade.circumvallationFeet) || 0;
+    const toEncircle = A.circumvallationFeetToEncircle ? A.circumvallationFeetToEncircle(prof.unitCapacity) : 0;
+    const units = A.blockadeUnitsAfterCircumvallation ? A.blockadeUnitsAfterCircumvallation(prof.unitCapacity, feet) : 0;
+    const full = A.siegeFullyCircumvallated ? A.siegeFullyCircumvallated(c, siege) : false;
+    const smug = A.siegeSmugglingModifier ? A.siegeSmugglingModifier(c, siege) : 0;
+    const art = A.artilleryBonusUnits ? A.artilleryBonusUnits(siege.besiegerArtillery) : 0;
+    const parts = ['Circumvallation ' + feet.toLocaleString() + "' / " + toEncircle.toLocaleString() + "' to encircle — blockade needs " + units + ' unit' + (units === 1 ? '' : 's') + (full ? ' (ring complete)' : '')];
+    if(smug) parts.push('smuggling ' + smug);
+    if(art) parts.push('assembled artillery +' + art + ' units');
+    return parts.join(' · ');
+  },
+  // Open the Construction Wizard pre-filled to raise a siege-support work against this siege.
+  openSiegeWorkWizard(siege, supportType){
+    if(!siege) return;
+    this.openConstructionWizard({
+      kind: 'siege-construction', siegeId: siege.id, siegeSupportType: supportType,
+      siteHexId: siege.hexId || '',
+      name: supportType === 'circumvallation' ? ('Circumvallation of ' + (siege.name || 'the siege'))
+                                               : ('Field-assembly at ' + (siege.name || 'the siege')) });
+    if(this.closeSiegePanel) this.closeSiegePanel();
+  },
+  // In-progress siege-support Projects targeting this siege (the build-queue readout).
+  siegeWorksProjects(siege){
+    if(!siege || !this.currentCampaign) return [];
+    const A = window.ACKS;
+    return (this.currentCampaign.projects || []).filter(p => p && p.constructibleKind === 'siege-construction'
+        && p.completionSpec && p.completionSpec.siegeSupport && p.completionSpec.siegeSupport.siegeId === siege.id
+        && p.lifecycleState === 'under-construction')
+      .map(p => {
+        const f = A.projectConstructionForecast ? A.projectConstructionForecast(this.currentCampaign, p) : null;
+        const icon = (p.completionSpec.siegeSupport.supportType === 'circumvallation') ? '🧱' : '⚙';
+        return { id: p.id, label: icon + ' ' + (p.name || 'siege work') + (f ? (' — ' + f.pctComplete + '% (' + (f.daysToComplete != null ? f.daysToComplete + ' days left' : 'stalled') + ')') : '') };
+      });
+  },
+  // === @b14-politics     (team) — Politics P-5 generative Senate Wizard (materialize a populated senate): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
   // (defaults off each session — kept out of the shared session-restore region).
@@ -20943,7 +21181,7 @@ return {
   // The generative Senate Wizard — thin UI over acks-engine-politics.js (proposeSenateMaterialization /
   // materializeSenate + senateMaterializeCandidates). Reads the SHIPPED demographics census to draw
   // senators; mints sen-/fac-/snr-; sets the apex governance senatorial; emits one senate-materialized.
-  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, plan:null },
+  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, fillWithGenerated:true, plan:null },
   // the realm apexes (no liege) — where a senate can be convened (self-contained; not @b10's helper)
   senGenApexRows(){
     const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
@@ -20971,7 +21209,8 @@ return {
     const p = window.ACKS.proposeSenateMaterialization(c, {
       domainId: this.senGen.apexId,
       seats: (this.senGen.seats != null && this.senGen.seats !== '') ? Number(this.senGen.seats) : undefined,
-      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice()
+      seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice(),
+      fillWithGenerated: !!this.senGen.fillWithGenerated      // @b14-politics — mint senators to fill the shortfall
     });
     this.senGen.plan = (p && p.ok) ? p : null;
     // snap the seats input to the clamped senate size so the field always shows the real value
@@ -23439,7 +23678,9 @@ return {
       { key:'field-fortification',  label:'Field fortification (palisade, rampart, ditch, border fort)' },  /* Wave H — renamed from 'fortification' to match the W5 border fort */
       { key:'civic-monument',       label:'Civic monument (statue, triumphal arch)' },                      /* Wave H */
       { key:'trap',                 label:'Trap' },                                                          /* Wave H */
-      { key:'road',                 label:'Road / bridge' }                                                 /* Wave H */
+      { key:'road',                 label:'Road / bridge' },                                                /* Wave H */
+      // @b14-construction — siege-support works (RR p.474 / p.449), shown only while a siege is under way.
+      ...((camp && A.activeSieges && A.activeSieges(camp).length > 0) ? [{ key:'siege-construction', label:'Siege works (circumvallation / war-machine assembly)' }] : [])
     ];
   },
   constructionWizardKindNote(){
@@ -23447,6 +23688,11 @@ return {
     // @b13-construction (Wave D) — vessels + war machines are catalog-driven (RR p.316 / pp.136–137).
     if(k === 'vessel') return 'Pick a waterway-adjacent site + a class. On completion it is launched as a real Vessel (RR p.316).';
     if(k === 'war-machine') return 'A buildable war machine (RR pp.136–137). On completion it can be brought to a siege (it feeds the Sieges-Simplified bonus + bombardment). Needs a siege engineer / engineer supervisor (RR p.174).';
+    if(k === 'siege-construction'){  /* @b14-construction */
+      if(this.constructionWizard.structureKey === 'circumvallation')      return "A besieger's encircling line (RR p.474) — 1gp/ft, built in ≥2,500' segments. On completion each 250' relieves 2 blockading units; a complete ring imposes −4 on enemy smuggling.";
+      if(this.constructionWizard.structureKey === 'war-machine-assembly') return 'Field-(dis)assembly of an existing war machine for the siege (RR p.449) — 1/100 the build cost. On completion it joins the besieger’s bombardment + assault bonus.';
+      return 'Siege works built over time against a siege (RR p.474 / p.449). Pick the target siege + the work.';
+    }
     // Wave E + H — the editable-cost catalog kinds: once a subtype is picked, show its note (the RAW cite +
     // any threshold / downstream-enables for settlement buildings); before a pick, a per-kind hint.
     const ent = window.ACKS.findConstructionSubtype ? window.ACKS.findConstructionSubtype(k, this.constructionWizard.structureKey) : null;
@@ -23508,8 +23754,12 @@ return {
       siteHexId: prefill.siteHexId || '',
       laborers: 0, masons: 0, carpenters: 0, smiths: 0,
       supervisorIds: [],
-      repairTargetId: prefill.repairTargetConstructibleId || ''
+      repairTargetId: prefill.repairTargetConstructibleId || '',
+      // @b14-construction — siege-support fields (the siege-construction kind only)
+      siegeId: prefill.siegeId || '', circumvallationFeet: 2500, assemblyMachineId: ''
     };
+    // @b14-construction — pre-pick the siege work (circumvallation / war-machine-assembly) + derive its cost.
+    if(prefill.siegeSupportType){ this.constructionWizard.structureKey = prefill.siegeSupportType; this.siegeWizardSyncCost(); }
   },
   closeConstructionWizard(){ this.constructionWizard.open = false; },
   // Wave F — the label of the Constructible being repaired (name + damage state), for the repair banner.
@@ -23587,6 +23837,7 @@ return {
     // Reset the per-kind picks when the kind changes (the catalog structure only applies to strongholds).
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
+    if(cw.kind === 'siege-construction'){ cw.siegeId = cw.siegeId || ''; cw.circumvallationFeet = 2500; cw.assemblyMachineId = ''; }  /* @b14-construction */
     // A catalog-driven kind (stronghold-component / vessel / war-machine / settlement-building / the
     // Wave-H kinds) re-fills its cost from the pick, so zero it on a kind switch. Wave G's free-form
     // class-bound kinds get a sensible RAW default the GM adjusts (RR p.386 sanctum/dungeon, p.353 vault,
@@ -23670,6 +23921,13 @@ return {
         const ent = window.ACKS.findConstructionSubtype(cw.kind, cw.structureKey);
         if(ent && ent.minCost > 0 && Number(cw.totalCost) < ent.minCost) return 'Cost must be at least ' + ent.minCost.toLocaleString() + 'gp for a ' + ent.label;
       }
+      // @b14-construction — siege works need a target siege + the per-work parameter.
+      if(cw.kind === 'siege-construction'){
+        if(!cw.siegeId) return 'Pick a siege to support';
+        if(!cw.structureKey) return 'Pick a siege work (circumvallation / war-machine assembly)';
+        if(cw.structureKey === 'circumvallation' && !(Number(cw.circumvallationFeet) >= 2500)) return "Circumvallation is built in ≥2,500' segments";
+        if(cw.structureKey === 'war-machine-assembly' && !cw.assemblyMachineId) return 'Pick a built war machine to assemble';
+      }
     }
     if(!(Number(cw.totalCost) > 0)) return cw.repairTargetId ? 'Repair cost must be greater than 0' : 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
@@ -23700,6 +23958,17 @@ return {
     if(cw.repairTargetId){ opts.isRepair = true; opts.repairTargetConstructibleId = cw.repairTargetId; }
     if(cw.kind === 'stronghold-component' && !cw.repairTargetId){
       opts.completionSpec = { componentType: cw.componentType || '', structures: cw.structureKey ? [{ structureKey: cw.structureKey, quantity: 1 }] : [] };
+    }
+    // @b14-construction — a siege work carries its target siege + parameters; on completion the slot-51
+    // consumer feeds the siege (circumvallation → blockade unit relief; assembly → besieger artillery).
+    if(cw.kind === 'siege-construction' && !cw.repairTargetId){
+      const support = { siegeId: cw.siegeId, supportType: cw.structureKey };
+      if(cw.structureKey === 'circumvallation'){ support.feet = Number(cw.circumvallationFeet) || 0; }
+      else if(cw.structureKey === 'war-machine-assembly'){
+        const m = this.siegeWizardMachineOptions().find(x => x.id === cw.assemblyMachineId);
+        support.machineSubtype = m ? m.subtype : null; support.machineConstructibleId = cw.assemblyMachineId || null;
+      }
+      opts.completionSpec = { siegeSupport: support };
     }
     // Wave E — a settlement-building is embedded in its hex's settlement: carry the settlement link so the
     // completed Constructible knows its settlement (the data layer + the function-chip readout).

@@ -1435,9 +1435,9 @@ const TERRAIN_SUBTYPES = Object.freeze({
   desert:    ['sandy','rocky'],                     // lair: rocky 1d2 / sandy 1d4
   forest:    ['deciduous','taiga'],                 // enc: Deciduous · Taiga
   grassland: ['farm','savanna','steppe'],           // farm = prairie/farmland
-  hills:     ['forested','rocky'],                  // lair: forested 2d4 / rocky 1d4
+  hills:     ['forested','rocky','terraced'],       // lair: forested 2d4 / rocky 1d4; terraced = cultivated (Terrain Transformation, JJ p.412 → rocky-equiv)
   jungle:    [],
-  mountains: ['forested','rocky','snowy','volcanic'],
+  mountains: ['forested','rocky','snowy','volcanic','terraced'], // terraced = cultivated (JJ p.412 → rocky-equiv via _ENCOUNTER_ROW_ALIASES)
   scrubland: ['sparse','dense'],                    // sparse = low · dense = high
   swamp:     ['scrubby','forested'],                // RR p.275 visibility: scrubby −33% / forested −50%
   water:     []
