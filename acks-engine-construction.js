@@ -34,13 +34,21 @@
  * 'complete'). The war-machine mint hooks there. (Vessels already work end-to-end because the
  * voyages consumer keys off lifecycleState:'complete', not the event.)
  *
- * DEFERRED (documented follow-on — Phase_4_Construction_Plan.md §3 "siege-support" block):
- *   circumvallation rings (RR p.474), war-machine field (dis)assembly (RR p.449), and the
- *   siege-hijinks smuggling/sabotage hooks (RR pp.474–475). The siege math for these already
- *   lives in acks-engine-sieges.js (circumvallationCostGp / blockadeUnitsAfterCircumvallation);
- *   what remains is the Construction-Project side. Not built this slice (scope honesty — vessels
- *   + war machines are the coherent core). The reserved siege-construction-built event is NOT
- *   registered (no inert event kinds).
+ * SIEGE-SUPPORT CONSTRUCTIONS (Phase_4_Construction_Plan.md §3; burst14, 2026-06-21):
+ *   • CIRCUMVALLATION RINGS (RR p.474) — a kind:'siege-construction'/'circumvallation' Project (1gp/ft,
+ *     ≥2,500' segments) raised against a target siege; on completion the slot-51 'siege-construction'
+ *     day-consumer feeds acks-engine-sieges.js addCircumvallation → the blockade's circumvallationFeet
+ *     (each 250' relieves 2 blockading units; a complete ring → −4 smuggling).
+ *   • WAR-MACHINE FIELD (DIS)ASSEMBLY (RR p.449) — a kind:'siege-construction'/'war-machine-assembly'
+ *     Project (1/100 the machine's build cost) that, on completion, joins an existing war machine to the
+ *     besieger's artillery via assembleSiegeArtillery (→ siege.besiegerArtillery, the bombardment + bonus).
+ *   • SIEGE-HIJINKS HOOKS (RR pp.474–475) — the smuggling modifier a complete ring supplies is a READ hook
+ *     (siegeSmugglingModifier, acks-engine-sieges.js), consumed by the Hijinks/W6 layer — not a buildable work.
+ *   The circumvallation MATH already shipped in acks-engine-sieges.js (circumvallationCostGp /
+ *   blockadeUnitsAfterCircumvallation) — reused, not rebuilt. The materializer is the materializeWaveD-
+ *   Constructible analog, driven by a day-consumer (the voyages onVesselConstructed precedent, since the
+ *   shipped commitConstructionRecord only special-cases war-machine). The siege-construction-built event
+ *   is self-registered (registerEventKind).
  *
  * Loads after the core it late-binds (acks-engine.js / -entities / -events / -voyages / -sieges).
  * Every cross-module reference resolves global.ACKS at CALL time (the harness loads engine
@@ -459,6 +467,148 @@
     return (typeof A.bombardmentPerDay === 'function') ? A.bombardmentPerDay(warMachineSiegeContribution(campaign, ownerId), material) : 0;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SIEGE-SUPPORT CONSTRUCTIONS (RR p.474 / p.449 / pp.474–475 — burst14).
+  // Buildable kind:'siege-construction' Projects that, on completion, feed a target siege. The siege-
+  // state writers live in acks-engine-sieges.js (addCircumvallation / assembleSiegeArtillery); this is
+  // the Construction-Project side: the catalog, the cost helpers, the materializer (the materializeWaveD
+  // analog), and the slot-51 day-consumer that detects completed siege-construction Projects + applies
+  // them (the voyages onVesselConstructed precedent — the shipped commitConstructionRecord only special-
+  // cases war-machine, so siege-construction can't ride that hook; it falls to the generic construction-
+  // completed path, which spawns an inert record Constructible we ignore — the siege state is the truth).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // The two buildable siege works. `costModel` tells the Wizard how to price: per-foot (circumvallation,
+  // 1gp/ft, ≥2,500' segments) | fraction-of-machine (assembly, 1/100 the machine's build cost).
+  const CIRCUMVALLATION_MIN_SEGMENT_FEET = 2500;       // RR p.474 — built in ≥2,500' segments
+  const WAR_MACHINE_ASSEMBLY_COST_FRACTION = 1 / 100;  // RR p.449 — (dis)assembly = 1/100 the build cost
+  const SIEGE_CONSTRUCTION_CATALOG = [
+    { key:'circumvallation',      label:'Circumvallation ring',       costModel:'per-foot',            page:'RR p.474', note:"A besieger's encircling line — 1gp/ft, built in ≥2,500' segments. Each completed 250' relieves 2 blockading units; a complete ring imposes −4 on enemy smuggling (RR p.474)." },
+    { key:'war-machine-assembly', label:'War-machine field-assembly', costModel:'fraction-of-machine', page:'RR p.449', note:"Field-(dis)assembly of an existing war machine for the siege — 1/100 the machine's build cost. On completion it joins the besieger's bombardment + assault bonus (RR p.449)." }
+  ].map(Object.freeze);
+  Object.freeze(SIEGE_CONSTRUCTION_CATALOG);
+  const SIEGE_CONSTRUCTION_BY_KEY = {};
+  for(const s of SIEGE_CONSTRUCTION_CATALOG){ SIEGE_CONSTRUCTION_BY_KEY[s.key] = s; }
+  function findSiegeConstruction(key){ return (key && SIEGE_CONSTRUCTION_BY_KEY[key]) || null; }
+  function siegeConstructionCatalogList(){ return SIEGE_CONSTRUCTION_CATALOG.slice(); }   // defensive copy
+  function isSiegeConstructionSubtype(key){ return !!findSiegeConstruction(key); }
+  function siegeConstructionLabel(key){ const s = findSiegeConstruction(key); return s ? s.label : (key || ''); }
+
+  // RR p.474 — circumvallation cost = 1gp/ft (reuses the sieges.js circumvallationCostGp; falls back
+  // to feet when sieges isn't loaded). The Wizard adds the ≥2,500'-segment guidance.
+  function circumvallationProjectCostGp(feet){
+    const A = global.ACKS || ACKS;
+    return (typeof A.circumvallationCostGp === 'function') ? A.circumvallationCostGp(feet) : Math.max(0, Number(feet) || 0);
+  }
+  // RR p.449 — assembling a war machine costs 1/100 its build cost (min 1gp).
+  function warMachineAssemblyCostGp(machineSubtype){
+    const m = findWarMachineClass(machineSubtype);
+    return m ? Math.max(1, Math.round((m.costGp || 0) * WAR_MACHINE_ASSEMBLY_COST_FRACTION)) : 0;
+  }
+
+  // ── siege-construction completion → feed the target siege (the materializeWaveDConstructible analog) ──
+  // On a completed kind:'siege-construction' Project, read completionSpec.siegeSupport and apply it to the
+  // target siege: circumvallation adds feet to the blockade (→ blockade-unit relief + the smuggling
+  // threshold); war-machine-assembly adds the machine to the besieger's artillery (→ bombardment + bonus).
+  // Idempotent via proj.siegeApplied. Emits siege-construction-built. Returns the applied descriptor, or
+  // null (not a siege-construction / already applied / no spec / the sieges writer is missing).
+  function materializeSiegeConstruction(campaign, proj){
+    if(!campaign || !proj) return null;
+    if(proj.constructibleKind !== 'siege-construction') return null;
+    if(proj.siegeApplied) return null;                                            // idempotent
+    const spec = (proj.completionSpec && proj.completionSpec.siegeSupport) || null;
+    if(!spec || !spec.siegeId) return null;
+    const A = global.ACKS || ACKS;
+    const supportType = spec.supportType || proj.constructibleSubtype;
+    let applied = null;
+    if(supportType === 'circumvallation'){
+      if(typeof A.addCircumvallation !== 'function') return null;
+      const r = A.addCircumvallation(campaign, spec.siegeId, Number(spec.feet) || 0);
+      if(!r || !r.ok) return null;
+      applied = { supportType, siegeId: spec.siegeId, feet: r.addedFeet, totalFeet: r.feet,
+        fullyEncircled: r.fullyEncircled, unitsRequired: r.unitsRequired };
+    } else if(supportType === 'war-machine-assembly'){
+      if(typeof A.assembleSiegeArtillery !== 'function') return null;
+      const r = A.assembleSiegeArtillery(campaign, spec.siegeId, spec.machineSubtype, 1);
+      if(!r || !r.ok) return null;
+      if(spec.machineConstructibleId){                                            // tag the source machine (if linked)
+        const m = (campaign.constructibles || []).find(c => c && c.id === spec.machineConstructibleId);
+        if(m){ m.functionData = m.functionData || {}; m.functionData.assembledAtSiegeId = spec.siegeId; }
+      }
+      applied = { supportType, siegeId: spec.siegeId, machineSubtype: spec.machineSubtype };
+    } else {
+      return null;
+    }
+    proj.siegeApplied = true;                                                     // idempotency marker
+    _recordSiegeConstructionEvent(campaign, proj, applied);
+    return applied;
+  }
+
+  // Record-only audit emit (the materializeWaveD / voyages precedent — the verb already mutated the siege).
+  function _recordSiegeConstructionEvent(campaign, proj, applied){
+    const A = global.ACKS || ACKS;
+    if(!campaign || typeof A.newEvent !== 'function') return null;
+    const cal = (campaign.calendar) || {};
+    const label = (applied.supportType === 'circumvallation')
+      ? ('🧱 Circumvallation +' + (applied.feet || 0).toLocaleString() + "' raised around a siege" + (applied.fullyEncircled ? ' — the ring is complete (−4 smuggling).' : '.'))
+      : ('⚙ ' + warMachineLabel(applied.machineSubtype) + ' is field-assembled at a siege (joins the bombardment).');
+    let ev;
+    try {
+      ev = A.newEvent('siege-construction-built', {
+        submittedBy: 'engine', cadence: 'daily', targetTurn: (campaign.currentTurn) || 1,
+        gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: (campaign.currentDayInMonth) || 1 },
+        payload: { projectId: proj.id, siegeId: applied.siegeId, supportType: applied.supportType,
+          feet: applied.feet, machineSubtype: applied.machineSubtype, narrative: label }
+      });
+    } catch(_e){ return null; }
+    if(typeof A.setEventContext === 'function'){
+      A.setEventContext(ev, { primaryHexId: proj.siteHexId || null,
+        relatedEntities: [{ kind: 'siege', id: applied.siegeId, role: 'subject' }]
+          .concat(proj.ownerCharacterId ? [{ kind: 'character', id: proj.ownerCharacterId, role: 'owner' }] : [])
+          .concat(proj.ownerDomainId ? [{ kind: 'domain', id: proj.ownerDomainId, role: 'owner' }] : []) });
+    }
+    ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+    ev.appliedAtTurn = (campaign.currentTurn) || 1;
+    ev.appliedAtDay = (campaign.currentDayInMonth) || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: label },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+    return ev;
+  }
+  function applyEvent_siegeConstructionAudit(campaign, event){
+    const p = (event && event.payload) || {};
+    return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'siege construction built' } };
+  }
+
+  // ── the slot-51 'siege-construction' day-consumer (the voyages pattern) ──
+  // PURE peek (propose) → commit. Scans completed-but-unapplied siege-construction Projects (the generic
+  // construction-completed path marks lifecycleState:'complete'; proj.siegeApplied is the idempotency
+  // marker). Routine (no pauseTrigger). order 51 — right after construction's 50, so a same-day completion
+  // applies on the next day-tick (the 1-day lag the voyages launch absorbs within a multi-day Advance-Month).
+  function proposeSiegeConstructionDay(campaign, ctx){
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    if(!campaign || !Array.isArray(campaign.projects)) return out;
+    for(const proj of campaign.projects){
+      if(!proj || proj.constructibleKind !== 'siege-construction') continue;
+      if(proj.lifecycleState !== 'complete') continue;
+      if(proj.siegeApplied) continue;                                             // already fed (idempotent)
+      const spec = (proj.completionSpec && proj.completionSpec.siegeSupport) || {};
+      const label = (spec.supportType === 'circumvallation')
+        ? ('🧱 ' + (proj.name || 'Circumvallation') + ' is complete — the line tightens around the siege.')
+        : ('⚙ ' + (proj.name || 'A war machine') + ' is field-assembled at the siege.');
+      out.pendingRecords.push({ kind: 'siege-construction', projectId: proj.id });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'siege-construction', transient: true,
+        primaryHexId: proj.siteHexId || null, label, payload: { projectId: proj.id } });
+    }
+    return out;
+  }
+  function commitSiegeConstructionRecord(campaign, record){
+    if(!campaign || !record || record.kind !== 'siege-construction') return;
+    const proj = (campaign.projects || []).find(p => p && p.id === record.projectId);
+    if(!proj || proj.siegeApplied) return;                                        // gone or already applied
+    materializeSiegeConstruction(campaign, proj);
+  }
+
   // ── self-register the war-machine-built event kind (PR #89 kernel; from THIS module) ──
   (function _registerWaveDEventKinds(){
     const A = global.ACKS || ACKS;
@@ -468,6 +618,20 @@
       wizardOptOut: true, handler: applyEvent_warMachineAudit });
   })();
 
+  // ── self-register the siege-construction-built event + the slot-51 day-consumer (from THIS module) ──
+  (function _registerSiegeConstruction(){
+    const A = global.ACKS || ACKS;
+    if(typeof A.registerEventKind === 'function'){
+      A.registerEventKind('siege-construction-built', {
+        schema: { R: { projectId: 'string', siegeId: 'string', supportType: 'string' },
+                  O: { feet: 'number', machineSubtype: 'string', narrative: 'string' } },
+        wizardOptOut: true, handler: applyEvent_siegeConstructionAudit });
+    }
+    if(typeof A.registerDayConsumer === 'function'){
+      A.registerDayConsumer('siege-construction', { handler: proposeSiegeConstructionDay, order: 51, pauseTriggers: [], commit: commitSiegeConstructionRecord });
+    }
+  })();
+
   // ── export onto window.ACKS ──
   Object.assign(ACKS, {
     WAR_MACHINE_CATALOG,
@@ -475,6 +639,11 @@
     vesselConstructionCatalog, vesselConstructionCost,
     materializeWaveDConstructible,
     warMachinesForOwner, warMachineSiegeContribution, warMachineSiegeBonusUnits, warMachineBombardmentPerDay,
+    // Siege-support constructions (RR p.474 / p.449 / pp.474–475 — burst14): circumvallation + war-machine assembly
+    SIEGE_CONSTRUCTION_CATALOG, CIRCUMVALLATION_MIN_SEGMENT_FEET,
+    findSiegeConstruction, siegeConstructionCatalogList, isSiegeConstructionSubtype, siegeConstructionLabel,
+    circumvallationProjectCostGp, warMachineAssemblyCostGp,
+    materializeSiegeConstruction, proposeSiegeConstructionDay, commitSiegeConstructionRecord,
     // Wave E — settlement buildings
     SETTLEMENT_BUILDING_CATALOG,
     findSettlementBuilding, settlementBuildingCatalogList, settlementBuildingLabel, settlementBuildingsAtHex,
