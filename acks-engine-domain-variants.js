@@ -275,11 +275,298 @@ function setHexEconomyType(campaign, hexId, economyType, opts) {
   return { ok: true, hex, from, to: economyType };
 }
 
-// ── Self-register the record-only event kind (PR #89 kernel — from THIS module, no events.js edit) ──
+// ═══════════════════════════════════════════════════════════════════════════
+// TERRAIN TRANSFORMATION (P5-TERR — gap L; JJ p.412)
+// ───────────────────────────────────────────────────────────────────────────
+// JJ p.412's OPTIONAL rule: as a 6-mile hex's population grows, the LAND ITSELF
+// changes (irrigation / deforestation / dredging / terracing). RAW is a POPULATION-
+// THRESHOLD crossing, not a rate accrual — the terrain swaps in the month the new
+// threshold is reached (plan §4.2; the reserved rate-based shape REVISED). Three
+// stages by family count: 0 = natural (1–185) · 1 = 186–325 · 2 = 326–780.
+//
+// Only HUMAN / HALFLING / HUMANOID(beastman) families transform land (RAW); dwarven /
+// gnomish / elven hexes skip (dwarves DESPOIL via mining — a separate driver sharing
+// this field, owned by Mines, plan §4.5). v1 reads hex.dominantFamilyRace, default
+// human (plan §4.4 — the OQ4 source; defensive-read, no migration).
+//
+// Reconcile (plan §4.3): writes ONLY hex.terrain / hex.terrainSubtype /
+// hex.terrainTransformationState. koppen (the weather key) + biome (derived) +
+// hexScale / parentHexId are UNTOUCHED — terrain moves on the terrain axis, weather
+// keys off climate; orthogonal by construction. The 2 RAW target sub-types
+// hills-terraced / mountains-terraced are added to TERRAIN_SUBTYPES (catalogs.js).
+//
+// Gated on the `terrain-transformation` house rule (default OFF — JJ p.412's own
+// "optional", a legitimate RAW-self-flagged opt-in, plan §6.2/§8). Off ⇒ a no-op ⇒
+// byte-identical. Bidirectional: a depopulating hex reverts a stage (plan §4.2).
+
+// TERRAIN_TRANSFORMATION — the JJ p.412 table, keyed by the NATURAL terrainKey (base
+// or base-subtype). stages[0] = the natural (display only — reversion echoes the hex's
+// actual natural); stages[1]/[2] = the 186–325 / 326–780 targets in OUR taxonomy. RAW
+// "prairie" + "farmland" both → grassland-farm (our `farm` token covers both, catalogs
+// §TERRAIN_SUBTYPES); the 🔧 best-matches (savanna→farm-like · snowy/volcanic→rocky-like)
+// + bare-base defaults mirror the LAIRS_PER_HEX convention. IP-clean: values + cite, no
+// prose (§13.6). All 17 RAW rows reproduced.
+const TERRAIN_TRANSFORMATION = Object.freeze({
+  // Barrens (any: rocky/sandy/tundra) — cultivation/irrigation. RAW "(any)" → one row.
+  'barrens':            { driver: 'cultivation/irrigation', cite: 'JJ p.412', stages: [
+    { terrain: 'barrens', subtype: '' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  // Desert (rocky/sandy) — cultivation/irrigation.
+  'desert-rocky':       { driver: 'cultivation/irrigation', cite: 'JJ p.412', stages: [
+    { terrain: 'desert', subtype: 'rocky' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'desert-sandy':       { driver: 'cultivation/irrigation', cite: 'JJ p.412', stages: [
+    { terrain: 'desert', subtype: 'sandy' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'desert':             { driver: 'cultivation/irrigation', cite: 'JJ p.412', stages: [   // bare default = sandy
+    { terrain: 'desert', subtype: 'sandy' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  // Forest (deciduous/taiga) — cultivation/deforestation.
+  'forest-deciduous':   { driver: 'cultivation/deforestation', cite: 'JJ p.412', stages: [
+    { terrain: 'forest', subtype: 'deciduous' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'forest-taiga':       { driver: 'cultivation/deforestation', cite: 'JJ p.412', stages: [
+    { terrain: 'forest', subtype: 'taiga' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'forest':             { driver: 'cultivation/deforestation', cite: 'JJ p.412', stages: [   // bare default = deciduous
+    { terrain: 'forest', subtype: 'deciduous' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  // Grassland (prairie/steppe) — cultivation. prairie + farmland both → our `farm`.
+  'grassland-farm':     { driver: 'cultivation', cite: 'JJ p.412', stages: [   // prairie/farmland — already the end-state (no visible change)
+    { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'grassland-steppe':   { driver: 'cultivation', cite: 'JJ p.412', stages: [
+    { terrain: 'grassland', subtype: 'steppe' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'grassland-savanna':  { driver: 'cultivation', cite: 'JJ p.412', stages: [   // 🔧 no RAW row — matched to prairie (cultivates to farmland)
+    { terrain: 'grassland', subtype: 'savanna' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'grassland':          { driver: 'cultivation', cite: 'JJ p.412', stages: [   // bare default = farm
+    { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  // Hills (forested/rocky) — cultivation/deforestation/terracing → the NEW hills-terraced.
+  'hills-forested':     { driver: 'cultivation/deforestation/terracing', cite: 'JJ p.412', stages: [
+    { terrain: 'hills', subtype: 'forested' }, { terrain: 'hills', subtype: 'rocky' }, { terrain: 'hills', subtype: 'terraced' } ] },
+  'hills-rocky':        { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [
+    { terrain: 'hills', subtype: 'rocky' }, { terrain: 'hills', subtype: 'terraced' }, { terrain: 'hills', subtype: 'terraced' } ] },
+  'hills':              { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [   // bare default = rocky
+    { terrain: 'hills', subtype: 'rocky' }, { terrain: 'hills', subtype: 'terraced' }, { terrain: 'hills', subtype: 'terraced' } ] },
+  // Jungle — cultivation/deforestation.
+  'jungle':             { driver: 'cultivation/deforestation', cite: 'JJ p.412', stages: [
+    { terrain: 'jungle', subtype: '' }, { terrain: 'scrubland', subtype: 'dense' }, { terrain: 'scrubland', subtype: 'sparse' } ] },
+  // Mountains (forested/rocky/snowy) — cultivation/deforestation/terracing → mountains-terraced.
+  'mountains-forested': { driver: 'cultivation/deforestation/terracing', cite: 'JJ p.412', stages: [
+    { terrain: 'mountains', subtype: 'forested' }, { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'terraced' } ] },
+  'mountains-rocky':    { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [
+    { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'terraced' } ] },
+  'mountains-snowy':    { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [   // RAW "rocky/snowy" together
+    { terrain: 'mountains', subtype: 'snowy' }, { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'terraced' } ] },
+  'mountains-volcanic': { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [   // 🔧 no RAW row — matched to rocky/snowy
+    { terrain: 'mountains', subtype: 'volcanic' }, { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'terraced' } ] },
+  'mountains':          { driver: 'cultivation/terracing', cite: 'JJ p.412', stages: [   // bare default = rocky
+    { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'rocky' }, { terrain: 'mountains', subtype: 'terraced' } ] },
+  // Scrubland (sparse/dense) — cultivation/deforestation/irrigation.
+  'scrubland-sparse':   { driver: 'cultivation/deforestation/irrigation', cite: 'JJ p.412', stages: [
+    { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'steppe' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'scrubland-dense':    { driver: 'cultivation/deforestation/irrigation', cite: 'JJ p.412', stages: [
+    { terrain: 'scrubland', subtype: 'dense' }, { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'scrubland':          { driver: 'cultivation/deforestation/irrigation', cite: 'JJ p.412', stages: [   // bare default = sparse
+    { terrain: 'scrubland', subtype: 'sparse' }, { terrain: 'grassland', subtype: 'steppe' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  // Swamp (marshy/scrubby/forested) — dredging/reclamation. RAW prairie → our farm.
+  'swamp':              { driver: 'dredging/reclamation', cite: 'JJ p.412', stages: [   // bare = marshy
+    { terrain: 'swamp', subtype: '' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'swamp-scrubby':      { driver: 'deforestation/dredging', cite: 'JJ p.412', stages: [
+    { terrain: 'swamp', subtype: 'scrubby' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+  'swamp-forested':     { driver: 'deforestation/dredging', cite: 'JJ p.412', stages: [
+    { terrain: 'swamp', subtype: 'forested' }, { terrain: 'grassland', subtype: 'farm' }, { terrain: 'grassland', subtype: 'farm' } ] },
+});
+
+// The two RAW population-threshold floors (JJ p.412): stage 1 at 186 families, stage 2 at 326.
+const TERRAIN_TRANSFORM_THRESHOLDS = Object.freeze([186, 326]);
+
+// terrainTransformStageForFamilies(n) → 0 / 1 / 2 (the RAW 1–185 / 186–325 / 326–780 bands).
+function terrainTransformStageForFamilies(families) {
+  const f = Math.max(0, Number(families) || 0);
+  if (f >= TERRAIN_TRANSFORM_THRESHOLDS[1]) return 2;
+  if (f >= TERRAIN_TRANSFORM_THRESHOLDS[0]) return 1;
+  return 0;
+}
+
+// terrainTransformTargetFor(naturalTerrain, naturalSubtype, stage) → {terrain, subtype} | null.
+// stage 0 echoes the natural (the reversion target); stages 1/2 read the JJ p.412 row (base-subtype
+// key, falling back to the bare base). null = no transformation defined for this terrain (water/unknown).
+function terrainTransformTargetFor(naturalTerrain, naturalSubtype, stage) {
+  const base = terrainBaseOf(naturalTerrain);
+  const sub = String(naturalSubtype || '').toLowerCase().trim();
+  const st = Math.max(0, Math.min(2, stage | 0));
+  if (st === 0) return { terrain: base, subtype: sub };  // natural — used for reversion
+  const row = TERRAIN_TRANSFORMATION[sub ? (base + '-' + sub) : base] || TERRAIN_TRANSFORMATION[base];
+  if (!row || !row.stages[st]) return null;
+  return { terrain: row.stages[st].terrain, subtype: row.stages[st].subtype };
+}
+
+// The RAW land-transformation restriction (plan §4.4): human/halfling/humanoid(beastman) transform
+// land; dwarven/gnomish/elven do not (they despoil via mining — a Mines driver, plan §4.5). Defaults
+// to TRUE (human assumption) for an absent/unknown race — the v1 boundary (OQ4), defensive-read.
+const _NON_LAND_TRANSFORMING_RACES = Object.freeze(['dwarf', 'dwarven', 'dwarves', 'gnome', 'gnomish', 'gnomes', 'elf', 'elven', 'elves', 'elfblooded']);
+function raceTransformsLand(race) {
+  const r = String(race == null ? '' : race).toLowerCase().trim();
+  if (!r) return true;  // absent/unknown ⇒ human assumption ⇒ transforms (plan §4.4)
+  return !_NON_LAND_TRANSFORMING_RACES.some(x => r.indexOf(x) >= 0);
+}
+
+// The hex's NATURAL (pre-transformation) terrain — from the stored lineage if present, else the
+// current terrain (a never-transformed hex's current terrain IS its natural).
+function hexNaturalTerrain(hex) {
+  const st = hex && hex.terrainTransformationState;
+  if (st && st.naturalTerrain) return { terrain: terrainBaseOf(st.naturalTerrain), subtype: st.naturalSubtype || '' };
+  return { terrain: terrainBaseOf(hex && hex.terrain), subtype: (hex && hex.terrainSubtype) || '' };
+}
+
+// hexTerrainLineage(hex) → a UI readout: { transformed, natural{}, current{}, stage, history } —
+// "this hex is becoming farmland (was desert)". transformed=false ⇒ never transformed (state null).
+function hexTerrainLineage(hex) {
+  if (!hex) return null;
+  const st = hex.terrainTransformationState;
+  const nat = hexNaturalTerrain(hex);
+  const curBase = terrainBaseOf(hex.terrain), curSub = (hex.terrainSubtype || '');
+  const stage = st ? (st.currentStage | 0) : terrainTransformStageForFamilies(hex.families);
+  return {
+    hexId: hex.id, transformed: !!st,
+    natural: nat, current: { terrain: curBase, subtype: curSub },
+    stage, families: Math.max(0, Number(hex.families) || 0),
+    lastTransformedAtTurn: st ? (st.lastTransformedAtTurn || null) : null,
+    history: (st && Array.isArray(st.history)) ? st.history.slice() : [],
+  };
+}
+
+// A label for a {terrain, subtype} pair, e.g. "Desert (sandy)" / "Grassland (farm)".
+function _terrainLabel(t) {
+  if (!t || !t.terrain) return '—';
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  return cap(t.terrain) + (t.subtype ? ' (' + t.subtype + ')' : '');
+}
+
+// ── The terrain-transformed event (record-only, like economy-type-changed) ─────
+
+function applyEvent_terrainTransformed(campaign, event) {
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'terrain-transformed' } };
+}
+
+function _recordTerrainTransformedEvent(campaign, hex, rec, opts) {
+  const A = global.ACKS || ACKS;
+  if (typeof A.newEvent !== 'function') return null;
+  const narrative = (hex.name || hexNameOf(hex) || ('Hex ' + (hex.id || ''))) + ': '
+    + _terrainLabel({ terrain: rec.fromTerrain, subtype: rec.fromSubtype }) + ' → '
+    + _terrainLabel({ terrain: rec.toTerrain, subtype: rec.toSubtype })
+    + ' (' + (rec.direction === 'reversion' ? 'depopulation revert' : 'pop. ' + rec.families) + ', JJ p.412)';
+  const ev = A.newEvent('terrain-transformed', {
+    submittedBy: (opts && opts.submittedBy) || 'engine',
+    targetTurn: campaign.currentTurn || 1,
+    cadence: 'monthly-turn',
+    payload: {
+      hexId: hex.id, domainId: hex.domainId || null,
+      fromTerrain: rec.fromTerrain, fromSubtype: rec.fromSubtype,
+      toTerrain: rec.toTerrain, toSubtype: rec.toSubtype,
+      fromStage: rec.fromStage, toStage: rec.toStage, families: rec.families,
+      direction: rec.direction, narrative,
+    },
+  });
+  if (typeof A.setEventContext === 'function') {
+    const related = rec.demandReviewSettlementId ? [{ kind: 'settlement', id: rec.demandReviewSettlementId }] : [];
+    A.setEventContext(ev, { primaryHexId: hex.id, domainId: hex.domainId || null, relatedEntities: related });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  ev.appliedAtDay = campaign.currentDayInMonth || 1;
+  if (!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative }, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+// processTerrainTransformationForTurn(campaign, opts) — the monthly consumer (plan §4.4). Gated on the
+// `terrain-transformation` house rule (default OFF ⇒ ran:false, no-op). For each land-transforming hex
+// whose family count crosses a stage boundary (bidirectional — growth AND depopulation revert), swap
+// hex.terrain/terrainSubtype to the JJ p.412 target, update the lineage state, emit a record-only
+// terrain-transformed event, and flag any settlement on the hex for a demand-modifier review (RR p.201).
+// opts.dryRun ⇒ compute the pending transformations + return them WITHOUT mutating (the UI preview).
+// Returns { ran, transformations:[...], logEntries:[...] }.
+function processTerrainTransformationForTurn(campaign, opts) {
+  opts = opts || {};
+  const dryRun = !!opts.dryRun;
+  const out = { ran: false, transformations: [], logEntries: [] };
+  if (!campaign || !Array.isArray(campaign.hexes)) return out;
+  const ruleOn = (typeof ACKS.isHouseRuleEnabled === 'function') ? !!ACKS.isHouseRuleEnabled(campaign, 'terrain-transformation') : false;
+  if (!ruleOn) return out;
+  out.ran = true;
+  const turn = campaign.currentTurn || 1;
+  for (const hex of campaign.hexes) {
+    if (!hex) continue;
+    if (terrainBaseOf(hex.terrain) === 'water') continue;       // no transformation for open water
+    if (!raceTransformsLand(hex.dominantFamilyRace)) continue;  // dwarven/gnomish/elven skip (RAW)
+    const fam = Math.max(0, Number(hex.families) || 0);
+    const st = hex.terrainTransformationState;
+    const currentStage = st ? (st.currentStage | 0) : 0;
+    const targetStage = terrainTransformStageForFamilies(fam);
+    if (targetStage === currentStage) continue;                 // no stage crossing
+    const nat = hexNaturalTerrain(hex);                         // lineage (stored or current = natural)
+    const target = terrainTransformTargetFor(nat.terrain, nat.subtype, targetStage);
+    if (!target) continue;                                      // no row for this terrain
+    const curBase = terrainBaseOf(hex.terrain), curSub = (hex.terrainSubtype || '');
+    if (target.terrain === curBase && (target.subtype || '') === (curSub || '')) {
+      // No VISIBLE change (e.g. grassland-farm at every stage) — track the stage silently, no event.
+      if (!dryRun) {
+        hex.terrainTransformationState = {
+          naturalTerrain: nat.terrain, naturalSubtype: nat.subtype, currentStage: targetStage,
+          lastTransformedAtTurn: (st && st.lastTransformedAtTurn) || null,
+          history: (st && Array.isArray(st.history)) ? st.history.slice() : [],
+        };
+      }
+      continue;
+    }
+    const settlementId = (typeof settlementForHex === 'function')
+      ? (() => { const s = settlementForHex(campaign, hex.id); return s ? s.id : null; })() : null;
+    const rec = {
+      hexId: hex.id, hexLabel: hexNameOf(hex) || hex.name || (curBase || 'hex') + (hex.id ? ' · ' + hex.id : ''),
+      fromStage: currentStage, toStage: targetStage, families: fam,
+      fromTerrain: curBase, fromSubtype: curSub, toTerrain: target.terrain, toSubtype: target.subtype,
+      naturalTerrain: nat.terrain, naturalSubtype: nat.subtype,
+      direction: targetStage > currentStage ? 'growth' : 'reversion',
+      driver: (TERRAIN_TRANSFORMATION[nat.subtype ? (nat.terrain + '-' + nat.subtype) : nat.terrain] || TERRAIN_TRANSFORMATION[nat.terrain] || {}).driver || '',
+      demandReviewSettlementId: settlementId,
+    };
+    out.transformations.push(rec);
+    if (!dryRun) {
+      hex.terrain = target.terrain;
+      hex.terrainSubtype = target.subtype;
+      hex.terrainTransformationState = {
+        naturalTerrain: nat.terrain, naturalSubtype: nat.subtype, currentStage: targetStage,
+        lastTransformedAtTurn: turn,
+        history: ((st && Array.isArray(st.history)) ? st.history.slice() : []).concat([{
+          turn, fromTerrain: curBase + (curSub ? '-' + curSub : ''),
+          toTerrain: target.terrain + (target.subtype ? '-' + target.subtype : ''),
+          families: fam, threshold: targetStage,
+        }]),
+      };
+      _recordTerrainTransformedEvent(campaign, hex, rec, opts);
+      out.logEntries.push('Terrain transformation: ' + rec.hexLabel + ' ' + _terrainLabel({ terrain: rec.fromTerrain, subtype: rec.fromSubtype })
+        + ' → ' + _terrainLabel({ terrain: rec.toTerrain, subtype: rec.toSubtype })
+        + (rec.direction === 'reversion' ? ' (depopulation)' : '') + (settlementId ? ' — review market demand modifiers (RR p.201)' : '') + ' (JJ p.412)');
+    }
+  }
+  return out;
+}
+
+// ── Self-register the record-only event kinds (PR #89 kernel — from THIS module, no events.js edit) ──
 if (typeof ACKS.registerEventKind === 'function') {
   ACKS.registerEventKind('economy-type-changed', {
     schema: { R: { hexId: 'string', to: 'string' }, O: { domainId: 'string', from: 'string', narrative: 'string' } },
     wizardOptOut: true, handler: applyEvent_domainVariantAudit,
+  });
+  ACKS.registerEventKind('terrain-transformed', {
+    schema: { R: { hexId: 'string', toTerrain: 'string' }, O: { domainId: 'string', fromTerrain: 'string', fromSubtype: 'string', toSubtype: 'string', fromStage: 'number', toStage: 'number', families: 'number', direction: 'string', narrative: 'string' } },
+    wizardOptOut: true, handler: applyEvent_terrainTransformed,
+  });
+}
+
+// Self-register the `terrain-transformation` house rule (default OFF — JJ p.412 is explicitly
+// "optional" + dynastic-timescale content; a legitimate RAW-self-flagged opt-in, NOT a RAW demotion,
+// plan §6.2/§8). Registered from THIS module (the §15.5 convention — no catalogs.js edit).
+if (typeof ACKS.registerHouseRule === 'function') {
+  ACKS.registerHouseRule({
+    id: 'terrain-transformation', category: 'domain', name: 'Terrain Transformation (JJ p.412)',
+    source: 'ACKS II JJ p.412 (RAW-self-flagged optional)', default: false,
+    description: 'OFF by default. JJ p.412’s optional dynastic rule: as a 6-mile hex’s population grows, the LAND ITSELF changes — deserts are irrigated to grassland, forests cut to farmland, swamps dredged, hills/mountains terraced. The monthly turn checks each human/halfling/beastman hex against the RAW family thresholds (186 / 326) and swaps the terrain at a stage crossing (bidirectional — a depopulating hex reverts); a settlement on the hex is flagged for a market demand-modifier review (RR p.201). Dwarven/gnomish/elven hexes do not transform land. When off the data is non-functional + hidden.',
   });
 }
 
@@ -295,6 +582,11 @@ Object.assign(ACKS, {
   hexPastoralistInfo, domainPastoralistLandFactor, applyPastoralistLandRevenue, domainPastoralistInfo,
   // setter + event
   setHexEconomyType, applyEvent_domainVariantAudit,
+  // ── Terrain Transformation (P5-TERR; JJ p.412) ──
+  TERRAIN_TRANSFORMATION, TERRAIN_TRANSFORM_THRESHOLDS,
+  terrainTransformStageForFamilies, terrainTransformTargetFor, raceTransformsLand,
+  hexNaturalTerrain, hexTerrainLineage,
+  processTerrainTransformationForTurn, applyEvent_terrainTransformed,
 });
 
 if (typeof module !== 'undefined' && module.exports) { module.exports = ACKS; }

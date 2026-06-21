@@ -10176,6 +10176,23 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let construction vagaries fail the monthly commit */ }
   }
 
+  // === TERRAIN TRANSFORMATION (Phase 5 Domain Variants, P5-TERR; JJ p.412) ===
+  // As a hex's human/halfling/beastman population crosses the RAW family thresholds (186 / 326), the
+  // LAND ITSELF transforms (desert→scrubland→grassland, forests cut, swamps dredged, hills/mountains
+  // terraced) — bidirectional (depopulation reverts a stage). Gated on the `terrain-transformation`
+  // house rule (default OFF) inside the helper; runs on the POST-growth hex.families (the per-domain
+  // population loop above already applied this month's growth via setPeasantPopulation). Late-bound
+  // (acks-engine-domain-variants.js loads after this file) + try-guarded (the aging / arcane / construction-
+  // vagaries precedent), so a terrain transformation can never fail the core monthly commit.
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processTerrainTransformationForTurn === 'function'){
+        const tt = global.ACKS.processTerrainTransformationForTurn(campaign, { rng }) || {};
+        (tt.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let terrain transformation fail the monthly commit */ }
+  }
+
   // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
   // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
   // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior
