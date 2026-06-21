@@ -53,7 +53,7 @@
 <script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
-<script src="acks-engine-religion.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-religion.js?v=2026-06-21-b13r6"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
@@ -14517,6 +14517,81 @@ document.addEventListener('alpine:init', () => {
     <p class="text-sm opacity-60 mt-3 italic">Divine power is spent on consecration or returned for XP. It cannot be hoarded — each accrual fades one month after it's received (RR p.422). Pray-and-sacrifice grants campaign XP for the month's returned power above your XP threshold, settled at Advance Month.</p>
   </div>
 
+  <!-- === @b13-religion (team) — R6: 👑 Ascended Incarnations (apotheosis upkeep, RR p.398) + 🔗 dungeon co-extraction (RR p.388) === -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">👑 Ascended Incarnations <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionIncarnations().length + ' · apotheosis · RR p.398'"></span></h3>
+    <p class="text-sm opacity-70 mt-1 mb-3">The <em>apotheosis</em> ritual (Magic Research) transfigures a creature into a deathless <strong>incarnation</strong> — a divine being. Thereafter it must consume <strong>divine power = 6% of its XP value every day</strong> or lose Hit Dice; at 0 HD it sinks into a deathless torpor until worship resumes. It may also channel divine power into vitality (1 campaign XP per gp). The daily upkeep settles on the Day Clock (and at Advance Month). Core RAW — no house rule.</p>
+
+    <!-- Ascend a character (the apotheosis EFFECT — the ritual's component cost is the Magic-Research ritual's concern) -->
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Ascend (apotheosis)
+        <select x-model="religionAscendPick" class="w-56">
+          <option value="">— pick a character —</option>
+          <template x-for="o in religionAscendCandidates()" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+        </select>
+      </label>
+      <button @click="religionAscend()" class="px-3 py-1 border border-ink rounded bg-amber-200 hover:bg-amber-300 font-semibold" :disabled="!religionAscendPick">⬆ Ascend</button>
+      <span class="text-xs opacity-60 self-center">A Death save: success → an incarnation; a natural 1 (or a failed save) → obliterated forever.</span>
+    </div>
+
+    <!-- Incarnations + their daily upkeep -->
+    <template x-if="religionIncarnations().length === 0">
+      <p class="text-sm italic opacity-60 py-2 text-center">No incarnations yet. Ascend a character above to begin the divine endgame.</p>
+    </template>
+    <template x-if="religionIncarnations().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Incarnation</th><th>XP value</th><th>Daily upkeep</th><th>Divine power</th><th>Hit Dice</th><th>Sustains</th><th>Channel → vitality</th></tr></thead>
+        <tbody>
+          <template x-for="inc in religionIncarnations()" :key="inc.id">
+            <tr :class="inc.st.torpid ? 'opacity-60' : ''">
+              <td class="font-semibold" x-text="inc.name"></td>
+              <td x-text="inc.st.xpValue.toLocaleString()"></td>
+              <td x-text="inc.st.upkeepGp.toLocaleString() + ' gp'"></td>
+              <td x-text="inc.dp.toLocaleString() + ' gp'"></td>
+              <td>
+                <span x-text="inc.st.effectiveHd + ' / ' + inc.st.baseHd"></span>
+                <span x-show="inc.st.torpid" class="text-red-800 font-semibold"> · 💤 torpid</span>
+                <span x-show="!inc.st.torpid && inc.st.hdLost > 0" class="text-amber-800"> · −<span x-text="inc.st.hdLost"></span> HD</span>
+              </td>
+              <td x-text="inc.sustainedDays != null ? (inc.sustainedDays + ' day' + (inc.sustainedDays === 1 ? '' : 's')) : '∞'"></td>
+              <td class="whitespace-nowrap">
+                <input type="number" min="0" x-model="religionVitalityGp[inc.id]" placeholder="gp" class="w-20">
+                <button @click="religionConvertVitality(inc.id)" class="px-2 py-0.5 border border-ink rounded bg-stone-100 hover:bg-stone-200 text-xs" :disabled="!(Number(religionVitalityGp[inc.id]) > 0)">✦ +XP</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+
+    <!-- 🔗 Dungeon co-extraction — a chaplain serving an arcane usurper (RR p.388) -->
+    <template x-if="religionCoExtractRows().length > 0">
+      <div class="mt-4 border-t border-ink/30 pt-3">
+        <h4 class="font-semibold text-sm mb-1">🔗 Dungeon co-extraction <span class="opacity-60 font-normal">· RR p.388 — a chaplain serving an arcane caster who has subjugated a dungeon co-extracts divine power (the chaplain's 10%; the arcane caster takes 80%).</span></h4>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Congregation</th><th>Usurped dungeon (sovereign-held)</th><th>Co-extraction</th></tr></thead>
+          <tbody>
+            <template x-for="row in religionCoExtractRows()" :key="row.id">
+              <tr>
+                <td class="font-semibold" x-text="row.name"></td>
+                <td>
+                  <select @change="religionCongDungeon[row.id] = $event.target.value; religionLinkDungeon(row.id)" class="w-64">
+                    <option value="" :selected="!row.dungeonId">— none —</option>
+                    <template x-for="d in religionSovereignDungeons()" :key="d.id"><option :value="d.id" :selected="d.id === row.dungeonId" x-text="d.name"></option></template>
+                  </select>
+                </td>
+                <td x-text="row.weeklyGp > 0 ? (row.weeklyGp.toLocaleString() + ' gp/wk') : '—'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <template x-if="religionSovereignDungeons().length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No arcane caster currently holds sovereignty over a dungeon. (See World ▸ 🕳️ Dungeons / the 🔮 Arcane economy.)</p>
+        </template>
+      </div>
+    </template>
+  </div>
+
   <!-- 🩸 Blood Sacrifice (R2 — the Chaotic path, RR pp.421–422) -->
   <div class="vellum border border-ink rounded p-4">
     <h3 class="font-bold text-lg">🩸 Blood Sacrifice <span class="text-sm opacity-70 font-normal">· the Chaotic path · RR pp.421–422</span></h3>
@@ -19008,6 +19083,64 @@ return {
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
   // === @b13-customclasses (team) — Custom Classes W2 (power compendium + trade-offs / drawbacks): state + methods ===
   // === @b13-religion      (team) — Religion R6 (apotheosis upkeep + dungeon co-extraction): state + methods ===
+  // Thin Alpine layer over the acks-engine-religion.js R6 verbs (ascendToIncarnation /
+  // convertDivinePowerToVitality / setCongregationUsurpedDungeon) + the read accessors. Surfaced as the
+  // 👑 Ascended Incarnations panel in the ⛪ Religion view. Each action mutates currentCampaign through the
+  // engine (which emits the `apotheosis` events) then markDirty + schedulePersist + a toast.
+  religionAscendPick: '',            // the character selected in the ascend picker
+  religionVitalityGp: {},            // per-incarnation DP→vitality amount (keyed by charId)
+  religionCongDungeon: {},           // per-congregation dungeon link (keyed by congId)
+  religionIncarnations(){
+    const c = this.currentCampaign; if(!c) return [];
+    return (c.characters || []).filter(ch => ch && window.ACKS.isIncarnation(ch) && ch.alive !== false).map(ch => {
+      const st = window.ACKS.incarnationUpkeepState(ch);
+      const dp = window.ACKS.divinePowerAvailable(c, ch.id);
+      return { id: ch.id, name: ch.name || ch.id, st, dp,
+        sustainedDays: st.upkeepGp > 0 ? Math.floor(dp / st.upkeepGp) : null };
+    });
+  },
+  religionAscendCandidates(){
+    const c = this.currentCampaign; if(!c) return [];
+    return (c.characters || []).filter(ch => ch && ch.alive !== false && !window.ACKS.isIncarnation(ch))
+      .map(ch => ({ id: ch.id, name: (ch.name || ch.id) + ' · L' + (ch.level || 1) }));
+  },
+  religionAscend(){
+    const id = this.religionAscendPick; if(!id) return;
+    const r = window.ACKS.ascendToIncarnation(this.currentCampaign, { characterId: id });
+    if(!r || !r.ok){ this.showToast('Cannot ascend: ' + ((r && r.reason) || 'failed')); return; }
+    this.religionAscendPick = '';
+    this.markDirty(); this.schedulePersist();
+    const ds = r.deathSave || {};
+    this.showToast(r.outcome === 'ascended'
+      ? '👑 Ascended to an incarnation (Death save ' + ds.total + ' vs ' + ds.target + '+) — daily upkeep ' + (r.upkeepGp || 0).toLocaleString() + ' gp DP'
+      : '💀 Apotheosis failed — obliterated forever (Death save ' + ds.total + ' vs ' + ds.target + '+)');
+  },
+  religionConvertVitality(charId){
+    const gp = Number(this.religionVitalityGp[charId]) || 0; if(gp <= 0) return;
+    const r = window.ACKS.convertDivinePowerToVitality(this.currentCampaign, charId, gp);
+    if(!r || !r.ok){ this.showToast('Cannot convert: ' + (r && r.reason === 'insufficient-divine-power' ? 'not enough divine power' : (r && r.reason) || 'failed')); return; }
+    this.religionVitalityGp[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('✦ Channeled ' + r.spentGp.toLocaleString() + ' gp DP into vitality (+' + r.xpGained.toLocaleString() + ' XP)');
+  },
+  religionSovereignDungeons(){
+    const c = this.currentCampaign; if(!c) return [];
+    return (c.dungeons || []).filter(d => d && d.sovereignCharacterId).map(d => ({
+      id: d.id, name: (d.name || d.id) + ' · ' + (window.ACKS.dungeonCoExtractionDivinePowerPerDay(c, d) * 7).toLocaleString() + ' gp/wk' }));
+  },
+  religionCoExtractRows(){
+    const c = this.currentCampaign; if(!c) return [];
+    return (c.congregations || []).filter(g => g && (!g.status || g.status === 'active' || g.status === 'declining')).map(g => ({
+      id: g.id, name: g.name || g.id,
+      dungeonId: g.usurpedDungeonId || '', weeklyGp: window.ACKS.congregationUsurpedDungeonWeeklyGp(c, g) }));
+  },
+  religionLinkDungeon(congId){
+    const dn = this.religionCongDungeon[congId] || null;
+    const r = window.ACKS.setCongregationUsurpedDungeon(this.currentCampaign, congId, dn);
+    if(!r || !r.ok){ this.showToast('Cannot link dungeon: ' + ((r && r.reason) || 'failed')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast(dn ? '🔗 The chaplain co-extracts divine power from the dungeon' : 'Co-extraction unlinked');
+  },
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
   // (defaults off each session — kept out of the shared session-restore region).
