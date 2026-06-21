@@ -88,7 +88,7 @@
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-20-burst11"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-custom-classes.js?v=2026-06-21-b13w2"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-treasure.js?v=2026-06-21-burst12"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -18256,6 +18256,186 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
 <!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
 
+<!-- ════ TEAM SESSION (burst13 2026-06-21) — per-agent NEW modal/overlay markup (each lane its OWN @b13-<lane> block; the Lead unions at integration). ════ -->
+<!-- === @b13-customclasses (team) — Custom Classes W2: the 🛠 Class Builder modal. Launched from Inspector ▸ ✨ Create ▸ Class Template (the inspectorCreateDispatch 'custom-class' case). Human builds; the engine derives stats/XP/power-balance live off the build inputs (window.ACKS.deriveClassFromTemplate / customClassBuildBalance). === -->
+<div x-show="ccBuilder.open" x-cloak class="fixed inset-0 z-[78] flex items-center justify-center bg-black/40 p-4"
+  @click.self="closeClassBuilder()"
+  @keydown.escape.window="if(ccBuilder.open && !$event.defaultPrevented){ closeClassBuilder(); $event.preventDefault() }">
+  <div class="vellum border-2 border-ink rounded shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-4">
+    <template x-if="ccBuilder.open">
+      <div>
+        <!-- header -->
+        <div class="flex items-baseline justify-between gap-3 border-b border-ink/30 pb-2 mb-3">
+          <h2 class="text-xl font-bold whitespace-nowrap">🛠 Class Builder</h2>
+          <span class="text-xs italic opacity-60 hidden md:block">Point-buy custom class (#154, JJ pp.289–331) — store the allocation + choices; the engine derives the rest</span>
+          <button @click="closeClassBuilder()" class="text-lg leading-none px-2 hover:text-red-700" title="Close">✕</button>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <!-- LEFT — build inputs -->
+          <div class="space-y-3 text-sm">
+            <label class="flex flex-col font-semibold">Class name
+              <input x-model="ccBuilder.displayName" placeholder="e.g. Duellist" class="border border-ink rounded px-2 py-1 font-normal">
+            </label>
+
+            <fieldset class="border border-ink/40 rounded p-2">
+              <legend class="px-1 font-semibold">Build Points · total <span x-text="ccBuilderTotalBp()"></span></legend>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex flex-col">Hit Dice (d4–d12)
+                  <select x-model.number="ccBuilder.bp.hd" class="border border-ink rounded px-1 py-0.5">
+                    <template x-for="n in [0,1,2,3,4]" :key="'hd'+n"><option :value="n" x-text="n"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Fighting
+                  <select x-model="ccBuilder.bp.fighting" class="border border-ink rounded px-1 py-0.5">
+                    <template x-for="f in ccFightingChoices" :key="'f'+f"><option :value="f" x-text="f"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Thievery
+                  <select x-model.number="ccBuilder.bp.thievery" class="border border-ink rounded px-1 py-0.5">
+                    <template x-for="n in [0,1,2,3,4]" :key="'t'+n"><option :value="n" x-text="n"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Divine
+                  <select x-model.number="ccBuilder.bp.divine" class="border border-ink rounded px-1 py-0.5">
+                    <template x-for="n in [0,1,2,3,4]" :key="'d'+n"><option :value="n" x-text="n"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Arcane
+                  <select x-model.number="ccBuilder.bp.arcane" class="border border-ink rounded px-1 py-0.5">
+                    <template x-for="n in [0,1,2,3,4]" :key="'a'+n"><option :value="n" x-text="n"></option></template>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            <!-- Trade-offs (JJ p.292) — gain custom powers by reducing combat capability -->
+            <fieldset class="border border-ink/40 rounded p-2 space-y-2" x-show="ccFightingHasValue()">
+              <legend class="px-1 font-semibold">Fighting trade-offs <span class="opacity-60 text-xs">(JJ p.292 — each grants custom powers)</span></legend>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex flex-col">Reduce armour to
+                  <select x-model="ccBuilder.armorReducedTo" class="border border-ink rounded px-1 py-0.5">
+                    <option value="">— (keep <span x-text="ccFightingRow().armorProf"></span>)</option>
+                    <template x-for="a in ccArmorOptions()" :key="'ar'+a"><option :value="a" x-text="a"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Reduce weapons to
+                  <select x-model="ccBuilder.weaponReducedTo" class="border border-ink rounded px-1 py-0.5">
+                    <option value="">— (keep <span x-text="ccFightingRow().weaponSelection"></span>)</option>
+                    <template x-for="w in ccWeaponOptions()" :key="'wr'+w"><option :value="w" x-text="w"></option></template>
+                  </select>
+                </label>
+                <label class="flex flex-col">Fighting styles dropped
+                  <input type="number" min="0" :max="ccFightingRow().fightingStyleCount" x-model.number="ccBuilder.fightingStylesDropped" class="border border-ink rounded px-1 py-0.5">
+                </label>
+                <label class="flex flex-col" x-show="ccFightingRow().hasDamageBonus">Damage bonus
+                  <select x-model="ccBuilder.damageTradeOff" class="border border-ink rounded px-1 py-0.5">
+                    <option value="none">— keep</option><option value="one">drop one (1 power)</option><option value="both">drop both (2 powers)</option>
+                  </select>
+                </label>
+              </div>
+              <label class="flex items-center gap-2" x-show="Number(ccBuilder.bp.divine) > 0">
+                <input type="checkbox" x-model="ccBuilder.rebukeTradeOff"> Trade rebuke-undead → <span x-text="Number(ccBuilder.bp.divine)"></span> power(s)
+              </label>
+              <label class="flex flex-col" x-show="Number(ccBuilder.bp.thievery) > 0">Thief skills traded → powers
+                <input type="number" min="0" x-model.number="ccBuilder.thiefSkillsTraded" class="border border-ink rounded px-1 py-0.5 w-24">
+              </label>
+            </fieldset>
+
+            <!-- Custom Drawbacks (JJ p.329) -->
+            <fieldset class="border border-ink/40 rounded p-2 space-y-1">
+              <legend class="px-1 font-semibold">Custom drawbacks <span class="opacity-60 text-xs">(JJ p.329 — buy extra powers)</span></legend>
+              <div class="flex gap-1">
+                <select x-model="ccBuilder.newDrawback" class="border border-ink rounded px-1 py-0.5 flex-1">
+                  <option value="">Add a drawback…</option>
+                  <template x-for="d in ccDrawbackOptions()" :key="'db'+d.name"><option :value="d.name" x-text="d.name + ' (' + d.powerWeight + ')'"></option></template>
+                </select>
+                <button @click="ccAddDrawback()" class="px-2 border border-ink rounded hover:bg-yellow-100">+ add</button>
+              </div>
+              <ul class="text-xs space-y-0.5">
+                <template x-for="(d, i) in ccBuilder.drawbacks" :key="'dbi'+i">
+                  <li class="flex justify-between gap-2"><span x-text="d.name + ' (' + d.powerWeight + ' power)'"></span>
+                    <button @click="ccRemoveDrawback(i)" class="opacity-60 hover:text-red-700">✕</button></li>
+                </template>
+              </ul>
+            </fieldset>
+
+            <!-- Custom Powers -->
+            <fieldset class="border border-ink/40 rounded p-2 space-y-1">
+              <legend class="px-1 font-semibold">Custom powers <span class="opacity-60 text-xs">(free-text; weight + unlock level)</span></legend>
+              <div class="flex gap-1 items-end flex-wrap">
+                <label class="flex flex-col text-xs flex-1">Name<input x-model="ccBuilder.newPower" placeholder="e.g. Berserkergang" class="border border-ink rounded px-1 py-0.5"></label>
+                <label class="flex flex-col text-xs">Weight<input type="number" step="0.5" x-model.number="ccBuilder.newPowerWeight" class="border border-ink rounded px-1 py-0.5 w-16"></label>
+                <label class="flex flex-col text-xs">Level<input type="number" min="1" max="14" x-model.number="ccBuilder.newPowerLevel" class="border border-ink rounded px-1 py-0.5 w-14"></label>
+                <button @click="ccAddPower()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">+ add</button>
+              </div>
+              <!-- gated compendium picker (custom-power-compendium house rule) -->
+              <template x-if="ccCompendiumPowers().length">
+                <div class="text-xs">
+                  <span class="opacity-60">Compendium:</span>
+                  <template x-for="p in ccCompendiumPowers()" :key="'cp'+p.name">
+                    <button @click="ccAddCompendiumPower(p.name)" class="underline hover:text-blue-700 mr-1" :title="p.summary || p.page" x-text="p.name"></button>
+                  </template>
+                </div>
+              </template>
+              <p class="text-xs italic opacity-50" x-show="!ccCompendiumPowers().length">Enable the “Custom-power compendium” house rule to pick from the power index (names + page-refs).</p>
+              <ul class="text-xs space-y-0.5">
+                <template x-for="(p, i) in ccBuilder.powers" :key="'pwi'+i">
+                  <li class="flex justify-between gap-2"><span x-text="p.name + ' · ' + p.powerWeight + 'pw' + (p.levelUnlocked > 1 ? ' @L' + p.levelUnlocked + ' (½)' : '')"></span>
+                    <button @click="ccRemovePower(i)" class="opacity-60 hover:text-red-700">✕</button></li>
+                </template>
+              </ul>
+            </fieldset>
+          </div>
+
+          <!-- RIGHT — live derived readout -->
+          <div class="space-y-2 text-sm bg-black/5 border border-ink/20 rounded p-3">
+            <h3 class="font-bold border-b border-ink/20 pb-1">Derived <span class="text-xs opacity-50 font-normal">(live — derive-don't-store)</span></h3>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
+              <span class="opacity-60">Hit Die</span><span x-text="ccBuilderDerived().hitDie"></span>
+              <span class="opacity-60">Attack progression</span><span x-text="ccBuilderDerived().attackProgression"></span>
+              <span class="opacity-60">Save progression</span><span class="font-semibold" x-text="ccBuilderDerived().saveProgression"></span>
+              <span class="opacity-60">Generators bucket</span><span x-text="ccBuilderDerived().coreClassMapping"></span>
+              <span class="opacity-60">Prime requisite(s)</span><span x-text="(ccBuilderDerived().primeRequisites||[]).join(', ')"></span>
+              <span class="opacity-60">Weapons / Armour</span><span x-text="ccBuilderDerived().weaponSelection + ' / ' + ccBuilderDerived().armorProf"></span>
+              <span class="opacity-60">Magic-item access</span><span class="text-xs" x-text="(ccBuilderDerived().magicItemAccess||[]).join(', ')"></span>
+              <span class="opacity-60">HP after 9th</span><span x-text="ccBuilderDerived().hpAfter9th + ' / level'"></span>
+              <span class="opacity-60">Max level</span><span x-text="ccBuilderDerived().maxLevel"></span>
+              <span class="opacity-60">Proficiency list</span><span x-text="ccBuilderDerived().proficiencyListSize + ' (42 − maxLevel)'"></span>
+            </div>
+            <div class="border-t border-ink/20 pt-2 flex items-baseline justify-between">
+              <span class="font-semibold">XP to 2nd level</span>
+              <span class="text-lg font-bold" x-text="(ccBuilderXp()||0).toLocaleString() + ' XP'"></span>
+            </div>
+            <p class="text-xs opacity-60" x-show="ccBuilderBreakdown().weapon > 0 && Number(ccBuilderDerived().maxLevel) && (ccBuilder.bp.fighting==='2'||ccBuilder.bp.fighting==='3'||ccBuilder.bp.fighting==='4')">
+              includes +<span x-text="ccBuilderBreakdown().weapon * 250"></span> XP for <span x-text="ccBuilderBreakdown().weapon"></span> weapon-trade-off power(s) (JJ p.292, Fighting ≥2)
+            </p>
+            <!-- power budget / spend / balance -->
+            <div class="border-t border-ink/20 pt-2">
+              <h4 class="font-semibold mb-1">Custom-power budget</h4>
+              <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <span class="opacity-60">Powers gained (trade-offs + drawbacks)</span><span x-text="ccBuilderBalance().budget"></span>
+                <span class="opacity-60">Powers spent (level-lock adjusted)</span><span x-text="ccBuilderBalance().spent"></span>
+                <span class="opacity-60">Surplus</span><span x-text="ccBuilderBalance().surplus"></span>
+              </div>
+              <p class="mt-1 text-sm font-semibold" :class="ccBuilderBalance().balanced ? 'text-green-700' : 'text-red-700'"
+                 x-text="ccBuilderBalance().balanced ? '✓ Balanced — the build is legal (JJ p.289: can ≠ should — your call)' : '⚠ Over budget — spending more powers than the build grants'"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- footer -->
+        <div class="flex justify-end gap-2 border-t border-ink/30 pt-3 mt-3">
+          <button @click="closeClassBuilder()" class="px-3 py-1 border border-ink/40 rounded hover:bg-yellow-100">Cancel</button>
+          <button @click="submitClassBuilder()" :disabled="!ccBuilder.displayName"
+            :class="ccBuilder.displayName ? 'bg-yellow-300 border-ink hover:bg-yellow-400' : 'opacity-40 cursor-not-allowed border-ink/40'"
+            class="px-3 py-1 border-2 rounded font-semibold">✨ Create class</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- ════ TEAM SESSION (burst12 2026-06-21) — per-agent NEW modal/overlay/panel markup. Append your markup
      ONLY after your own @b12-<lane> marker below. None of the 6 lanes adds a top-level tab; each extends an
      existing view (Demographics / Magic Items / Dungeons / char-sheet / Vessels / Generators tab) or is a
@@ -19074,6 +19254,95 @@ return {
   famDelegate(){ const ch=this.dynModalChar(); if(!ch || !window.ACKS) return; const res=window.ACKS.delegateAuthority(this.currentCampaign, ch.id, { mode:this.famUi.delMode, delegateCharacterId:this.famUi.delDelegateId||undefined }); if(res && res.error){ this._dynTouch('Cannot delegate: ' + res.error); return; } this._dynTouch(res.freesRuler ? (ch.name + ' delegates the realm — free to adventure.') : (ch.name + ' sets ' + res.mode + ' governance.')); },
   famToggleSuspend(){ const ch=this.dynModalChar(); if(!ch) return; ch.fertilitySuspended = !(ch.fertilitySuspended===true); this._dynTouch(ch.fertilitySuspended ? (ch.name + ' suspends fertility.') : (ch.name + ' resumes fertility.')); },
   // === @b13-customclasses (team) — Custom Classes W2 (power compendium + trade-offs / drawbacks): state + methods ===
+  // The 🛠 Class Builder (W4-flavoured Generation-mode wizard over the W1/W2 derivation engine).
+  // Launched from Inspector ▸ ✨ Create ▸ Class Template. Human builds (racial classes are W3); a
+  // template stores build points + structured trade-off CHOICES + drawbacks + powers, and the engine
+  // (window.ACKS.deriveClassFromTemplate / customClassBuildBalance / customClassSecondLevelXp) derives
+  // the stat block + XP + power budget LIVE. Create → createCustomClass (init-on-write, isSeed:false).
+  ccBuilder: {
+    open: false, displayName: '',
+    bp: { hd: 0, fighting: '0', thievery: 0, divine: 0, arcane: 0 },   // fighting is the '0'|'1a'|'1b'|'2'|'3'|'4' dropdown
+    armorReducedTo: '', weaponReducedTo: '', fightingStylesDropped: 0, damageTradeOff: 'none', rebukeTradeOff: false, thiefSkillsTraded: 0,
+    drawbacks: [], powers: [],
+    newPower: '', newPowerWeight: 1, newPowerLevel: 1, newDrawback: ''
+  },
+  ccFightingChoices: ['0', '1a', '1b', '2', '3', '4'],
+  openClassBuilder(){
+    this.ccBuilder = { open: true, displayName: '', bp: { hd: 0, fighting: '0', thievery: 0, divine: 0, arcane: 0 },
+      armorReducedTo: '', weaponReducedTo: '', fightingStylesDropped: 0, damageTradeOff: 'none', rebukeTradeOff: false, thiefSkillsTraded: 0,
+      drawbacks: [], powers: [], newPower: '', newPowerWeight: 1, newPowerLevel: 1, newDrawback: '' };
+  },
+  closeClassBuilder(){ this.ccBuilder.open = false; },
+  // Build a transient ClassTemplate from the current Builder state (the engine derives everything off it).
+  ccBuilderTemplate(){
+    const A = window.ACKS, b = this.ccBuilder;
+    const f = b.bp.fighting;
+    const fightingVal = (f === '1a' || f === '1b') ? 1 : (Number(f) || 0);
+    const fightingSubtype = (f === '1a' || f === '1b') ? f : null;
+    return A.blankClassTemplate({
+      key: '', displayName: b.displayName || 'New Class', raceTemplateKey: null,
+      buildPoints: { hd: Number(b.bp.hd) || 0, fighting: fightingVal, thievery: Number(b.bp.thievery) || 0, divine: Number(b.bp.divine) || 0, arcane: Number(b.bp.arcane) || 0 },
+      fightingSubtype: fightingSubtype,
+      choices: {
+        armorReducedTo: b.armorReducedTo || null, weaponReducedTo: b.weaponReducedTo || null,
+        fightingStylesDropped: Number(b.fightingStylesDropped) || 0,
+        damageTradeOff: b.damageTradeOff || 'none', rebukeTradeOff: !!b.rebukeTradeOff,
+        thiefSkillsTraded: Number(b.thiefSkillsTraded) || 0
+      },
+      customDrawbacks: b.drawbacks.slice(), customPowers: b.powers.slice(),
+      isSeed: false
+    });
+  },
+  ccBuilderDerived(){ const A = window.ACKS; return A.deriveClassFromTemplate(this.ccBuilderTemplate(), null) || {}; },
+  ccBuilderXp(){ const A = window.ACKS; return A.customClassSecondLevelXp(this.ccBuilderTemplate(), null); },
+  ccBuilderBalance(){ const A = window.ACKS; return A.customClassBuildBalance(this.ccBuilderTemplate()); },
+  ccBuilderTotalBp(){ const A = window.ACKS; return A.customClassTotalBuildPoints(this.ccBuilderTemplate()); },
+  ccBuilderBreakdown(){ const A = window.ACKS; return A.fightingTradeOffBreakdown(this.ccBuilderTemplate()); },
+  ccFightingRow(){ const A = window.ACKS; return A.fightingDefaults(this.ccBuilder.bp.fighting); },
+  ccFightingHasValue(){ const f = this.ccBuilder.bp.fighting; return f && f !== '0'; },
+  // Armour/weapon reduction options = the tiers strictly BELOW the Fighting Value default (you can only reduce).
+  ccArmorOptions(){
+    const A = window.ACKS, def = this.ccFightingRow().armorProf;
+    const di = A.ARMOR_TIERS.indexOf(def);
+    return A.ARMOR_TIERS.filter((_, i) => i < di);
+  },
+  ccWeaponOptions(){
+    const A = window.ACKS, def = this.ccFightingRow().weaponSelection;
+    const di = A.WEAPON_TIERS.indexOf(def);
+    return A.WEAPON_TIERS.filter((_, i) => i < di);
+  },
+  ccDrawbackOptions(){ const A = window.ACKS; return A.CUSTOM_DRAWBACKS; },
+  ccCompendiumPowers(){ const A = window.ACKS; return A.customPowerCompendium(this.currentCampaign); },   // gated by custom-power-compendium
+  ccAddDrawback(){
+    const A = window.ACKS, name = this.ccBuilder.newDrawback;
+    if(!name) return;
+    const known = A.findCustomDrawback(name);
+    this.ccBuilder.drawbacks.push({ name: name, powerWeight: known ? known.powerWeight : -1 });
+    this.ccBuilder.newDrawback = '';
+  },
+  ccRemoveDrawback(i){ this.ccBuilder.drawbacks.splice(i, 1); },
+  ccAddPower(){
+    const name = (this.ccBuilder.newPower || '').trim();
+    if(!name) return;
+    this.ccBuilder.powers.push({ name: name, powerWeight: Number(this.ccBuilder.newPowerWeight) || 1, levelUnlocked: Number(this.ccBuilder.newPowerLevel) || 1, pageRef: '' });
+    this.ccBuilder.newPower = ''; this.ccBuilder.newPowerWeight = 1; this.ccBuilder.newPowerLevel = 1;
+  },
+  ccAddCompendiumPower(name){ if(name){ this.ccBuilder.newPower = name; this.ccAddPower(); } },
+  ccRemovePower(i){ this.ccBuilder.powers.splice(i, 1); },
+  submitClassBuilder(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    const A = window.ACKS, b = this.ccBuilder;
+    if(!(b.displayName || '').trim()){ if(this.showToast) this.showToast('Give the class a name first.'); return; }
+    const t = this.ccBuilderTemplate();
+    t.key = (b.displayName || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || ('class-' + Date.now());
+    // createCustomClass(campaign, opts) re-wraps opts through blankClassTemplate (a fresh id) — t is
+    // opts-shaped (it IS a template), so key/displayName/buildPoints/choices/powers/drawbacks all carry.
+    const created = A.createCustomClass(this.currentCampaign, t);   // init-on-write; isSeed:false on t
+    this.markDirty && this.markDirty(); this.schedulePersist && this.schedulePersist();
+    this.closeClassBuilder();
+    if(created){ this.inspectorOpenInspect && this.inspectorOpenInspect('custom-class', created.id); }
+    if(this.showToast) this.showToast('🛠 Class “' + (b.displayName) + '” built — ' + this.ccBuilderXp() + ' XP to 2nd level. Tweak it in the Inspector.');
+  },
   // === @b13-religion      (team) — Religion R6 (apotheosis upkeep + dungeon co-extraction): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
@@ -21195,6 +21464,10 @@ return {
       // guided Action verb; the schemaForm edit under Inspect→Edit is the free-form tweak). No prefill →
       // the GM picks kind / structure / site / owner / supervisor / crew from scratch.
       case 'project':   return () => this.openConstructionWizard();
+      // === @b13-customclasses (team) — Custom Classes W2 (#154): the 🛠 Class Builder is the
+      // Generation-mode wizard for a ClassTemplate (point-buy → live-derived stats/XP/balance).
+      // The bare schemaForm edit sits under Inspect→Edit for admin tweaks. ===
+      case 'custom-class': return () => this.openClassBuilder();
       // Future entries land here as wizards ship:
       //   case 'venture':   return () => this.openLaunchVentureModal();
       //   case 'rumor':     return () => this.openAddRumorPrompt();
