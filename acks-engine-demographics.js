@@ -1177,10 +1177,122 @@ function settlementMagicItemCensus(campaign, settlement){ return settlement ? se
 function expectedNpcMagicItemValue(level){ return (typeof ACKS.npcMagicItemValueGp === 'function') ? ACKS.npcMagicItemValueGp(level) : 0; }
 function expectedNpcMagicItemTiers(level){ return (typeof ACKS.npcMagicItemTierAllocation === 'function') ? ACKS.npcMagicItemTierAllocation(level) : null; }
 
+// ═══════════════════════════════════════════════════════════════════════════════════
+// SD-7a — the WEALTH census (plan §8A.2; Econometrics §7). The third resource facet riding the
+// same derive-don't-store population spine as the people roster (expectedDemographics) + the
+// magic-item census (expectedSettlementMagicItems). Wealth is censused over the LEVELED NPC
+// roster (the per-level distribution), the wealth analog of "how much gold do this town's notable
+// NPCs hold" — the 0th-level family masses are the domain economy, not this per-NPC census.
+//
+// 🔧 IP-LIGHT TOOLING CURVE — the per-level wealth a leveled NPC holds. The Econometrics §7 gives
+// the *structure* (wealth follows the demographic pyramid; magic items + treasure follow wealth)
+// + two explicit anchors: ≈70gp at 0th level, ≈12,982,800gp at 14th ("as high NPCs accrue
+// non-adventuring assets"). The precise per-level cells are ACKS-1-era pending a Treasure-Tome
+// reconciliation (plan OQ-7/OQ-8), so this is a FITTED curve, not a transcribed table: a
+// constant-ratio interpolation of the two explicit anchors across L0…L14. Mechanical facts only
+// (two survey numbers → a fitted curve), page-cited, NO prose; GM-overridable; the §13.9 Autarch
+// heads-up folds into the standing catalog heads-up (CLAUDE §13.6/§13.9). The sibling of
+// npcMagicItemValueGp (acks-engine-magic-item-availability.js). DERIVE-DON'T-STORE.
+// ═══════════════════════════════════════════════════════════════════════════════════
+const NPC_WEALTH_ZEROTH_GP = 70;             // Econometrics §7, the explicit 0th-level anchor
+const NPC_WEALTH_FOURTEENTH_GP = 12982800;   // Econometrics §7, the explicit 14th-level anchor
+const NPC_WEALTH_RATIO = Math.pow(NPC_WEALTH_FOURTEENTH_GP / NPC_WEALTH_ZEROTH_GP, 1 / 14); // ≈ 2.378/level
+
+// Round to ~3 significant figures (readable + monotone; the curve is a GM-overridable estimate).
+function _roundWealthGp(gp){
+  if(!(gp > 0)) return 0;
+  const mag = Math.pow(10, Math.floor(Math.log10(gp)) - 2);
+  return Math.round(gp / mag) * mag;
+}
+function npcWealthGp(level){
+  const L = Math.floor(Number(level));
+  if(!Number.isFinite(L)) return 0;
+  return _roundWealthGp(NPC_WEALTH_ZEROTH_GP * Math.pow(NPC_WEALTH_RATIO, Math.max(0, L)));
+}
+
+// REALIZED — one NPC's total gp-equivalent wealth: the multi-denomination coin purse (the canonical
+// store) + the gp value of every personal/cache stash they own. Carry inventory is gear-by-weight
+// (no value column, v0.16.0), so purse + owned stashes is the full wealth picture. A domain treasury
+// is the realm's, not the ruler's personal wealth, so stashesOwnedByCharacter (ownerCharacterId) is
+// the right scope — it excludes treasuries.
+function realizedCharacterWealthGp(campaign, character){
+  if(!character) return 0;
+  let gp = (typeof ACKS.characterCoinValueGp === 'function') ? ACKS.characterCoinValueGp(character) : 0;
+  if(typeof ACKS.stashesOwnedByCharacter === 'function' && typeof ACKS.stashTotalGp === 'function'){
+    for(const st of ACKS.stashesOwnedByCharacter(campaign, character.id)){ gp += ACKS.stashTotalGp(st) || 0; }
+  }
+  return gp;
+}
+
+// EXPECTED — the total wealth held by a settlement's leveled-NPC roster: the demographic byLevel
+// counts × the per-level wealth curve, with a per-level breakdown. The wealth analog of the people
+// roster + the magic-item availability.
+function expectedSettlementWealth(campaign, settlement){
+  if(!settlement) return null;
+  const exp = expectedDemographics(settlement);
+  if(!exp) return null;
+  const byLevel = [];
+  let totalGp = 0, totalNpcs = 0;
+  exp.byLevel.forEach(row => {
+    const perNpc = npcWealthGp(row.level);
+    const count = row.all || 0;
+    const gp = count * perNpc;
+    totalGp += gp; totalNpcs += count;
+    byLevel.push({ level: row.level, expectedNpcs: count, perNpcGp: perNpc, gp });
+  });
+  return { settlementId: settlement.id || null, marketClass: exp.marketClass, families: exp.families,
+           byLevel, totalGp, totalNpcs };
+}
+
+// REALIZED — the wealth actually held by the settlement's homed leveled NPCs (purse + owned
+// stashes), bucketed per level, the richest residents named first. Derived by query.
+function realizedSettlementWealth(campaign, settlementId){
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  const byLevel = [];
+  for(let i = 0; i < MAX_NPC_LEVEL; i++) byLevel.push({ level: i + 1, residents: 0, gp: 0, names: [] });
+  let totalGp = 0, residents = 0;
+  for(const c of chars){
+    if(!_isResident(c, settlementId)) continue;
+    const lvl = Math.max(1, Math.min(MAX_NPC_LEVEL, Number(c.level) || 1));
+    const gp = realizedCharacterWealthGp(campaign, c);
+    const row = byLevel[lvl - 1];
+    row.residents += 1; row.gp += gp;
+    row.names.push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, gp });
+    totalGp += gp; residents += 1;
+  }
+  byLevel.forEach(row => row.names.sort((a, b) => b.gp - a.gp)); // richest first
+  return { settlementId, byLevel, totalGp, residents };
+}
+
+// DELTA — expected vs realized wealth per level (the SD-7 reconciliation; the wealth analog of
+// demographicDelta / settlementMagicItemDelta).
+function settlementWealthDelta(campaign, settlement){
+  if(!settlement) return null;
+  const expected = expectedSettlementWealth(campaign, settlement);
+  const realized = realizedSettlementWealth(campaign, settlement.id);
+  const byLevel = [];
+  for(let i = 0; i < MAX_NPC_LEVEL; i++){
+    const e = expected.byLevel[i], r = realized.byLevel[i];
+    byLevel.push({ level: i + 1,
+      expectedNpcs: e.expectedNpcs, perNpcGp: e.perNpcGp, expectedGp: e.gp,
+      realizedResidents: r.residents, realizedGp: r.gp, names: r.names });
+  }
+  return { settlementId: settlement.id, marketClass: expected.marketClass,
+           expected, realized, byLevel, expectedGp: expected.totalGp, realizedGp: realized.totalGp };
+}
+// One-call convenience for the UI (mirrors settlementMagicItemCensus).
+function settlementWealthCensus(campaign, settlement){ return settlement ? settlementWealthDelta(campaign, settlement) : null; }
+// Per-individual read (the wealth a leveled NPC is expected to hold).
+function expectedNpcWealth(level){ return npcWealthGp(level); }
+
 Object.assign(ACKS, {
   // SD-6 — the magic-item census (plan §8A.1; reads acks-engine-magic-item-availability.js)
   expectedSettlementMagicItems, realizedSettlementMagicItems, settlementMagicItemDelta,
   settlementMagicItemCensus, expectedNpcMagicItemValue, expectedNpcMagicItemTiers,
+  // SD-7a — the wealth census (plan §8A.2; the fitted per-level wealth curve, Econometrics §7)
+  npcWealthGp, realizedCharacterWealthGp,
+  expectedSettlementWealth, realizedSettlementWealth, settlementWealthDelta,
+  settlementWealthCensus, expectedNpcWealth,
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
   LEVEL_CLASS_SPLIT, DEMOGRAPHIC_BUCKET_BY_CLASS,
