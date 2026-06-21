@@ -123,7 +123,8 @@
         rowers:   Number(cc.rowers)   || 0,
         marines:  Number(cc.marines)  || 0
       },
-      crewGroupIds: Array.isArray(opts.crewGroupIds) ? opts.crewGroupIds.slice() : [],            // counted crew → campaign.groups[]
+      crewGroupIds: Array.isArray(opts.crewGroupIds) ? opts.crewGroupIds.slice() : [],            // counted crew (sailors/rowers) → campaign.groups[]
+      marineGroupIds: Array.isArray(opts.marineGroupIds) ? opts.marineGroupIds.slice() : [],       // SEAM 2 — carried foot-troop marines (the Military seam, RR p.315) → campaign.groups[]; the V1 crew pattern, distinct from crewGroupIds (ship operation). Additive/defensive-read (old saves lack it → []); no migration.
       officerCharacterIds: Array.isArray(opts.officerCharacterIds) ? opts.officerCharacterIds.slice() : [], // captain/navigator/master mariner → campaign.characters[]
       holdStashId: opts.holdStashId || null,        // cargo → a Stash (stashKind:'vessel-hold')
       warMachines: Array.isArray(opts.warMachines) ? opts.warMachines.slice() : [],               // fitted naval machines [{kind, note}]
@@ -826,6 +827,287 @@
     return                        { status: 'safe',        depthFt: depth, draftFt: draft };
   }
 
+  // ===========================================================================
+  // SEAMS — the deferred cross-subsystem hooks (Phase_3_Voyages_Plan.md §73 deferred
+  // list: "Vessel-Construction-Project materialization → Construction Wave D; marines-
+  // as-Group binding → Military; port-hex repair sites"). All three self-register from
+  // THIS module (the §15.5 convention) — NO acks-engine.js / events.js edit. Seams (1)+(3)
+  // auto-fire via ONE self-registered day-tick consumer ('voyages'); (1) is also exported
+  // (onVesselConstructed) for a direct UI / future Construction-Wave-D events.js call (the
+  // onDungeonConstructed dual-use precedent). IP (CLAUDE §13.6): mechanical, page-cited, no prose.
+  // ===========================================================================
+
+  // ── SEAM 2 — marines-as-Group binding (RR p.315; the V1 crew pattern) ───────
+  // Marines are the vessel's carried FOOT-TROOPS (the Military seam — boarding/landing
+  // fighters, distinct from the sailors/rowers who work the ship). They bind as Groups via
+  // the vessel-side marineGroupIds array, exactly like crewGroupIds binds the counted crew
+  // (Architecture §3.3 — the reverse index is computed, no field on Group). Parallel to
+  // vesselCrewGroups / vesselCrewGroups's resolver.
+  function vesselMarineGroups(campaign, vessel){
+    if(!campaign || !vessel) return [];
+    const groups = (campaign.groups) || [];
+    return (vessel.marineGroupIds || []).map(id => groups.find(g => g && g.id === id)).filter(Boolean);
+  }
+  // The vessel's embarked marine headcount (sum of bound Groups' ACTIVE strength). Distinct
+  // from crewComplement.marines (the manning target/number the GM tracks); this reads the real
+  // bound foot-troops. groupActiveCount = count − casualties (late-bound, with a fallback).
+  function vesselMarineCount(campaign, vessel){
+    const A = global.ACKS || ACKS;
+    const active = (g) => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, ((g && g.count) || 0) - ((g && g.casualties) || 0));
+    return vesselMarineGroups(campaign, vessel).reduce((s, g) => s + active(g), 0);
+  }
+  // Bind an existing foot-troop Group to the vessel as marines (idempotent).
+  function bindMarineGroup(campaign, vessel, groupId){
+    if(!vessel || !groupId) return false;
+    if(!Array.isArray(vessel.marineGroupIds)) vessel.marineGroupIds = [];
+    if(vessel.marineGroupIds.indexOf(groupId) >= 0) return false;
+    vessel.marineGroupIds.push(groupId);
+    return true;
+  }
+  // Unbind a marine Group from the vessel (disembark; the Group survives in campaign.groups).
+  function unbindMarineGroup(campaign, vessel, groupId){
+    if(!vessel || !Array.isArray(vessel.marineGroupIds)) return false;
+    const i = vessel.marineGroupIds.indexOf(groupId);
+    if(i < 0) return false;
+    vessel.marineGroupIds.splice(i, 1);
+    return true;
+  }
+  // Embark marines = create a foot-troop Group (the Military seam) bound to the vessel + placed
+  // at its hex, and bump the crewComplement.marines manning count. Returns the Group (or null if
+  // the Group factory is absent). opts: { count, name, commanderCharacterId, monsterCatalogKey,
+  // creatureTypes, hitDice, troopTypeKey, socialTier }. Init-on-writes campaign.groups (the
+  // createVessel pattern; there is no createGroup setter).
+  function embarkMarines(campaign, vessel, opts){
+    if(!campaign || !vessel) return null;
+    const A = global.ACKS || ACKS;
+    if(typeof A.blankGroup !== 'function') return null;     // Group factory not loaded — caller falls back
+    opts = opts || {};
+    const g = A.blankGroup({
+      name: opts.name || ((vessel.name || vesselClassLabel(vessel.catalogKey) || 'Vessel') + ' marines'),
+      count: Math.max(0, Number(opts.count) || 0),
+      socialTier: opts.socialTier || 'mercenary',
+      lifecycleState: 'active',
+      currentHexId: vessel.currentHexId || null,
+      commanderCharacterId: opts.commanderCharacterId || null,
+      groupTemplate: {
+        monsterCatalogKey: opts.monsterCatalogKey || null,
+        creatureTypes: Array.isArray(opts.creatureTypes) ? opts.creatureTypes.slice() : ['humanoid'],
+        hitDice: opts.hitDice || null,
+        troopTypeKey: opts.troopTypeKey || null
+      }
+    });
+    if(!Array.isArray(campaign.groups)) campaign.groups = [];
+    campaign.groups.push(g);
+    bindMarineGroup(campaign, vessel, g.id);
+    const cc = vessel.crewComplement || (vessel.crewComplement = { sailors:0, rowers:0, marines:0 });
+    cc.marines = (Number(cc.marines) || 0) + (Number(opts.count) || 0);
+    return g;
+  }
+
+  // ── SEAM 1 — Vessel-as-Construction-Project (RR p.177; the onDungeonConstructed precedent) ──
+  // A completed kind:'vessel' Construction Project MINTS a Vessel (a vsl-), the way a kind:'dungeon'
+  // Project mints a dun- (onDungeonConstructed). Reads the shipped Project: constructibleSubtype = the
+  // VESSEL_CATALOG class key (blankProject's own example is 'galley-2-rower'); name / owner / site flow
+  // onto the Vessel. Idempotent — proj.vesselId is BOTH the dedup marker and the Project→Vessel link
+  // (a second call returns the existing Vessel). Exported, so the UI (a "launch completed vessel" action)
+  // or a future Construction-Wave-D events.js hook can call it directly; the 'voyages' day-tick consumer
+  // calls it automatically when a vessel Project reaches lifecycleState:'complete'.
+  function onVesselConstructed(campaign, proj, opts){
+    opts = opts || {};
+    if(!campaign || !proj) return null;
+    if(proj.constructibleKind !== 'vessel') return null;             // not a vessel project
+    if(proj.vesselId){ return findVessel(campaign, proj.vesselId); } // already launched (idempotent)
+    const catalogKey = isVesselClass(proj.constructibleSubtype) ? proj.constructibleSubtype : '';
+    const name = proj.name || vesselClassLabel(catalogKey) || 'New Vessel';
+    const v = createVessel(campaign, {
+      name: name,
+      catalogKey: catalogKey,
+      ownerId: proj.ownerCharacterId || proj.ownerDomainId || null,   // polymorphic — vesselOwner resolves char-or-domain
+      currentHexId: proj.siteHexId || null,
+      constructionState: 'complete',
+      createdAtTurn: (campaign.currentTurn != null) ? campaign.currentTurn : null
+    });
+    proj.vesselId = v.id;                                             // link + idempotency marker
+    (v.history = v.history || []).push({ turn: (campaign.currentTurn) || null, type: 'launched',
+      narrative: 'Launched from construction (project ' + proj.id + ').' });
+    return v;
+  }
+
+  // ── SEAM 3 — Port-repair sites (RR p.322; dock repair restores SHP over time) ──
+  // RR p.322: SHP can't be HEALED but can be REPAIRED — 5 crew × 1 turn per SHP, only ½ of at-sea
+  // damage is repairable at sea (the rest needs a dock). This seam is the DOCK case: a damaged vessel
+  // laid up at a port (a settlement hex) mends back to its class SHP over the day-tick. (At-sea
+  // half-repair is a V3-layer refinement — not here.)
+
+  // The friendly port the vessel can dock-repair at: its current hex bears a settlement (the dock).
+  // Returns { hexId, settlementId, settlementName, friendly } or null. 🔧 v1: friendliness is
+  // permissive — any settlement hex is a usable dock (no hostility model exists; the GM moves the
+  // vessel away to stop repair); `friendly` is best-effort true (a hostile-port gate is a refinement).
+  function vesselPortRepairSite(campaign, vessel){
+    if(!campaign || !vessel || !vessel.currentHexId) return null;
+    const A = global.ACKS || ACKS;
+    const settlement = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, vessel.currentHexId) : null;
+    if(!settlement) return null;
+    return { hexId: vessel.currentHexId, settlementId: settlement.id || null,
+             settlementName: settlement.name || settlement.label || 'port', friendly: true };
+  }
+
+  // SHP restored per day of dock repair (RR p.322 — repair = 5 crew × 1 turn per SHP). 🔧 v1 abstraction:
+  // RAW's per-TURN rate (which would mend most hulls in a single day's frantic labour) is applied per DAY
+  // of laid-up dock work — a conservative downtime rate of floor(repairCrew / 5) SHP/day (min 1), where
+  // repairCrew = the vessel's tracked sailors+rowers (or the catalog full sailors+rowers when manning is
+  // untracked). A shipwright officer aboard doubles it (dock expertise). The GM can run a multi-day tick
+  // to mend faster. (RAW's per-turn rate is reachable later if a finer repair clock is wanted.)
+  function vesselPortRepairPerDay(campaign, vessel){
+    const cls = vesselClass(vessel); if(!cls) return 0;
+    const cc = (vessel && vessel.crewComplement) || {};
+    const ccSet = (Number(cc.sailors) || 0) + (Number(cc.rowers) || 0) > 0;
+    const crew = ccSet ? ((Number(cc.sailors) || 0) + (Number(cc.rowers) || 0)) : (cls.sailors + cls.rowers);
+    let rate = Math.max(1, Math.floor(crew / 5));
+    if(vesselOfficers(campaign, vessel).some(o => _voyOfficerProfRanks(o, /shipwright/i) >= 1)) rate *= 2;
+    return rate;
+  }
+
+  // ── The owner as a related-entity descriptor (for the audit event context envelope) ──
+  function _vesselOwnerRelated(campaign, vessel){
+    const o = vesselOwner(campaign, vessel);
+    if(o && o.kind === 'character') return [{ kind: 'character', id: o.entity.id, role: 'owner' }];
+    if(o && o.kind === 'domain')    return [{ kind: 'domain',    id: o.entity.id, role: 'owner' }];
+    return [];
+  }
+
+  // Record-only audit emit (mirror religion/_recordReligionEvent + sanctums/_recordArcaneEvent): the verb
+  // already applied state; this just writes a well-formed audit entry into the eventLog with the §3.5
+  // context envelope. applyEvent_voyageAudit (registered below) keeps it well-formed on replay.
+  function _recordVoyageEvent(campaign, kind, payload, opts){
+    const A = global.ACKS || ACKS;
+    opts = opts || {};
+    if(!campaign || typeof A.newEvent !== 'function') return null;
+    const cal = (campaign.calendar) || {};
+    let ev;
+    try {
+      ev = A.newEvent(kind, {
+        submittedBy: 'engine', cadence: opts.cadence || 'daily', targetTurn: (campaign.currentTurn) || 1,
+        gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: (campaign.currentDayInMonth) || 1 },
+        payload: Object.assign({ narrative: opts.narrative }, payload || {})
+      });
+    } catch(_e){ return null; }
+    if(typeof A.setEventContext === 'function'){
+      A.setEventContext(ev, { primaryHexId: opts.primaryHexId || null, settlementId: opts.settlementId || null, domainId: opts.domainId || null, relatedEntities: opts.relatedEntities || [] });
+    }
+    if(opts.campaignLogHidden) ev.campaignLogHidden = true;
+    ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+    ev.appliedAtTurn = (campaign.currentTurn) || 1;
+    ev.appliedAtDay = (campaign.currentDayInMonth) || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: opts.narrative || (kind + ' applied') },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString(),
+      ...(opts.campaignLogHidden ? { campaignLogHidden: true } : {}) });
+    return ev;
+  }
+
+  // Record-only audit handler for the 2 voyage event kinds (the verbs above already applied state; this
+  // keeps the event well-formed on replay — the applyEvent_arcaneAudit precedent). Registered below.
+  function applyEvent_voyageAudit(campaign, event){
+    const p = (event && event.payload) || {};
+    return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'voyage event' } };
+  }
+
+  // ── The 'voyages' day-tick consumer (auto-fires SEAM 1 launch + SEAM 3 repair) ──
+  // PURE peek (propose) → commit, the levy-muster / construction precedent. Launch records carry
+  // vesselProjectId (NOT projectId — so _mergeDayRecords passes them through, never merging them into
+  // a construction summary); repair records carry vesselId + the day's SHP delta. Routine (no
+  // pauseTriggers — launching/mending never halts the clock; the GM may still reject a record in the
+  // review). order 53 (after construction's 50); name-keyed (DAY_CONSUMERS is keyed by name, so this
+  // never collides with another lane's slot regardless of order). 🔧 Completion is detected by
+  // lifecycleState:'complete' (set by BOTH commitConstructionRecord AND applyEvent_constructionCompleted),
+  // so a vessel Project finished by either path launches; a same-day completion launches on the NEXT
+  // day-tick (the work-clone commits construction's completion only after that day's full pass — a
+  // 1-day lag, absorbed within a multi-day Advance-Month).
+  function proposeVoyagesDay(campaign, ctx){
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    if(!campaign) return out;
+    // SEAM 1 — launch completed-but-unmaterialized vessel Projects.
+    for(const proj of (campaign.projects || [])){
+      if(!proj || proj.constructibleKind !== 'vessel') continue;
+      if(proj.lifecycleState !== 'complete') continue;
+      if(proj.vesselId) continue;                                   // already launched (idempotent)
+      const label = proj.name || vesselClassLabel(proj.constructibleSubtype) || 'A new vessel';
+      out.pendingRecords.push({ kind: 'vessel-launch', vesselProjectId: proj.id });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'vessel-launch', transient: true,
+        primaryHexId: proj.siteHexId || null,
+        label: '🚢 ' + label + ' is launched (construction complete).', payload: { projectId: proj.id } });
+    }
+    // SEAM 3 — dock-repair damaged vessels laid up at a port.
+    for(const v of _vessels(campaign)){
+      if(!v || v.grounded) continue;                                // a grounded/wrecked hull can't dock-repair until refloated
+      const cls = vesselClass(v);
+      if(!cls || cls.shp <= 0) continue;
+      const cur = (v.shp != null) ? v.shp : cls.shp;
+      if(cur >= cls.shp) continue;                                  // fully sound
+      const site = vesselPortRepairSite(campaign, v);
+      if(!site) continue;                                           // not at a port
+      const amount = Math.min(vesselPortRepairPerDay(campaign, v), cls.shp - cur);
+      if(amount <= 0) continue;
+      out.pendingRecords.push({ kind: 'vessel-repair', vesselId: v.id, repairAmount: amount });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'vessel-repair', transient: true,
+        primaryHexId: v.currentHexId || null,
+        label: '🔧 ' + (v.name || vesselClassLabel(v.catalogKey) || 'A vessel') + ' repairs +' + amount + ' SHP at ' + site.settlementName + ' (' + (cur + amount) + '/' + cls.shp + ').',
+        payload: { vesselId: v.id } });
+    }
+    return out;
+  }
+  function commitVoyagesRecord(campaign, record){
+    if(!campaign || !record) return;
+    if(record.kind === 'vessel-launch'){
+      const proj = (campaign.projects || []).find(p => p && p.id === record.vesselProjectId);
+      if(!proj || proj.vesselId) return;                           // gone or already launched
+      const v = onVesselConstructed(campaign, proj);
+      if(v) _recordVoyageEvent(campaign, 'vessel-launched',
+        { vesselId: v.id, projectId: proj.id, catalogKey: v.catalogKey },
+        { narrative: '🚢 ' + (v.name || vesselClassLabel(v.catalogKey) || 'A vessel') + ' launched (construction complete, ' + ((v.shp) || 0) + ' SHP).',
+          primaryHexId: v.currentHexId || null,
+          relatedEntities: [{ kind: 'vessel', id: v.id, role: 'subject' }].concat(_vesselOwnerRelated(campaign, v)) });
+      return;
+    }
+    if(record.kind === 'vessel-repair'){
+      const v = findVessel(campaign, record.vesselId);
+      const cls = vesselClass(v);
+      if(!v || !cls) return;
+      const cur = (v.shp != null) ? v.shp : cls.shp;
+      const amount = Math.min(Math.max(0, Number(record.repairAmount) || 0), cls.shp - cur);   // re-cap defensively
+      if(amount <= 0) return;
+      v.shp = cur + amount;
+      const full = (v.shp >= cls.shp);
+      if(full && v.condition === 'damaged') v.condition = 'seaworthy';   // fully mended
+      (v.history = v.history || []).push({ turn: (campaign.currentTurn) || null, type: 'repaired',
+        narrative: 'Repaired +' + amount + ' SHP at port (' + v.shp + '/' + cls.shp + ').' });
+      _recordVoyageEvent(campaign, 'vessel-repaired',
+        { vesselId: v.id, shpRestored: amount, shp: v.shp },
+        { narrative: '🔧 ' + (v.name || vesselClassLabel(v.catalogKey) || 'A vessel') + ' repaired +' + amount + ' SHP (' + v.shp + '/' + cls.shp + ')' + (full ? ' — fully mended.' : '.'),
+          primaryHexId: v.currentHexId || null,
+          campaignLogHidden: !full,                                 // routine in-progress repair stays out of the Campaign Log; the full-mend lands
+          relatedEntities: [{ kind: 'vessel', id: v.id, role: 'subject' }] });
+      return;
+    }
+  }
+
+  // Self-register the 2 record-only audit event kinds (PR #89 kernel — from THIS module, no events.js edit).
+  (function _registerVoyageEventKinds(){
+    const A = global.ACKS || ACKS;
+    if(typeof A.registerEventKind !== 'function') return;
+    A.registerEventKind('vessel-launched', {
+      schema: { R: { vesselId: 'string' }, O: { projectId: 'string', catalogKey: 'string', narrative: 'string' } },
+      wizardOptOut: true, handler: applyEvent_voyageAudit });
+    A.registerEventKind('vessel-repaired', {
+      schema: { R: { vesselId: 'string' }, O: { shpRestored: 'number', shp: 'number', narrative: 'string' } },
+      wizardOptOut: true, handler: applyEvent_voyageAudit });
+  })();
+  // Self-register the 'voyages' day-tick consumer.
+  if(global.ACKS && typeof global.ACKS.registerDayConsumer === 'function'){
+    global.ACKS.registerDayConsumer('voyages', { handler: proposeVoyagesDay, order: 53, pauseTriggers: [], commit: commitVoyagesRecord });
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     VESSEL_CATALOG,
@@ -845,7 +1127,16 @@
     // V3c — ship stores + deprivation + scurvy + fishing (the crew-provisioning ladder)
     SHIP_SCURVY_ONSET_DAYS, shipStoresTracked, shipDeprivationLevel, voyageHexIsFreshFood, computeShipProvisionDay, fishActivity,
     // V5 — river voyages (current + depth-vs-draft)
-    RIVER_CURRENT_SPEED, riverCurrentModifierMi, riverDepthClearance
+    RIVER_CURRENT_SPEED, riverCurrentModifierMi, riverDepthClearance,
+    // SEAMS — the deferred cross-subsystem hooks
+    // (2) marines-as-Group binding
+    vesselMarineGroups, vesselMarineCount, bindMarineGroup, unbindMarineGroup, embarkMarines,
+    // (1) Vessel-as-Construction-Project (also auto-fired by the 'voyages' day-tick consumer)
+    onVesselConstructed,
+    // (3) port-repair sites
+    vesselPortRepairSite, vesselPortRepairPerDay,
+    // the day-tick consumer + audit emit (registered above at load)
+    proposeVoyagesDay, commitVoyagesRecord
   });
 
 })(typeof window !== 'undefined' ? window : global);
