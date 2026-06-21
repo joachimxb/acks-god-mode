@@ -10162,6 +10162,20 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let levy replenishment fail the monthly commit */ }
   }
 
+  // === CONSTRUCTION VAGARIES + CRUDE-WEATHER (Phase 4 Construction, Wave I) ===
+  // Each monthly turn, in-progress projects may hit a vagary (delay + cost overrun) and crude field works
+  // weather one band worse — both house-rule-gated (construction-vagaries / crude-construction-weather, both
+  // default OFF). Late-bound (acks-engine-construction.js loads after this file) + try-guarded (the arcane /
+  // syndicate / aging precedent), so a construction setback can never fail the core monthly commit.
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processConstructionVagariesForTurn === 'function'){
+        const cv = global.ACKS.processConstructionVagariesForTurn(campaign, { rng }) || {};
+        (cv.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let construction vagaries fail the monthly commit */ }
+  }
+
   // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
   // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
   // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior
@@ -11089,13 +11103,25 @@ function commitConstructionRecord(campaign, record){
       turn: campaign.currentTurn || null, type: 'completed',
       narrative: 'Project completed after ' + p.daysElapsed + ' days of work.'
     });
-    // === @b13-construction (team) — Wave D: materialize the completed Constructible on the Day
-    // Clock. The shipped day-tick LOGS construction-completed but never applyEvent()s it (see
-    // emitDayTickEvents), so the generic events.js mint never fires here. The Wave-D materializer
-    // mints the war-machine Constructible (the onVesselConstructed analog; no new day-tick slot).
-    // It no-ops for every other kind — vessels are minted by the voyages day-tick consumer off
-    // lifecycleState:'complete'; dungeons/strongholds keep their applyEvent_constructionCompleted path.
-    try { if(global.ACKS && typeof global.ACKS.materializeWaveDConstructible === 'function') global.ACKS.materializeWaveDConstructible(campaign, p); } catch(_e){}
+    // ── Materialize the completed Constructible on the Day Clock (Wave E fix, 2026-06-21) ──
+    // The shipped day-tick LOGS construction-completed but never applyEvent()s it (emitDayTickEvents
+    // only emits the narrative log line), so before this fix a project completing on the Day Clock
+    // produced NO Constructible for any kind except vessel + war-machine — strongholds (Wave C),
+    // settlement buildings (Wave E), sanctums (AD-B), and the rest all completed empty. The two
+    // special materializers stay: a WAR MACHINE mints via materializeWaveDConstructible (the Wave-D
+    // analog) and a VESSEL via the voyages day-tick consumer (off lifecycleState:'complete'). EVERY
+    // OTHER kind now runs the full construction-completed handler here — spawning the Constructible +
+    // growing the stronghold (Wave C) + firing the sanctum (AD-B) / dungeon (AD-C) hooks — the same
+    // path the event-apply already runs. Idempotent: the project is 'complete' now, so it yields no
+    // further day-tick record (proposeConstructionDay skips non-under-construction projects).
+    try {
+      const A = global.ACKS;
+      if(p.constructibleKind === 'war-machine'){
+        if(A && typeof A.materializeWaveDConstructible === 'function') A.materializeWaveDConstructible(campaign, p);
+      } else if(p.constructibleKind !== 'vessel' && A && typeof A.applyEvent === 'function' && typeof A.newEvent === 'function'){
+        A.applyEvent(campaign, A.newEvent('construction-completed', { payload: { projectId: p.id }, submittedBy: 'engine', status: 'applied', targetTurn: campaign.currentTurn || 1 }));
+      }
+    } catch(_e){}
   }
 }
 
