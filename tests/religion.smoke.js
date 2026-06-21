@@ -1161,11 +1161,162 @@ section('R3/R5 GUARD — the new fields are defensive (demo stays a migrate-no-o
 })();
 
 // =============================================================================
+section('R6(a) — apotheosis: the incarnation creature-type + ascendToIncarnation (RR p.398)');
+// =============================================================================
+ok('isIncarnation / ascendToIncarnation / incarnationDailyUpkeepGp / convertDivinePowerToVitality exported',
+  ['isIncarnation','ascendToIncarnation','incarnationDailyUpkeepGp','incarnationUpkeepState','convertDivinePowerToVitality',
+   'dungeonCoExtractionDivinePowerPerDay','congregationUsurpedDungeonWeeklyGp','setCongregationUsurpedDungeon']
+    .every(fn => typeof ACKS[fn] === 'function'));
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Ascend' }); c.currentTurn = 3;
+  const ch = ACKS.blankCharacter({ id: 'chr-a', name: 'Hero', level: 6, xp: 240000 }); c.characters.push(ch);
+  ok('isIncarnation false before ascension', !ACKS.isIncarnation(ch));
+  // Failure — a natural 1 always fails the Death save → obliterated.
+  const cF = ACKS.blankCampaign({ name: 'Fail' });
+  const f = ACKS.blankCharacter({ id: 'chr-f', name: 'Doomed', level: 6 }); cF.characters.push(f);
+  const rf = ACKS.ascendToIncarnation(cF, { characterId: 'chr-f', deathSaveRoll: 1 });
+  ok('natural-1 Death save → obliterated', rf.ok && rf.outcome === 'obliterated');
+  ok('obliterated → not alive', f.alive === false);
+  ok('obliterated → NOT an incarnation', !ACKS.isIncarnation(f));
+  ok('obliterated emits an `apotheosis` (outcome obliterated) event',
+    (cF.eventLog || []).some(e => e.event && e.event.kind === 'apotheosis' && e.event.payload.outcome === 'obliterated'));
+  // Success — roll 20 vs the default Death save target 15.
+  const r = ACKS.ascendToIncarnation(c, { characterId: 'chr-a', deathSaveRoll: 20 });
+  ok('success → ascended', r.ok && r.outcome === 'ascended');
+  ok('creatureTypes now carries incarnation (Architecture §2)', ch.creatureTypes.indexOf('incarnation') >= 0);
+  ok('isIncarnation true after ascension', ACKS.isIncarnation(ch));
+  ok('apotheosis upkeep state stamped (hdLost 0, ascendedAtTurn 3)', ch.apotheosis && ch.apotheosis.hdLost === 0 && ch.apotheosis.ascendedAtTurn === 3);
+  ok('permanent wounds healed (RR p.398)', ch.permanentWoundPenalty === 0);
+  ok('ascended emits an `apotheosis` (outcome ascended) event',
+    (c.eventLog || []).some(e => e.event && e.event.kind === 'apotheosis' && e.event.payload.outcome === 'ascended'));
+  ok('upkeep = ceil(6% of 240000 XP) = 14400', ACKS.incarnationDailyUpkeepGp(ch) === 14400);
+  // Guards.
+  ok('already-incarnation guard', ACKS.ascendToIncarnation(c, { characterId: 'chr-a', deathSaveRoll: 20 }).reason === 'already-incarnation');
+  ok('no-character guard', ACKS.ascendToIncarnation(c, { characterId: 'chr-none' }).reason === 'no-character');
+  ok('not-alive guard', ACKS.ascendToIncarnation(cF, { characterId: 'chr-f' }).reason === 'not-alive');
+})();
+
+// =============================================================================
+section('R6(a) — the apotheosis upkeep consumer (the slot-52 religion day-tick)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Upkeep' }); c.currentTurn = 5;
+  const inc = ACKS.blankCharacter({ id: 'chr-inc', name: 'Ascendant', level: 2, xp: 100000 }); c.characters.push(inc);
+  ACKS.ascendToIncarnation(c, { characterId: 'chr-inc', deathSaveRoll: 20 });
+  ok('upkeep = ceil(6% of 100000) = 6000', ACKS.incarnationDailyUpkeepGp(inc) === 6000);
+  ok('baseHd = level 2, hdLost 0, effectiveHd 2', (function(){ const s = ACKS.incarnationUpkeepState(inc); return s.baseHd === 2 && s.hdLost === 0 && s.effectiveHd === 2; })());
+  // Day 1 — DP available → sustained, DP spent.
+  ACKS.grantDivinePower(c, 'chr-inc', 6000);
+  let out = ACKS.proposeReligionDay(c, { dayInMonth: 1 });
+  let rec = out.pendingRecords.find(p => p.kind === 'incarnation-upkeep');
+  ok('day 1 proposes a sustained upkeep record (6000gp)', !!rec && rec.projection === 'sustained' && rec.upkeepGp === 6000);
+  ACKS.commitReligionWeek(c, rec);
+  ok('day 1 sustained → DP spent (0), hdLost still 0', ACKS.divinePowerAvailable(c, 'chr-inc') === 0 && inc.apotheosis.hdLost === 0);
+  // Day 2 — no DP → −1 HD.
+  out = ACKS.proposeReligionDay(c, { dayInMonth: 2 });
+  rec = out.pendingRecords.find(p => p.kind === 'incarnation-upkeep');
+  ok('day 2 projection hd-loss', rec && rec.projection === 'hd-loss');
+  ACKS.commitReligionWeek(c, rec);
+  ok('day 2 → hdLost 1', inc.apotheosis.hdLost === 1);
+  // Idempotency — re-committing the same day's record is a no-op (the dayOrd high-water).
+  ACKS.commitReligionWeek(c, rec);
+  ok('re-commit same day → no double loss (hdLost still 1)', inc.apotheosis.hdLost === 1);
+  // Day 3 — still no DP → torpor (effectiveHd 1 → 0).
+  out = ACKS.proposeReligionDay(c, { dayInMonth: 3 });
+  rec = out.pendingRecords.find(p => p.kind === 'incarnation-upkeep');
+  ok('day 3 projection torpor', rec && rec.projection === 'torpor');
+  ACKS.commitReligionWeek(c, rec);
+  ok('day 3 → torpid (hdLost 2 = baseHd)', inc.apotheosis.torpid === true && inc.apotheosis.hdLost === 2);
+  ok('a torpor `apotheosis` event was recorded',
+    (c.eventLog || []).some(e => e.event && e.event.kind === 'apotheosis' && e.event.payload.outcome === 'torpor'));
+  // Day 4 — grant 2× upkeep → recover (catch up 1 HD + awaken).
+  ACKS.grantDivinePower(c, 'chr-inc', 12000);
+  out = ACKS.proposeReligionDay(c, { dayInMonth: 4 });
+  rec = out.pendingRecords.find(p => p.kind === 'incarnation-upkeep');
+  ok('day 4 projection recover', rec && rec.projection === 'recover');
+  ACKS.commitReligionWeek(c, rec);
+  ok('day 4 → awakened, hdLost 1, DP spent (0)', inc.apotheosis.torpid === false && inc.apotheosis.hdLost === 1 && ACKS.divinePowerAvailable(c, 'chr-inc') === 0);
+  ok('an awakened `apotheosis` event was recorded',
+    (c.eventLog || []).some(e => e.event && e.event.kind === 'apotheosis' && e.event.payload.outcome === 'awakened'));
+  // A non-incarnation is ignored by the consumer.
+  const norm = ACKS.blankCharacter({ id: 'chr-norm', xp: 50000 }); c.characters.push(norm);
+  out = ACKS.proposeReligionDay(c, { dayInMonth: 6 });
+  ok('a normal character proposes no upkeep record', !out.pendingRecords.some(p => p.kind === 'incarnation-upkeep' && p.characterId === 'chr-norm'));
+})();
+
+// =============================================================================
+section('R6(a) — convert divine power to vitality (1 XP / gp, RR p.398)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Vitality' }); c.currentTurn = 4;
+  const ch = ACKS.blankCharacter({ id: 'chr-v', name: 'God', level: 9, xp: 1000000 }); c.characters.push(ch);
+  ACKS.ascendToIncarnation(c, { characterId: 'chr-v', deathSaveRoll: 20 });
+  ACKS.grantDivinePower(c, 'chr-v', 5000);
+  const xp0 = ch.xp;
+  const r = ACKS.convertDivinePowerToVitality(c, 'chr-v', 5000);
+  ok('5000gp DP → +5000 campaign XP (1:1, no threshold)', r.ok && r.xpGained === 5000 && ch.xp === xp0 + 5000);
+  ok('DP fully spent (0 left)', ACKS.divinePowerAvailable(c, 'chr-v') === 0);
+  ok('insufficient DP → refused', ACKS.convertDivinePowerToVitality(c, 'chr-v', 1000).reason === 'insufficient-divine-power');
+  const n = ACKS.blankCharacter({ id: 'chr-n2' }); c.characters.push(n); ACKS.grantDivinePower(c, 'chr-n2', 500);
+  ok('a non-incarnation cannot convert', ACKS.convertDivinePowerToVitality(c, 'chr-n2', 100).reason === 'not-incarnation');
+  ok('no-character guard', ACKS.convertDivinePowerToVitality(c, 'chr-none', 100).reason === 'no-character');
+})();
+
+// =============================================================================
+section('R6(b) — dungeon co-extraction (RR p.388, the 80/10/10 split)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'CoExtract' }); c.currentTurn = 5;
+  // A subjugated dungeon worth 4,290 XP → arcane 85/day (the Sanctums RAW worked example) → divine
+  // co-extraction floor(85 × 10/80) = 10/day → 70/week. (subjugatedXp via monsterXpValue on a leader.)
+  const lord = ACKS.blankCharacter({ id: 'chr-lord', name: 'Beast-King' }); lord.monsterXpValue = 4290; c.characters.push(lord);
+  const dn = ACKS.blankDungeon({ name: 'The Pit' });
+  dn.sovereignCharacterId = 'chr-mage'; dn.subjugatedLeaderCharacterIds = ['chr-lord']; dn.areaCount = 1;
+  c.dungeons = [dn];
+  ok('Sanctums dungeonSubjugatedXp = 4290 (read-only)', ACKS.dungeonSubjugatedXp(c, dn) === 4290);
+  ok('Sanctums dungeonArcanePowerPerDay = 85 (the 80% share)', ACKS.dungeonArcanePowerPerDay(c, dn) === 85);
+  ok('divine co-extraction/day = floor(85 × 10/80) = 10', ACKS.dungeonCoExtractionDivinePowerPerDay(c, dn) === 10);
+
+  const priest = ACKS.blankCharacter({ id: 'chr-chap', name: 'Balbus', class: 'Crusader', level: 9 }); c.characters.push(priest);
+  c.deities = [ACKS.blankDeity({ id: 'dei-1', name: 'the Lawgiver', alignment: 'Lawful' })];
+  const cong = ACKS.foundCongregation(c, { name: 'The Pit Cult', deityId: 'dei-1', highPriestCharacterId: 'chr-chap', usurpedDungeonId: dn.id });
+  ok('foundCongregation stores the (defensive) usurpedDungeonId', cong.usurpedDungeonId === dn.id);
+  ok('weekly co-extraction = 10/day × 7 = 70', ACKS.congregationUsurpedDungeonWeeklyGp(c, cong) === 70);
+  ok('it stacks into the congregation weekly total', ACKS.congregationWeeklyDivinePowerGp(c, cong) === 70);
+  // Gates.
+  dn.sovereignCharacterId = null;
+  ok('no arcane sovereign → 0', ACKS.congregationUsurpedDungeonWeeklyGp(c, cong) === 0);
+  dn.sovereignCharacterId = 'chr-mage';
+  cong.usurpedDungeonId = null;
+  ok('no usurpedDungeonId link → 0', ACKS.congregationUsurpedDungeonWeeklyGp(c, cong) === 0);
+  // The setter links / unlinks.
+  ok('setCongregationUsurpedDungeon links', ACKS.setCongregationUsurpedDungeon(c, cong.id, dn.id).ok && cong.usurpedDungeonId === dn.id);
+  ok('after link → 70 again', ACKS.congregationUsurpedDungeonWeeklyGp(c, cong) === 70);
+  ACKS.setCongregationUsurpedDungeon(c, cong.id, null);
+  ok('setter unlinks', !cong.usurpedDungeonId);
+  // A culled / un-subjugated dungeon yields 0 (live-derived).
+  cong.usurpedDungeonId = dn.id; dn.subjugatedLeaderCharacterIds = [];
+  ok('0 subjugated XP → 0 co-extraction', ACKS.congregationUsurpedDungeonWeeklyGp(c, cong) === 0);
+})();
+
+// =============================================================================
+section('R6 — apotheosis event registration + the R6 migrate-no-op guard');
+// =============================================================================
+(function(){
+  ok('apotheosis is a registered event kind (self-registered from religion.js)', ACKS.registeredEventKinds().indexOf('apotheosis') >= 0);
+  ok('apotheosis is wizard-opt-out (auto/internal — not a GM Event-Wizard kind)', ACKS.isWizardEmittable('apotheosis') === false);
+  ok('blankCharacter has NO apotheosis field (defensive — R6 migrate-no-op)', !('apotheosis' in ACKS.blankCharacter()));
+  ok('blankCongregation has NO usurpedDungeonId field (defensive)', !('usurpedDungeonId' in ACKS.blankCongregation()));
+  const migratedDemo = ACKS.migrateCampaign(clone(DEMO));
+  ok('migrate(demo) STILL a TRUE no-op after R6', JSON.stringify(migratedDemo) === JSON.stringify(clone(DEMO)));
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Religion R0 + R1 + R1.5 + R2 + R3 + R5 + Wave E smoke checks passed.');
+  console.log('\nAll Religion R0 + R1 + R1.5 + R2 + R3 + R5 + Wave E + R6 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

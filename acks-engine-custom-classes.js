@@ -18,18 +18,23 @@
  * intrinsic-derivation pattern; the economy-lift precedent). The catalog+instance shape
  * is the fourth/fifth application after Vessel / Monster / Troop.
  *
- * SCOPE (W1 — DATA LAYER + DERIVATION + SEED CORES + INSPECTOR-ONLY). Build view:
- * Phase_6_Custom_Classes_Plan.md §5 (W1 row). RAW: Custom_Classes_RAW_Survey.md.
- *   IN  : the two entities + factories; the point-buy derivation engine
+ * SCOPE (W1 DATA LAYER + W2 TRADE-OFF / DRAWBACK / COSTING MACHINERY). Build view:
+ * Phase_6_Custom_Classes_Plan.md §5 (W1+W2). RAW: Custom_Classes_RAW_Survey.md.
+ *   IN (W1): the two entities + factories; the point-buy derivation engine
  *         (deriveClassFromTemplate → save/HD/attack/XP/coreClassMapping/…); the five
- *         core category XP tables; the 19 RAW seed class builds + 5 race seeds (the
+ *         core category XP tables; the RAW seed class builds + 5 race seeds (the
  *         validation oracle AND the out-of-the-box content, available as constants +
  *         an opt-in seedCustomContent() installer); lookups; the compendium gate.
- *   OUT : the trade-off→power machinery (W2), the full racial-value tables +
- *         deriveRaceCost + build-points→level-cap derivation (W3), the Class/Race
- *         Builder UI (W4), character-creation + reader wiring (W5), the HFH/BTA
- *         category packs + the full power compendium (W6). Character-creation +
- *         NPC-Generator CONSUMPTION are later — this lane SATISFIES the seam (§ below).
+ *   IN (W2): the Fighting/Thievery/Divine trade-off → custom-power engine
+ *         (fightingTradeOffBreakdown + the +250 weapon-penalty XP, JJ p.292); the 11
+ *         Custom Drawbacks (JJ p.329) + the power BUDGET/SPEND/BALANCE machinery with
+ *         level-locking (JJ p.328); Barbarian + Shaman → the full RAW 21 oracle;
+ *         the racial build-point → level-cap derivation + the race-value costing
+ *         function (JJ pp.301/333); the Custom-Power-Creation cost guidelines; the
+ *         expanded (still default-OFF) power compendium; the in-app Class Builder.
+ *   OUT : the full racial-value tables + per-rung deriveRaceCost data (W3); character-
+ *         creation + reader wiring (W5); the HFH/BTA category packs + the full ~250-power
+ *         compendium (W6). NPC-Generator CONSUMPTION is the seam this lane SATISFIES (§ below).
  *   ⚠ NOT touched: migrateCampaign / blankCampaign (init-on-write; defensive reads),
  *     so the 6 templates + demo stay migrate-no-ops (the team-session enabler). The
  *     lazy migrateCharacterClassTemplate (legacy core-class string → seed key, plan §7)
@@ -100,16 +105,24 @@
   ]);
 
   // Fighting value 0 / 1a / 1b / 2 / 3 / 4 → {attackProgression, weaponSelection,
-  // armorProf, fightingStyleCount, xpCost}. JJ pp.290–292. The 1a/1b split at value 1
-  // (1a Crusader-style: narrow weapons + heavy armor; 1b Thief-style: broad + light).
-  // XP: 0 / 500 / 500 / 1000 / 1500 / 2000. Attack: +2 per 6/4/4/3/2 levels then +3/2.
+  // armorProf, fightingStyleCount (optional styles, beyond the 2 mandatory), hasDamageBonus,
+  // xpCost}. JJ p.290 (the Fighting Value table). The 1a/1b split at value 1 (1a Crusader-
+  // style: narrow weapons + heavy armor; 1b Thief-style: broad + light). XP: 0/500/500/1000/
+  // 1500/2000. Attack: +2 per 6/4/4/3/2 levels then +3/2. The weapon/armor/style/damage columns
+  // are the DEFAULTS a trade-off reduces from (the W2 trade-off engine reads them — JJ p.292).
+  // ⚠ W2 RAW-CORRECTNESS FIX (vs the W1 cut): F2 = Unrestricted weapons / Heavy armor / 3 styles
+  // (the W1 cut had Broad / Medium / 2 — wrong vs JJ p.290; the trade-off examples prove it,
+  // e.g. Barbarian/Explorer "reduced to Broad" = Unrestricted→Broad = 1 power, Paladin "to Narrow"
+  // = Unrestricted→Broad→Narrow = 3 powers). fightingStyleCount made the OPTIONAL-style count
+  // (0→1, 1a/1b→2, 2/3/4→3 — JJ p.290 column). Only generators reads armorProf (→ AC); its smoke
+  // checks ac≥0, so a Fighter NPC simply gains the correct Heavy-armour AC (a fix, not a regression).
   const FIGHTING_VALUE_TABLE = Object.freeze({
-    '0':  Object.freeze({ value: 0,  attackProgression: '+2/6 levels', weaponSelection: 'Restricted', armorProf: 'None',      fightingStyleCount: 0, xpCost: 0 }),
-    '1a': Object.freeze({ value: '1a', attackProgression: '+2/4 levels', weaponSelection: 'Narrow',     armorProf: 'Heavy',     fightingStyleCount: 1, xpCost: 500 }),
-    '1b': Object.freeze({ value: '1b', attackProgression: '+2/4 levels', weaponSelection: 'Broad',      armorProf: 'Light',     fightingStyleCount: 1, xpCost: 500 }),
-    '2':  Object.freeze({ value: 2,  attackProgression: '+2/3 levels', weaponSelection: 'Broad',      armorProf: 'Medium',    fightingStyleCount: 2, xpCost: 1000 }),
-    '3':  Object.freeze({ value: 3,  attackProgression: '+2/2 levels', weaponSelection: 'Unrestricted', armorProf: 'Heavy',   fightingStyleCount: 2, xpCost: 1500 }),
-    '4':  Object.freeze({ value: 4,  attackProgression: '+3/2 levels', weaponSelection: 'Unrestricted', armorProf: 'Heavy',   fightingStyleCount: 3, xpCost: 2000 })
+    '0':  Object.freeze({ value: 0,  attackProgression: '+2/6 levels', weaponSelection: 'Restricted',   armorProf: 'None',  fightingStyleCount: 1, hasDamageBonus: false, xpCost: 0 }),
+    '1a': Object.freeze({ value: '1a', attackProgression: '+2/4 levels', weaponSelection: 'Narrow',       armorProf: 'Heavy', fightingStyleCount: 2, hasDamageBonus: false, xpCost: 500 }),
+    '1b': Object.freeze({ value: '1b', attackProgression: '+2/4 levels', weaponSelection: 'Broad',        armorProf: 'Light', fightingStyleCount: 2, hasDamageBonus: false, xpCost: 500 }),
+    '2':  Object.freeze({ value: 2,  attackProgression: '+2/3 levels', weaponSelection: 'Unrestricted',  armorProf: 'Heavy', fightingStyleCount: 3, hasDamageBonus: true,  xpCost: 1000 }),
+    '3':  Object.freeze({ value: 3,  attackProgression: '+2/2 levels', weaponSelection: 'Unrestricted',  armorProf: 'Heavy', fightingStyleCount: 3, hasDamageBonus: true,  xpCost: 1500 }),
+    '4':  Object.freeze({ value: 4,  attackProgression: '+3/2 levels', weaponSelection: 'Unrestricted',  armorProf: 'Heavy', fightingStyleCount: 3, hasDamageBonus: true,  xpCost: 2000 })
   });
 
   // Thievery value 0–4 → {thiefSkillCount, xpCost}. JJ p.292. (Backstab counts as 2.)
@@ -257,12 +270,12 @@
   const CUSTOM_RACE_SEEDS_BY_KEY = {};
   for(const r of CUSTOM_RACE_SEEDS){ CUSTOM_RACE_SEEDS_BY_KEY[r.key] = r; }
 
-  // ── The 19 RAW seed class builds (the Ready-For-Play Class Builds table, JJ p.330) ──
+  // ── The 21 RAW seed class builds (the Ready-For-Play Class Builds table, JJ p.330) ──
   // The validation oracle AND the out-of-the-box content AND the legacy-string resolver
   // (the resolver is the deferred migrateCampaign piece — survey §7). Each carries its
-  // build-point allocation + choices; deriveClassFromTemplate reproduces the RAW 2nd-level
-  // XP exactly (see expectedSecondLevelXp — the smoke locks every one). The full 21 adds
-  // 2 trade-off-heavy classes (Mystic/Shaman) when W2's trade-off machinery lands.
+  // build-point allocation + choices; customClassSecondLevelXp reproduces the RAW 2nd-level
+  // XP exactly (the smoke locks every one). W2 (2026-06-21) added Barbarian + Shaman, the two
+  // trade-off-heavy classes the W1 cut reserved → the complete RAW 21.
   //   bp           — buildPoints map {hd,fighting,thievery,divine,arcane,[raceKey]}
   //   fightingSub  — '1a'|'1b' when fighting === 1
   //   coreClass    — coreClassMapping OVERRIDE (only the two genuine hybrids set it; else
@@ -285,6 +298,14 @@
     { key:'venturer',  displayName:'Venturer',  raceKey:null, bp:{hd:1,fighting:1,thievery:2,divine:0,arcane:0}, fightingSub:'1a', coreClass:'venturer',  wpnTradeoff:0, maxLevel:14, rarity:'uncommon', xp:1500, powers:['Mercantile Network'] },
     { key:'witch',     displayName:'Witch',     raceKey:null, bp:{hd:0,fighting:0,thievery:0,divine:4,arcane:0}, fightingSub:null, coreClass:'crusader',  wpnTradeoff:0, maxLevel:14, rarity:'rare',     xp:2000, powers:[] },
     { key:'warlock',   displayName:'Warlock',   raceKey:null, bp:{hd:0,fighting:0,thievery:0,divine:0,arcane:4}, fightingSub:null, coreClass:null,        wpnTradeoff:0, maxLevel:14, rarity:'rare',     xp:2500, powers:[] },
+    // W2 — the 2 trade-off-heavy classes the W1 oracle reserved (the full 21; JJ p.330 — Barbarian +
+    // Shaman, NOT "Mystic": the Ready-For-Play table is the cartography-first source of record).
+    //   Barbarian: HD2 F2 → base 2,000; armor (Heavy→Medium 1) + 1 style + WEAPON (Unrestricted→Broad 1,
+    //              +250 at F≥2) + damage (one 1) = 4 powers, +250 → 2,250 (the 1 WEAPON power penalised).
+    //   Shaman:    HD1 F1b D2 → base 1,500; weapon (Broad→Narrow 2, NO penalty — F1b < 2) + rebuke (D2 → 2)
+    //              = 4 powers, no XP delta → 1,500. Save = crusader (Divine 2 the highest category).
+    { key:'barbarian', displayName:'Barbarian', raceKey:null, bp:{hd:2,fighting:2,thievery:0,divine:0,arcane:0}, fightingSub:null, coreClass:null,        wpnTradeoff:1, maxLevel:14, rarity:'rare',     xp:2250, powers:[] },
+    { key:'shaman',    displayName:'Shaman',    raceKey:null, bp:{hd:1,fighting:1,thievery:0,divine:2,arcane:0}, fightingSub:'1b', coreClass:null,        wpnTradeoff:0, maxLevel:14, rarity:'uncommon', xp:1500, powers:[] },
     { key:'dwarven-vaultguard', displayName:'Dwarven Vaultguard', raceKey:'dwarf', bp:{hd:2,fighting:2,thievery:0,divine:0,arcane:0,dwarf:0}, fightingSub:null, coreClass:'fighter',  wpnTradeoff:0, maxLevel:13, rarity:'uncommon', xp:2200, powers:[] },
     { key:'dwarven-craftpriest', displayName:'Dwarven Craftpriest', raceKey:'dwarf', bp:{hd:1,fighting:1,thievery:0,divine:2,arcane:0,dwarf:3}, fightingSub:'1a', coreClass:'crusader', wpnTradeoff:0, maxLevel:10, rarity:'uncommon', xp:2400, powers:[] },
     { key:'elven-spellsword',  displayName:'Elven Spellsword',  raceKey:'elf', bp:{hd:1,fighting:2,thievery:0,divine:0,arcane:1,elf:3}, fightingSub:null, coreClass:'fighter', wpnTradeoff:0, maxLevel:10, rarity:'rare', xp:4000, powers:[] },
@@ -306,15 +327,117 @@
   const CUSTOM_POWER_COMPENDIUM = Object.freeze([
     Object.freeze({ name: 'Manual of Arms',     page: 'JJ pp.306–328', summary: 'Trains and commands troops as a fighter of the class level.' }),
     Object.freeze({ name: 'Mercantile Network', page: 'RR p.43',        summary: 'Treats a previously-entered market as one class larger when trading.' }),
-    Object.freeze({ name: 'Berserkergang',      page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Access to Capital',  page: 'JJ pp.306–328', summary: 'Borrow from the merchant guild (3%/mo, 1% with collateral); requires Mercantile Network.' }),
+    Object.freeze({ name: 'Accuracy',           page: 'JJ pp.306–328', summary: '+1 to attack throws with missile weapons.' }),
     Object.freeze({ name: 'Acrobatics',         page: 'JJ pp.306–328' }),
-    Object.freeze({ name: 'Accuracy',           page: 'JJ pp.306–328' }),
-    Object.freeze({ name: 'Alertness',          page: 'JJ pp.306–328' }),
     Object.freeze({ name: 'Acute Sense',        page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Alertness',          page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Ambushing',          page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Animal Reflexes',    page: 'JJ pp.306–328', summary: 'Secondary surprise bonus in lieu of an initiative bonus (explorer).' }),
     Object.freeze({ name: 'Battle Magic',       page: 'JJ pp.306–328' }),
     Object.freeze({ name: 'Beast Friendship',   page: 'JJ pp.306–328' }),
-    Object.freeze({ name: 'Naturalism',         page: 'JJ pp.306–328' })
+    Object.freeze({ name: 'Berserkergang',      page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Combat Reflexes',    page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Connection to Nature', page: 'JJ pp.306–328', summary: '+1 to some/all saving throws plus a secondary benefit (elves).' }),
+    Object.freeze({ name: 'Divine Blessing',    page: 'JJ pp.306–328', summary: '+2 to all saving throws (counts as 1 power).' }),
+    Object.freeze({ name: 'Evasion',            page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Graceful Fighting',  page: 'JJ pp.306–328', summary: 'Initiative + AC bonus; counts as 2 powers (bladedancer).' }),
+    Object.freeze({ name: 'Hardy',              page: 'JJ pp.306–328', summary: '+3 to saving throws; counts as 3 powers (dwarves).' }),
+    Object.freeze({ name: 'Inspire Courage',    page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Inspire Hope',       page: 'JJ pp.306–328', summary: 'Counts as 2 powers (bard).' }),
+    Object.freeze({ name: 'Loremastery',        page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Magical Engineering', page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Meditative Focus',   page: 'JJ pp.306–328', summary: '+1 to attacks, proficiency, saves & initiative while focused (1 turn).' }),
+    Object.freeze({ name: 'Naturalism',         page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Natural Stealth',    page: 'JJ pp.306–328' }),
+    Object.freeze({ name: 'Perceive Intentions', page: 'JJ pp.306–328', summary: 'Always knows a creature’s true reaction result (mystic).' }),
+    Object.freeze({ name: 'Probability Trance', page: 'JJ pp.306–328', summary: 'Cast divination once per day (mystic).' }),
+    Object.freeze({ name: 'Totem Animal',       page: 'JJ pp.306–328', summary: 'A modified Familiar, per the shaman class.' }),
+    Object.freeze({ name: 'Wholeness of Body',  page: 'JJ pp.306–328', summary: 'Immune to mundane poison damage; +2 vs poison saves.' })
   ]);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // W2 (2026-06-21) — the trade-off / drawback / build-balance machinery + race-cost depth.
+  // RAW: JJ pp.291–292 (Fighting/Thievery/Divine Value Trade-Offs + the +250 weapon penalty),
+  // p.328 (the Custom Power [level-lock] Trade-Offs table), pp.306–307 (Custom Power Creation),
+  // p.329 (Custom Drawbacks), pp.299–305 + p.333 (racial classes / level cap / race costing).
+  // All OGC mechanical values, page-cited (HFH p.219 — the build system + tables are Open Game
+  // Content; survey §8). Derive-don't-store: a template stores its trade-off CHOICES + drawbacks
+  // + powers; the engine derives the power budget, the balance, and the weapon-penalty XP.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Armour & weapon selection tiers, least→most capable (a trade-off reduces ONE step down).
+  // JJ p.290 Fighting Value table + p.292 trade-offs: each armour step down = 1 power; weapon
+  // steps are NON-uniform (Unrestricted→Broad 1, Broad→Narrow 2, Narrow→Restricted 1).
+  const ARMOR_TIERS = Object.freeze(['None', 'Very Light', 'Light', 'Medium', 'Heavy']);
+  const WEAPON_TIERS = Object.freeze(['Restricted', 'Narrow', 'Broad', 'Unrestricted']);
+  // Power gained for each single weapon step DOWN, keyed 'From→To' (JJ p.292).
+  const WEAPON_STEP_POWERS = Object.freeze({
+    'Unrestricted→Broad': 1, 'Broad→Narrow': 2, 'Narrow→Restricted': 1
+  });
+  // +250 XP per WEAPON-trade-off power, ONLY at Fighting Value ≥ 2 (JJ p.292). Armour, damage,
+  // and fighting-style trade-offs never raise XP. (WEAPON_TRADEOFF_XP_PER_POWER is defined above.)
+
+  // The 11 Custom Drawbacks (JJ p.329) — negative "powers" a class takes to BUY extra custom
+  // powers (a −1 drawback adds +1 to the power budget). powerWeight is stored NEGATIVE. The
+  // summaries are terse self-authored mechanical facts (NOT transcribed prose — survey §8 / §13.6);
+  // weights are OGC mechanical facts the build needs, so this table is CORE (ungated), unlike the
+  // ~250-power compendium. `xpRule` flags the one drawback with an XP side-effect (Weak + −1 HD).
+  const CUSTOM_DRAWBACKS = Object.freeze([
+    Object.freeze({ name: 'Bound Waist',                powerWeight: -1,   page: 'JJ p.329', summary: '−4 vs gas; cannot force-march; rest 2/6 turns; corset-dependent.' }),
+    Object.freeze({ name: 'Dagger Nails',              powerWeight: -1,   page: 'JJ p.329', summary: 'Natural 1d2–1d6 claw; − to fine-manipulation throws.' }),
+    Object.freeze({ name: 'Dark Soul',                 powerWeight: -1,   page: 'JJ p.329', summary: '−1/level on the Tampering-with-Mortality roll.' }),
+    Object.freeze({ name: 'Dead Soul',                 powerWeight: -1,   page: 'JJ p.329', summary: 'Beyond raising; reanimated only; −1/level on Mortality.' }),
+    Object.freeze({ name: 'Discomfited by Civilization', powerWeight: -1, page: 'JJ p.329', summary: 'Urban reaction penalty = 7 − market value.' }),
+    Object.freeze({ name: 'Easily Encumbered',         powerWeight: -1,   page: 'JJ p.329', summary: 'Normal load 3 st (not 5); lower carry ceiling.' }),
+    Object.freeze({ name: 'Reverse Healing',           powerWeight: -1,   page: 'JJ p.329', summary: 'Healing harms; reverse-healing heals.' }),
+    Object.freeze({ name: 'Short-Statured',            powerWeight: -0.5, page: 'JJ p.329', summary: 'Small size; −30′ speed; weapon limits (−½: smallness can help).' }),
+    Object.freeze({ name: 'Unholy',                    powerWeight: -2,   page: 'JJ p.329', summary: 'Turnable as undead (save vs death +2 to resist).' }),
+    Object.freeze({ name: 'Walk on Spikes',            powerWeight: -1,   page: 'JJ p.329', summary: '½ wilderness speed; save-or-fall when running on rough ground.' }),
+    Object.freeze({ name: 'Weak',                      powerWeight: -1,   page: 'JJ p.329', summary: '−4 to Dungeonbashing throws.', xpRule: 'with a −1 HD racial value, reduce XP by a further 500 (Halfling)' })
+  ]);
+  const CUSTOM_DRAWBACKS_BY_NAME = {};
+  for(const d of CUSTOM_DRAWBACKS){ CUSTOM_DRAWBACKS_BY_NAME[d.name.toLowerCase()] = d; }
+
+  // Custom Power Creation cost guidelines (JJ pp.306–307) — the rules for INVENTING a power,
+  // surfaced as build-validator hints (≈ how many "powers" a designed effect is worth). OGC
+  // mechanical facts. The specialized-skill default throw (11+, +4 per extra power) + the
+  // spell-like-ability usage schedule are the two derivations the Builder can show.
+  const POWER_CREATION_COSTS = Object.freeze([
+    Object.freeze({ effect: 'Armour Class +1 (universal)',         powers: 1,   page: 'JJ p.306' }),
+    Object.freeze({ effect: 'Attack throws +1 (melee or missile)', powers: 1,   page: 'JJ p.306' }),
+    Object.freeze({ effect: 'Damage +1 (all weapons)',             powers: 1,   page: 'JJ p.306' }),
+    Object.freeze({ effect: 'Initiative +1 (universal)',           powers: 1,   page: 'JJ p.307' }),
+    Object.freeze({ effect: 'Saving throws +2 (all)',              powers: 1,   page: 'JJ p.307' }),
+    Object.freeze({ effect: 'Saving throws +3 or better (all)',    powers: 2,   page: 'JJ p.307' }),
+    Object.freeze({ effect: 'Surprise +2 (universal)',             powers: 1,   page: 'JJ p.307' }),
+    Object.freeze({ effect: 'Penalty −2 to opponents’ surprise', powers: 1, page: 'JJ p.307' }),
+    Object.freeze({ effect: 'Specialized skill (non-adventurous)', powers: 1,   page: 'JJ p.307', note: 'default throw 11+, +4 per extra power allocated' })
+  ]);
+  // Spell-like-ability usage by the "level" of power spent (JJ pp.306–307) — the at-will→1/month
+  // schedule. Reference data for the Builder; the spell itself is the Magic-layer seam (#151).
+  const SPELL_LIKE_SCHEDULE = Object.freeze([
+    Object.freeze({ level: 1, usage: 'at will (1-turn cast) / 1 per hour (1-round) / 1 per 8h (spell-like)' }),
+    Object.freeze({ level: 2, usage: '1 per hour (1-turn) / 1 per 8h (1-round) / 1 per day (spell-like)' }),
+    Object.freeze({ level: 3, usage: '1 per 8h (1-turn) / 1 per day (1-round) / 1 per week (spell-like)' }),
+    Object.freeze({ level: 4, usage: '1 per day (1-turn) / 1 per week (1-round) / 1 per month (spell-like)' }),
+    Object.freeze({ level: 5, usage: '1 per week (1-turn) / 1 per month (1-round)' }),
+    Object.freeze({ level: 6, usage: '1 per month (1-turn)' })
+  ]);
+
+  // Level-lock trade-off (JJ p.328): the GENERAL rule is "1 initial power → 2 powers unlocked at
+  // higher levels", so a power unlocked at level > 1 is worth HALF an initial power toward the
+  // build budget. The published table lists specific schedules; the engine models the general ratio.
+  const LEVEL_LOCK_LATER_RATIO = 0.5;
+
+  // Racial classes (JJ pp.299–305): +4 racial build points (≥4, ≤8 total) and TOTAL build points
+  // set the level cap. Humans (no racial value) cap at 14. Survey §4.5; validated vs the demi-human
+  // seeds (Vaultguard 4→13, Craftpriest 7→10, Nightblade 6→11, Spellsword 7→10, Wonderworker 6→11
+  // [+1 from a Nobiran power → 12], Ruinguard 5→12).
+  const RACE_BUILD_POINT_LEVEL_CAP = Object.freeze({ 8: 8, 7: 10, 6: 11, 5: 12, 4: 13 });
+  // Race-value costing constants (JJ pp.333–334, step 5): 40 XP / power; 65 + 5×spell-level for a
+  // spell-like power; − 40 XP per rung (racial classes lose max levels); ± the mimicked class value.
+  const RACE_POWER_XP = 40, RACE_SPELL_LIKE_BASE_XP = 65, RACE_SPELL_LIKE_PER_LEVEL_XP = 5, RACE_LEVEL_LOSS_XP = 40;
 
   // ── Factories ───────────────────────────────────────────────────────────────
   // ClassTemplate (catalog tier) — stores the BUILD (inputs); the stat block DERIVES
@@ -347,13 +470,21 @@
         strongholdType: (opts.choices && opts.choices.strongholdType) || null,
         spellListKey: (opts.choices && opts.choices.spellListKey) || null,    // → the Magic-layer Spells lane (#151)
         coreClassMapping: (opts.choices && opts.choices.coreClassMapping) || null,  // OVERRIDE (only the explorer/venturer hybrids set it)
-        weaponTradeOffPowerCount: Number(opts.choices && opts.choices.weaponTradeOffPowerCount) || 0
+        weaponTradeOffPowerCount: Number(opts.choices && opts.choices.weaponTradeOffPowerCount) || 0,
+        // W2 structured Fighting/Divine/Thievery trade-off CHOICES (the build inputs the engine
+        // derives the power budget + the weapon-penalty XP from — JJ p.292). null = no reduction.
+        armorReducedTo: (opts.choices && opts.choices.armorReducedTo) || null,          // an ARMOR_TIERS value below the Fighting default
+        weaponReducedTo: (opts.choices && opts.choices.weaponReducedTo) || null,        // a WEAPON_TIERS value below the Fighting default
+        fightingStylesDropped: Number(opts.choices && opts.choices.fightingStylesDropped) || 0,  // optional styles given up (1 power each)
+        damageTradeOff: (opts.choices && opts.choices.damageTradeOff) || 'none',        // 'none' | 'one' (1 power) | 'both' (2 powers); F≥2 only
+        rebukeTradeOff: !!(opts.choices && opts.choices.rebukeTradeOff),                // trade rebuke-undead → 1 power / Divine point
+        thiefSkillsTraded: Number(opts.choices && opts.choices.thiefSkillsTraded) || 0  // thief skills given up (1 power each)
       },
       customPowers: Array.isArray(opts.customPowers) ? opts.customPowers.map(p =>
         (typeof p === 'string') ? { name: p, powerWeight: 1, levelUnlocked: 1, pageRef: '' }
                                 : { name: p.name || '', powerWeight: (p.powerWeight != null ? p.powerWeight : 1), levelUnlocked: (p.levelUnlocked != null ? p.levelUnlocked : 1), pageRef: p.pageRef || '' }
       ) : [],
-      customDrawbacks: Array.isArray(opts.customDrawbacks) ? opts.customDrawbacks.slice() : [],   // W2
+      customDrawbacks: Array.isArray(opts.customDrawbacks) ? opts.customDrawbacks.map(_normalizeDrawback) : [],   // W2 — {name, powerWeight}; a known name resolves its RAW weight
       maxLevel: (opts.maxLevel != null) ? opts.maxLevel : 14,    // RAW cap (humans 14; racials per W3's table)
       rarity: opts.rarity || 'common',                            // → henchman-availability + generator frequency (§ seam)
       isSeed: !!opts.isSeed,                                       // shipped RAW core class vs GM-authored
@@ -367,6 +498,16 @@
     const out = {};
     for(const k of Object.keys(bp || {})){ if(!core[k]) out[k] = Number(bp[k]) || 0; }
     return out;
+  }
+  // Normalize a custom drawback entry to {name, powerWeight} (W2). A bare string resolves its RAW
+  // weight from CUSTOM_DRAWBACKS (default −1 for an unknown / GM-invented drawback); an object keeps
+  // its explicit weight, or resolves a known name when weight is omitted.
+  function _normalizeDrawback(d){
+    if(typeof d === 'string'){ const known = CUSTOM_DRAWBACKS_BY_NAME[d.toLowerCase()]; return { name: d, powerWeight: known ? known.powerWeight : -1 }; }
+    const name = (d && d.name) || '';
+    let w = (d && d.powerWeight);
+    if(w == null){ const known = CUSTOM_DRAWBACKS_BY_NAME[name.toLowerCase()]; w = known ? known.powerWeight : -1; }
+    return { name: name, powerWeight: Number(w) };
   }
 
   // RaceTemplate (catalog tier) — constrains + modifies a class build (survey §6).
@@ -514,10 +655,14 @@
         // a missing rung is a W3 gap (sparse table) — the seed classes never hit one.
       }
     }
-    // weapon-trade-off penalty: +250 XP/power at Fighting ≥2 (survey §4.1)
+    // weapon-trade-off penalty: +250 XP/power at Fighting ≥2 (JJ p.292). The weapon-power count
+    // is the stored seed value when present, else DERIVED from choices.weaponReducedTo (the Builder
+    // path) — so the oracle is untouched AND a GM-built class's XP recomputes. (cartography-first.)
     const fightingVal = Number(bp.fighting) || 0;
-    const tradeoffCount = Number(classTemplate && classTemplate.choices && classTemplate.choices.weaponTradeOffPowerCount) || 0;
-    if(fightingVal >= 2 && tradeoffCount > 0) xp += tradeoffCount * WEAPON_TRADEOFF_XP_PER_POWER;
+    const weaponPowers = customClassWeaponTradeOffPowers(classTemplate);
+    if(fightingVal >= 2 && weaponPowers > 0) xp += weaponPowers * WEAPON_TRADEOFF_XP_PER_POWER;
+    // (The Weak + −1-HD-racial-value −500 combo, JJ p.329, is a race-costing detail already folded
+    //  into the Halfling racial-value cost — documented in CUSTOM_DRAWBACKS[].xpRule for W3.)
     return xp;
   }
   // The full per-level XP table (JJ pp.298–299): L1 0; L2 = the 2nd-level cost; double each
@@ -583,6 +728,135 @@
     return deriveClassFromTemplate(classTemplate, raceForClassTemplate(campaign, classTemplate));
   }
 
+  // ── W2: the trade-off → power engine (JJ p.292) ─────────────────────────────
+  // The Fighting Value's starting weapon/armour/style/damage defaults (what a reduction reduces FROM).
+  function fightingDefaults(fightingKey){
+    const row = FIGHTING_VALUE_TABLE[String(fightingKey)] || FIGHTING_VALUE_TABLE['0'];
+    return { weaponSelection: row.weaponSelection, armorProf: row.armorProf, fightingStyleCount: row.fightingStyleCount, hasDamageBonus: !!row.hasDamageBonus };
+  }
+  // Powers gained reducing a weapon selection FROM a tier TO a lower tier (non-uniform; JJ p.292).
+  // Returns 0 for an equal/higher/unknown target (an illegal reduction grants nothing).
+  function _weaponStepPowers(fromTier, toTier){
+    const fi = WEAPON_TIERS.indexOf(fromTier), ti = WEAPON_TIERS.indexOf(toTier);
+    if(fi < 0 || ti < 0 || ti >= fi) return 0;
+    let powers = 0;
+    for(let i = fi; i > ti; i--){ powers += (WEAPON_STEP_POWERS[WEAPON_TIERS[i] + '→' + WEAPON_TIERS[i - 1]] || 0); }
+    return powers;
+  }
+  // Powers gained reducing armour FROM a tier TO a lower tier (1 power per step; JJ p.292).
+  function _armorStepPowers(fromTier, toTier){
+    const fi = ARMOR_TIERS.indexOf(fromTier), ti = ARMOR_TIERS.indexOf(toTier);
+    if(fi < 0 || ti < 0 || ti >= fi) return 0;
+    return fi - ti;
+  }
+  // The full Fighting-Value trade-off power breakdown from a template's structured choices (JJ p.292).
+  // { armor, weapon, style, damage, total, weaponPowers } — weaponPowers is the subset that triggers
+  // the +250 XP penalty at Fighting ≥2. Illegal reductions (to a non-lower tier, dropping more styles
+  // than the class has, a damage trade-off on a class with no damage bonus) are clamped to 0.
+  function fightingTradeOffBreakdown(classTemplate){
+    const bp = (classTemplate && classTemplate.buildPoints) || {};
+    const key = _fightingKey(bp, classTemplate && classTemplate.fightingSubtype);
+    const def = fightingDefaults(key);
+    const ch = (classTemplate && classTemplate.choices) || {};
+    const armor  = ch.armorReducedTo ? _armorStepPowers(def.armorProf, ch.armorReducedTo) : 0;
+    const weapon = ch.weaponReducedTo ? _weaponStepPowers(def.weaponSelection, ch.weaponReducedTo) : 0;
+    const style  = Math.max(0, Math.min(Number(ch.fightingStylesDropped) || 0, def.fightingStyleCount));
+    const damage = def.hasDamageBonus ? ((ch.damageTradeOff === 'both') ? 2 : (ch.damageTradeOff === 'one') ? 1 : 0) : 0;
+    return { armor, weapon, style, damage, total: armor + weapon + style + damage, weaponPowers: weapon };
+  }
+  // The WEAPON-only trade-off power count that drives the +250 XP penalty. Stored seed value wins
+  // (the oracle); else derived from the structured weaponReducedTo choice (the Builder path).
+  function customClassWeaponTradeOffPowers(classTemplate){
+    const stored = Number(classTemplate && classTemplate.choices && classTemplate.choices.weaponTradeOffPowerCount) || 0;
+    if(stored > 0) return stored;
+    return fightingTradeOffBreakdown(classTemplate).weaponPowers;
+  }
+  // Rebuke-undead trade-off: 1 power per point allocated to Divine, when traded (JJ p.292; Shaman/Witch).
+  function divineRebukeTradeOffPowers(classTemplate){
+    const ch = (classTemplate && classTemplate.choices) || {};
+    if(!ch.rebukeTradeOff) return 0;
+    return Number((classTemplate.buildPoints || {}).divine) || 0;
+  }
+  // Thievery skill trade-off: 1 power per thief skill given up (JJ p.292; Explorer traded all 4).
+  function thieverySkillTradeOffPowers(classTemplate){
+    const ch = (classTemplate && classTemplate.choices) || {};
+    const skills = (THIEVERY_VALUE_TABLE[Number((classTemplate.buildPoints || {}).thievery) || 0] || {}).thiefSkillCount || 0;
+    return Math.max(0, Math.min(Number(ch.thiefSkillsTraded) || 0, skills));
+  }
+  // Drawback budget: a −1 drawback ADDS +1 to the power budget (JJ p.329). Returns a non-negative number.
+  function customClassDrawbackBudget(classTemplate){
+    const dbs = (classTemplate && classTemplate.customDrawbacks) || [];
+    let sum = 0;
+    for(const d of dbs){ const w = Number(d && d.powerWeight) || 0; if(w < 0) sum += -w; }
+    return sum;
+  }
+  // The total CUSTOM POWER BUDGET a build grants = Fighting trade-offs + rebuke + thief-skill trade-offs
+  // + drawbacks (JJ pp.292, 329). This is what the class may SPEND on custom powers.
+  function customClassPowerBudget(classTemplate){
+    return fightingTradeOffBreakdown(classTemplate).total
+         + divineRebukeTradeOffPowers(classTemplate)
+         + thieverySkillTradeOffPowers(classTemplate)
+         + customClassDrawbackBudget(classTemplate);
+  }
+  // A custom power's EFFECTIVE weight toward the budget, adjusted for level-locking (JJ p.328): a
+  // power unlocked at level > 1 is worth HALF an initial power (the "1 initial → 2 later" rule).
+  function effectivePowerWeight(power){
+    const w = Number(power && power.powerWeight); const weight = Number.isFinite(w) ? w : 1;
+    const lvl = Number(power && power.levelUnlocked) || 1;
+    return lvl > 1 ? weight * LEVEL_LOCK_LATER_RATIO : weight;
+  }
+  // Total powers SPENT = Σ effective custom-power weights (level-lock-adjusted).
+  function customClassPowersSpent(classTemplate){
+    return ((classTemplate && classTemplate.customPowers) || []).reduce((s, p) => s + effectivePowerWeight(p), 0);
+  }
+  // The build-balance read (the GM-approval flag — JJ p.289 "can ≠ should"). surplus ≥ 0 = legal.
+  function customClassBuildBalance(classTemplate){
+    const budget = customClassPowerBudget(classTemplate);
+    const spent = customClassPowersSpent(classTemplate);
+    const surplus = Math.round((budget - spent) * 100) / 100;   // avoid ½-power float noise
+    return { budget: budget, spent: spent, surplus: surplus, balanced: surplus >= 0 };
+  }
+
+  // ── W2: racial build-point → level cap + race-value costing (JJ pp.299–305, 333–334) ──
+  // Total build points = Σ all category values (fighting 1a/1b counts as 1) + the racial value.
+  function customClassTotalBuildPoints(classTemplate){
+    const bp = (classTemplate && classTemplate.buildPoints) || {};
+    let total = 0;
+    for(const k of Object.keys(bp)){
+      // fighting is the numeric value; 1a/1b both count as 1 (already numeric in buildPoints.fighting)
+      total += Number(bp[k]) || 0;
+    }
+    return total;
+  }
+  // Level cap by total build points (racial classes only — JJ p.301). Clamp to the 4–8 table; a
+  // class with no racial value (human) caps at 14.
+  function raceBuildPointLevelCap(totalBuildPoints){
+    const t = Math.max(4, Math.min(8, Number(totalBuildPoints) || 4));
+    return RACE_BUILD_POINT_LEVEL_CAP[t] || 14;
+  }
+  // The DERIVED max level for a class: human (no race) = 14; racial = the build-point cap (a per-race
+  // power may raise it by +1, e.g. the Nobiran Wonderworker 11→12 — that's stored on the seed, NOT here).
+  function customClassDerivedMaxLevel(classTemplate, raceTemplate){
+    const isRacial = !!(classTemplate && classTemplate.raceTemplateKey) || !!raceTemplate;
+    if(!isRacial) return 14;
+    return raceBuildPointLevelCap(customClassTotalBuildPoints(classTemplate));
+  }
+  // Race-value XP costing (JJ pp.333–334 step 5 — the costing RULE). spec = { powerCount, spellLikeSpellLevels:[],
+  // mimicValueXp, negativeMimicXp }. = 40×powers + Σ(65+5×spellLevel) + mimicValueXp − negativeMimicXp − 40.
+  // NB this is the costing FUNCTION (validated on a clean synthetic); the per-rung published race XP costs
+  // (the seed racialValueTable) are STORED, since the printed reference constants (elf 2,625 / dwarf 1,400)
+  // diverge from the Ready-For-Play table values — reconciling them + the per-rung power lists is W3.
+  function raceValueXpFromPowers(spec){
+    spec = spec || {};
+    const powers = Number(spec.powerCount) || 0;
+    const spellLikes = Array.isArray(spec.spellLikeSpellLevels) ? spec.spellLikeSpellLevels : [];
+    let xp = RACE_POWER_XP * powers;
+    for(const lvl of spellLikes){ xp += RACE_SPELL_LIKE_BASE_XP + RACE_SPELL_LIKE_PER_LEVEL_XP * (Number(lvl) || 0); }
+    xp += (Number(spec.mimicValueXp) || 0) - (Number(spec.negativeMimicXp) || 0);
+    xp -= RACE_LEVEL_LOSS_XP;   // racial classes lose maximum levels (step 5f)
+    return xp;
+  }
+
   // ── The custom-power compendium gate (default-OFF `custom-power-compendium`) ─
   function customPowerCompendium(campaign){
     return _isHouseRuleEnabled(campaign, 'custom-power-compendium') ? CUSTOM_POWER_COMPENDIUM.slice() : [];
@@ -592,12 +866,17 @@
     const lc = String(name).toLowerCase();
     return CUSTOM_POWER_COMPENDIUM.find(p => p.name.toLowerCase() === lc) || null;
   }
+  // Custom drawbacks are CORE (the build needs their weights) — the lookup is ungated, unlike the compendium.
+  function findCustomDrawback(name){ if(!name) return null; return CUSTOM_DRAWBACKS_BY_NAME[String(name).toLowerCase()] || null; }
 
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // build-point data
     HD_VALUE_TABLE, FIGHTING_VALUE_TABLE, THIEVERY_VALUE_TABLE, DIVINE_VALUE_TABLE, ARCANE_VALUE_TABLE,
     CLASS_CATEGORIES, POST_EIGHTH_INCREMENT, HP_AFTER_NINTH, WEAPON_TRADEOFF_XP_PER_POWER,
+    // W2 trade-off / drawback / costing data
+    ARMOR_TIERS, WEAPON_TIERS, WEAPON_STEP_POWERS, LEVEL_LOCK_LATER_RATIO,
+    CUSTOM_DRAWBACKS, POWER_CREATION_COSTS, SPELL_LIKE_SCHEDULE, RACE_BUILD_POINT_LEVEL_CAP,
     // seeds + compendium
     CUSTOM_CLASS_SEEDS, CUSTOM_RACE_SEEDS, CUSTOM_POWER_COMPENDIUM,
     seedClassTemplates, seedRaceTemplates, seedCustomContent,
@@ -609,8 +888,14 @@
     deriveClassFromTemplate, deriveClass,
     customClassSaveProgression, customClassCoreClassMapping, suggestCoreClassMapping,
     customClassPrimeRequisites, customClassSecondLevelXp, customClassXpTable, customClassMagicItemAccess,
-    // compendium gate
-    customPowerCompendium, findCustomPower
+    // W2 trade-off / drawback / build-balance engine
+    fightingDefaults, fightingTradeOffBreakdown, customClassWeaponTradeOffPowers,
+    divineRebukeTradeOffPowers, thieverySkillTradeOffPowers, customClassDrawbackBudget,
+    customClassPowerBudget, effectivePowerWeight, customClassPowersSpent, customClassBuildBalance,
+    // W2 racial build-point cap + race-value costing
+    customClassTotalBuildPoints, raceBuildPointLevelCap, customClassDerivedMaxLevel, raceValueXpFromPowers,
+    // compendium gate + drawback lookup
+    customPowerCompendium, findCustomPower, findCustomDrawback
   });
 
 })(typeof window !== 'undefined' ? window : global);

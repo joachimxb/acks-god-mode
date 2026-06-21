@@ -390,6 +390,16 @@ function processAgingForTurn(campaign, opts){
     (dyn.logEntries || []).forEach(l => out.logEntries.push(l));
   } catch(_e){ /* never let a dynasty law-change fail the aging pass */ }
 
+  // CL-4b DEEPENING (b13, team) — the monthly family pass (per-year fertility → conception/gestation/birth
+  // + the heir-education XP accrual) rides this same monthly hook (the CL-5/CL-4b fold — no new day-tick
+  // slot). processFamilyForTurn is gated INSIDE on the dynasty-tracking house rule (it no-ops when off),
+  // so this is inert for every campaign not using the optional layer. Surfaced under out.family.
+  try {
+    const fam = processFamilyForTurn(campaign, { dryRun, rng });
+    out.family = fam;
+    (fam.logEntries || []).forEach(l => out.logEntries.push(l));
+  } catch(_e){ /* never let a fertility/education pass fail the aging pass */ }
+
   return out;
 }
 
@@ -2282,8 +2292,10 @@ function dynastyEligibleBloodlineTrait(campaign, dynastyId, opts){
 // marriage is matrilineal, or — for an unacknowledged bastard — the mother's), the bastard flag (a child
 // whose parents are not spouses), rolls ability scores (3d6 in order, or 4d6/5d6-keep-best-3 for a
 // bloodline-trait ability), checks the mother's lifetime pregnancy cap by race, mints a child Character,
-// records the parent-child kinships, and adds the child to the dynasty. A manual GM verb (the per-active-
-// year fertility roll is deferred). Returns the child Character (or { error }).
+// records the parent-child kinships, and adds the child to the dynasty. A manual GM verb; the automatic
+// per-active-year fertility roll (b13 deepening) drives it via processFamilyForTurn + the birthChildren
+// litter wrapper (opts.skipCapCheck / opts.skipPregnancyIncrement let a litter count as ONE pregnancy).
+// Returns the child Character (or { error }).
 //   opts: { motherCharacterId, fatherCharacterId, name, race, alignment, controlledBy, sex, rng, forcedAbilities }.
 function birthChild(campaign, opts){
   opts = opts || {};
@@ -2293,10 +2305,11 @@ function birthChild(campaign, opts){
   const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
   const turn = (campaign && campaign.currentTurn) || 1;
 
-  // Lifetime pregnancy cap by race (AXIOMS 19).
+  // Lifetime pregnancy cap by race (AXIOMS 19). A litter sibling (skipCapCheck) bypasses it — a litter
+  // is ONE pregnancy, the cap was already checked + incremented for the first child of the litter.
   const cap = pregnancyCapForRace(mother.race);
   const had = Number(mother.pregnancies) || 0;
-  if(had >= cap) return { error:'pregnancy-cap-reached', cap, had };
+  if(!opts.skipCapCheck && had >= cap) return { error:'pregnancy-cap-reached', cap, had };
 
   // Spouse / bastard / dynasty determination.
   const spouses = father ? _areSpouses(campaign, mother.id, father.id) : false;
@@ -2331,7 +2344,7 @@ function birthChild(campaign, opts){
   if(!Array.isArray(campaign.characters)) campaign.characters = [];
   campaign.characters.push(child);
 
-  mother.pregnancies = had + 1;
+  if(!opts.skipPregnancyIncrement) mother.pregnancies = had + 1;   // a litter sibling does not re-count (one pregnancy)
 
   // Kinship + dynasty membership. The two parent-child links are recorded quietly — the single
   // birth event below is the canonical record (avoids 3 kinship-recorded events per birth).
@@ -2631,6 +2644,423 @@ Object.assign(ACKS, {
   dynastyVassalLoyaltyBonus, characterDynastyInfo
 });
 // === end Character Lifecycle CL-4b (burst12, team) ===========================
+
+// === Character Lifecycle CL-4b DEEPENING (b13, team) — fertility / education / delegation =====
+// The three DEFERRED AXIOMS-19 dynasty mechanics (survey §10.1; Plan §11 CL-4b "Deferred:"), built over
+// the shipped CL-4b core (the dyn-/kin- entities + the manual birthChild). RUN THE BLOODLINE FORWARD:
+//   • Per-active-year FERTILITY — a monthly conception roll → a ~9-month gestation → an automatic birth,
+//     with twins/triplets on extreme rolls (and the elf "roll two, keep the favored" rule). The shipped
+//     birthChild becomes the verb the fertility clock drives (via the birthChildren litter wrapper).
+//   • EDUCATION — an heir is leveled up by education over years (~1 year to level 1, scaling); wealthy/
+//     highborn pay for better tutors; reserve XP (the CL-4a fund) starts an heir higher.
+//   • DELEGATION — Hands-On / Overseer / Delegation governance: a titled ruler delegates the realm to a
+//     regent/steward (a CL-4b governance hook; the activity-budget/magistrate/Politics CONSUMER — the
+//     freed activity, the realm running itself — is a deferred forward POINTER, surfaced not wired).
+//
+// DISCIPLINE (the burst12 CL-4b pattern): gated INSIDE on the SHIPPED `dynasty-tracking` rule (no new
+//   rule); all new character fields (pregnantUntilTurn / pregnantSinceTurn / pregnantByCharacterId /
+//   fertilitySuspended / sex[read-only] / education / delegation) are defensive-read / init-on-write —
+//   NO blankCharacter seed → the 6 templates + demo stay migrate-no-ops, no migration. The monthly
+//   fertility + education pass FOLDS into processAgingForTurn (the CL-5/CL-4b fold — no new day-tick
+//   slot). The two new event kinds (child-educated / heir-delegated) self-register FROM HERE (the PR #89
+//   kernel). dry-run rolls NO dice + mutates nothing (the aging discipline): a birth-due is deterministic
+//   (a turn comparison) so dry-run reports it; conception + the litter roll + the education accrual are
+//   dice/mutations → commit only, so there is no dry-run/commit divergence.
+//
+// ⚠ IP (§13.6): AXIOMS 19 mechanical facts only (the ~9-month term, the lifetime caps already shipped,
+//   the elf-favored rule, the three delegation modes, "≈1 year to level 1", "reserve XP starts higher"),
+//   cited AXIOMS 19; never the prose. The exact fertility-% + tutor-rate tables are NOT in AXIOMS in a
+//   transcribable form, so FERTILITY_BY_RACE + EDUCATION_TUTORS are 🔧 tooling values derived from the
+//   stated facts ("≈ once per active year" / "≈1 year to level 1") — the GM tunes; the model is the point.
+// =============================================================================
+
+// ── Fertility (AXIOMS 19 — Breeding / Pregnancy / Birth) ──────────────────────────────────────────
+// Per-active-year conception chance by race (🔧 — AXIOMS gives "≈ once per active year" + the lifetime
+// caps; this derives a clean per-year rate: the prolific races (human/beastman, cap 12) near "once per
+// active year", the long-lived scaled down by their cap (dwarf 4, elf 2). Applied per MONTH as the
+// equivalent 1-(1-P)^(1/12), so over a year it averages the per-year rate. Modified by nothing else in
+// v1 (age-of-bearing is a gate, not a curve; CON/age fertility curves are a noted refinement).
+const FERTILITY_BY_RACE = Object.freeze({ human:0.6, zaharan:0.6, nobiran:0.4, beastman:0.6, dwarf:0.25, gnome:0.25, halfling:0.25, elf:0.05 });
+const GESTATION_MONTHS = 9;            // AXIOMS 19 — a ~9-month (=turn) term
+const TWIN_CHANCE = 0.04;             // "twins / triplets on extreme rolls" — a 5% multiple-birth tail (🔧)
+const TRIPLET_CHANCE = 0.01;          // (triplets the rarer 1%; twins the next 4%; else a single birth)
+const FERTILE_AGE_CATEGORIES = Object.freeze({ adult:true, 'middle-aged':true });   // of bearing age (not youth/old/ancient)
+
+function fertilityChanceForRace(race){
+  const key = _PREG_RACE_ALIASES[String(race || 'human').toLowerCase().trim()] || 'human';
+  return FERTILITY_BY_RACE[key] != null ? FERTILITY_BY_RACE[key] : 0.6;
+}
+function _monthlyConceptionChance(race){
+  const annual = Math.min(0.999, Math.max(0, fertilityChanceForRace(race)));
+  return 1 - Math.pow(1 - annual, 1 / 12);
+}
+function _sexCanBear(c){ return !String((c && c.sex) || '').toLowerCase().trim().startsWith('m'); }   // sex absent ⇒ can bear (defensive)
+function _isFertileAge(c){
+  if(!c || c.age == null || typeof c.age !== 'number') return false;   // opt-in (the aging-seeding discipline)
+  return !!FERTILE_AGE_CATEGORIES[_categoryForRaceAge(_normalizeRace(c.race), c.age)];
+}
+// _canBearChild — can this character (currently) conceive via the automatic fertility roll? (alive, of a
+// bearing sex, of bearing age, under the lifetime cap, not already gestating, not GM-suspended.)
+function _canBearChild(c){
+  if(!c) return false;
+  if(c.lifecycleState === 'deceased' || c.alive === false) return false;
+  if(c.lifecycleState === 'candidate') return false;
+  if(c.fertilitySuspended === true) return false;
+  if(c.pregnantUntilTurn != null) return false;
+  if(!_sexCanBear(c)) return false;
+  if(!_isFertileAge(c)) return false;
+  if((Number(c.pregnancies) || 0) >= pregnancyCapForRace(c.race)) return false;
+  return true;
+}
+// _fertileCouples — the active marriages whose bearing partner can currently conceive. Dedupes by marriage
+// (one conception roll per couple); resolves the bearer (a female-sexed partner first, else the one with
+// fewer recorded pregnancies, else id-order — deterministic) + the other partner as the father.
+function _fertileCouples(campaign){
+  const out = [];
+  _kinships(campaign).forEach(k => {
+    if(!k || k.kinType !== 'marriage' || k.endedAtTurn != null) return;
+    const a = _findCharacterLC(campaign, k.aCharacterId), b = _findCharacterLC(campaign, k.bCharacterId);
+    if(!a || !b) return;
+    const aB = _canBearChild(a), bB = _canBearChild(b);
+    let mother = null, father = null;
+    if(aB && bB){
+      const fa = String(a.sex || '').toLowerCase().startsWith('f'), fb = String(b.sex || '').toLowerCase().startsWith('f');
+      if(fa && !fb){ mother = a; father = b; }
+      else if(fb && !fa){ mother = b; father = a; }
+      else { const pa = Number(a.pregnancies) || 0, pb = Number(b.pregnancies) || 0;
+        mother = (pa !== pb) ? (pa < pb ? a : b) : (a.id <= b.id ? a : b); father = (mother === a) ? b : a; }
+    } else if(aB){ mother = a; father = b; }
+    else if(bB){ mother = b; father = a; }
+    else return;
+    out.push({ mother, father });
+  });
+  return out;
+}
+function _conceive(mother, father, turn){
+  mother.pregnantSinceTurn = turn;
+  mother.pregnantUntilTurn = turn + GESTATION_MONTHS;
+  mother.pregnantByCharacterId = (father && father.id) || null;
+}
+function _rollLitterSize(rng){
+  const r = (typeof rng === 'function') ? rng() : Math.random();
+  if(r < TRIPLET_CHANCE) return 3;
+  if(r < TRIPLET_CHANCE + TWIN_CHANCE) return 2;
+  return 1;
+}
+function _rollChildAbilitySet(campaign, motherId, fatherId, rng){
+  const out = {};
+  ABILITY_IDS.forEach(ab => { out[ab] = _rollAbilityDice(dynastyChildAbilityDice(campaign, motherId, fatherId, ab), rng); });
+  return out;
+}
+function _abilityTotalOf(set){ return ABILITY_IDS.reduce((s, ab) => s + (Number(set && set[ab]) || 0), 0); }
+
+// birthChildren — the AXIOMS-19 litter wrapper over birthChild. Rolls the litter size ("twins/triplets on
+// extreme rolls") — or, for ELVES, the "roll up two children, keep the favored" rule (two ability sets are
+// rolled, the higher-total kept, ONE child minted with it). A litter is ONE pregnancy against the cap (the
+// cap is on pregnancies, not children — the siblings birth with skipCapCheck + skipPregnancyIncrement).
+// Returns { children:[Character], litterSize, elfFavored } (or { error } from the first birthChild).
+//   opts: the birthChild opts (motherCharacterId / fatherCharacterId / name / race / … / rng) + an optional
+//   litterSize override (a GM/test forcing a known litter).
+function birthChildren(campaign, opts){
+  opts = opts || {};
+  const mother = _findCharacterLC(campaign, opts.motherCharacterId);
+  if(!mother) return { error:'no-mother' };
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const race = _PREG_RACE_ALIASES[String(mother.race || 'human').toLowerCase().trim()] || 'human';
+
+  // Elf — roll two ability sets, keep the favored (higher total); mint ONE child with it. One pregnancy.
+  if(race === 'elf'){
+    const fatherId = (opts.fatherCharacterId && _findCharacterLC(campaign, opts.fatherCharacterId)) ? opts.fatherCharacterId : null;
+    const setA = _rollChildAbilitySet(campaign, mother.id, fatherId, rng);
+    const setB = _rollChildAbilitySet(campaign, mother.id, fatherId, rng);
+    const favored = _abilityTotalOf(setB) > _abilityTotalOf(setA) ? setB : setA;
+    const child = birthChild(campaign, Object.assign({}, opts, { rng, forcedAbilities: favored }));
+    if(child && child.error) return child;
+    child.litter = { size:1, elfFavored:true };
+    return { children:[child], litterSize:1, elfFavored:true };
+  }
+
+  // Others — roll the litter size; mint that many (siblings skip the increment + cap check — one pregnancy).
+  const size = (opts.litterSize && opts.litterSize >= 1) ? opts.litterSize : _rollLitterSize(rng);
+  const children = [];
+  for(let i = 0; i < size; i++){
+    const sib = (i === 0) ? opts : Object.assign({}, opts, { skipPregnancyIncrement:true, skipCapCheck:true });
+    const child = birthChild(campaign, Object.assign({}, sib, { rng }));
+    if(child && child.error){ if(i === 0) return child; break; }
+    child.litter = { size, index:i };
+    children.push(child);
+  }
+  return { children, litterSize: children.length, elfFavored:false };
+}
+
+// ── Education (AXIOMS 19 — Education) ──────────────────────────────────────────────────────────────
+// An heir is leveled up by education over years (~1 year to level 1, scaling up). Wealthy/highborn pay for
+// better tutors (faster XP). The XP/month rates are 🔧 tooling calibrated to "≈1 year to level 1" for a
+// typical class (a Fighter's 2,000-XP first level ≈ a year at the Basic rate); higher levels take longer
+// because the class XP tables scale (the shipped checkAllCharacterLevelUps does the leveling). A tutor
+// costs gp/month (RAW: wealthy/highborn pay) — debited from a payer's purse if one is set, else GM-funded.
+const EDUCATION_TUTORS = Object.freeze([
+  { id:'self-taught', label:'Self-taught',      xpPerMonth:75,  monthlyCostGp:0,   cite:CL4B_CITE },
+  { id:'basic',       label:'Basic tutor',      xpPerMonth:150, monthlyCostGp:25,  cite:CL4B_CITE },
+  { id:'fine',        label:'Fine tutor',       xpPerMonth:300, monthlyCostGp:75,  cite:CL4B_CITE },
+  { id:'masterful',   label:'Masterful tutor',  xpPerMonth:600, monthlyCostGp:200, cite:CL4B_CITE }
+]);
+const EDUCATION_TUTOR_BY_ID = Object.freeze(EDUCATION_TUTORS.reduce((m, t) => { m[t.id] = t; return m; }, {}));
+function educationTutorsList(){ return EDUCATION_TUTORS.slice(); }
+function _canonProf(raw){
+  const A = global.ACKS;
+  if(A && typeof A.canonicalProficiencyKey === 'function'){ try { return A.canonicalProficiencyKey(raw); } catch(_e){} }
+  return String(raw || '').toLowerCase().trim().replace(/\s+/g, '-');
+}
+function _grantFocusProficiency(child, focusKey){
+  if(!focusKey) return;
+  if(!Array.isArray(child.proficiencies)) child.proficiencies = [];   // the PT-0 {key,ranks} shape (defensive)
+  const existing = child.proficiencies.find(p => p && p.key === focusKey);
+  if(existing){ existing.ranks = (Number(existing.ranks) || 0) + 1; }
+  else child.proficiencies.push({ key: focusKey, ranks: 1 });
+}
+
+// educateCharacter — begin / change a character's education. opts: { tutor (id, default 'basic'), focus (a
+// proficiency the schooling emphasizes — a rank granted at the first level milestone), payerCharacterId
+// (whose purse funds the tutor; absent ⇒ GM-funded, no debit) }. Sets child.education (defensive). The
+// monthly XP accrual rides processFamilyForTurn (the aging fold). Returns the education record (or { error }).
+function educateCharacter(campaign, childOrId, opts){
+  opts = opts || {};
+  const child = (childOrId && typeof childOrId === 'object') ? childOrId : _findCharacterLC(campaign, childOrId);
+  if(!child) return { error:'no-character' };
+  if(child.lifecycleState === 'deceased' || child.alive === false) return { error:'deceased' };
+  const tutor = EDUCATION_TUTOR_BY_ID[opts.tutor] || EDUCATION_TUTOR_BY_ID['basic'];
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const focus = opts.focus ? _canonProf(opts.focus) : null;
+  child.education = {
+    tutor: tutor.id, focus, focusGranted: false, payerCharacterId: opts.payerCharacterId || null,
+    startedAtTurn: turn, xpAccrued: 0, lastLevel: Number(child.level) || 1, active: true
+  };
+  const summary = child.name + ' begins education under a ' + tutor.label.toLowerCase() + (focus ? (' (focus: ' + focus + ')') : '') + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, child, 'child-educated', summary, { tutor: tutor.id, focus, started: true }); } catch(_e){}
+  return child.education;
+}
+function endEducation(campaign, childOrId){
+  const child = (childOrId && typeof childOrId === 'object') ? childOrId : _findCharacterLC(campaign, childOrId);
+  if(!child || !child.education) return { error:'not-educating' };
+  child.education.active = false;
+  return { ended: true, characterId: child.id };
+}
+
+// applyReserveXpToHeir — seed an heir higher from a reserve-XP source (AXIOMS 19: "reserve XP starts an
+// heir higher"; the CL-4a fund). Moves min(amount||all, source.reserveXp) into the heir's xp + runs the
+// shipped level-up sweep. opts: { fromCharacterId (default = the heir's own reserveXp), amount }. Emits
+// child-educated. Returns { moved, heirLevel }.
+function applyReserveXpToHeir(campaign, heirOrId, opts){
+  opts = opts || {};
+  const heir = (heirOrId && typeof heirOrId === 'object') ? heirOrId : _findCharacterLC(campaign, heirOrId);
+  if(!heir) return { error:'no-heir' };
+  const src = opts.fromCharacterId ? _findCharacterLC(campaign, opts.fromCharacterId) : heir;
+  const pool = characterReserveXp(src);
+  const want = (opts.amount != null) ? Math.max(0, Math.floor(opts.amount)) : pool;
+  const moved = Math.min(want, pool);
+  if(moved <= 0) return { moved: 0, heirLevel: Number(heir.level) || 1 };
+  if(src) src.reserveXp = pool - moved;
+  heir.xp = (Number(heir.xp) || 0) + moved;
+  try { if(typeof ACKS.checkAllCharacterLevelUps === 'function') ACKS.checkAllCharacterLevelUps(campaign); } catch(_e){}
+  const lvl = Number(heir.level) || 1;
+  const summary = heir.name + ' is started higher with ' + moved + ' reserve XP' + (lvl > 1 ? (' — now level ' + lvl) : '') + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, heir, 'child-educated', summary, { reserveXp: moved, newLevel: lvl }); } catch(_e){}
+  _emitDynastyEvent(campaign, 'child-educated', { characterId: heir.id, reserveXpApplied: moved, newLevel: lvl, narrative: summary },
+    summary, { characters:[{ id: heir.id, role:'subject' }], dynastyId: heir.dynastyId || null });
+  return { moved, heirLevel: lvl };
+}
+
+// ── Delegation (AXIOMS 19 — Campaign task delegation) ─────────────────────────────────────────────
+const DELEGATION_MODES = Object.freeze([
+  { id:'hands-on',   label:'Hands-On',   needsDelegate:false, freesRuler:false, cite:CL4B_CITE, rule:'The ruler runs the realm personally — no delegate, full attention required.' },
+  { id:'overseer',   label:'Overseer',   needsDelegate:true,  freesRuler:false, cite:CL4B_CITE, rule:'A chamberlain runs day-to-day; the ruler reviews 1–2×/month — partial freedom.' },
+  { id:'delegation', label:'Delegation', needsDelegate:true,  freesRuler:true,  cite:CL4B_CITE, rule:'A steward holds full rights — the ruler is free to adventure while the realm runs itself.' }
+]);
+const DELEGATION_MODE_BY_ID = Object.freeze(DELEGATION_MODES.reduce((m, d) => { m[d.id] = d; return m; }, {}));
+function delegationModesList(){ return DELEGATION_MODES.slice(); }
+
+// delegateAuthority — set a (titled) ruler's campaign-task delegation (AXIOMS 19). opts: { mode (id),
+// delegateCharacterId (the regent/chamberlain/steward; required for overseer/delegation), domainId? }.
+// Records ruler.delegation (defensive; 'hands-on' clears it). The freed-activity / realm-runs-itself
+// CONSUMER (activity budget #346, magistrate/officer, Politics) is a deferred forward pointer — this
+// records the governance state + surfaces freesRuler. Emits heir-delegated. Returns { mode, delegate, freesRuler }.
+function delegateAuthority(campaign, rulerOrId, opts){
+  opts = opts || {};
+  const ruler = (rulerOrId && typeof rulerOrId === 'object') ? rulerOrId : _findCharacterLC(campaign, rulerOrId);
+  if(!ruler) return { error:'no-ruler' };
+  if(ruler.lifecycleState === 'deceased' || ruler.alive === false) return { error:'ruler-deceased' };
+  const mode = DELEGATION_MODE_BY_ID[opts.mode] || DELEGATION_MODE_BY_ID['hands-on'];
+  let delegate = null;
+  if(mode.needsDelegate){
+    delegate = _findCharacterLC(campaign, opts.delegateCharacterId);
+    if(!delegate) return { error:'no-delegate' };
+    if(delegate.lifecycleState === 'deceased' || delegate.alive === false) return { error:'delegate-deceased' };
+    if(delegate.id === ruler.id) return { error:'cannot-delegate-to-self' };
+  }
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const domainId = opts.domainId || ruler.currentDomainId || null;
+  if(mode.id === 'hands-on'){ ruler.delegation = null; }
+  else ruler.delegation = { mode: mode.id, delegateCharacterId: delegate ? delegate.id : null, domainId, sinceTurn: turn };
+  const summary = (mode.id === 'hands-on')
+    ? (ruler.name + ' takes the realm back into his own hands (Hands-On).')
+    : (ruler.name + ' delegates authority to ' + (delegate ? delegate.name : 'a steward') + ' (' + mode.label + ')' + (mode.freesRuler ? ' — free to adventure while the realm runs itself' : '') + '.');
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, ruler, 'heir-delegated', summary, { mode: mode.id, delegateCharacterId: delegate ? delegate.id : null }); } catch(_e){}
+  _emitDynastyEvent(campaign, 'heir-delegated', { rulerCharacterId: ruler.id, mode: mode.id, delegateCharacterId: delegate ? delegate.id : null, freesRuler: mode.freesRuler, narrative: summary },
+    summary, { characters: [{ id: ruler.id, role:'subject' }].concat(delegate ? [{ id: delegate.id, role:'recipient' }] : []), dynastyId: ruler.dynastyId || null, domainId });
+  return { mode: mode.id, delegate: delegate ? { id: delegate.id, name: delegate.name } : null, freesRuler: mode.freesRuler };
+}
+function delegationInfo(campaign, char){
+  const d = char && char.delegation;
+  if(!d || !d.mode || d.mode === 'hands-on') return { mode:'hands-on', label:'Hands-On', freesRuler:false, delegate:null, sinceTurn: d ? (d.sinceTurn || null) : null };
+  const mode = DELEGATION_MODE_BY_ID[d.mode] || DELEGATION_MODE_BY_ID['hands-on'];
+  const delegate = d.delegateCharacterId ? _findCharacterLC(campaign, d.delegateCharacterId) : null;
+  return { mode: mode.id, label: mode.label, rule: mode.rule, freesRuler: mode.freesRuler, sinceTurn: d.sinceTurn || null,
+    delegate: delegate ? { id: delegate.id, name: delegate.name, deceased: (delegate.lifecycleState === 'deceased' || delegate.alive === false) } : null,
+    delegateMissing: !!(d.delegateCharacterId && !delegate) };
+}
+
+// ── characterFamilyInfo — the char-sheet read accessor (the b13 Family panel) ─────────────────────
+// The pregnancy/fertility status + the education record + the delegation state, in one read for the UI.
+function characterFamilyInfo(campaign, char){
+  if(!char) return { fertile:false };
+  const cap = pregnancyCapForRace(char.race);
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const pregnant = char.pregnantUntilTurn != null;
+  const ed = char.education && char.education.active !== false ? char.education : null;
+  const tutor = ed ? (EDUCATION_TUTOR_BY_ID[ed.tutor] || null) : null;
+  return {
+    sexCanBear: _sexCanBear(char), fertileAge: _isFertileAge(char),
+    fertile: _canBearChild(char), fertilitySuspended: char.fertilitySuspended === true,
+    annualFertility: fertilityChanceForRace(char.race),
+    pregnancies: Number(char.pregnancies) || 0, pregnancyCap: cap,
+    pregnant, pregnantUntilTurn: char.pregnantUntilTurn != null ? char.pregnantUntilTurn : null,
+    dueInMonths: pregnant ? Math.max(0, char.pregnantUntilTurn - turn) : null,
+    pregnantByCharacterId: char.pregnantByCharacterId || null,
+    education: ed ? { tutor: ed.tutor, tutorLabel: tutor ? tutor.label : ed.tutor, xpPerMonth: tutor ? tutor.xpPerMonth : null,
+      focus: ed.focus || null, focusGranted: ed.focusGranted === true, level: Number(char.level) || 1, xpAccrued: Number(ed.xpAccrued) || 0, startedAtTurn: ed.startedAtTurn || null } : null,
+    delegation: delegationInfo(campaign, char)
+  };
+}
+
+// ── processFamilyForTurn — the monthly fertility + education pass (folded into processAgingForTurn) ─
+// Gated on dynasty-tracking (no-ops when off — principle 8). dry-run reports the deterministic facts (a
+// birth DUE this month, the eligible couples + their monthly chance, the educating characters + the rate)
+// and rolls NO dice + mutates nothing; commit rolls the conception + the litter + accrues the education XP.
+function processFamilyForTurn(campaign, opts){
+  opts = opts || {};
+  const dryRun = !!opts.dryRun;
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const out = { ran:true, dryRun, conceptions:[], births:[], education:[], logEntries:[] };
+  if(!ACKS.isHouseRuleEnabled || !ACKS.isHouseRuleEnabled(campaign, 'dynasty-tracking')) return out;
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const chars = (campaign && campaign.characters) || [];
+
+  // (1) Births due — deterministic (gestation completion is a turn comparison). Snapshot the list, since
+  //     birthChildren pushes new Characters. Track delivered mothers so they don't re-conceive this month.
+  const delivered = new Set();
+  chars.slice().forEach(mother => {
+    if(!mother || mother.pregnantUntilTurn == null) return;
+    if(turn < mother.pregnantUntilTurn) return;
+    if(dryRun){ out.births.push({ motherId: mother.id, name: mother.name, dueThisMonth: true }); return; }
+    const father = mother.pregnantByCharacterId ? _findCharacterLC(campaign, mother.pregnantByCharacterId) : null;
+    const res = birthChildren(campaign, { motherCharacterId: mother.id, fatherCharacterId: father && father.id, rng });
+    mother.pregnantUntilTurn = null; mother.pregnantSinceTurn = null; mother.pregnantByCharacterId = null;
+    delivered.add(mother.id);
+    if(res && res.children && res.children.length){
+      const names = res.children.map(c => c.name).join(', ');
+      const litterNote = res.elfFavored ? ' (the favored of two)' : res.litterSize === 3 ? ' — triplets!' : res.litterSize === 2 ? ' — twins!' : '';
+      const summary = mother.name + ' gives birth' + litterNote + ': ' + names + '.';
+      out.births.push({ motherId: mother.id, name: mother.name, childIds: res.children.map(c => c.id), litterSize: res.litterSize, elfFavored: !!res.elfFavored });
+      out.logEntries.push('Birth — ' + summary);
+    } else {
+      out.births.push({ motherId: mother.id, name: mother.name, error: (res && res.error) || 'birth-failed' });
+    }
+  });
+
+  // (2) Conceptions — one per-month roll per fertile couple (commit only; a die). dry-run reports eligibility.
+  _fertileCouples(campaign).forEach(({ mother, father }) => {
+    if(delivered.has(mother.id)) return;   // delivered this month — no immediate re-conception
+    const p = _monthlyConceptionChance(mother.race);
+    if(dryRun){ out.conceptions.push({ motherId: mother.id, name: mother.name, eligible: true, monthlyChance: p }); return; }
+    if(rng() < p){
+      _conceive(mother, father, turn);
+      const summary = mother.name + ' conceives' + (father ? (' a child with ' + father.name) : '') + ' — due in ' + GESTATION_MONTHS + ' months.';
+      out.conceptions.push({ motherId: mother.id, name: mother.name, fatherId: father && father.id, dueTurn: mother.pregnantUntilTurn, conceived: true });
+      out.logEntries.push('Conception — ' + summary);
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, mother, 'kinship-recorded', summary, { conception: true }); } catch(_e){}
+    }
+  });
+
+  // (3) Education — accrue XP for each character in active education (commit only), then ONE level-up sweep,
+  //     then a milestone pass (grant the focus proficiency once + emit child-educated on a new level).
+  const educating = chars.filter(c => c && c.education && c.education.active !== false && c.lifecycleState !== 'deceased' && c.alive !== false);
+  educating.forEach(child => {
+    const ed = child.education;
+    const tutor = EDUCATION_TUTOR_BY_ID[ed.tutor] || EDUCATION_TUTOR_BY_ID['basic'];
+    if(dryRun){ out.education.push({ characterId: child.id, name: child.name, tutor: tutor.id, xpPerMonth: tutor.xpPerMonth }); return; }
+    // pay the tutor (optional — wealthy/highborn pay; no payer ⇒ GM-funded)
+    if(ed.payerCharacterId && tutor.monthlyCostGp > 0){
+      const payer = _findCharacterLC(campaign, ed.payerCharacterId);
+      const have = (payer && payer.coins && Number(payer.coins.gp)) || 0;
+      if(payer && have >= tutor.monthlyCostGp){ payer.coins.gp = have - tutor.monthlyCostGp; payer.personalGp = payer.coins.gp; }
+      else { out.logEntries.push('Education — ' + child.name + "'s schooling stalls (the tutor goes unpaid)."); out.education.push({ characterId: child.id, name: child.name, stalled: true }); ed._stalled = true; return; }
+    }
+    ed._stalled = false;
+    child.xp = (Number(child.xp) || 0) + tutor.xpPerMonth;
+    ed.xpAccrued = (Number(ed.xpAccrued) || 0) + tutor.xpPerMonth;
+  });
+  if(!dryRun && educating.some(c => c.education && !c.education._stalled)){
+    try { if(typeof ACKS.checkAllCharacterLevelUps === 'function') ACKS.checkAllCharacterLevelUps(campaign); } catch(_e){}
+    educating.forEach(child => {
+      const ed = child.education; if(!ed || ed._stalled) return;
+      const nowLevel = Number(child.level) || 1;
+      if(nowLevel > (ed.lastLevel || 1)){
+        if(ed.focus && !ed.focusGranted){ _grantFocusProficiency(child, ed.focus); ed.focusGranted = true; }
+        ed.lastLevel = nowLevel;
+        const summary = child.name + ' completes a stage of education — now level ' + nowLevel + (ed.focus ? (' (trained in ' + ed.focus + ')') : '') + '.';
+        out.education.push({ characterId: child.id, name: child.name, newLevel: nowLevel, focusGranted: !!ed.focus });
+        out.logEntries.push('Education — ' + summary);
+        try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, child, 'child-educated', summary, { newLevel: nowLevel }); } catch(_e){}
+        _emitDynastyEvent(campaign, 'child-educated', { characterId: child.id, newLevel: nowLevel, tutor: ed.tutor, focus: ed.focus || null, narrative: summary },
+          summary, { characters:[{ id: child.id, role:'subject' }], dynastyId: child.dynastyId || null });
+      } else {
+        out.education.push({ characterId: child.id, name: child.name, xpAccrued: ed.xpAccrued });
+      }
+    });
+  }
+  return out;
+}
+
+// The two b13 event kinds (record-only audit — the verbs already applied state; the handler keeps the
+// event well-formed on replay). Both are Event-Wizard opt-outs (engine-owned). applyEvent_dynastyAudit
+// is defined in the CL-4b core above (same module).
+if(typeof ACKS.registerEventKind === 'function'){
+  ACKS.registerEventKind('child-educated', {
+    schema: { R:{ characterId:'string' },
+              O:{ newLevel:'number', tutor:'string', focus:'string', reserveXpApplied:'number', narrative:'string' } },
+    wizardOptOut: true, handler: applyEvent_dynastyAudit });
+  ACKS.registerEventKind('heir-delegated', {
+    schema: { R:{ rulerCharacterId:'string', mode:'string' },
+              O:{ delegateCharacterId:'string', freesRuler:'boolean', narrative:'string' } },
+    wizardOptOut: true, handler: applyEvent_dynastyAudit });
+}
+
+Object.assign(ACKS, {
+  // data / catalogs
+  FERTILITY_BY_RACE, GESTATION_MONTHS, EDUCATION_TUTORS, DELEGATION_MODES,
+  // catalog lookups
+  fertilityChanceForRace, educationTutorsList, delegationModesList,
+  // fertility
+  birthChildren, processFamilyForTurn,
+  // education
+  educateCharacter, endEducation, applyReserveXpToHeir,
+  // delegation
+  delegateAuthority, delegationInfo,
+  // reads
+  characterFamilyInfo
+});
+// === end Character Lifecycle CL-4b DEEPENING (b13, team) ======================
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

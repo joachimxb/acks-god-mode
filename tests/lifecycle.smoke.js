@@ -43,6 +43,8 @@ function mkChar(c, opts) {
   }, opts.extra || {}));
   if(opts.age !== undefined) ch.age = opts.age;
   if(opts.ageMonths !== undefined) ch.ageMonths = opts.ageMonths;
+  if(opts.sex !== undefined) ch.sex = opts.sex;                              // b13 — defensive field (blankCharacter drops it)
+  if(opts.fertilitySuspended !== undefined) ch.fertilitySuspended = opts.fertilitySuspended;
   c.characters.push(ch);
   return ch;
 }
@@ -1222,6 +1224,188 @@ section('CL-4b dynasty — rule-gating + migrate-no-op');
   const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
   ok('migrateCampaign does NOT inject dynasties/kinships (no-op invariant)', !('dynasties' in demo) && !('kinships' in demo));
   ok('no demo character carries a dynastyId', demo.characters.every(c => c.dynastyId == null || c.dynastyId === undefined));
+}
+
+// === Character Lifecycle CL-4b DEEPENING (b13, team) — fertility / education / delegation =======
+// Locks the three deferred AXIOMS-19 mechanics over the shipped CL-4b core: the per-active-year fertility
+// roll (a monthly conception → ~9-month gestation → automatic birth) + twins/triplets + the elf "roll two,
+// keep the favored" rule (and a litter counting as ONE pregnancy); education (tutor-tier XP/month → level-
+// ups via the shipped sweep + a focus proficiency + the optional gp cost + reserve-XP seeding); delegation
+// (hands-on/overseer/delegation + a regent); the processAgingForTurn fold; the dry-run-mutates-nothing
+// discipline; the self-registered child-educated + heir-delegated events; and the migrate-no-op.
+const CONCEIVE = () => 0.0;     // rng → 0.0: rng() < monthlyChance is true → conception succeeds; litter → triplet
+const NOCONCEIVE = () => 0.99;  // rng → 0.99: conception fails; litter → single
+function fertC(opts) { const c = mkDynC(opts); return c; }
+
+section('CL-4b deepening — self-registration + catalogs (b13)');
+{
+  ok('exports the b13 verbs + reads', ['birthChildren','processFamilyForTurn','educateCharacter','endEducation','applyReserveXpToHeir','delegateAuthority','delegationInfo','characterFamilyInfo','fertilityChanceForRace','educationTutorsList','delegationModesList'].every(f => typeof ACKS[f] === 'function'));
+  ok('child-educated + heir-delegated event kinds are known', ACKS.isEventKindKnown('child-educated') && ACKS.isEventKindKnown('heir-delegated'));
+  ok('both b13 events are Event-Wizard opt-outs (engine-owned)', !ACKS.isWizardEmittable('child-educated') && !ACKS.isWizardEmittable('heir-delegated'));
+  ok('FERTILITY_BY_RACE: prolific human/beastman 0.6, dwarf 0.25, elf 0.05', ACKS.fertilityChanceForRace('human') === 0.6 && ACKS.fertilityChanceForRace('beastman') === 0.6 && ACKS.fertilityChanceForRace('dwarf') === 0.25 && ACKS.fertilityChanceForRace('elf') === 0.05);
+  ok('GESTATION_MONTHS is 9 (AXIOMS 19 ~9-month term)', ACKS.GESTATION_MONTHS === 9);
+  ok('4 education tutor tiers (self-taught → masterful)', ACKS.educationTutorsList().length === 4 && ACKS.educationTutorsList()[0].id === 'self-taught' && ACKS.educationTutorsList()[3].id === 'masterful');
+  ok('3 delegation modes (hands-on/overseer/delegation); only delegation frees the ruler', ACKS.delegationModesList().length === 3 && ACKS.delegationModesList().find(m => m.id === 'delegation').freesRuler === true && ACKS.delegationModesList().find(m => m.id === 'overseer').freesRuler === false);
+}
+
+section('CL-4b deepening — fertility: conception → gestation → automatic birth');
+{
+  const c = fertC();
+  const k = mkChar(c, { id: 'k', name: 'Aelric', age: 30, sex: 'male' });
+  const q = mkChar(c, { id: 'q', name: 'Mira', age: 28, sex: 'female' });
+  ACKS.foundDynasty(c, 'k', { name: 'Vane', successionLaw: 'primogeniture' });
+  ACKS.recordKinship(c, { kinType: 'marriage', aCharacterId: 'k', bCharacterId: 'q' });
+  // conceive
+  const r1 = ACKS.processFamilyForTurn(c, { rng: CONCEIVE });
+  ok('a fertile married couple conceives → pregnantUntilTurn = turn + 9', q.pregnantUntilTurn === c.currentTurn + 9 && q.pregnantByCharacterId === 'k' && r1.conceptions.some(x => x.conceived));
+  ok('the bearer is the female-sexed partner (not the male)', q.pregnantUntilTurn != null && k.pregnantUntilTurn == null);
+  // not yet due → no birth
+  c.currentTurn = q.pregnantUntilTurn - 1;
+  const r2 = ACKS.processFamilyForTurn(c, { rng: NOCONCEIVE });
+  ok('before the due turn no birth happens', r2.births.length === 0 && c.characters.length === 2);
+  // due → birth, pregnancy cleared, count incremented, child in dynasty
+  c.currentTurn = q.pregnantUntilTurn;
+  const before = c.characters.length;
+  const r3 = ACKS.processFamilyForTurn(c, { rng: NOCONCEIVE });
+  ok('at the due turn the child is born (one new Character)', c.characters.length === before + 1 && r3.births.length === 1 && r3.births[0].childIds.length === 1);
+  ok('pregnancy state clears + the count increments + the child joins the dynasty', q.pregnantUntilTurn == null && q.pregnancies === 1 && ACKS.dynastyById(c, k.dynastyId).memberCharacterIds.length === 2);
+  ok('the birth emits a kinship-recorded (birth:true) event', c.eventLog.some(e => e.event.kind === 'kinship-recorded' && e.event.payload && e.event.payload.birth));
+}
+
+section('CL-4b deepening — fertility: the _canBearChild gates + failure + rule-gating');
+{
+  // conception fails on a high roll
+  const c = fertC(); const a = mkChar(c, { id: 'a', age: 30, sex: 'male' }); const b = mkChar(c, { id: 'b', age: 30, sex: 'female' });
+  ACKS.recordKinship(c, { kinType: 'marriage', aCharacterId: 'a', bCharacterId: 'b' });
+  ACKS.processFamilyForTurn(c, { rng: NOCONCEIVE });
+  ok('a high conception roll → no pregnancy', b.pregnantUntilTurn == null);
+  // unmarried → never conceives (no marriage kinship)
+  const c2 = fertC(); const s = mkChar(c2, { id: 's', age: 30, sex: 'female' });
+  ACKS.processFamilyForTurn(c2, { rng: CONCEIVE });
+  ok('an unmarried character is not in the fertility roll', s.pregnantUntilTurn == null);
+  // a youth / an old character cannot bear
+  const c3 = fertC();
+  const yth = mkChar(c3, { id: 'y', age: 14, sex: 'female' });   // human youth (13-17)
+  const old = mkChar(c3, { id: 'o', age: 70, sex: 'female' });   // human old (56-75)
+  const hus = mkChar(c3, { id: 'h', age: 30, sex: 'male' });
+  ACKS.recordKinship(c3, { kinType: 'marriage', aCharacterId: 'h', bCharacterId: 'y' });
+  ACKS.recordKinship(c3, { kinType: 'marriage', aCharacterId: 'h', bCharacterId: 'o' });
+  ACKS.processFamilyForTurn(c3, { rng: CONCEIVE });
+  ok('a youth and an old character do not bear (only adult/middle-aged)', yth.pregnantUntilTurn == null && old.pregnantUntilTurn == null);
+  // a male-sexed bearer + a suspended mother are excluded
+  const c4 = fertC(); const mm = mkChar(c4, { id: 'mm', age: 30, sex: 'male' }); const ff = mkChar(c4, { id: 'ff', age: 30, sex: 'male' });
+  ACKS.recordKinship(c4, { kinType: 'marriage', aCharacterId: 'mm', bCharacterId: 'ff' });
+  ACKS.processFamilyForTurn(c4, { rng: CONCEIVE });
+  ok('a same-sex (both male) couple bears no child', mm.pregnantUntilTurn == null && ff.pregnantUntilTurn == null);
+  const c5 = fertC(); const sm = mkChar(c5, { id: 'sm', age: 30, sex: 'female', fertilitySuspended: true }); const sf = mkChar(c5, { id: 'sf', age: 30, sex: 'male' });
+  ACKS.recordKinship(c5, { kinType: 'marriage', aCharacterId: 'sf', bCharacterId: 'sm' });
+  ACKS.processFamilyForTurn(c5, { rng: CONCEIVE });
+  ok('a fertility-suspended mother does not conceive', sm.pregnantUntilTurn == null);
+  // rule OFF → no-op
+  const c6 = fertC(); c6.houseRules = {}; const om = mkChar(c6, { id: 'om', age: 30, sex: 'female' }); const of = mkChar(c6, { id: 'of', age: 30, sex: 'male' });
+  ACKS.recordKinship(c6, { kinType: 'marriage', aCharacterId: 'of', bCharacterId: 'om' });
+  const off = ACKS.processFamilyForTurn(c6, { rng: CONCEIVE });
+  ok('processFamilyForTurn no-ops when dynasty-tracking is OFF (principle 8)', off.conceptions.length === 0 && om.pregnantUntilTurn == null);
+}
+
+section('CL-4b deepening — fertility: twins / triplets + elf roll-two-keep-favored (one pregnancy)');
+{
+  const c = fertC(); const m = mkChar(c, { id: 'm', name: 'M', age: 30, sex: 'female' }); const f = mkChar(c, { id: 'f', name: 'F', age: 30, sex: 'male' });
+  ACKS.foundDynasty(c, 'f', { name: 'Twin' }); ACKS.recordKinship(c, { kinType: 'marriage', aCharacterId: 'f', bCharacterId: 'm' });
+  const tw = ACKS.birthChildren(c, { motherCharacterId: 'm', fatherCharacterId: 'f', litterSize: 2, rng: NOCONCEIVE });
+  ok('a forced litter of 2 → twins (two children)', tw.litterSize === 2 && tw.children.length === 2);
+  ok('a litter is ONE pregnancy (cap counts pregnancies, not children)', m.pregnancies === 1);
+  ok('both twins join the dynasty', ACKS.dynastyById(c, f.dynastyId).memberCharacterIds.filter(id => tw.children.some(ch => ch.id === id)).length === 2);
+  // triplet via the litter roll (rng → 0.0 < TRIPLET_CHANCE)
+  const c2 = fertC(); mkChar(c2, { id: 'm2', age: 30, sex: 'female' }); mkChar(c2, { id: 'f2', age: 30, sex: 'male' });
+  ACKS.recordKinship(c2, { kinType: 'marriage', aCharacterId: 'f2', bCharacterId: 'm2' });
+  const tr = ACKS.birthChildren(c2, { motherCharacterId: 'm2', fatherCharacterId: 'f2', rng: CONCEIVE });
+  ok('the litter roll → triplets on the extreme low roll', tr.litterSize === 3 && tr.children.length === 3);
+  // elf: roll two ability sets, keep the favored (higher total) — ONE child
+  const ec = fertC(); const em = mkChar(ec, { id: 'em', race: 'elf', age: 60, sex: 'female' }); const ef = mkChar(ec, { id: 'ef', race: 'elf', age: 60, sex: 'male' });
+  ACKS.foundDynasty(ec, 'ef', { name: 'Silvar' }); ACKS.recordKinship(ec, { kinType: 'marriage', aCharacterId: 'ef', bCharacterId: 'em' });
+  let seq = 0; const rngFav = () => { seq++; return seq <= 18 ? 0.0 : 0.99; };   // setA all-1s (total 18), setB all-6s (total 108) → keep B
+  const el = ACKS.birthChildren(ec, { motherCharacterId: 'em', fatherCharacterId: 'ef', rng: rngFav });
+  ok('an elf birth is one child, flagged elfFavored', el.litterSize === 1 && el.children.length === 1 && el.elfFavored === true);
+  ok('the elf keeps the FAVORED of two ability sets (the higher total)', el.children[0].abilities.STR === 18 && ['STR', 'INT', 'WIL', 'DEX', 'CON', 'CHA'].reduce((s, a) => s + el.children[0].abilities[a], 0) === 108);
+  ok('the elf pregnancy still counts once', em.pregnancies === 1);
+}
+
+section('CL-4b deepening — education (XP over years, focus, gp, reserve-XP seed)');
+{
+  const c = fertC();
+  const heir = mkChar(c, { id: 'h', name: 'Heir', extra: { class: 'Fighter', level: 1, xp: 0 } });
+  const ed = ACKS.educateCharacter(c, 'h', { tutor: 'masterful', focus: 'Riding' });
+  ok('educateCharacter sets the education record (tutor + canonicalized focus)', ed.tutor === 'masterful' && ed.focus === 'riding' && ed.active === true && heir.education === ed);
+  // 5 months @ 600/mo = 3000 xp → Fighter L2 (2000)
+  for (let i = 0; i < 5; i++) { c.currentTurn = i + 1; ACKS.processFamilyForTurn(c, { rng: NOCONCEIVE }); }
+  ok('monthly XP accrues + the heir levels via the shipped sweep (Fighter 2000 → L2)', heir.xp === 3000 && (Number(heir.level) || 1) >= 2);
+  ok('the focus proficiency is granted once at the level milestone ({key,ranks})', (heir.proficiencies || []).some(p => p.key === 'riding' && p.ranks === 1) && heir.education.focusGranted === true);
+  ok('a level milestone emits a child-educated event', c.eventLog.some(e => e.event.kind === 'child-educated' && e.event.payload.newLevel >= 2));
+  // a payer funds the tutor; unaffordable → stall
+  const c2 = fertC(); const pupil = mkChar(c2, { id: 'p', extra: { class: 'Fighter', level: 1, xp: 0 } }); const payer = mkChar(c2, { id: 'pay' });
+  payer.coins = { pp: 0, gp: 100, ep: 0, sp: 0, cp: 0 };
+  ACKS.educateCharacter(c2, 'p', { tutor: 'basic', payerCharacterId: 'pay' });   // 25 gp/mo
+  ACKS.processFamilyForTurn(c2, { rng: NOCONCEIVE });
+  ok('a payer funds the tutor (gp debited; XP accrues)', payer.coins.gp === 75 && pupil.xp === 150);
+  payer.coins.gp = 10;   // now unaffordable
+  const stall = ACKS.processFamilyForTurn(c2, { rng: NOCONCEIVE });
+  ok('an unaffordable tutor stalls the schooling (no XP that month)', pupil.xp === 150 && stall.education.some(e => e.characterId === 'p' && e.stalled) && payer.coins.gp === 10);
+  // endEducation
+  ACKS.endEducation(c2, 'p'); ACKS.processFamilyForTurn(c2, { rng: NOCONCEIVE });
+  ok('endEducation stops the accrual', pupil.xp === 150);
+  // reserve-XP seed
+  const c3 = fertC(); const a = mkChar(c3, { id: 'a', name: 'A', extra: { class: 'Fighter', level: 1, xp: 0 } }); a.reserveXp = 2500;
+  const rx = ACKS.applyReserveXpToHeir(c3, 'a', {});
+  ok('applyReserveXpToHeir moves the reserve fund into the heir + levels (RAW: starts higher)', rx.moved === 2500 && a.xp === 2500 && (Number(a.level) || 1) >= 2 && a.reserveXp === 0);
+  ok('the reserve-XP seed emits a child-educated event', c3.eventLog.some(e => e.event.kind === 'child-educated' && e.event.payload.reserveXpApplied === 2500));
+  const cap = ACKS.applyReserveXpToHeir(c3, 'a', { amount: 5000 });   // pool now empty
+  ok('the seed is capped at the available reserve pool', cap.moved === 0);
+}
+
+section('CL-4b deepening — delegation (hands-on / overseer / delegation + a regent)');
+{
+  const c = fertC(); const ruler = mkChar(c, { id: 'r', name: 'Lord' }); const steward = mkChar(c, { id: 's', name: 'Steward' });
+  const dg = ACKS.delegateAuthority(c, 'r', { mode: 'delegation', delegateCharacterId: 's' });
+  ok('delegation mode names a delegate + frees the ruler', dg.mode === 'delegation' && dg.delegate.id === 's' && dg.freesRuler === true && ruler.delegation.mode === 'delegation');
+  ok('delegation emits a heir-delegated event', c.eventLog.some(e => e.event.kind === 'heir-delegated' && e.event.payload.mode === 'delegation' && e.event.payload.freesRuler === true));
+  ok('delegationInfo reads the mode + delegate + freesRuler', (function () { const i = ACKS.delegationInfo(c, ruler); return i.mode === 'delegation' && i.delegate.id === 's' && i.freesRuler === true; })());
+  ok('overseer needs a delegate + does NOT free the ruler', (function () { const r = ACKS.delegateAuthority(c, 'r', { mode: 'overseer', delegateCharacterId: 's' }); return r.mode === 'overseer' && r.freesRuler === false; })());
+  ok('hands-on clears the delegation', (function () { ACKS.delegateAuthority(c, 'r', { mode: 'hands-on' }); return ruler.delegation == null && ACKS.delegationInfo(c, ruler).mode === 'hands-on'; })());
+  ok('overseer/delegation without a delegate is refused', (ACKS.delegateAuthority(c, 'r', { mode: 'delegation' }) || {}).error === 'no-delegate');
+  ok('delegating to oneself is refused', (ACKS.delegateAuthority(c, 'r', { mode: 'overseer', delegateCharacterId: 'r' }) || {}).error === 'cannot-delegate-to-self');
+  const dead = mkChar(c, { id: 'dead', extra: { alive: false, lifecycleState: 'deceased' } });
+  ok('a deceased delegate is refused', (ACKS.delegateAuthority(c, 'r', { mode: 'delegation', delegateCharacterId: 'dead' }) || {}).error === 'delegate-deceased');
+}
+
+section('CL-4b deepening — characterFamilyInfo + the processAgingForTurn fold + dry-run + migrate-no-op');
+{
+  // characterFamilyInfo
+  const c = fertC(); const k = mkChar(c, { id: 'k', name: 'K', age: 30, sex: 'male' }); const q = mkChar(c, { id: 'q', name: 'Q', age: 28, sex: 'female' });
+  ACKS.recordKinship(c, { kinType: 'marriage', aCharacterId: 'k', bCharacterId: 'q' });
+  ACKS.educateCharacter(c, 'q', { tutor: 'fine', focus: 'Diplomacy' });
+  const fiQ = ACKS.characterFamilyInfo(c, q);
+  ok('characterFamilyInfo reports fertility + pregnancy + education + delegation', fiQ.fertile === true && fiQ.pregnant === false && fiQ.pregnancyCap === 12 && fiQ.education && fiQ.education.tutor === 'fine' && fiQ.delegation.mode === 'hands-on');
+  ACKS.processFamilyForTurn(c, { rng: CONCEIVE });
+  ok('after conception the family info shows pregnant + dueInMonths', (function () { const i = ACKS.characterFamilyInfo(c, q); return i.pregnant === true && i.dueInMonths === 9; })());
+  // the processAgingForTurn fold
+  const c2 = fertC(); mkChar(c2, { id: 'm', age: 30, sex: 'female' }); mkChar(c2, { id: 'f', age: 30, sex: 'male' });
+  ACKS.recordKinship(c2, { kinType: 'marriage', aCharacterId: 'f', bCharacterId: 'm' });
+  const aged = ACKS.processAgingForTurn(c2, { rng: CONCEIVE });
+  ok('processAgingForTurn surfaces out.family (the b13 fold)', aged.family && aged.family.ran === true && aged.family.conceptions.length === 1);
+  // dry-run mutates nothing (reports the eligible couple + the due birth, rolls no dice)
+  const c3 = fertC(); const dm = mkChar(c3, { id: 'dm', age: 30, sex: 'female' }); const df = mkChar(c3, { id: 'df', age: 30, sex: 'male' });
+  ACKS.recordKinship(c3, { kinType: 'marriage', aCharacterId: 'df', bCharacterId: 'dm' });
+  const dry = ACKS.processFamilyForTurn(c3, { dryRun: true, rng: CONCEIVE });
+  ok('dry-run reports the eligible couple but conceives nothing (mutates nothing)', dry.conceptions.length === 1 && dry.conceptions[0].eligible === true && dm.pregnantUntilTurn == null);
+  // a pending birth is reported deterministically in dry-run, without birthing
+  dm.pregnantUntilTurn = c3.currentTurn; dm.pregnantByCharacterId = 'df';
+  const before = c3.characters.length;
+  const dry2 = ACKS.processFamilyForTurn(c3, { dryRun: true, rng: CONCEIVE });
+  ok('dry-run reports a due birth without creating the child', dry2.births.length === 1 && dry2.births[0].dueThisMonth === true && c3.characters.length === before);
+  // migrate-no-op: the demo carries no fertility/education/delegation fields
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('no demo character carries a pregnancy/education/delegation field (no-op invariant)', demo.characters.every(c => c.pregnantUntilTurn == null && c.education == null && c.delegation == null && c.fertilitySuspended !== true));
 }
 
 // =============================================================================

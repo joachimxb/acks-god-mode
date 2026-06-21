@@ -337,7 +337,7 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
 // schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
-const EV_KINDS_COUNT = 180, EV_SCHEMAS_COUNT = 180, EV_OPTOUT_COUNT = 154;
+const EV_KINDS_COUNT = 185, EV_SCHEMAS_COUNT = 185, EV_OPTOUT_COUNT = 159;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',
