@@ -19002,6 +19002,12 @@ function buildDomainFromTemplate(tpl){
 
 function domainApp(){
 return {
+  // === @b13 TEAM SESSION insertion zone — each lane appends its state+methods AFTER ITS OWN marker line (distinct lines → clean auto-merge). Do not touch another lane's marker. ===
+  // === @b13-construction  (team) — Construction Wave D (vessels / war machines / siege-support): state + methods ===
+  // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
+  // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
+  // === @b13-customclasses (team) — Custom Classes W2 (power compendium + trade-offs / drawbacks): state + methods ===
+  // === @b13-religion      (team) — Religion R6 (apotheosis upkeep + dungeon co-extraction): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
   // (defaults off each session — kept out of the shared session-restore region).
