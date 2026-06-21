@@ -238,10 +238,13 @@
     return Math.floor((Number(s.families) || 0) / 10) * domainWorshipRateForMorale(0);
   }
   // Total weekly divine power a congregation generates for its high priest (personal + domain-worship +
-  // co-extraction over a usurped settlement — all stacking, RR p.421 / p.388).
+  // co-extraction over a usurped settlement [Wave E] + co-extraction over a usurped dungeon [R6] — all
+  // stacking, RR p.421 / p.388). congregationUsurpedDungeonWeeklyGp is defined in the R6 section below
+  // (function-hoisted within this IIFE; it reads the Sanctums accessors via _A() at call time).
   function congregationWeeklyDivinePowerGp(campaign, cong){
     return congregationPersonalWeeklyGp(cong) + congregationDomainWorshipWeeklyGp(campaign, cong)
-      + congregationUsurpedSettlementWeeklyGp(campaign, cong);
+      + congregationUsurpedSettlementWeeklyGp(campaign, cong)
+      + congregationUsurpedDungeonWeeklyGp(campaign, cong);
   }
   // Weeks of faithful maintenance credited this month (0..4). A congregation is tended as a matter
   // of course (autoMaintain, the default) unless the GM unticks it — then the GM-/day-tick-tracked
@@ -388,8 +391,10 @@
       domainWorshipDomainId: opts.domainWorshipDomainId || null,
       foundedAtTurn: campaign.currentTurn || 1
     });
-    // Co-extraction over a usurped settlement (Wave E, RR p.388) — a defensive field, not on the factory.
+    // Co-extraction over a usurped settlement (Wave E) / dungeon (R6), RR p.388 — defensive fields, not on
+    // the factory (so R0 stays a migrate-no-op).
     if(opts.usurpedSettlementId) cong.usurpedSettlementId = opts.usurpedSettlementId;
+    if(opts.usurpedDungeonId) cong.usurpedDungeonId = opts.usurpedDungeonId;
     if(!Array.isArray(campaign.congregations)) campaign.congregations = [];
     campaign.congregations.push(cong);
     if(opts.highPriestCharacterId && opts.deityId) ensureDivineFavor(campaign, opts.highPriestCharacterId, opts.deityId);
@@ -568,8 +573,9 @@
       if(monthly > 0 && priestId){
         const personal = congregationPersonalWeeklyGp(cong) > 0;
         const domain = congregationDomainWorshipWeeklyGp(campaign, cong) > 0;
-        const coExtract = congregationUsurpedSettlementWeeklyGp(campaign, cong) > 0;
-        const source = (coExtract && !personal && !domain) ? 'co-extraction'   // Wave E (RR p.388, Balbus)
+        const coExtract = congregationUsurpedSettlementWeeklyGp(campaign, cong) > 0
+          || congregationUsurpedDungeonWeeklyGp(campaign, cong) > 0;            // Wave E settlement + R6 dungeon
+        const source = (coExtract && !personal && !domain) ? 'co-extraction'   // Wave E / R6 (RR p.388, Balbus)
           : (domain && !personal) ? 'domain-worship' : 'congregation';
         accrueDivinePower(campaign, priestId, monthly, source, cong.deityId,
           { accruedAtTurn: turn + 1, expiresAtTurn: turn + 2 });
@@ -943,10 +949,11 @@
     const out = { pendingRecords: [], notableEvents: [], encounters: [] };
     if(!campaign) return out;
     ctx = ctx || {};
-    const weekNumber = _religionWeekBoundary(ctx.dayInMonth || campaign.currentDayInMonth || 1);
-    if(weekNumber <= 0) return out;
+    const dayInMonth = ctx.dayInMonth || campaign.currentDayInMonth || 1;
+    const weekNumber = _religionWeekBoundary(dayInMonth);
     const congs = Array.isArray(campaign.congregations) ? campaign.congregations : [];
-    for(const cong of congs){
+    // (1) Weekly DP accrual — only on a week-boundary day (the R1.5 grain).
+    if(weekNumber > 0) for(const cong of congs){
       if(!cong) continue;
       if(cong.status && cong.status !== 'active' && cong.status !== 'declining') continue;
       if(weekNumber > congregationMaintainedWeeks(cong)) continue;          // untended week — decline is monthly
@@ -964,13 +971,46 @@
           + 'gp divine power for ' + ((_findChar(campaign, priestId) || {}).name || priestId)
       });
     }
+    // (2) Apotheosis upkeep — EVERY day (R6, RR p.398): each incarnation consumes DP = 6% of its XP value
+    // or loses 1 HD. Pure preview (the projection); the authoritative spend / HD change reads LIVE DP at
+    // commit (_commitIncarnationUpkeep). Per-day idempotent via the dayOrd high-water on ch.apotheosis.
+    const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+    for(const ch of (Array.isArray(campaign.characters) ? campaign.characters : [])){
+      if(!ch || !isIncarnation(ch) || ch.alive === false) continue;
+      const ap = ch.apotheosis || {};
+      if(dayOrd <= (Number(ap.lastUpkeepDayOrd) || 0)) continue;            // already paid this day
+      const st = incarnationUpkeepState(ch);
+      if(st.upkeepGp <= 0) continue;
+      const avail = divinePowerAvailable(campaign, ch.id);
+      const sustained = avail >= st.upkeepGp;
+      let proj, note;
+      if(st.torpid){
+        if(sustained && st.hdLost > 0 && avail >= st.upkeepGp * 2){ proj = 'recover'; note = ' (worship resumes — regains 1 HD)'; }
+        else if(sustained){ proj = 'sustained-torpid'; note = ' (paid — still torpid at 0 HD)'; }
+        else { proj = 'torpid'; note = ' — INSUFFICIENT, remains torpid (0 HD)'; }
+      } else if(sustained){
+        if(st.hdLost > 0 && avail >= st.upkeepGp * 2){ proj = 'sustained-recover'; note = ' (paid + regains 1 HD)'; }
+        else { proj = 'sustained'; note = ' (paid)'; }
+      } else {
+        if(st.effectiveHd <= 1){ proj = 'torpor'; note = ' — INSUFFICIENT → torpor (0 HD)'; }
+        else { proj = 'hd-loss'; note = ' — INSUFFICIENT → −1 HD'; }
+      }
+      out.pendingRecords.push({
+        kind: 'incarnation-upkeep', consumer: 'religion', characterId: ch.id, dayOrd: dayOrd,
+        upkeepGp: st.upkeepGp, availableGp: avail, projection: proj,
+        effectiveHd: st.effectiveHd, baseHd: st.baseHd,
+        label: '👑 ' + (ch.name || ch.id) + ' — apotheosis upkeep ' + st.upkeepGp.toLocaleString() + 'gp DP' + note
+      });
+    }
     return out;
   }
   // COMMIT: apply a ratified weekly record — credit the week (advance the high-water counter) + accrue
   // the week's DP to the high priest (spendable now, fades next month). Idempotent: a week already
   // credited (commit applied twice / the propose-then-commit pass) is a no-op.
   function commitReligionWeek(campaign, record){
-    if(!campaign || !record || record.kind !== 'religion-week') return;
+    if(!campaign || !record) return;
+    if(record.kind === 'incarnation-upkeep') return _commitIncarnationUpkeep(campaign, record);   // R6 dispatch
+    if(record.kind !== 'religion-week') return;
     const cong = findCongregation(campaign, record.congregationId);
     if(!cong) return;
     const weekNumber = Number(record.weekNumber) || 0;
@@ -1252,6 +1292,218 @@
     return { ok: true, standing: fav.standing, previousStanding: wasStanding, clearedTransgressions: cleared };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Religion R6 (b13 team 2026-06-21) — Apotheosis upkeep + the dungeon co-extraction
+  //   Phase_4_Religion_Plan.md §3.7 / §10.1 / §10.2. RR p.398 (the ritual + the upkeep) + JJ p.431
+  //   (the cosmology math); RR p.388 (the dungeon 10/10/80 co-extraction). Core RAW — NO house rule
+  //   (D2). Every new field (character.apotheosis, congregation.usurpedDungeonId) is DEFENSIVE
+  //   (init-on-write, NOT on any factory, NOT in migrateCampaign) so templates + the demo stay
+  //   migrate-no-ops (the R0 guard). The `apotheosis` event self-registers from this module (§15.5).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── (a) Apotheosis — the incarnation upkeep ─────────────────────────────────
+  // The ritual that GRANTS apotheosis is the Phase-4.6 / Magic-Research `apotheosis` ritual (its catalog
+  // entry is `deferredTo:'religion'` — the ritual machinery is shipped, the EFFECT is ours). Religion owns
+  // the effect: the Death save + the `incarnation` creature-type + the ongoing upkeep + the event.
+
+  const INCARNATION_UPKEEP_PCT = 0.06;            // RR p.398 — 6% of XP value per day in DP, or −1 HD.
+  const INCARNATION_VITALITY_XP_PER_GP = 1;       // RR p.398 — consume DP for vitality at 1 campaign XP / gp.
+
+  // An ascended incarnation carries 'incarnation' on the five-axis creatureTypes[] (Architecture §2 —
+  // already a valid enum value in acks-engine-field-schemas.js).
+  function isIncarnation(ch){
+    return !!(ch && Array.isArray(ch.creatureTypes) && ch.creatureTypes.indexOf('incarnation') >= 0);
+  }
+  // The XP-value basis for the 6% daily upkeep. 🔧 v1: the character's LIVE campaign XP (the prompt's
+  // "6% of the character's XP"); RAW's precise basis is "XP value as a monster with ***** (5 special
+  // abilities)" (RR p.398) — a refinement for when a monster-XP-by-HD calculator is wired. Reading live
+  // ch.xp means a DP→vitality conversion (which raises XP) also raises future upkeep: the RAW "increase
+  // his vitality" tradeoff — more powerful, costlier to sustain.
+  function incarnationXpValue(ch){ return ch ? Math.max(0, Number(ch.xp) || 0) : 0; }
+  function incarnationDailyUpkeepGp(ch){ return Math.ceil(incarnationXpValue(ch) * INCARNATION_UPKEEP_PCT); }
+  function _incarnationBaseHd(ch){ return Math.max(1, Number(ch && ch.level) || 1); }   // HD = level (RR p.398 d8/level)
+  // Upkeep state, read DEFENSIVELY off ch.apotheosis (absent ⇒ a freshly-ascended, fully-vital incarnation).
+  function incarnationUpkeepState(ch){
+    const ap = (ch && ch.apotheosis) || {};
+    const baseHd = _incarnationBaseHd(ch);
+    const hdLost = Math.max(0, Math.min(baseHd, Number(ap.hdLost) || 0));
+    return {
+      xpValue: incarnationXpValue(ch), upkeepGp: incarnationDailyUpkeepGp(ch),
+      baseHd, hdLost, effectiveHd: Math.max(0, baseHd - hdLost),
+      torpid: ap.torpid === true || hdLost >= baseHd,
+      ascendedAtTurn: ap.ascendedAtTurn != null ? ap.ascendedAtTurn : null
+    };
+  }
+
+  // Ascend a character to an incarnation (RR p.398 — the apotheosis EFFECT). A Death saving throw: success
+  // → an incarnation (creatureTypes += 'incarnation', healed of permanent wounds, upkeep state stamped);
+  // failure → obliterated forever ("not even ritual magic able to restore him"). Emits `apotheosis`. The
+  // ritual's component cost (arcane/divine power / incarnation components) is the Magic-Research ritual's
+  // concern; this applies the transfiguration. opts: { characterId, deathSaveRoll? (1..20, deterministic),
+  // gmMod?, rng? }.
+  function ascendToIncarnation(campaign, opts){
+    opts = opts || {};
+    const ch = _findChar(campaign, opts.characterId);
+    if(!ch) return { ok: false, reason: 'no-character' };
+    if(isIncarnation(ch)) return { ok: false, reason: 'already-incarnation' };
+    if(ch.alive === false) return { ok: false, reason: 'not-alive' };
+    // The Death save: 1d20 vs the recipient's Death save target (class/level/proficiency/racial bonuses are
+    // baked into savingThrows.death; RAW excludes magic-item bonuses — not modelled). A natural 1 always
+    // fails. opts.deathSaveRoll forces the d20 for tests.
+    const target = Math.max(2, Number(ch.savingThrows && ch.savingThrows.death) || 15);
+    const gmMod = Number(opts.gmMod) || 0;
+    const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+    const natural = (opts.deathSaveRoll != null) ? Math.max(1, Math.min(20, Math.round(Number(opts.deathSaveRoll)))) : (1 + Math.floor(rng() * 20));
+    const total = natural + gmMod;
+    const success = natural !== 1 && total >= target;
+    const deityId = (deityOf(campaign, opts.characterId) || {}).id || null;
+    const xpValue = incarnationXpValue(ch);
+    if(!success){
+      const A = _A();
+      if(typeof A.recordCharacterDeath === 'function') A.recordCharacterDeath(campaign, ch, { cause: 'apotheosis-failure', heroic: false });
+      else { ch.alive = false; ch.lifecycleState = 'deceased'; }
+      _recordReligionEvent(campaign, 'apotheosis',
+        { characterId: ch.id, outcome: 'obliterated', deathSaveResult: { natural, total, target }, xpValue, deityId },
+        { narrative: (ch.name || ch.id) + ' attempts apotheosis and is obliterated forever (Death save ' + total + ' vs ' + target + '+)',
+          context: { relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }].concat(deityId ? [{ kind: 'deity', id: deityId, role: 'patron' }] : []) } });
+      return { ok: true, outcome: 'obliterated', deathSave: { natural, total, target } };
+    }
+    if(!Array.isArray(ch.creatureTypes)) ch.creatureTypes = ['humanoid'];
+    if(ch.creatureTypes.indexOf('incarnation') < 0) ch.creatureTypes.push('incarnation');
+    ch.permanentWoundPenalty = 0;   // "healed of any existing permanent wounds" (RR p.398) — defensive write
+    ch.apotheosis = { ascendedAtTurn: campaign.currentTurn || 1, xpValueAtAscension: xpValue, hdLost: 0, torpid: false, lastUpkeepDayOrd: 0 };
+    _recordReligionEvent(campaign, 'apotheosis',
+      { characterId: ch.id, outcome: 'ascended', deathSaveResult: { natural, total, target }, xpValue, deityId },
+      { narrative: (ch.name || ch.id) + ' ascends to an incarnation — a deathless immortal (Death save ' + total + ' vs ' + target + '+)',
+        context: { relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }].concat(deityId ? [{ kind: 'deity', id: deityId, role: 'patron' }] : []) } });
+    return { ok: true, outcome: 'ascended', deathSave: { natural, total, target }, upkeepGp: incarnationDailyUpkeepGp(ch) };
+  }
+
+  // Convert divine power to vitality (RR p.398 — "gaining 1 campaign XP per gp value of divine power").
+  // A manual growth action, distinct from R4 pray-and-sacrifice (no monthly threshold — direct 1:1).
+  // Incarnations only. Spends DP through the shared ledger; adds XP; runs the level-up sweep.
+  function convertDivinePowerToVitality(campaign, charId, gp){
+    const ch = _findChar(campaign, charId);
+    if(!ch) return { ok: false, reason: 'no-character' };
+    if(!isIncarnation(ch)) return { ok: false, reason: 'not-incarnation' };
+    const amount = Math.max(0, Math.round(Number(gp) || 0));
+    if(amount <= 0) return { ok: false, reason: 'no-amount' };
+    const spend = spendDivinePower(campaign, charId, amount);
+    if(!spend.ok) return { ok: false, reason: 'insufficient-divine-power', available: spend.remaining };
+    const xpGained = amount * INCARNATION_VITALITY_XP_PER_GP;
+    ch.xp = (Number(ch.xp) || 0) + xpGained;
+    const A = _A();
+    if(typeof A.checkAllCharacterLevelUps === 'function') A.checkAllCharacterLevelUps(campaign);
+    _recordReligionEvent(campaign, 'apotheosis',
+      { characterId: charId, outcome: 'vitality', amountGp: amount, xpGained },
+      { narrative: (ch.name || charId) + ' channels ' + amount.toLocaleString() + 'gp divine power into vitality (+' + xpGained.toLocaleString() + ' XP)',
+        context: { relatedEntities: [{ kind: 'character', id: charId, role: 'subject' }] } });
+    return { ok: true, spentGp: amount, xpGained, remaining: spend.remaining };
+  }
+
+  // COMMIT a ratified daily incarnation-upkeep record (dispatched from commitReligionWeek). Re-reads LIVE
+  // DP (robust to intra-day commit ordering), spends the day's upkeep, and adjusts HD / torpor; emits the
+  // significant transitions (torpor onset / awakening) as `apotheosis` events. Per-day idempotent via the
+  // ap.lastUpkeepDayOrd high-water (the religion-week _weeklyDpAccruedWeeks precedent).
+  function _commitIncarnationUpkeep(campaign, record){
+    const ch = _findChar(campaign, record && record.characterId);
+    if(!ch || !isIncarnation(ch) || ch.alive === false) return;
+    if(!ch.apotheosis || typeof ch.apotheosis !== 'object') ch.apotheosis = { ascendedAtTurn: campaign.currentTurn || 1, hdLost: 0, torpid: false, lastUpkeepDayOrd: 0 };
+    const ap = ch.apotheosis;
+    const dayOrd = Number(record.dayOrd) || 0;
+    if(dayOrd > 0 && dayOrd <= (Number(ap.lastUpkeepDayOrd) || 0)) return;   // already paid this day
+    if(dayOrd > 0) ap.lastUpkeepDayOrd = dayOrd;
+    const baseHd = _incarnationBaseHd(ch);
+    const upkeep = incarnationDailyUpkeepGp(ch);
+    if(upkeep <= 0) return;                                                  // a 0-XP incarnation needs none
+    const wasTorpid = ap.torpid === true || (Number(ap.hdLost) || 0) >= baseHd;
+    let avail = divinePowerAvailable(campaign, ch.id);
+    if(avail >= upkeep){
+      spendDivinePower(campaign, ch.id, upkeep);  avail -= upkeep;
+      // Catch up one lost HD if another full upkeep's surplus is available (RR p.398 "re-gain lost HD by
+      // catching up on missing power"). 🔧 v1: at most 1 HD/day, and only with a full upkeep of surplus.
+      if((Number(ap.hdLost) || 0) > 0 && avail >= upkeep){
+        spendDivinePower(campaign, ch.id, upkeep);
+        ap.hdLost = Math.max(0, (Number(ap.hdLost) || 0) - 1);
+      }
+      if(wasTorpid && (Number(ap.hdLost) || 0) < baseHd){
+        ap.torpid = false;
+        _recordReligionEvent(campaign, 'apotheosis',
+          { characterId: ch.id, outcome: 'awakened', hdLost: ap.hdLost },
+          { narrative: (ch.name || ch.id) + ' stirs from deathless torpor — worship resumes', cadence: 'daily',
+            context: { relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] } });
+      }
+      return;
+    }
+    // Failed to consume enough power → lose 1 HD (RR p.398). At 0 HD → deathless incorporeal torpor.
+    ap.hdLost = Math.min(baseHd, (Number(ap.hdLost) || 0) + 1);
+    if((Number(ap.hdLost) || 0) >= baseHd && !ap.torpid){
+      ap.torpid = true;
+      _recordReligionEvent(campaign, 'apotheosis',
+        { characterId: ch.id, outcome: 'torpor', hdLost: ap.hdLost },
+        { narrative: (ch.name || ch.id) + ' lacks worship and sinks into a deathless incorporeal torpor (0 HD)', cadence: 'daily',
+          context: { relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] } });
+    }
+  }
+
+  // ── (b) Dungeon co-extraction (RR p.388 — the deferred §10.1 follow-on) ──────
+  // A divine chaplain who serves an arcane caster sovereign over a dungeon co-extracts divine power from
+  // the same subjugated creatures. RAW (RR p.388): the divine co-extractor takes 10% of a creature's
+  // harvestable divine power, 10% is residue, the arcane caster/god takes the other 80%. The shipped
+  // Sanctums dungeonArcanePowerPerDay IS that 80% (= 2% of subjugated XP/day), so divine = (10/80) of it.
+  // READ-ONLY over Sanctums (late-bound via _A() — sanctums loads AFTER religion). The settlement case is
+  // Wave E (congregationUsurpedSettlementWeeklyGp, Balbus); this is the dungeon-creature case.
+  const DUNGEON_COEXTRACT_DIVINE_SHARE = 10;   // the chaplain's 10% (RR p.388)
+  const DUNGEON_COEXTRACT_ARCANE_SHARE = 80;   // the arcane caster's/god's 80% (= dungeonArcanePowerPerDay)
+  function dungeonCoExtractionDivinePowerPerDay(campaign, dungeon){
+    const A = _A();
+    if(typeof A.dungeonArcanePowerPerDay !== 'function') return 0;          // Sanctums not loaded — defensive
+    const arcanePerDay = Math.max(0, Number(A.dungeonArcanePowerPerDay(campaign, dungeon)) || 0);
+    return Math.floor(arcanePerDay * DUNGEON_COEXTRACT_DIVINE_SHARE / DUNGEON_COEXTRACT_ARCANE_SHARE);
+  }
+  function _findDungeon(campaign, id){
+    const A = _A();
+    if(typeof A.findDungeon === 'function') return A.findDungeon(campaign, id);
+    return (Array.isArray(campaign.dungeons) ? campaign.dungeons : []).find(d => d && d.id === id) || null;
+  }
+  // Weekly divine power a congregation's chaplain co-extracts over its linked usurped dungeon. Gated on the
+  // dungeon existing, an arcane caster holding sovereignty (sovereignCharacterId), and subjugated XP > 0 (so
+  // a cull drops it). Mirrors congregationUsurpedSettlementWeeklyGp (Wave E). cong.usurpedDungeonId is
+  // defensive (absent ⇒ 0 ⇒ the R0 no-op).
+  function congregationUsurpedDungeonWeeklyGp(campaign, cong){
+    if(!cong || !cong.usurpedDungeonId) return 0;
+    const dn = _findDungeon(campaign, cong.usurpedDungeonId);
+    if(!dn || !dn.sovereignCharacterId) return 0;                            // an arcane usurper must hold sovereignty
+    const A = _A();
+    if((typeof A.dungeonSubjugatedXp === 'function' ? Number(A.dungeonSubjugatedXp(campaign, dn)) : 0) <= 0) return 0;
+    return dungeonCoExtractionDivinePowerPerDay(campaign, dn) * 7;           // per-week (Wave E weekly framing)
+  }
+  // Link / unlink a congregation's chaplain to a usurped dungeon for co-extraction (the UI setter).
+  function setCongregationUsurpedDungeon(campaign, congregationId, dungeonId){
+    const cong = findCongregation(campaign, congregationId);
+    if(!cong) return { ok: false, reason: 'no-congregation' };
+    if(dungeonId) cong.usurpedDungeonId = dungeonId; else delete cong.usurpedDungeonId;
+    return { ok: true, usurpedDungeonId: cong.usurpedDungeonId || null };
+  }
+
+  // Self-register the `apotheosis` event kind FROM this module (the §15.5 kernel — do NOT edit events.js).
+  // Record-only audit posture (mirrors applyEvent_religionAudit); wizard opt-out (auto/internal — not a GM
+  // Event-Wizard kind). All R6 lifecycle moments ride this one kind, discriminated by payload.outcome
+  // (ascended / obliterated / torpor / awakened / vitality).
+  if(typeof ACKS.registerEventKind === 'function'){
+    ACKS.registerEventKind('apotheosis', {
+      schema: {
+        R: { characterId: 'string', outcome: 'string' },
+        O: { deathSaveResult: 'object', xpValue: 'number', deityId: 'string', amountGp: 'number', xpGained: 'number', hdLost: 'number', narrative: 'string' }
+      },
+      wizardOptOut: true,
+      handler: function(campaign, event){
+        const p = (event && event.payload) || {};
+        return { result: { narrativeSummary: p.narrative || 'apotheosis' } };
+      }
+    });
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     DIVINE_CLASSES,
@@ -1284,7 +1536,12 @@
     consecrateAltar, consecrateRuler,
     domainConsecrationBuff, domainConsecrationMoraleRow, domainConsecrationVassalLoyaltyBonus, domainConsecrationVagaryAdvantage,
     // ── Religion R5 (team burst10 2026-06-20) — the Divine Transgression table (JJ p.400) ──
-    DIVINE_TRANSGRESSION_TABLE, lookupDivineTransgression, rollDivineTransgression, applyDivineTransgression, atone
+    DIVINE_TRANSGRESSION_TABLE, lookupDivineTransgression, rollDivineTransgression, applyDivineTransgression, atone,
+    // ── Religion R6 (b13 team 2026-06-21) — apotheosis upkeep (RR p.398) + dungeon co-extraction (RR p.388) ──
+    INCARNATION_UPKEEP_PCT, INCARNATION_VITALITY_XP_PER_GP,
+    isIncarnation, incarnationXpValue, incarnationDailyUpkeepGp, incarnationUpkeepState,
+    ascendToIncarnation, convertDivinePowerToVitality,
+    dungeonCoExtractionDivinePowerPerDay, congregationUsurpedDungeonWeeklyGp, setCongregationUsurpedDungeon
   });
 
 })(typeof window !== 'undefined' ? window : global);
