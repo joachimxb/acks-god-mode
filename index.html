@@ -72,7 +72,7 @@
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
 <script src="acks-engine-politics.js?v=2026-06-20-burst11"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-20-burst9"></script>
+<script src="acks-engine-lifecycle.js?v=2026-06-21-b12-lifecycle"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-17-voyages-v5"></script>
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
@@ -11977,6 +11977,34 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- === @b12-lifecycle (team) — Lifecycle CL-4b dynasty card (AXIOMS 19). The optional dynasty
+             layer: play the bloodline, not just the character. Gated on the dynasty-tracking house rule
+             (hidden when off — principle 8). Shows the character's dynasty/title/law/traits + a launcher
+             into the Dynasty modal (found · kinship · birth · succession law · family tree). The modal
+             markup lives at the @b12-lifecycle marker in the modal tail; state+methods at the
+             @b12-lifecycle marker in domainApp. — section:char-dynasty / panel:character-dynasty -->
+        <template x-if="characterEditing && dynastyTrackingOn()">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Dynasty <span class="text-sm font-normal opacity-60">(AXIOMS 19)</span></h4>
+              <button @click="dynOpen(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-amber-200 hover:bg-amber-300 font-semibold" title="Found a dynasty, record kinships + births, change the succession law, or resolve a succession (AXIOMS 19)">👑 Dynasty…</button>
+            </div>
+            <template x-if="!dynInfo(characterEditing).inDynasty">
+              <p class="text-sm italic opacity-60">Lowborn — not a member of any dynasty.<span x-show="dynInfo(characterEditing).noble"> (Noble — eligible to found one.)</span></p>
+            </template>
+            <template x-if="dynInfo(characterEditing).inDynasty">
+              <div class="space-y-1 text-sm">
+                <p class="font-semibold">👑 House <span x-text="dynInfo(characterEditing).dynastyName || '(unnamed)'"></span>
+                  <span class="font-normal opacity-70" x-text="(dynInfo(characterEditing).title ? ('· ' + dynInfo(characterEditing).title + ' ') : '') + (dynInfo(characterEditing).isFounder ? '(founder)' : dynInfo(characterEditing).isHeir ? '(heir)' : '') + (dynInfo(characterEditing).status === 'extinct' ? ' · extinct' : '')"></span></p>
+                <p>⚖ <span x-text="dynInfo(characterEditing).successionLawLabel"></span> succession<span x-show="dynInfo(characterEditing).vassalLoyaltyBonus" x-text="' — vassals +' + dynInfo(characterEditing).vassalLoyaltyBonus + ' loyalty'"></span><span x-show="dynInfo(characterEditing).pendingSuccessionLaw" class="opacity-60" x-text="' (changing to ' + dynInfo(characterEditing).pendingSuccessionLaw + ')'"></span></p>
+                <p x-show="dynInfo(characterEditing).bloodlineTraits && dynInfo(characterEditing).bloodlineTraits.length">🩸 Bloodline trait: <span class="font-semibold" x-text="(dynInfo(characterEditing).bloodlineTraits||[]).join(', ')"></span> <span class="opacity-60">(children roll 4d6, keep best 3)</span></p>
+                <p class="opacity-70" x-text="dynInfo(characterEditing).memberCount + ' member' + (dynInfo(characterEditing).memberCount===1?'':'s') + (dynInfo(characterEditing).bastard ? ' · ○ this character is a bastard' : '') + (dynInfo(characterEditing).childrenCount ? (' · ' + dynInfo(characterEditing).childrenCount + ' child' + (dynInfo(characterEditing).childrenCount===1?'':'ren')) : '')"></p>
+              </div>
+            </template>
+          </div>
+        </template>
+        <!-- === end @b12-lifecycle dynasty card === -->
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -18043,6 +18071,105 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b12-census     (team) — SD-6/SD-7 magic-item + wealth census panels (Demographics roster) + MI-3 per-Class availability (🪄 Magic Items market). ⚠ IP §13.6/§13.9 — TT availability/value tables as mechanical facts only, like the monster catalog. === -->
 <!-- === @b12-delves     (team) — Delves D5 follow-on: escalate a settlement urban-incident → a full Encounter; the seeded-daily-check readout (World ▸ 🕳️ Dungeons ▸ Settlement Visits). === -->
 <!-- === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: the Dynasty panel (char-sheet Lifecycle) + kinship/succession (dyn- entity). === -->
+<!-- The Dynasty modal (AXIOMS 19) — launched from the char-sheet Dynasty card (dynOpen). Found a dynasty,
+     record marriages + births, change the succession law (2d4 months, or a GM-expedited immediate change),
+     view the family tree, and resolve a succession per the law. Over acks-engine-lifecycle.js (CL-4b). -->
+<template x-if="dynModal.open">
+  <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click.self="dynModal.open=false" @keydown.escape.window="dynModal.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-4" x-data>
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-lg font-bold">👑 Dynasty <span class="text-sm font-normal opacity-70">· AXIOMS 19 · <span x-text="(dynModalChar()||{}).name || ''"></span></span></h3>
+        <button @click="dynModal.open=false" class="text-xl leading-none px-2 hover:text-red-700" title="Close">×</button>
+      </div>
+      <p x-show="dynModal.lastResult" class="text-sm accent-blue mb-2" x-text="dynModal.lastResult"></p>
+
+      <!-- FOUND a dynasty (the character has none) -->
+      <template x-if="dynModalChar() && !dynInfo(dynModalChar()).inDynasty">
+        <div class="space-y-2">
+          <p class="text-sm opacity-70">A titled character founds a dynasty — a coat of arms + a surname. Founding raises a lowborn character to nobility (AXIOMS 19).</p>
+          <label class="block text-sm font-semibold">Surname / house name<input type="text" x-model="dynModal.foundName" placeholder="e.g. Vane" class="w-full text-sm mt-0.5"></label>
+          <label class="block text-sm font-semibold">Coat of arms <span class="font-normal opacity-60">(a free-text blazon)</span><input type="text" x-model="dynModal.foundCoatOfArms" placeholder="e.g. a silver hawk on azure" class="w-full text-sm mt-0.5"></label>
+          <label class="block text-sm font-semibold">Title <span class="font-normal opacity-60">(optional)</span><input type="text" x-model="dynModal.foundTitle" placeholder="e.g. Marquis" class="w-full text-sm mt-0.5"></label>
+          <div class="flex gap-2">
+            <label class="block text-sm font-semibold flex-1">Realm type <span class="font-normal opacity-60">(its starting-law table)</span>
+              <select x-model="dynModal.foundRealmType" class="w-full text-sm mt-0.5"><template x-for="rt in dynRealmTypes()" :key="rt"><option :value="rt" x-text="rt"></option></template></select></label>
+            <label class="block text-sm font-semibold flex-1">Succession law
+              <select x-model="dynModal.foundLaw" class="w-full text-sm mt-0.5"><template x-for="l in dynSuccessionLaws()" :key="l.id"><option :value="l.id" x-text="l.label + (l.vassalLoyaltyBonus ? (' (vassals +' + l.vassalLoyaltyBonus + ')') : '')"></option></template></select></label>
+          </div>
+          <button @click="dynFound()" class="px-3 py-1.5 border border-ink rounded text-sm bg-amber-300 hover:bg-amber-400 font-semibold" :disabled="!dynModal.foundName" :class="!dynModal.foundName ? 'opacity-50 cursor-not-allowed' : ''">👑 Found the dynasty</button>
+        </div>
+      </template>
+
+      <!-- MANAGE an existing dynasty -->
+      <template x-if="dynModalDynasty()">
+        <div class="space-y-3 text-sm">
+          <!-- summary -->
+          <div class="vellum border border-ink/30 rounded p-2">
+            <p class="font-semibold">House <span x-text="dynModalDynasty().name || '(unnamed)'"></span> <span class="font-normal opacity-60" x-text="dynModalDynasty().coatOfArms ? ('— ' + dynModalDynasty().coatOfArms) : ''"></span> <span x-show="dynModalDynasty().status==='extinct'" class="accent-red font-semibold">· EXTINCT</span></p>
+            <p>⚖ <span x-text="(successionLawLabelFor(dynModalDynasty().successionLaw))"></span><span x-show="dynVassalBonus()" x-text="' — vassals +' + dynVassalBonus() + ' loyalty'"></span><span x-show="dynModalDynasty().pendingSuccessionLaw" class="opacity-60" x-text="' (changing to ' + dynModalDynasty().pendingSuccessionLaw + ' at turn ' + dynModalDynasty().lawChangeCompletesTurn + ')'"></span></p>
+            <p x-show="(dynModalDynasty().bloodlineTraits||[]).length">🩸 Bloodline trait: <span class="font-semibold" x-text="(dynModalDynasty().bloodlineTraits||[]).join(', ')"></span></p>
+          </div>
+
+          <!-- family tree -->
+          <div>
+            <p class="font-semibold mb-1">🌳 Family tree <span class="font-normal opacity-60">(# PC · ♥ heir · ○ bastard)</span></p>
+            <ul class="space-y-0.5">
+              <template x-for="n in dynFamilyTree()" :key="n.id">
+                <li class="flex items-center gap-1.5" :class="n.deceased ? 'opacity-50 line-through' : ''">
+                  <span class="w-4 text-center font-bold" x-text="n.marker || '·'"></span>
+                  <span x-text="n.name"></span>
+                  <span class="opacity-60 text-xs" x-text="(n.title ? ('· ' + n.title + ' ') : '') + (n.isFounder ? '· founder' : '') + (n.bastard ? '· bastard' : '') + (n.level ? (' · L' + n.level) : '')"></span>
+                </li>
+              </template>
+              <li x-show="!dynFamilyTree().length" class="opacity-60 italic">No members recorded.</li>
+            </ul>
+          </div>
+
+          <!-- record marriage + birth -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+              <p class="font-semibold">💍 Record a marriage</p>
+              <p class="text-xs opacity-60" x-text="'Spouse for ' + ((dynModalChar()||{}).name || '')"></p>
+              <select x-model="dynModal.marriageSpouseId" class="w-full text-sm"><option value="">— pick a spouse —</option><template x-for="o in dynCharOptions()" :key="o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <label class="flex items-center gap-1.5 text-xs"><input type="checkbox" x-model="dynModal.marriageMatrilineal"> Matrilineal (children take the mother's dynasty)</label>
+              <button @click="dynRecordMarriage()" :disabled="!dynModal.marriageSpouseId" :class="!dynModal.marriageSpouseId?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">💍 Record</button>
+            </div>
+            <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+              <p class="font-semibold">👶 Birth a child</p>
+              <select x-model="dynModal.birthMotherId" class="w-full text-sm"><option value="">— mother —</option><template x-for="o in dynCharOptions()" :key="'m'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <select x-model="dynModal.birthFatherId" class="w-full text-sm"><option value="">— father —</option><template x-for="o in dynCharOptions()" :key="'f'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <input type="text" x-model="dynModal.birthName" placeholder="child's name (optional)" class="w-full text-sm">
+              <button @click="dynBirth()" :disabled="!dynModal.birthMotherId || !dynModal.birthFatherId" :class="(!dynModal.birthMotherId||!dynModal.birthFatherId)?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">👶 Birth</button>
+              <p class="text-xs opacity-50">A child of non-spouses is a bastard. Bloodline-trait abilities roll 4d6, keep best 3.</p>
+            </div>
+          </div>
+
+          <!-- change succession law -->
+          <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+            <p class="font-semibold">⚖ Change the succession law</p>
+            <div class="flex items-center gap-2">
+              <select x-model="dynModal.changeLaw" class="flex-1 text-sm"><option value="">— pick a law —</option><template x-for="l in dynSuccessionLaws()" :key="'c'+l.id"><option :value="l.id" x-text="l.label + (l.vassalLoyaltyBonus ? (' (vassals +' + l.vassalLoyaltyBonus + ')') : '')"></option></template></select>
+              <label class="flex items-center gap-1.5 text-xs whitespace-nowrap"><input type="checkbox" x-model="dynModal.changeImmediate"> Immediate</label>
+              <button @click="dynChangeLaw()" :disabled="!dynModal.changeLaw" :class="!dynModal.changeLaw?'opacity-50 cursor-not-allowed':''" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100">Change</button>
+            </div>
+            <p class="text-xs opacity-50">A change takes 2d4 months to take effect (it flips on the monthly turn) — unless made immediate. In a senatorial realm RAW requires senate approval (a deferred Politics seam).</p>
+          </div>
+
+          <!-- resolve a succession -->
+          <div class="vellum border border-ink/30 rounded p-2 space-y-1">
+            <p class="font-semibold">⚱ Resolve a succession</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select x-model="dynModal.successionDeceasedId" class="flex-1 text-sm"><option value="">— the deceased member (optional) —</option><template x-for="o in dynMemberOptions()" :key="'d'+o.id"><option :value="o.id" x-text="o.name + (o.deceased ? ' (deceased)' : '')"></option></template></select>
+              <select x-show="dynLawIsElective()" x-model="dynModal.successionNominee" class="flex-1 text-sm"><option value="">— elected nominee (optional) —</option><template x-for="o in dynMemberOptions()" :key="'n'+o.id"><option :value="o.id" x-text="o.name"></option></template></select>
+              <button @click="dynResolveSuccession()" class="px-2 py-1 border border-ink/50 rounded text-xs hover:bg-amber-100 font-semibold">⚱ Resolve</button>
+            </div>
+            <p class="text-xs opacity-50">Picks the heir by the dynasty's law (eldest/youngest child · eldest member · most powerful · elected). Feed the heir to the character-sheet Lifecycle "Resolve succession" to carry over Reserve XP + the inheritance.</p>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
 <!-- === @b12-treasure   (team) — Treasure Wave-C captives→confinements: the Confinements panel (💰 Treasure wizard) — ransom/release/escape (cnf- relation). === -->
 <!-- === @b12-voyages    (team) — Voyages deferred seams: Vessel-as-Construction-Project + marines-as-Group + port-repair (🚢 Vessels view). === -->
 <!-- === @b12-generators (team) — NPC Generator G2: roster + entourage generation + UI deep-links (🧙 Generators tab; do NOT touch the Demographics roster — that is the @b12-census lane's region). === -->
@@ -19999,6 +20126,54 @@ return {
   // === @b12-census     (team) — SD-6/SD-7 census + MI-3 per-Class availability: state + methods ===
   // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
   // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
+  // The optional AXIOMS-19 dynasty layer over acks-engine-lifecycle.js (foundDynasty / recordKinship /
+  // birthChild / setSuccessionLaw / resolveDynastySuccession + the reads). One modal (dynModal); the card
+  // lives in the char-sheet lifecycle cluster; both gated on the dynasty-tracking house rule.
+  dynModal: { open:false, charId:'',
+    foundName:'', foundCoatOfArms:'', foundRealmType:'human-standard', foundLaw:'gavelkind', foundTitle:'',
+    changeLaw:'', changeImmediate:false, marriageSpouseId:'', marriageMatrilineal:false,
+    birthMotherId:'', birthFatherId:'', birthName:'', successionDeceasedId:'', successionNominee:'', lastResult:'' },
+  dynastyTrackingOn(){ const A=window.ACKS; return !!(A && A.isHouseRuleEnabled && A.isHouseRuleEnabled(this.currentCampaign, 'dynasty-tracking')); },
+  dynInfo(ch){ const A=window.ACKS; return (ch && A && A.characterDynastyInfo) ? A.characterDynastyInfo(this.currentCampaign, ch) : { inDynasty:false }; },
+  dynModalChar(){ return (this.currentCampaign?.characters||[]).find(x => x && x.id === this.dynModal.charId) || null; },
+  dynModalDynasty(){ const ch=this.dynModalChar(); const A=window.ACKS; return (ch && ch.dynastyId && A && A.dynastyById) ? A.dynastyById(this.currentCampaign, ch.dynastyId) : null; },
+  dynSuccessionLaws(){ return (window.ACKS && window.ACKS.successionLawsList) ? window.ACKS.successionLawsList() : []; },
+  successionLawLabelFor(id){ const l=(window.ACKS && window.ACKS.successionLawById) ? window.ACKS.successionLawById(id) : null; return l ? l.label : (id || '—'); },
+  dynLawIsElective(){ const d=this.dynModalDynasty(); if(!d) return false; const l=window.ACKS.successionLawById(d.successionLaw); return !!(l && l.type==='elective'); },
+  dynVassalBonus(){ const d=this.dynModalDynasty(); const A=window.ACKS; return (d && A && A.dynastyVassalLoyaltyBonus) ? A.dynastyVassalLoyaltyBonus(this.currentCampaign, d.id) : 0; },
+  dynRealmTypes(){ return Object.keys((window.ACKS && window.ACKS.DYNASTY_STARTING_LAW_BY_REALM) || {}); },
+  dynFamilyTree(){ const d=this.dynModalDynasty(); const A=window.ACKS; return (d && A && A.dynastyFamilyTree) ? A.dynastyFamilyTree(this.currentCampaign, d.id) : []; },
+  dynMemberOptions(){ const d=this.dynModalDynasty(); const A=window.ACKS; if(!d) return []; return (A.dynastyMembers(this.currentCampaign, d.id)||[]).map(c=>({ id:c.id, name:c.name, deceased:(c.lifecycleState==='deceased'||c.alive===false) })); },
+  dynCharOptions(){ return (this.currentCampaign?.characters||[]).filter(x => x && x.alive !== false && x.lifecycleState !== 'deceased').map(x=>({ id:x.id, name:x.name })); },
+  dynCharName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return c?c.name:'—'; },
+  _dynTouch(msg){ if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist(); if(msg && this.showToast) this.showToast(msg, 3000); },
+  dynOpen(ch){
+    this.dynModal = Object.assign({}, this.dynModal, { open:true, charId:ch.id,
+      foundName:(ch.name ? ch.name.split(/\s+/).slice(-1)[0] : ''), foundCoatOfArms:'', foundRealmType:'human-standard', foundLaw:'gavelkind', foundTitle:(ch.title||''),
+      changeLaw:'', changeImmediate:false, marriageSpouseId:'', marriageMatrilineal:false,
+      birthMotherId:'', birthFatherId:'', birthName:'', successionDeceasedId:'', successionNominee:'', lastResult:'' });
+  },
+  dynFound(){ const m=this.dynModal; const A=window.ACKS; if(!A||!A.foundDynasty) return;
+    const res = A.foundDynasty(this.currentCampaign, m.charId, { name:m.foundName, coatOfArms:m.foundCoatOfArms, realmType:m.foundRealmType, successionLaw:m.foundLaw||undefined, title:m.foundTitle||undefined });
+    if(res && res.error){ this._dynTouch('Cannot found: ' + res.error); return; }
+    this._dynTouch('Founded the dynasty of ' + (res.name || '(unnamed)') + '.'); },
+  dynChangeLaw(){ const m=this.dynModal; const d=this.dynModalDynasty(); if(!d||!m.changeLaw) return; const A=window.ACKS;
+    const res = A.setSuccessionLaw(this.currentCampaign, d.id, m.changeLaw, { immediate:m.changeImmediate });
+    if(res && res.error){ this._dynTouch('Cannot change: ' + res.error); return; }
+    this._dynTouch(res.applied ? ('Succession law changed to ' + m.changeLaw + '.') : ('Law change to ' + m.changeLaw + ' begins — ' + res.months + ' month' + (res.months===1?'':'s') + '.')); m.changeLaw=''; },
+  dynRecordMarriage(){ const m=this.dynModal; if(!m.marriageSpouseId) return; const A=window.ACKS;
+    A.recordKinship(this.currentCampaign, { kinType:'marriage', aCharacterId:m.charId, bCharacterId:m.marriageSpouseId, matrilineal:m.marriageMatrilineal });
+    this._dynTouch('Marriage recorded.'); m.marriageSpouseId=''; },
+  dynBirth(){ const m=this.dynModal; if(!m.birthMotherId||!m.birthFatherId) return; const A=window.ACKS;
+    const res = A.birthChild(this.currentCampaign, { motherCharacterId:m.birthMotherId, fatherCharacterId:m.birthFatherId, name:m.birthName||undefined });
+    if(res && res.error){ this._dynTouch('No birth: ' + res.error + (res.cap!=null ? (' (cap ' + res.cap + ')') : '')); return; }
+    this._dynTouch((res.name || 'A child') + ' is born' + (res.bastard ? ' (a bastard)' : '') + '.'); m.birthName=''; },
+  dynResolveSuccession(){ const m=this.dynModal; const d=this.dynModalDynasty(); if(!d) return; const A=window.ACKS;
+    const res = A.resolveDynastySuccession(this.currentCampaign, d.id, { deceasedId:m.successionDeceasedId||undefined, nominee:m.successionNominee||undefined });
+    if(res && res.error){ this._dynTouch('Cannot resolve: ' + res.error); return; }
+    m.lastResult = res.dynastyExtinct ? 'The dynasty ends — no living heir (the game ends).'
+      : ('Heir: ' + this.dynCharName(res.heirId) + (res.vassalLoyaltyBonus ? (' · vassals +' + res.vassalLoyaltyBonus + ' loyalty') : '') + (res.divides ? ' · the demesne divides' : '') + (res.awardedTrait ? (' · earned a ' + res.awardedTrait + ' bloodline trait') : ''));
+    this._dynTouch(res.dynastyExtinct ? 'The dynasty is extinct.' : ('Succession resolved → ' + this.dynCharName(res.heirId) + '.')); },
   // === @b12-treasure   (team) — Treasure Wave-C confinements: state + methods ===
   // === @b12-voyages    (team) — Voyages deferred seams (vessel-construction / marines / port-repair): state + methods ===
   // === @b12-generators (team) — NPC Generator G2 (rosters / entourages / deep-links): state + methods ===
