@@ -11039,7 +11039,11 @@ function proposeConstructionDay(campaign, dayContext){
       fromDaysElapsed: fromDaysElapsed, newDaysElapsed: newDaysElapsed,
       willComplete: willComplete, primaryHexId: p.siteHexId || null
     });
-    if(willComplete){
+    // === @b13-construction (team) — Wave D: vessels + war machines own their completion audit
+    // (vessel-launched via the voyages seam; war-machine-built via materializeWaveDConstructible),
+    // so suppress the generic construction-completed log notable for those two kinds — otherwise the
+    // Event Log would carry a redundant "X completed" line alongside the kind-specific audit.
+    if(willComplete && p.constructibleKind !== 'vessel' && p.constructibleKind !== 'war-machine'){
       notableEvents.push({
         kind: 'construction-completed', type: 'construction-complete', projectId: p.id,
         primaryHexId: p.siteHexId || null,
@@ -11085,6 +11089,13 @@ function commitConstructionRecord(campaign, record){
       turn: campaign.currentTurn || null, type: 'completed',
       narrative: 'Project completed after ' + p.daysElapsed + ' days of work.'
     });
+    // === @b13-construction (team) — Wave D: materialize the completed Constructible on the Day
+    // Clock. The shipped day-tick LOGS construction-completed but never applyEvent()s it (see
+    // emitDayTickEvents), so the generic events.js mint never fires here. The Wave-D materializer
+    // mints the war-machine Constructible (the onVesselConstructed analog; no new day-tick slot).
+    // It no-ops for every other kind — vessels are minted by the voyages day-tick consumer off
+    // lifecycleState:'complete'; dungeons/strongholds keep their applyEvent_constructionCompleted path.
+    try { if(global.ACKS && typeof global.ACKS.materializeWaveDConstructible === 'function') global.ACKS.materializeWaveDConstructible(campaign, p); } catch(_e){}
   }
 }
 
