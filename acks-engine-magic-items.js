@@ -255,6 +255,25 @@
   }
   function magicItemBaseCost(campaign, ref){ return _resolveBaseCost(campaign, ref); }
 
+  // Resolve a NotableItem / catalog-key / base-cost ref → the magic-item TYPE category (the
+  // intrinsic.category / kind / catalog kind), for the by-type market gate. null = unknown type
+  // (a bare base-cost ref) — the buy gate then falls back to the by-rarity table. MI-3-per-Class.
+  function _resolveItemType(campaign, ref){
+    if(ref == null || typeof ref === 'number') return null;
+    if(typeof ref === 'string'){ const e = findMagicItemCatalog(ref); return e ? e.kind : null; }
+    const ni = ref; const intr = ni.intrinsic || {};
+    let cat = intr.category || ni.kind || null;
+    if(!cat && ni.baseCatalogKey){ const e = findMagicItemCatalog(ni.baseCatalogKey); if(e) cat = e.kind; }
+    return cat || null;
+  }
+  // The ref's normalized TT type key ('potion'|'ring'|'scroll'|'implement'|'misc-weapon'|'sword'|
+  // 'misc-item'|'armor') via the availability module, or null. The by-type market gate keys on this.
+  function _resolveItemTypeKey(campaign, ref){
+    const A = _miACKS();
+    const raw = _resolveItemType(campaign, ref);
+    return (typeof A.magicItemTypeForCategory === 'function') ? A.magicItemTypeForCategory(raw) : (raw || null);
+  }
+
   // Apparent value (TT 1.7) — XP value + the found-item sale anchor; ≠ base cost. Falls back to base cost.
   function magicItemApparentValue(campaign, ref){
     if(ref && typeof ref === 'object' && ref.intrinsic && typeof ref.intrinsic.apparentValue === 'number') return ref.intrinsic.apparentValue;
@@ -995,13 +1014,14 @@
   // the primitive the shipped market-transaction is itself built on; the W2 commission precedent
   // calls it directly), so a sale keeps the canonical purse / stash / treasury invariants WITHOUT
   // this module rebuilding the wealth machinery or editing acks-engine-events.js / -subsystems.js /
-  // -catalogs.js internals. AVAILABILITY is a magic-item gate kept in THIS module (the lane's explicit
-  // permission), since the licensed TT *Magic Item Transactions by Rarity* / *Availability by Type*
-  // per-Class cells are NOT transcribed (⚠ IP §13.6 + absent from Treasure_Tome_RAW_Survey.md §1.4):
-  // we ship the RAW *structure* — rarity-keyed, market-class-gated, per-party = 10% of per-market,
-  // per-month (TT pp.26–28) — grounded in the shipped equipmentAvailability count + a 🔧 rarity→
-  // max-class ladder (a tooling default, GM-overridable, like W1's RARITY_TARGET; the exact licensed
-  // cells are a content-pack deepening behind the §13.9 Autarch heads-up).
+  // -catalogs.js internals. AVAILABILITY now reads the LICENSED TT per-Class cells — the *Magic Item
+  // Transactions by Rarity* (sell, keyed by rarity) + *Availability by Type* (buy, keyed by item type)
+  // tables (TT p.27), shipped as mechanical facts in acks-engine-magic-item-availability.js (burst12
+  // @b12-census; ⚠ IP §13.6/§13.9 catalog posture — numbers + % chances only, no prose, like the
+  // monster catalog; the §13.9 Autarch heads-up folds into the catalog heads-up). Per-party = per-market
+  // ÷ 10 (TT p.27); the per-month headroom is derived from the eventLog (by type for buy, by rarity for
+  // sell). The pre-burst12 🔧 rarity→max-class ladder (MAGIC_MARKET_MAX_CLASS_IDX) survives only as a
+  // graceful fallback should that module ever be absent.
   //
   // Two record-only events (the appraise / sell / buy verbs OWN the gp + state; applyEvent_magicItem
   // Audit keeps them well-formed on replay): magic-item-appraised (a MARKET price estimate — distinct
@@ -1010,9 +1030,9 @@
   // item changed hands at a market", whoever the seller).
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // 🔧 rarity → the LARGEST market-class index (0 = Class I … 5 = Class VI) that can transact it. A
-  // tooling ladder (RAW gates by rarity but the per-Class cells are IP / not in the survey): a bigger
-  // market handles rarer goods (TT's table simply blanks the rarer rows for the smaller Classes).
+  // 🔧 FALLBACK rarity → max market-class index (0 = Class I … 5 = Class VI). Used ONLY if the licensed
+  // TT availability module is absent (the gate now reads the real per-Class cells, above). Kept so the
+  // gate degrades gracefully rather than throwing; the real TT max-class is derived per-cell.
   const MAGIC_MARKET_MAX_CLASS_IDX = Object.freeze({ common:5, uncommon:4, rare:3, 'very-rare':1, legendary:0 });
   const _MARKET_CLASS_LABEL = Object.freeze(['I','II','III','IV','V','VI']);
 
@@ -1032,9 +1052,13 @@
     return 5;
   }
 
-  // Units of `rarity` transacted this turn (accounting month) in `direction` at `settlementId` — the
-  // TT per-market-per-month headroom, DERIVED from the eventLog (mirrors marketUnitsTransactedThisMonth).
-  function _magicMarketUnitsThisMonth(campaign, settlementId, rarity, direction){
+  // Units transacted this turn (accounting month) at `settlementId` matching a spec — the TT per-
+  // market-per-month headroom DERIVED from the eventLog (mirrors marketUnitsTransactedThisMonth).
+  // spec: { direction, rarity?, itemType? } — SELL headroom counts by rarity (the Transactions-by-
+  // Rarity axis), BUY by item type (the Availability-by-Type axis). A pre-itemType buy event resolves
+  // its type from the item (back-compat).
+  function _magicMarketUnitsThisMonth(campaign, settlementId, spec){
+    spec = spec || {};
     const turn = (campaign && campaign.currentTurn) || 1;
     const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
     let units = 0;
@@ -1044,48 +1068,89 @@
       if(at != null && at !== turn) continue;
       const p = ev.payload || {};
       if(p.settlementId !== settlementId) continue;
-      if(direction && p.direction !== direction) continue;
-      if(rarity && p.rarity !== rarity) continue;
+      if(spec.direction && p.direction !== spec.direction) continue;
+      if(spec.rarity && p.rarity !== spec.rarity) continue;
+      if(spec.itemType){
+        let t = p.itemType;
+        if(t == null){ const ni = _findNotable(campaign, p.itemId); t = ni ? _resolveItemTypeKey(campaign, ni) : null; }
+        if(t !== spec.itemType) continue;
+      }
       units += (Number(p.qty) || 1);
     }
     return units;
   }
 
-  // magicItemMarketAvailability(campaign, ref, settlement, opts) — the gate. ref: NotableItem | catalog
-  // key | base-cost number. opts: { direction? ('buy'|'sell'), qty? }. Returns:
-  // { available, transactable, reason, rarity, rarityLabel, baseCost, marketClass, marketClassIdx,
-  //   maxClassIdx, perMarketMax, perPartyMax, transactedThisMonth, monthlyRemaining }.
+  // The largest market-class index (0..5) that deals in a rarity / type at all (the cell isn't '–').
+  function _maxDealableClassIdx(cellFn){
+    let max = -1;
+    for(let i = 0; i <= 5; i++){ const c = cellFn(i); if(c && c.kind !== 'none') max = i; }
+    return max < 0 ? 5 : max;
+  }
+
+  // magicItemMarketAvailability(campaign, ref, settlement, opts) — the market gate, reading the licensed
+  // TT per-Class cells (acks-engine-magic-item-availability.js, TT p.27). The two TT tables gate on
+  // DIFFERENT axes: BUY consults Availability-by-Type (keyed by the item's type); SELL consults
+  // Transactions-by-Rarity (keyed by rarity). Per-party = per-market ÷ 10 (TT p.27). The per-month
+  // headroom is DERIVED from the eventLog (by type for buy, by rarity for sell). ref: NotableItem |
+  // catalog key | base-cost number. opts: { direction?('buy'|'sell'), qty? }. Returns { available,
+  // transactable, reason, rarity, rarityLabel, itemType, direction, baseCost, marketClass, marketClassIdx,
+  // maxClassIdx, cellKind, chancePct, perPartyChancePct, perMarketMax, perPartyMax, transactedThisMonth,
+  // monthlyRemaining }. Falls back to the pre-burst12 🔧 rarity→max-class ladder + equipmentAvailability
+  // proxy if the TT availability module is somehow absent (graceful degradation; never a load-time dep).
   function magicItemMarketAvailability(campaign, ref, settlement, opts){
     opts = opts || {};
     const A = _miACKS();
     const baseCost = _resolveBaseCost(campaign, ref);
     if(baseCost == null) return { available:false, transactable:false, reason:'no-base-cost' };
     const rarity = (ref && typeof ref === 'object' && ref.intrinsic && ref.intrinsic.rarity) || magicItemRarity(baseCost);
+    const itemType = _resolveItemTypeKey(campaign, ref);
     const mcIdx = magicMarketClassIdx(campaign, settlement);
-    const maxIdx = (MAGIC_MARKET_MAX_CLASS_IDX[rarity] != null) ? MAGIC_MARKET_MAX_CLASS_IDX[rarity] : 5;
+    const dir = (opts.direction === 'buy' || opts.direction === 'sell') ? opts.direction : 'sell';
+    const byType = (dir === 'buy' && !!itemType);   // buy w/ a known type gates by type; else by rarity
     const out = {
       available:false, transactable:false, reason:null,
-      rarity, rarityLabel: rarityLabel(rarity), baseCost,
-      marketClass: _MARKET_CLASS_LABEL[mcIdx], marketClassIdx: mcIdx, maxClassIdx: maxIdx,
-      perMarketMax:0, perPartyMax:0, transactedThisMonth:0, monthlyRemaining:0
+      rarity, rarityLabel: rarityLabel(rarity), itemType: itemType || null, direction: dir, baseCost,
+      marketClass: _MARKET_CLASS_LABEL[mcIdx], marketClassIdx: mcIdx, maxClassIdx: 5,
+      cellKind:null, chancePct:0, perPartyChancePct:0, perMarketMax:0, perPartyMax:0,
+      transactedThisMonth:0, monthlyRemaining:0
     };
-    if(mcIdx > maxIdx){ out.reason = 'market-too-small-for-rarity'; return out; }
-    out.transactable = true;
-    // Per-market-per-month count — grounded in the shipped (RAW-verified) equipmentAvailability count;
-    // a chance/none cell floors at 1 since the rarity gate already passed. Per-party = 10% (TT pp.26–28).
-    let perMarket = 1;
-    if(typeof A.equipmentAvailability === 'function'){
-      const a = A.equipmentAvailability(baseCost, mcIdx, {});
-      perMarket = (a && a.kind === 'count' && Number.isFinite(a.count)) ? Math.max(1, a.count) : 1;
+    const haveTT = typeof A.magicItemTransactionCell === 'function' && typeof A.magicItemTypeAvailabilityCell === 'function';
+    if(haveTT){
+      const cell = byType ? A.magicItemTypeAvailabilityCell(itemType, mcIdx) : A.magicItemTransactionCell(rarity, mcIdx);
+      out.maxClassIdx = byType ? _maxDealableClassIdx(i => A.magicItemTypeAvailabilityCell(itemType, i))
+                               : _maxDealableClassIdx(i => A.magicItemTransactionCell(rarity, i));
+      out.cellKind = cell.kind;
+      if(cell.kind === 'none'){
+        out.reason = byType ? 'market-does-not-stock-type' : 'market-too-small-for-rarity';
+        return out;
+      }
+      out.transactable = true;
+      const pp = A.magicItemAvailabilityPerParty(cell);
+      out.chancePct = (cell.kind === 'chance') ? cell.chancePct : 100;
+      out.perPartyChancePct = pp.chancePct;
+      out.perMarketMax = (cell.kind === 'count') ? cell.count : 0;
+      out.perPartyMax = (cell.kind === 'count') ? pp.count : 1; // a chance-item, if it appears, is one transaction
+    } else {
+      // graceful fallback: the pre-burst12 placeholder ladder + equipmentAvailability proxy.
+      const maxIdx = (MAGIC_MARKET_MAX_CLASS_IDX[rarity] != null) ? MAGIC_MARKET_MAX_CLASS_IDX[rarity] : 5;
+      out.maxClassIdx = maxIdx;
+      if(mcIdx > maxIdx){ out.reason = 'market-too-small-for-rarity'; return out; }
+      out.transactable = true;
+      let perMarket = 1;
+      if(typeof A.equipmentAvailability === 'function'){
+        const a = A.equipmentAvailability(baseCost, mcIdx, {});
+        perMarket = (a && a.kind === 'count' && Number.isFinite(a.count)) ? Math.max(1, a.count) : 1;
+      }
+      out.perMarketMax = perMarket;
+      out.chancePct = 100;
+      out.perPartyMax = Math.max(1, Math.round(perMarket * 0.1));
     }
-    out.perMarketMax = perMarket;
-    out.perPartyMax = Math.max(1, Math.round(perMarket * 0.1));
-    const dir = (opts.direction === 'buy' || opts.direction === 'sell') ? opts.direction : null;
-    out.transactedThisMonth = settlement ? _magicMarketUnitsThisMonth(campaign, settlement.id, rarity, dir) : 0;
+    const spec = byType ? { direction: dir, itemType } : { direction: dir, rarity };
+    out.transactedThisMonth = settlement ? _magicMarketUnitsThisMonth(campaign, settlement.id, spec) : 0;
     out.monthlyRemaining = Math.max(0, out.perPartyMax - out.transactedThisMonth);
     const qty = Math.max(1, Math.round(Number(opts.qty) || 1));
     out.available = out.monthlyRemaining >= qty;
-    if(!out.available) out.reason = 'monthly-ceiling';
+    if(!out.available && !out.reason) out.reason = 'monthly-ceiling';
     return out;
   }
 
@@ -1226,7 +1291,7 @@
     ni.history.push({ turn: campaign.currentTurn || 1, type:'sold-at-market', reason: 'Sold at ' + (settlement.name || settlement.id) + ' for ' + proceedsGp.toLocaleString() + 'gp' });
     const payload = {
       itemId: ni.id, direction:'sell', characterId: seller ? seller.id : null, settlementId: settlement.id,
-      marketClass: avail.marketClass, rarity: spread.rarity, created: spread.created, priceGp: proceedsGp, qty:1,
+      marketClass: avail.marketClass, rarity: spread.rarity, itemType: avail.itemType, created: spread.created, priceGp: proceedsGp, qty:1,
       narrative: _marketSaleNarrative(ni, seller, settlement, 'sell', proceedsGp)
     };
     const ev = _emitMagicItemEvent(campaign, 'magic-item-sold', payload, { character: seller, item: ni, submittedBy: opts.submittedBy });
@@ -1272,7 +1337,7 @@
     ni.history.push({ turn: campaign.currentTurn || 1, type:'bought-at-market', reason: 'Bought at ' + (settlement.name || settlement.id) + ' for ' + costGp.toLocaleString() + 'gp' });
     const payload = {
       itemId: ni.id, direction:'buy', characterId: buyer.id, settlementId: settlement.id,
-      marketClass: avail.marketClass, rarity: spread.rarity, created: spread.created, priceGp: costGp, qty:1,
+      marketClass: avail.marketClass, rarity: spread.rarity, itemType: avail.itemType, created: spread.created, priceGp: costGp, qty:1,
       narrative: _marketSaleNarrative(ni, buyer, settlement, 'buy', costGp)
     };
     const ev = _emitMagicItemEvent(campaign, 'magic-item-sold', payload, { character: buyer, item: ni, submittedBy: opts.submittedBy });

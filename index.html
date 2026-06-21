@@ -95,12 +95,14 @@
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-20-burst11"></script>
+<!-- @b12-census (burst12) — the licensed Treasure-Tome magic-item availability/value reference tables (SD-6 census + MI-3 per-Class market gate). ⚠ IP §13.6/§13.9 — mechanical facts only, catalog posture like the monster catalog. Pure data; consumed at call-time by magic-items.js + demographics.js (load order irrelevant). -->
+<script src="acks-engine-magic-item-availability.js?v=2026-06-21-burst12"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-21-burst12"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-19-demogautogen"></script>
+<script src="acks-engine-demographics.js?v=2026-06-21-burst12"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
@@ -5459,6 +5461,46 @@ document.addEventListener('alpine:init', () => {
                       <p class="text-sm opacity-60 italic mt-1">No one matches — widen the level or scope.</p>
                     </template>
                   </div>
+
+                  <!-- @b12-census (SD-6) — the magic-item census: expected market AVAILABILITY (TT p.27,
+                       by item type, per Class) vs the REALIZED on-hand stock (placed NotableItems + loose
+                       magical caches). The resource analog of the class roster. Always-on RAW tooling. -->
+                  <template x-if="magicCensus()">
+                    <div class="mt-2 pt-2 border-t border-ink/20">
+                      <h4 class="font-semibold text-sm mb-1">🪄 Magic-item census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + magicCensus().marketClass + ' market'"></span></h4>
+                      <p class="text-xs opacity-70 mb-1">Available per month at this market class (TT p.27) vs what's actually placed here. A <span class="font-mono">%</span> = the chance of even one that month (smaller markets). Per-party availability ≈ ÷10.</p>
+                      <div class="overflow-x-auto">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Item type</th><th title="buyable per month at this market (TT Availability by Type)">Avail/mo</th><th>Placed</th><th title="availability not yet placed as NotableItems">Unplaced</th></tr></thead>
+                          <tbody>
+                            <template x-for="row in magicCensusTypeRows()" :key="row.type">
+                              <tr>
+                                <td x-text="row.label"></td>
+                                <td class="font-mono" x-text="_availCellText(row.availablePerMarket, row.chancePct)"></td>
+                                <td :class="row.placed>0 ? 'text-green-800 font-semibold' : ''"
+                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name).join(', ') : ''" x-text="row.placed||0"></td>
+                                <td class="opacity-70" x-text="row.unplaced>0 ? row.unplaced : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-sm mt-1">
+                        <span class="font-semibold" x-text="magicCensus().realized.totalCount"></span> magic item(s) here
+                        (<span x-text="magicCensus().realized.onShelf"></span> on the shelf · <span x-text="magicCensus().realized.heldByResidents"></span> held by residents)
+                        · ~<span x-text="(magicCensus().realized.totalValueGp||0).toLocaleString()"></span> gp
+                        <span x-show="magicCensus().realized.looseMagicalLines>0" class="opacity-60" x-text="'· ' + magicCensus().realized.looseMagicalLines + ' loose magical cache line(s)'"></span>
+                      </p>
+                      <p class="text-xs opacity-70 mt-1">Sell cap/mo by rarity:
+                        <template x-for="rr in magicCensusRarityRows()" :key="rr.rarity"><span x-text="rr.label + ' ' + _availCellText(rr.sellableCapPerMarket, rr.chancePct) + '  '"></span></template>
+                      </p>
+                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 curve — a leveled NPC's magic-item value follows wealth; GM-overridable">
+                        Per-NPC magic-item value (by level): L1 ~<span x-text="(expectedNpcMagicItemValue(1)).toLocaleString()"></span>gp ·
+                        L5 ~<span x-text="(expectedNpcMagicItemValue(5)).toLocaleString()"></span>gp ·
+                        L9 ~<span x-text="(expectedNpcMagicItemValue(9)).toLocaleString()"></span>gp.
+                      </p>
+                    </div>
+                  </template>
                 </div>
               </div>
             </template>
@@ -17695,6 +17737,27 @@ document.addEventListener('alpine:init', () => {
           <template x-for="s in magicMarketSettlements()" :key="s.id"><option :value="s.id" x-text="(s.name || s.id) + ' · Class ' + magicMarketClassLabel(s)"></option></template>
         </select>
       </label>
+      <!-- @b12-census (MI-3) — what this market deals in, by item type (TT p.27 Availability by Type;
+           the per-Class licensed cells). Per party ≈ ÷10; a % = the monthly chance of even one. -->
+      <template x-if="magicMarketAvail()">
+        <div class="text-xs">
+          <button @click="magicMarketAvailShow = !magicMarketAvailShow" class="underline opacity-80" x-text="(magicMarketAvailShow ? '▾' : '▸') + ' Market availability (Class ' + magicMarketAvail().marketClass + ' — what\'s for sale here)'"></button>
+          <div x-show="magicMarketAvailShow" class="overflow-x-auto mt-1">
+            <table class="bookkeeping text-xs">
+              <thead><tr><th>Item type</th><th title="buyable per month at this market">Avail/mo</th><th title="per adventuring party ≈ ÷10">Per party</th></tr></thead>
+              <tbody>
+                <template x-for="row in magicMarketAvailRows()" :key="row.type">
+                  <tr>
+                    <td x-text="row.label"></td>
+                    <td class="font-mono" x-text="_availCellText(row.perMarket, row.chancePct)"></td>
+                    <td class="font-mono opacity-80" x-text="_availCellText(row.perParty, row.perPartyChancePct)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
       <label class="flex flex-wrap items-baseline gap-2"><span class="w-24">Character</span>
         <select x-model="magicMarket.actorId" @change="magicMarket.result=null; magicMarket.sellItemId=''" class="flex-1 min-w-[12rem]">
           <option value="">— pick a character —</option>
@@ -20192,6 +20255,25 @@ return {
   //      events from your OWN module (the kernel shipped PR #89 — no central-registry edits). The Lead
   //      reconciles this block at integration (CLAUDE §15.4). ════
   // === @b12-census     (team) — SD-6/SD-7 census + MI-3 per-Class availability: state + methods ===
+  // SD-6 magic-item census (over acks-engine-demographics.js + acks-engine-magic-item-availability.js,
+  // TT p.27, ⚠ IP §13.6/§13.9 catalog posture). Two read surfaces: the Demographics roster census +
+  // the 🪄 magic-market availability readout. Always-on RAW tooling (the TT availability math; OQ-8).
+  _availCellText(perMarket, chancePct){ if(perMarket && perMarket > 0) return String(perMarket); if(chancePct && chancePct > 0) return chancePct + '%'; return '—'; },
+  magicCensus(){ const s = this.demoSettlement && this.demoSettlement(); return s ? window.ACKS.settlementMagicItemCensus(this.currentCampaign, s) : null; },
+  magicCensusTypeRows(){ const c = this.magicCensus(); if(!c) return []; const L = window.ACKS.MAGIC_ITEM_TYPE_LABEL || {};
+    return (window.ACKS.MAGIC_ITEM_TYPE_ORDER || []).map(t => Object.assign({ type:t, label:(L[t] || t) }, c.byType[t] || {})); },
+  magicCensusRarityRows(){ const c = this.magicCensus(); if(!c) return []; const L = window.ACKS.MAGIC_RARITY_TIER_LABEL || {};
+    return (window.ACKS.MAGIC_RARITY_TIER_ORDER || []).map(r => Object.assign({ rarity:r, label:(L[r] || r) }, c.byRarity[r] || {})); },
+  // the 🪄 magic-market modal's availability table (the chosen settlement's market class)
+  magicMarketAvailShow: false,
+  magicMarketAvail(){ const id = this.magicMarket && this.magicMarket.settlementId; if(!id) return null;
+    const s = (this.currentCampaign && this.currentCampaign.settlements || []).find(x => x && x.id === id);
+    return s ? window.ACKS.expectedSettlementMagicItems(this.currentCampaign, s) : null; },
+  magicMarketAvailRows(){ const a = this.magicMarketAvail(); if(!a) return []; const L = window.ACKS.MAGIC_ITEM_TYPE_LABEL || {};
+    return (window.ACKS.MAGIC_ITEM_TYPE_ORDER || []).map(t => Object.assign({ type:t, label:(L[t] || t) }, a.byType[t] || {})); },
+  // the by-NPC-level magic-item value (the per-individual facet) — a component wrapper so the Demographics
+  // census markup resolves it in Alpine scope (the engine fn lives on window.ACKS, not the component).
+  expectedNpcMagicItemValue(level){ return (typeof window.ACKS.expectedNpcMagicItemValue === 'function') ? window.ACKS.expectedNpcMagicItemValue(level) : 0; },
   // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
   // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
   // The optional AXIOMS-19 dynasty layer over acks-engine-lifecycle.js (foundDynasty / recordKinship /
