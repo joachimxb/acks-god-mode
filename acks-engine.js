@@ -764,11 +764,12 @@ function rollMoraleExtra(moraleAfter,familiesK,rng){
 // empty, the delta is split as evenly as possible. Urban settlement families
 // are tracked separately on `hex.settlement.families` and are not touched here.
 // =============================================================================
-function _ruralHexes(d){
-  return ((d && d.geography && d.geography.hexes) || []).filter(h => !h.settlement);
+function _ruralHexes(campaign, d){
+  // Single-home (T6): a domain's rural hexes are its canonical campaign.hexes with no settlement.
+  return hexesForDomain(campaign, d && d.id).filter(h => !settlementForHex(campaign, h.id));
 }
-function _redistributeRuralFamilies(d, newTotal){
-  const hexes = _ruralHexes(d);
+function _redistributeRuralFamilies(campaign, d, newTotal){
+  const hexes = _ruralHexes(campaign, d);
   if(hexes.length === 0) return;
   newTotal = Math.max(0, Math.floor(newTotal));
   if(newTotal === 0){
@@ -796,19 +797,19 @@ function _redistributeRuralFamilies(d, newTotal){
     }
   });
 }
-function setPeasantPopulation(d, newTotal){
+function setPeasantPopulation(campaign, d, newTotal){
   if(!d || !d.demographics) return;
   newTotal = Math.max(0, Math.floor(newTotal));
   d.demographics.peasantFamilies = newTotal;
-  _redistributeRuralFamilies(d, newTotal);
+  _redistributeRuralFamilies(campaign, d, newTotal);
 }
 // Inverse of setPeasantPopulation: derive the domain's peasant total FROM its rural
 // hexes. This is the canonical direction when families-per-hex-tracking is ON — the GM
 // edits per-hex family counts directly, so the hexes are the source of truth and the
 // domain total is simply their sum. Returns the new total.
-function syncRuralPopulationFromHexes(d){
+function syncRuralPopulationFromHexes(campaign, d){
   if(!d || !d.demographics) return 0;
-  const sum = _ruralHexes(d).reduce((s,h) => s + (h.families||0), 0);
+  const sum = _ruralHexes(campaign, d).reduce((s,h) => s + (h.families||0), 0);
   d.demographics.peasantFamilies = sum;
   return sum;
 }
@@ -826,15 +827,15 @@ function reconcileRuralPopulation(campaign){
   const perHexCanonical = isHouseRuleEnabled(campaign, 'families-per-hex-tracking');
   let fixed = 0;
   campaign.domains.forEach(d => {
-    const hexes = _ruralHexes(d);
+    const hexes = _ruralHexes(campaign, d);
     if(hexes.length === 0) return;
     const pf = (d.demographics && d.demographics.peasantFamilies) || 0;
     const hexSum = hexes.reduce((s,h) => s + (h.families||0), 0);
     if(pf === hexSum) return;
     if(perHexCanonical && hexSum > 0){
-      syncRuralPopulationFromHexes(d);   // hexes canonical → peasantFamilies = Σ(hex.families)
+      syncRuralPopulationFromHexes(campaign, d);   // hexes canonical → peasantFamilies = Σ(hex.families)
     } else {
-      _redistributeRuralFamilies(d, pf); // domain total canonical (or seeding empty hexes)
+      _redistributeRuralFamilies(campaign, d, pf); // domain total canonical (or seeding empty hexes)
     }
     fixed++;
   });
@@ -1775,7 +1776,9 @@ function _strongholdSeatHexId(campaign, dom){
   if(ruler && ruler.currentHexId && hexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
   let best = null, bestPop = -1;
   for(const h of hexes){
-    const s = h.settlement || null;
+    // Migrate-time may run pre-lift: read the embedded settlement (nested-only file) then the
+    // canonical campaign.settlements (regenerated/single-home file). T6 back-compat.
+    const s = h.settlement || (Array.isArray(campaign.settlements) ? campaign.settlements.find(x => x && x.hexId === h.id) : null);
     const pop = s ? (s.families || s.population || 0) : 0;
     if(pop > bestPop){ bestPop = pop; best = h; }
   }
@@ -2035,22 +2038,9 @@ function journeysWithParticipant(campaign, characterId){
   if(!campaign || !Array.isArray(campaign.journeys) || !characterId) return [];
   return campaign.journeys.filter(j => j && Array.isArray(j.participantCharacterIds) && j.participantCharacterIds.indexOf(characterId) >= 0);
 }
-// Resolve a hex by id from the canonical top-level collection, falling back to per-domain
-// geography (the UI keeps hexes split across domains' geography.hexes). Pure read.
+// Resolve a hex by id from the canonical campaign.hexes (single-home, T6). Pure read.
 function resolveHexAnywhere(campaign, hexId){
-  if(!campaign || !hexId) return null;
-  const top = findHex(campaign, hexId);
-  if(top) return top;
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      const hexes = d && d.geography && d.geography.hexes;
-      if(Array.isArray(hexes)){
-        const h = hexes.find(x => x && x.id === hexId);
-        if(h) return h;
-      }
-    }
-  }
-  return null;
+  return findHex(campaign, hexId);
 }
 // Axial hex distance between two {q, r} coords (cube-coordinate metric). Pure.
 function hexAxialDistance(a, b){
@@ -2059,22 +2049,16 @@ function hexAxialDistance(a, b){
   return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
 }
 // The authored hex at axial coord (q,r), or null. Accepts (campaign, q, r) or (campaign, {q,r}).
-// Checks the canonical top-level store first, then the reference-unified nested geography mirror.
-// Used by hex-by-hex journey resolution to look up the hexes a route passes through (a route
-// step over an UNauthored coord returns null, and the caller falls back to the journey's base
-// environment — so per-hex/per-side travel effects apply only where cartography exists).
+// Reads the canonical campaign.hexes (single-home, T6). Used by hex-by-hex journey resolution to look
+// up the hexes a route passes through (a route step over an UNauthored coord returns null, and the
+// caller falls back to the journey's base environment — so per-hex/per-side travel effects apply only
+// where cartography exists).
 function hexAtCoord(campaign, q, r){
   if(!campaign) return null;
   if(q && typeof q === 'object'){ r = q.r; q = q.q; }
   if(typeof q !== 'number' || typeof r !== 'number') return null;
   if(Array.isArray(campaign.hexes)){
     for(const h of campaign.hexes){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; }
-  }
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      const gh = d && d.geography && d.geography.hexes;
-      if(Array.isArray(gh)){ for(const h of gh){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; } }
-    }
   }
   return null;
 }
@@ -2741,18 +2725,23 @@ function carryEncumbranceInfo(character){
 // =============================================================================
 
 // --- Capital-hex selection (pure) -------------------------------------------
-// Prefer the hex with the largest urban settlement; fall back to the first
-// hex in domain.geography.hexes. Returns null if the domain has no hexes
-// (orphan domain — migration defers).
-function _selectDomainCapitalHex(domain){
-  if(!domain || !domain.geography || !Array.isArray(domain.geography.hexes)) return null;
-  const hexes = domain.geography.hexes;
+// Prefer the hex with the largest urban settlement; fall back to the domain's first hex.
+// Returns null if the domain has no hexes (orphan domain — migration defers).
+// Single-home (T6): read the domain's hexes from canonical campaign.hexes (by domainId); for a
+// nested-only file mid-migration (this can run before liftToTopLevelCollections), fall back to the
+// domain's nested geography.hexes. Settlement resolved canonically (campaign.settlements) with the
+// embedded mirror as back-compat.
+function _selectDomainCapitalHex(campaign, domain){
+  if(!domain) return null;
+  let hexes = (campaign && Array.isArray(campaign.hexes)) ? campaign.hexes.filter(h => h && h.domainId === domain.id) : [];
+  if(hexes.length === 0 && domain.geography && Array.isArray(domain.geography.hexes)) hexes = domain.geography.hexes;
   if(hexes.length === 0) return null;
   let best = null;
   let bestPop = -1;
   for(const h of hexes){
-    if(h && h.settlement){
-      const pop = (h.settlement.urbanFamilies || 0);
+    const s = h && (h.settlement || (campaign && Array.isArray(campaign.settlements) ? campaign.settlements.find(x => x && x.hexId === h.id) : null));
+    if(s){
+      const pop = (s.urbanFamilies || 0);
       if(pop > bestPop){
         best = h;
         bestPop = pop;
@@ -2794,7 +2783,7 @@ function migrateDomainTreasuryToStash(campaign, domain){
   }
 
   // (3) Fresh creation.
-  const capitalHex = _selectDomainCapitalHex(domain);
+  const capitalHex = _selectDomainCapitalHex(campaign, domain);
   if(!capitalHex) return null;  // Defer — domain has no hexes
 
   const blankStash     = (global.ACKS && global.ACKS.blankStash)     || null;
@@ -4473,7 +4462,7 @@ function domainSeatHexId(campaign, dom){
   if(ruler && ruler.currentHexId && domHexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
   let best = null, bestPop = -1;
   for(const h of domHexes){
-    const s = h.settlement || null;
+    const s = settlementForHex(campaign, h.id);   // single-home (T6)
     const pop = s ? (s.families || s.population || 0) : 0;
     if(pop > bestPop){ bestPop = pop; best = h; }
   }
@@ -9745,7 +9734,7 @@ function commitTurn(campaign, proposal, options){
     if(_ownerNet) _turnWealthChildren.push({ amount: _ownerNet, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
-    setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
+    setPeasantPopulation(campaign, d, (d.demographics.peasantFamilies || 0) + popDelta);
     d.administersThisMonth = false;
 
     // Urban settlement growth (RR p.351).

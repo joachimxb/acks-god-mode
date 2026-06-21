@@ -11,7 +11,7 @@
     "dom-march-of-saltspur": {
       "name": "March of Saltspur",
       "income": [
-        { "label": "Land revenue (hex-by-hex, 4 hexes, 480 families) [improved +1 total]", "gp": 3560 },
+        { "label": "Land revenue (hex-by-hex, 4 hexes, 480 families) [improved +1 total]", "gp": 3392 },
         { "label": "Service revenue (4 × 700)", "gp": 2800 },
         { "label": "Tax (2 × 700)", "gp": 1400 },
         { "label": "Trade revenue (Saltspur Class VI: 1 × 220)", "gp": 220 },
@@ -29,15 +29,15 @@
       "moraleMods": [
         { "label": "Stronghold below minimum (75,000/120,000gp, RR p.349)", "value": -1 }
       ],
-      "incomeSum": 9185,
+      "incomeSum": 9017,
       "expenseSum": 3590,
       "moraleModSum": -1,
-      "monthlyGrossIncome": 9185,
+      "monthlyGrossIncome": 9017,
       "monthlyExpenses": 3590,
-      "monthlyNet": 5595,
+      "monthlyNet": 5427,
       "incomeFactor": 1,
       "tributeOwed": 0,
-      "domainXpFromNet": 595,
+      "domainXpFromNet": 427,
       "totalFamilies": 700,
       "effectiveUrbanFamilies": 220,
       "banditCount": 0,

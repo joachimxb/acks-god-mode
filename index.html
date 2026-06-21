@@ -113,7 +113,12 @@
      Alpine templates AND component methods call it uniformly (no this-vs-bare-scope issue); it reads
      the app singleton (window.acksApp.currentCampaign). hexName's campaign arg is optional, so a hex
      literal that still embeds a settlement (test fixtures) keeps working without one. -->
-<script>function hexLabelFor(hx){ try { var f = window.ACKS && window.ACKS.hexName; return f ? f(hx, window.acksApp && window.acksApp.currentCampaign) : ((hx && hx.id) || ''); } catch(e){ return (hx && hx.id) || ''; } }</script>
+<script>function hexLabelFor(hx){ try { var f = window.ACKS && window.ACKS.hexName; return f ? f(hx, window.acksApp && window.acksApp.currentCampaign) : ((hx && hx.id) || ''); } catch(e){ return (hx && hx.id) || ''; } }
+// T6 single-home — a domain's hexes (campaign.hexes by domainId) + the settlement at a hex
+// (campaign.settlements by hexId). Plain globals so Alpine templates AND methods call them
+// uniformly (no this-vs-bare-scope issue); they read the app singleton.
+function domainHexesFor(d){ try { var c = window.acksApp && window.acksApp.currentCampaign; return (window.ACKS && window.ACKS.hexesForDomain && d) ? window.ACKS.hexesForDomain(c, d.id) : []; } catch(e){ return []; } }
+function settlementAtHexG(hx){ try { var c = window.acksApp && window.acksApp.currentCampaign; return (window.ACKS && window.ACKS.settlementForHex && hx) ? window.ACKS.settlementForHex(c, hx.id) : null; } catch(e){ return null; } }</script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -888,10 +893,10 @@ document.addEventListener('alpine:init', () => {
               <td class="text-base" x-text="entry.hex.terrain || '—'"></td>
               <td class="text-base" x-text="(entry.hex.families||0).toLocaleString()"></td>
               <td class="text-base">
-                <template x-if="entry.hex.settlement">
-                  <span x-text="(entry.hex.settlement.name||'(unnamed)') + ' · ' + (entry.hex.settlement.families||0).toLocaleString() + ' fam'"></span>
+                <template x-if="entry.settlement">
+                  <span x-text="(entry.settlement.name||'(unnamed)') + ' · ' + (entry.settlement.families||0).toLocaleString() + ' fam'"></span>
                 </template>
-                <template x-if="!entry.hex.settlement">
+                <template x-if="!entry.settlement">
                   <span class="opacity-50">—</span>
                 </template>
               </td>
@@ -4820,7 +4825,7 @@ document.addEventListener('alpine:init', () => {
                     <span x-show="entry.domain.pendingPlayerInput" class="accent-green ml-1" title="Player submitted plan awaiting review">📥</span>
                   </span>
                 </td>
-                <td class="font-mono" style="text-align:center" x-text="((entry.domain.geography?.hexes||[]).length).toLocaleString()"></td>
+                <td class="font-mono" style="text-align:center" x-text="(domainHexesFor(entry.domain).length).toLocaleString()"></td>
                 <td class="font-mono" style="text-align:center" x-text="totalFamilies(entry.domain).toLocaleString()"></td>
                 <td class="whitespace-nowrap" style="text-align:center">
                   <span x-text="moraleEmoji(entry.domain.demographics.morale)"></span>
@@ -5157,7 +5162,7 @@ document.addEventListener('alpine:init', () => {
               <span class="w-32">Peasant families</span>
               <template x-if="isHouseRuleEnabled('families-per-hex-tracking')">
                 <span class="flex items-center gap-2">
-                  <span class="font-mono" x-text="(selectedDomain.geography?.hexes||[]).reduce((s,h)=>s+(h.families||0),0).toLocaleString()"></span>
+                  <span class="font-mono" x-text="(domainHexesFor(selectedDomain)||[]).reduce((s,h)=>s+(h.families||0),0).toLocaleString()"></span>
                   <span class="text-sm opacity-60 italic" title="Edit per-hex families on the Hexes tab — this total is derived.">derived from hexes</span>
                 </span>
               </template>
@@ -5769,7 +5774,7 @@ document.addEventListener('alpine:init', () => {
              source order after the Pop&Morale + Settlements 50/50 grid. -->
         <div x-show="activeTab==='demographics'" class="mt-4">
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="selectedDomain.geography.hexes && selectedDomain.geography.hexes.length > 0" x-text="'· ' + selectedDomain.geography.hexes.length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + selectedDomain.geography.hexes.reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
+            <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="domainHexesFor(selectedDomain) && domainHexesFor(selectedDomain).length > 0" x-text="'· ' + domainHexesFor(selectedDomain).length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + domainHexesFor(selectedDomain).reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
             <table class="bookkeeping text-sm">
               <thead><tr>
                 <th>Hex</th>
@@ -5781,7 +5786,7 @@ document.addEventListener('alpine:init', () => {
                 <th>Settlement</th>
               </tr></thead>
               <tbody>
-                <template x-for="(h, i) in selectedDomain.geography.hexes" :key="h.id || i">
+                <template x-for="(h, i) in domainHexesFor(selectedDomain)" :key="h.id || i">
                   <tr>
                     <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
                     <td class="whitespace-nowrap">
@@ -5799,7 +5804,7 @@ document.addEventListener('alpine:init', () => {
                         </span>
                       </template>
                       <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
-                        <span class="text-sm opacity-70 italic" :title="'Estimate: ' + ((selectedDomain.demographics.peasantFamilies||0)) + ' rural families / ' + (selectedDomain.geography.hexes?.length || 1) + ' hexes. Enable the families-per-hex-tracking house rule to track per hex.'" x-text="'~' + Math.round((selectedDomain.demographics.peasantFamilies||0) / (selectedDomain.geography.hexes?.length || 1)).toLocaleString() + ' est'"></span>
+                        <span class="text-sm opacity-70 italic" :title="'Estimate: ' + ((selectedDomain.demographics.peasantFamilies||0)) + ' rural families / ' + (domainHexesFor(selectedDomain)?.length || 1) + ' hexes. Enable the families-per-hex-tracking house rule to track per hex.'" x-text="'~' + Math.round((selectedDomain.demographics.peasantFamilies||0) / (domainHexesFor(selectedDomain)?.length || 1)).toLocaleString() + ' est'"></span>
                       </template>
                     </td>
                     <td>
@@ -5820,7 +5825,7 @@ document.addEventListener('alpine:init', () => {
                     </td>
                     <td x-show="isHouseRuleEnabled('families-per-hex-tracking')" class="font-mono" x-text="((h.families||0)*effectiveHexValue(h)).toLocaleString() + ' gp'"></td>
                     <td>
-                      <template x-if="!h.settlement">
+                      <template x-if="!settlementAtHexG(h)">
                         <div x-data="{showFound:false, name:'', count:100}">
                           <button @click="showFound = !showFound" class="text-sm underline" :disabled="(selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < 75" :title="(selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp treasury' : (selectedDomain.demographics.peasantFamilies||0) < 75 ? 'Need 75+ peasants' : 'Found a settlement here'">
                             <span x-show="!showFound">+ found settlement</span>
@@ -5829,7 +5834,7 @@ document.addEventListener('alpine:init', () => {
                           <div x-show="showFound" class="mt-1 p-2 border border-ink rounded" style="background:#f4ecd2; min-width:14rem">
                             <input x-model="name" placeholder="Settlement name" class="w-full text-sm mb-1">
                             <label class="text-sm block">Peasants (75-249): <input type="number" min="75" max="249" x-model.number="count" class="w-16"></label>
-                            <button @click="foundSettlementOnHex(selectedDomain, i, name, count); showFound=false"
+                            <button @click="foundSettlementOnHex(selectedDomain, h, name, count); showFound=false"
                                     class="mt-1 px-2 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
                                     :class="(!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
                                     :disabled="!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count"
@@ -5839,9 +5844,9 @@ document.addEventListener('alpine:init', () => {
                           </div>
                         </div>
                       </template>
-                      <template x-if="h.settlement">
+                      <template x-if="settlementAtHexG(h)">
                         <div class="font-semibold">
-                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:h.settlement, fieldPath:'name', label:'Settlement name', kind:'text'})">
+                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:settlementAtHexG(h), fieldPath:'name', label:'Settlement name', kind:'text'})">
                             <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
                             <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                           </span>
@@ -5850,7 +5855,7 @@ document.addEventListener('alpine:init', () => {
                     </td>
                   </tr>
                 </template>
-                <template x-if="!selectedDomain.geography.hexes || selectedDomain.geography.hexes.length === 0">
+                <template x-if="!domainHexesFor(selectedDomain) || domainHexesFor(selectedDomain).length === 0">
                   <tr><td :colspan="6 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
                 </template>
               </tbody>
@@ -5873,14 +5878,14 @@ document.addEventListener('alpine:init', () => {
 
               <!-- Hexes with investment accumulating toward the next +1 step. -->
               <h3 class="font-semibold text-sm mb-1">Investment in progress</h3>
-              <template x-if="(selectedDomain.geography.hexes||[]).every(h => (h.landImprovementInvested||0) === 0)">
+              <template x-if="(domainHexesFor(selectedDomain)||[]).every(h => (h.landImprovementInvested||0) === 0)">
                 <p class="text-sm italic opacity-60 mb-3">No improvements under way. Fund one below.</p>
               </template>
-              <template x-if="(selectedDomain.geography.hexes||[]).some(h => (h.landImprovementInvested||0) > 0)">
+              <template x-if="(domainHexesFor(selectedDomain)||[]).some(h => (h.landImprovementInvested||0) > 0)">
                 <table class="bookkeeping text-sm w-full mb-3">
                   <thead><tr><th>Hex</th><th>Land value</th><th>Current bonus</th><th>Invested toward next +1</th><th>Progress</th><th>Lifetime invested</th></tr></thead>
                   <tbody>
-                    <template x-for="h in (selectedDomain.geography.hexes||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
+                    <template x-for="h in (domainHexesFor(selectedDomain)||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
                       <tr>
                         <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + 'gp'"></td>
@@ -5899,8 +5904,8 @@ document.addEventListener('alpine:init', () => {
                 <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
                 <p class="text-sm opacity-70 mb-2">
                   Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days (no engineer needed — the supervisor rule is for strongholds and ships, not land; RR p.174). Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
-                  <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
-                    Total budget in flight: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
+                  <span x-show="(domainHexesFor(selectedDomain)||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
+                    Total budget in flight: <strong x-text="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
                   </span>
                 </p>
                 <table class="bookkeeping text-sm w-full">
@@ -5913,7 +5918,7 @@ document.addEventListener('alpine:init', () => {
                     <th>Budget (drips ~500/day)</th>
                   </tr></thead>
                   <tbody>
-                    <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
+                    <template x-for="(h, hi) in domainHexesFor(selectedDomain)" :key="h.id || hi">
                       <tr>
                         <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + ' / ' + Math.round(effectiveHexValue(h)) + 'gp'"></td>
@@ -5993,8 +5998,8 @@ document.addEventListener('alpine:init', () => {
                   </span>
                   <template x-if="(selectedDomain.monthlyLaborCapGp||0) > 0">
                     <span class="ml-2">
-                      Currently queued: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString() + 'gp'"></strong>
-                      <span x-show="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0) > (selectedDomain.monthlyLaborCapGp||0)" class="accent-red ml-2">⚠ exceeds labor cap — engine will clip allocations at commit.</span>
+                      Currently queued: <strong x-text="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString() + 'gp'"></strong>
+                      <span x-show="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0) > (selectedDomain.monthlyLaborCapGp||0)" class="accent-red ml-2">⚠ exceeds labor cap — engine will clip allocations at commit.</span>
                     </span>
                   </template>
                 </p>
@@ -12640,10 +12645,8 @@ document.addEventListener('alpine:init', () => {
             // Auto-derive owning domain and commit if different.
             let newDomainId = null;
             if(newHexId){
-              for(const d of (app?.domains||[])){
-                const found = (d.geography?.hexes||[]).find(h => h.id === newHexId);
-                if(found){ newDomainId = d.id; break; }
-              }
+              const _h = window.ACKS.findHex(app?.currentCampaign, newHexId);
+              newDomainId = (_h && _h.domainId) || null;
             }
             if(ch.currentDomainId !== newDomainId){
               app?.commitStatEdit({entityType:'character', entityId:ch.id, entity:ch, fieldPath:'currentDomainId', label:'Current domain', oldValue:ch.currentDomainId, newValue:newDomainId, reason:'auto-derived from hex change'});
@@ -12661,7 +12664,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="ed-val">
                   <template x-for="entry in allHexes()" :key="entry.hex.id">
                     <template x-if="entry.hex.id === characterEditing.currentHexId">
-                      <span x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></span>
+                      <span x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.settlement ? ' · ' + entry.settlement.name : '')"></span>
                     </template>
                   </template>
                 </span>
@@ -12677,7 +12680,7 @@ document.addEventListener('alpine:init', () => {
               <select x-model="hexDraft" class="ed-input" style="width:24rem" x-init="$nextTick(() => $el.focus())">
                 <option :value="null">— no specific hex —</option>
                 <template x-for="entry in allHexes()" :key="entry.hex.id">
-                  <option :value="entry.hex.id" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></option>
+                  <option :value="entry.hex.id" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.settlement ? ' · ' + entry.settlement.name : '')"></option>
                 </template>
               </select>
               <button @click="saveHexEdit()" class="ed-btn" title="Save & log">✓</button>
@@ -13433,7 +13436,7 @@ document.addEventListener('alpine:init', () => {
               </span>
             </template>
             <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
-              <span class="opacity-70 italic">~<span x-text="Math.round(((worldHexEditingDomain()?.demographics?.peasantFamilies)||0) / ((worldHexEditingDomain()?.geography?.hexes?.length)||1)).toLocaleString()"></span> est (RAW tracks at domain level; enable families-per-hex-tracking to track here)</span>
+              <span class="opacity-70 italic">~<span x-text="Math.round(((worldHexEditingDomain()?.demographics?.peasantFamilies)||0) / ((domainHexesFor(worldHexEditingDomain()).length)||1)).toLocaleString()"></span> est (RAW tracks at domain level; enable families-per-hex-tracking to track here)</span>
             </template>
           </div>
           <div class="block text-sm flex items-center gap-2 flex-wrap">
@@ -13460,10 +13463,10 @@ document.addEventListener('alpine:init', () => {
             </span>
           </div>
         </div>
-        <template x-if="worldHexEditingHex().settlement">
+        <template x-if="worldHexEditingSettlement()">
           <div class="text-sm opacity-80 mt-2 italic">
-            🏛 Settlement: <span class="font-semibold" x-text="worldHexEditingHex().settlement.name||'(unnamed)'"></span>
-            · <span x-text="(worldHexEditingHex().settlement.families||0).toLocaleString()"></span> families
+            🏛 Settlement: <span class="font-semibold" x-text="worldHexEditingSettlement().name||'(unnamed)'"></span>
+            · <span x-text="(worldHexEditingSettlement().families||0).toLocaleString()"></span> families
             · (manage on Domain &gt; Hexes &gt; settlement)
           </div>
         </template>
@@ -13471,24 +13474,24 @@ document.addEventListener('alpine:init', () => {
         <!-- (Foundation #193) Per-hex rumor preview — reads from top-level campaign.rumors filtered by
              this settlement's id. Gated by rumors-manual. The canonical CRUD lives in World > Rumors;
              this panel surfaces what's heard here and links to the full view. -->
-        <template x-if="worldHexEditingHex().settlement && isHouseRuleEnabled('rumors-manual')">
+        <template x-if="worldHexEditingSettlement() && isHouseRuleEnabled('rumors-manual')">
           <div class="border-t border-ink/30 pt-2 mt-2">
             <div class="flex justify-between items-center mb-1">
-              <h4 class="font-semibold text-sm">🗣 Rumors heard at <span x-text="worldHexEditingHex().settlement.name||'(this market)'"></span>
-                <span class="text-sm opacity-60 font-normal" x-text="'(' + (window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingHex().settlement.id) || []).length + ')'"></span>
+              <h4 class="font-semibold text-sm">🗣 Rumors heard at <span x-text="worldHexEditingSettlement().name||'(this market)'"></span>
+                <span class="text-sm opacity-60 font-normal" x-text="'(' + (window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingSettlement().id) || []).length + ')'"></span>
               </h4>
-              <button @click="addRumorAtSettlement(worldHexEditingHex().settlement.id)" class="text-sm underline">+ add</button>
+              <button @click="addRumorAtSettlement(worldHexEditingSettlement().id)" class="text-sm underline">+ add</button>
             </div>
-            <template x-if="(window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingHex().settlement.id) || []).length === 0">
+            <template x-if="(window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingSettlement().id) || []).length === 0">
               <p class="text-sm italic opacity-60">No rumors heard here. Add one manually above, or wait for the engine to auto-emit (if `rumors-auto-emit` is on).</p>
             </template>
-            <template x-for="r in (window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingHex().settlement.id) || [])" :key="r.id">
+            <template x-for="r in (window.ACKS.rumorsAtSettlement(currentCampaign, worldHexEditingSettlement().id) || [])" :key="r.id">
               <div class="border border-ink/30 rounded p-2 mb-1 text-sm">
                 <div class="font-semibold mb-0.5" x-text="r.text || '(empty)'"></div>
                 <div class="opacity-70">
                   topic: <span x-text="r.topic"></span> ·
                   truth: <span x-text="r.truthLevel"></span> ·
-                  here: <span x-text="(r.reach||[]).find(x => x.settlementId === worldHexEditingHex().settlement.id)?.apparentLevel || '?'"></span>
+                  here: <span x-text="(r.reach||[]).find(x => x.settlementId === worldHexEditingSettlement().id)?.apparentLevel || '?'"></span>
                   <span x-show="(r.reach||[]).length > 1" x-text="'· heard at ' + (r.reach||[]).length + ' settlements'"></span>
                 </div>
               </div>
@@ -14004,7 +14007,7 @@ document.addEventListener('alpine:init', () => {
         <label class="block text-sm">Origin market
           <select x-model="ventureDraft.originDomainId" class="w-full">
             <option value="">— select origin —</option>
-            <template x-for="s in allSettlements()" :key="s.domainId + ':' + s.hexIndex">
+            <template x-for="s in allSettlements()" :key="s.settlement.id">
               <option :value="s.domainId" x-text="(s.settlement.name||'(unnamed)') + ' · ' + s.domainName + ' · Class ' + s.marketClass"></option>
             </template>
           </select>
@@ -14013,7 +14016,7 @@ document.addEventListener('alpine:init', () => {
         <label class="block text-sm">Destination market
           <select x-model="ventureDraft.destinationDomainId" class="w-full">
             <option value="">— select destination —</option>
-            <template x-for="s in allSettlements()" :key="s.domainId + ':' + s.hexIndex">
+            <template x-for="s in allSettlements()" :key="s.settlement.id">
               <option :value="s.domainId" x-text="(s.settlement.name||'(unnamed)') + ' · ' + s.domainName + ' · Class ' + s.marketClass"></option>
             </template>
           </select>
@@ -18486,7 +18489,7 @@ return {
     const c=this.currentCampaign; if(!c||!d) return null;
     const sc=window.ACKS.domainSpatialConditions(c,d);
     const label=id=>{ if(!id) return ''; const h=window.ACKS.findHex(c,id); if(!h||!h.coord) return '';
-      const s=h.settlement||window.ACKS.settlementForHex(c,h.id); const nm=(s&&s.name)?s.name:'';
+      const s=window.ACKS.settlementForHex(c,h.id); const nm=(s&&s.name)?s.name:'';
       const cr=window.ACKS.hexDisplayLabel(h.coord.q,h.coord.r); return nm?(nm+' ('+cr+')'):cr; };
     sc.roadToTown.witnessLabel=label(sc.roadToTown.witnessHexId);
     sc.friendlyCity.witnessLabel=label(sc.friendlyCity.witnessHexId);
@@ -18769,7 +18772,7 @@ return {
   ruralCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.domainRuralDemographics(this.currentCampaign, d) : null; },
   ruralRosterRows(){ const c=this.ruralCensus(); if(!c) return []; return c.byLevel.filter(r => window.ACKS.DEMOGRAPHIC_BUCKETS.some(b => r[b].expected>=0.5 || r[b].realized>0)); },
   ruralResidentsList(){ const c=this.ruralCensus(); return c ? c.residents : []; },
-  ruralHexOptions(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId===d.id && !h.settlement && !window.ACKS.settlementForHex(this.currentCampaign, h.id)); },
+  ruralHexOptions(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId===d.id && !window.ACKS.settlementForHex(this.currentCampaign, h.id)); },
   ruralAssignPick: '', ruralAssignHex: '',
   ruralUnhomedCandidates(){ return (this.currentCampaign?.characters||[]).filter(c => !c.homeHexId && c.lifecycleState!=='deceased').sort((a,b)=>(a.name||'').localeCompare(b.name||'')); },
   ruralAssignResident(){ const id=this.ruralAssignPick, hx=this.ruralAssignHex; if(!id||!hx) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeHexId', label:'Home hex', oldValue:(c.homeHexId||null), newValue:hx}); this.ruralAssignPick=''; },
@@ -18919,7 +18922,7 @@ return {
   get topViews(){
     const enabledRules = (this.HOUSERULES||[]).filter(r => this.isHouseRuleEnabled(r.id)).length;
     const aliveChars = (this.currentCampaign?.characters||[]).filter(c=>c.alive!==false).length;
-    const hexCount = (this.domains||[]).reduce((s,d)=>s+((d.geography?.hexes||[]).length),0);
+    const hexCount = (this.currentCampaign?.hexes||[]).filter(h=>h && h.domainId).length;
     const pendingEv = (this.currentCampaign?.pendingEvents||[]).filter(e => e.status === 'pending').length;
     const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
     // 📋 Review badge (2026-06-13) — the "needs the GM" count: clock-holding blockers
@@ -19829,7 +19832,7 @@ return {
   openSettlementVisits(){ this.svtUI.open = true; if(!this.svtUI.selectedId){ const list = this.svtVisits(); if(list.length) this.svtUI.selectedId = list[0].id; } },
   svtVisits(){ const c = this.currentCampaign; if(!c || !Array.isArray(c.settlementVisits)) return []; return c.settlementVisits.slice().sort((a,b)=> (a.status==='active'?0:1)-(b.status==='active'?0:1)); },
   svtSelected(){ const c = this.currentCampaign; if(!c || !this.svtUI.selectedId) return null; return (c.settlementVisits||[]).find(v=>v && v.id===this.svtUI.selectedId) || null; },
-  svtSettlementOptions(){ const c = this.currentCampaign; if(!c) return []; const out = []; (c.settlements||[]).forEach(s=>{ if(s && s.id) out.push({ id:s.id, name:s.name||s.id }); }); (c.hexes||[]).forEach(h=>{ if(h && h.settlement && h.settlement.id && !out.find(x=>x.id===h.settlement.id)) out.push({ id:h.settlement.id, name:h.settlement.name||h.settlement.id }); }); return out; },
+  svtSettlementOptions(){ const c = this.currentCampaign; if(!c) return []; const out = []; (c.settlements||[]).forEach(s=>{ if(s && s.id) out.push({ id:s.id, name:s.name||s.id }); }); return out; },   /* T6 single-home — settlements live in campaign.settlements[] */
   svtSettlementName(id){ const o = this.svtSettlementOptions().find(x=>x.id===id); return o ? o.name : 'the settlement'; },
   svtCharacterOptions(){ const c = this.currentCampaign; return (c && Array.isArray(c.characters)) ? c.characters.filter(x=>x && x.alive!==false) : []; },
   svtCharName(id){ const c = this.currentCampaign; const ch = ((c && c.characters)||[]).find(x=>x && x.id===id); return ch ? (ch.name||'(unnamed)') : id; },
@@ -22143,8 +22146,8 @@ return {
   constructionWizardSiteOptions(){
     const cw = this.constructionWizard, A = window.ACKS;
     const dom = this.constructionWizardOwnerDomain();
-    let hexes = (dom && dom.geography && Array.isArray(dom.geography.hexes) && dom.geography.hexes.length)
-      ? dom.geography.hexes.slice()
+    let hexes = dom
+      ? window.ACKS.hexesForDomain(this.currentCampaign, dom.id)
       : ((this.currentCampaign && this.currentCampaign.hexes) || []);
     return hexes.filter(Boolean).map(h => {
       const e = A.isSiteEligibleForKind ? A.isSiteEligibleForKind(this.currentCampaign, h, cw.kind, cw.structureKey) : { eligible:true, reason:null };
@@ -24720,21 +24723,21 @@ return {
       const destName = destDomain?.name || '(unknown)';
       let destCoord = '';
       if(destDomain){
-        const destHexes = destDomain.geography?.hexes || [];
+        const destHexes = domainHexesFor(destDomain);   // T6 single-home
         if(destDomain.rulerCharacterId){
           const ruler = (this.currentCampaign?.characters||[]).find(x => x.id === destDomain.rulerCharacterId);
           if(ruler?.currentHexId){
             const h = destHexes.find(hex => hex.id === ruler.currentHexId);
             if(h){
-              const setName = h.settlement && h.settlement.name;
+              const _s = settlementAtHexG(h); const setName = _s && _s.name;
               destCoord = window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + (setName ? ' · ' + setName : '');
             }
           }
         }
         if(!destCoord){
-          const settled = destHexes.find(h => h.settlement);
+          const settled = destHexes.find(h => settlementAtHexG(h));
           if(settled){
-            const setName = settled.settlement && settled.settlement.name;
+            const _s = settlementAtHexG(settled); const setName = _s && _s.name;
             destCoord = window.ACKS.hexDisplayLabel(settled.coord?.q||0, settled.coord?.r||0) + (setName ? ' · ' + setName : '');
           }
         }
@@ -25003,16 +25006,10 @@ return {
   },
 
   // Resolve a hex id to a "(q,r) · Settlement" label for Activity descriptors.
-  // Checks the canonical top-level hexes, then per-domain geography (the UI split).
+  // Reads the canonical top-level campaign.hexes (single-home, T6).
   _journeyHexLabel(hexId){
     if(!hexId) return 'destination';
-    let h = (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId);
-    if(!h){
-      for(const d of (this.domains || [])){
-        const hh = (d.geography?.hexes || []).find(x => x && x.id === hexId);
-        if(hh){ h = hh; break; }
-      }
-    }
+    const h = window.ACKS.findHex(this.currentCampaign, hexId);
     if(!h) return hexId;
     return hexLabelFor(h) || hexId;   // canonical hex name (Architecture §11.3)
   },
@@ -25537,7 +25534,6 @@ return {
     const out=[]; const seen=new Set();
     const add = (h)=>{ if(h && h.id && !seen.has(h.id)){ seen.add(h.id); out.push({ id:h.id, label:this._journeyHexLabel(h.id), q:(h.coord?.q??0), r:(h.coord?.r??0) }); } };
     (this.currentCampaign?.hexes||[]).forEach(add);
-    (this.domains||[]).forEach(d => (d.geography?.hexes||[]).forEach(add));
     return out.sort((a,b)=> a.q-b.q || a.r-b.r);
   },
   // ── Wizard (Action verb) ──
@@ -26343,12 +26339,11 @@ return {
       return d ? ('in '+d.name) : c.currentDomainId;
     }
     if(c.currentHexId){
-      for(const d of (this.domains||[])){
-        const hex = (d.geography?.hexes||[]).find(h => h.id === c.currentHexId);
-        if(hex){ return hexLabelFor(hex) + ' in ' + d.name; }
+      const hex = window.ACKS.findHex(this.currentCampaign, c.currentHexId);
+      if(hex){
+        const d = hex.domainId ? (this.domains||[]).find(x => x.id === hex.domainId) : null;
+        return d ? (hexLabelFor(hex) + ' in ' + d.name) : hexLabelFor(hex);
       }
-      const wild = (this.currentCampaign?.hexes||[]).find(h => h.id === c.currentHexId);
-      if(wild) return hexLabelFor(wild);
       return 'hex '+c.currentHexId;
     }
     return '—';
@@ -26618,13 +26613,11 @@ return {
     let detectedMarketClassIdx = 2; // default Class III
     if(patron){
       const sets = this.allSettlements ? this.allSettlements() : [];
-      const idFor = (s) => s.settlement.id || (s.domainId + ':' + s.hexIndex);
+      const idFor = (s) => s.settlement.id;   // T6 single-home — settlements always carry an id
       // (1) patron's currentHexId — find which settlement entry sits on that hex
       if(patron.currentHexId){
         for(const s of sets){
-          const dom = (this.domains||[]).find(d => d.id === s.domainId);
-          if(!dom) continue;
-          const hex = (dom.geography && dom.geography.hexes || [])[s.hexIndex];
+          const hex = window.ACKS.findHex(this.currentCampaign, s.hexId);
           if(hex && hex.id === patron.currentHexId){
             detectedSettlementId = idFor(s);
             detectedMarketClassIdx = this.recruitMarketClassStrToIdx(s.marketClass);
@@ -26716,7 +26709,7 @@ return {
   recruitSettlementOptions(){
     const sets = this.allSettlements ? this.allSettlements() : [];
     return sets.map(s => ({
-      id: s.settlement.id || (s.domainId + ':' + s.hexIndex),
+      id: s.settlement.id,
       label: (s.settlement.name || '(unnamed)') + ' · Class ' + s.marketClass + ' · ' + s.domainName,
       marketClass: s.marketClass
     }));
@@ -26814,11 +26807,10 @@ return {
   recruitPatronAtSettlement(){
     const s = this.recruitState; if(!s || !s.patron || !s.settlementId) return true;
     const sets = (this.allSettlements ? this.allSettlements() : []);
-    const idFor = (x) => x.settlement.id || (x.domainId + ':' + x.hexIndex);
+    const idFor = (x) => x.settlement.id;   // T6 single-home — settlements always carry an id
     const match = sets.find(x => idFor(x) === s.settlementId);
     if(!match) return true;
-    const dom = (this.domains||[]).find(d => d.id === match.domainId);
-    const hex = (dom && dom.geography && dom.geography.hexes || [])[match.hexIndex];
+    const hex = window.ACKS.findHex(this.currentCampaign, match.hexId);   // T6 single-home
     if(!hex) return true;
     return s.patron.currentHexId === hex.id;
   },
@@ -27214,11 +27206,10 @@ return {
     let candHexId = null, candDomainId = null;
     if(s.settlementId){
       const sets = this.allSettlements ? this.allSettlements() : [];
-      const idFor = (x) => x.settlement.id || (x.domainId + ':' + x.hexIndex);
+      const idFor = (x) => x.settlement.id;   // T6 single-home — settlements always carry an id
       const match = sets.find(x => idFor(x) === s.settlementId);
       if(match){
-        const dom = (this.domains||[]).find(d => d.id === match.domainId);
-        const hex = (dom && dom.geography && dom.geography.hexes || [])[match.hexIndex];
+        const hex = window.ACKS.findHex(this.currentCampaign, match.hexId);   // T6 single-home
         if(hex) candHexId = hex.id;
         candDomainId = match.domainId;
       }
@@ -28088,23 +28079,17 @@ return {
   // Phase 2.7 World — flat list of all hexes across all domains with back-references.
   // Returns array of {domainId, domainName, hexIndex, hex}. Used by the World > Hexes view.
   allHexes(){
+    // T6 single-home — campaign.hexes IS the complete hex set (owned + unclaimed wilderness); the
+    // per-domain geography.hexes mirror is gone. Each entry bundles its canonical settlement so the
+    // view reads entry.settlement (not the deleted hex.settlement). hexIndex = the campaign.hexes index
+    // (a stable UI key only).
     const out = [];
-    const seen = new Set();
-    (this.domains||[]).forEach(d => {
-      (d.geography?.hexes||[]).forEach((h, hi) => {
-        out.push({domainId:d.id, domainName:d.name, hexIndex:hi, hex:h});
-        if(h && h.id) seen.add(h.id);
-      });
-    });
-    // Domainless wilderness hexes live only in campaign.hexes (no domain geography). Include them so the
-    // Hexes tab + hex pickers show them (and "+ add hex → Unclaimed wilderness" lands somewhere visible).
-    // campaign.hexes is reference-unified with the domain mirrors, so dedupe by id to avoid doubles.
-    (this.currentCampaign?.hexes||[]).forEach(h => {
-      if(h && h.id && !seen.has(h.id)){
-        const d = h.domainId ? (this.domains||[]).find(x => x.id === h.domainId) : null;
-        out.push({domainId: d ? d.id : null, domainName: d ? d.name : 'Unclaimed', domainless: !d, hexIndex:-1, hex:h});
-        seen.add(h.id);
-      }
+    const c = this.currentCampaign;
+    (c?.hexes||[]).forEach((h, hi) => {
+      if(!h || !h.id) return;
+      const d = h.domainId ? (this.domains||[]).find(x => x.id === h.domainId) : null;
+      out.push({ domainId: d ? d.id : null, domainName: d ? d.name : 'Unclaimed', domainless: !d, hexIndex: hi, hex: h,
+                 settlement: (window.ACKS && window.ACKS.settlementForHex) ? window.ACKS.settlementForHex(c, h.id) : null });
     });
     return out;
   },
@@ -28114,7 +28099,7 @@ return {
     const filter = this.worldHexFilter || 'all';
     return this.allHexes().filter(entry => {
       const h = entry.hex;
-      if(filter === 'settled' && !h.settlement) return false;
+      if(filter === 'settled' && !entry.settlement) return false;   // T6 single-home — allHexes bundles the canonical settlement
       if(filter === 'lairs' && (!h.lairs || h.lairs.length === 0)) return false;
       if(filter === 'dungeons' && (!h.dungeons || h.dungeons.length === 0)) return false;
       if(filter === 'unexplored' && h.explored !== false) return false;
@@ -28131,7 +28116,7 @@ return {
           ...(h.lairs||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.dungeons||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.pointsOfInterest||[]).map(l=>(l.name||'')+' '+(l.description||'')),
-          h.settlement?.name || ''
+          entry.settlement?.name || ''
         ].join(' ').toLowerCase();
         if(!haystack.includes(q)) return false;
       }
@@ -28976,17 +28961,19 @@ return {
   characterCoinWeightSt(ch){ return window.ACKS.characterCoinWeightSt(ch); },
   carryBandColor(level){ return ({ unencumbered:'#2f6b2f', light:'#7a6a17', heavy:'#9a5a13', severe:'#7a3b13', overloaded:'#7a1313' })[level] || '#444'; },
 
-  // Resolve the hex currently being edited in the World > Hexes detail modal
+  // Resolve the hex currently being edited in the World > Hexes detail modal.
+  // Single-home (T6): resolve by hex id from the canonical campaign.hexes; the legacy
+  // positional (domainId+hexIndex) open is honored via hexesForDomain for back-compat.
   worldHexEditingHex(){
     if(!this.worldHexEditing) return null;
-    const d = this.domains.find(x => x.id === this.worldHexEditing.domainId);
-    const viaIndex = d ? (d.geography?.hexes?.[this.worldHexEditing.hexIndex] || null) : null;
-    if(viaIndex) return viaIndex;
-    // Domainless / unindexed hex (e.g. a wilderness hex opened from the Map) — resolve by id
-    // from the top-level collection so the full hex card works for it too.
     const id = this.worldHexEditing.hexId;
-    return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
+    if(id){ const h = window.ACKS.findHex(this.currentCampaign, id); if(h) return h; }
+    const d = this.domains.find(x => x.id === this.worldHexEditing.domainId);
+    return d ? (window.ACKS.hexesForDomain(this.currentCampaign, d.id)[this.worldHexEditing.hexIndex] || null) : null;
   },
+  // The settlement at the hex being edited — read from canonical campaign.settlements (single-home, T6;
+  // the embedded hex.settlement mirror is gone).
+  worldHexEditingSettlement(){ return settlementAtHexG(this.worldHexEditingHex()); },
   // Terrain dropdown options for the hex panel — the shared map catalog (mapTerrainTypes), plus the
   // editing hex's CURRENT terrain prepended when it isn't in the catalog (e.g. legacy/demo "plains" /
   // "coast"), so switching this field from a free text box to a dropdown never hides an existing value.
@@ -29055,17 +29042,12 @@ return {
     const id = hex && hex.domainId;
     return id ? (this.domains.find(x => x.id === id) || null) : null;
   },
-  // A hex's domain claim lives canonically on hex.domainId, with each domain's geography.hexes[] as
-  // the reconciled mirror (CLAUDE #10). Legacy/template data, a save round-trip, or a pre-backfill
-  // session cache can leave a hex sitting in a domain's geography with an EMPTY scalar; adopt that
-  // membership onto the scalar so the panel reflects the truth the GM already sees in the per-domain
-  // Hexes table. Mirrors the engine's lift backfill (liftToTopLevelCollections) for the in-session
-  // case where reload hasn't re-run lift. Returns the resolved domain id (null = genuine wilderness).
+  // A hex's domain claim lives canonically on hex.domainId (single-home, T6). The load-time lift
+  // (liftToTopLevelCollections) backfills domainId from any legacy nested membership before the strip,
+  // so a loaded hex always carries the truth; this is now a thin passthrough kept for its callers.
+  // Returns the resolved domain id (null = genuine wilderness).
   _healHexDomainId(hex){
-    if(!hex || hex.domainId) return hex ? hex.domainId : null;
-    const owner = (this.domains||[]).find(d => d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id));
-    if(owner){ hex.domainId = owner.id; return owner.id; }
-    return null;
+    return hex ? (hex.domainId || null) : null;
   },
   // Reassign the editing hex to another domain (or unclaimed wilderness) from the hex-detail modal.
   // Reuses mapRehomeHex (the canonical move: drop from old geography, set hex.domainId, add to new +
@@ -29277,7 +29259,8 @@ return {
   mapHexTitle(entry){
     const h = entry.hex;
     const bits = [hexLabelFor(h) || entry.label];      // canonical hex name (Architecture §11.3)
-    if(h.settlement && h.settlement.name && h.terrain) bits.push(h.terrain); // terrain isn't in the name → show it
+    const _s = settlementAtHexG(h);   // T6 single-home
+    if(_s && _s.name && h.terrain) bits.push(h.terrain); // terrain isn't in the name → show it
     bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
     if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
     return bits.filter(Boolean).join('  ·  ');
@@ -29412,8 +29395,9 @@ return {
     const T = this.mapSymbolToggles;
     entries.forEach(e => {
       const h = e.hex, cx = e.cx, cy = e.cy;
-      if(T.settlements && h.settlement){
-        const rr = (size * A.settlementGlyphScale(h.settlement.families || 0)).toFixed(1);
+      const hSet = settlementAtHexG(h);   // T6 single-home
+      if(T.settlements && hSet){
+        const rr = (size * A.settlementGlyphScale(hSet.families || 0)).toFixed(1);
         parts.push('<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="'+rr+'" fill="#f3ecd8" stroke="#4b3f2f" stroke-width="'+(size*0.04).toFixed(2)+'" style="pointer-events:none;"/>');
       }
       if(T.strongholds && h.primaryStructure){
@@ -29476,7 +29460,6 @@ return {
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const hexById = {};
     (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.id) hexById[h.id] = h; });
-    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.id && !hexById[h.id]) hexById[h.id] = h; }));
     const centre = id => { const h = hexById[id]; if(!h || !h.coord) return null; const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size); return { x:c.x, y:c.y }; };
     const routes = [];
     (this.currentCampaign?.journeys || []).forEach(j => {
@@ -29586,13 +29569,7 @@ return {
     return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
   },
   _mapFindHexById(id){
-    let h = (this.currentCampaign?.hexes || []).find(x => x.id === id);
-    if(h) return h;
-    for(const d of (this.domains || [])){
-      h = (d.geography?.hexes || []).find(x => x.id === id);
-      if(h) return h;
-    }
-    return null;
+    return window.ACKS.findHex(this.currentCampaign, id) || null;
   },
   _mapFindHexByCoord(q, r){
     return (this.currentCampaign?.hexes || []).find(x => x.coord && x.coord.q === q && x.coord.r === r) || null;
@@ -29964,7 +29941,6 @@ return {
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const hexById = {};
     (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.id) hexById[h.id] = h; });
-    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.id && !hexById[h.id]) hexById[h.id] = h; }));
     const centre = id => { const h = hexById[id]; if(!h || !h.coord) return null; const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size); return { x:c.x, y:c.y }; };
     const jid = (wp && wp.journeyId) || (dp && dp.journeyId) || null;
     let startId, wpIds, destId;
@@ -29990,7 +29966,6 @@ return {
   _firstFreeHexCoord(){
     const used = new Set();
     (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
-    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); }));
     let q = 0;
     while(used.has(q + ',0')) q++;
     return { q, r: 0 };
@@ -30131,11 +30106,15 @@ return {
     h.pointsOfInterest.push({id:'poi-'+Math.random().toString(36).slice(2,7), name:'', kind:'ruin', description:''});
   },
   allSettlements(){
+    // T6 single-home — settlements live in the canonical campaign.settlements[]; the hex + its domain
+    // are resolved by settlement.hexId. Entries key by settlement.id (hexIndex is gone).
+    const c = this.currentCampaign;
     const out=[];
-    (this.domains||[]).forEach(d=>{
-      (d.geography?.hexes||[]).forEach((h,hi)=>{
-        if(h.settlement) out.push({domainId:d.id, domainName:d.name, hexIndex:hi, settlement:h.settlement, marketClass:this.settlementMarketClass(h.settlement)});
-      });
+    (c?.settlements||[]).forEach(s=>{
+      if(!s) return;
+      const h = (window.ACKS && window.ACKS.findHex) ? window.ACKS.findHex(c, s.hexId) : null;
+      const d = (h && h.domainId) ? (this.domains||[]).find(x=>x.id===h.domainId) : null;
+      out.push({domainId: d?d.id:null, domainName: d?d.name:'Unclaimed', hexId: s.hexId, settlement:s, marketClass:this.settlementMarketClass(s)});
     });
     return out;
   },
@@ -31043,11 +31022,11 @@ return {
   },
   // Found a named urban settlement on a specific hex per ACKS RR p.350.
   // Transfers peasants → settlement on the hex, deducts 10,000gp from treasury, logs as treasury adjustment.
-  foundSettlementOnHex(d, hexIndex, name, peasantsToTransfer){
+  foundSettlementOnHex(d, hex, name, peasantsToTransfer){
     if(!d)return;
-    const hex=d.geography?.hexes?.[hexIndex];
     if(!hex){alert('Hex not found.');return;}
-    if(hex.settlement){alert('This hex already has a settlement ('+(hex.settlement.name||'unnamed')+').');return;}
+    const existing = settlementAtHexG(hex);
+    if(existing){alert('This hex already has a settlement ('+(existing.name||'unnamed')+').');return;}
     const cost=10000;
     const n=peasantsToTransfer||100;
     const trimmedName=(name||'').trim();
@@ -31059,8 +31038,13 @@ return {
     // Apply
     this.adjustTreasury(d, -cost, 'Founded "'+trimmedName+'" on hex '+window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r)+', '+n+' families');
     // Foundation #241 — go through the canonical setter so rural hex.families gets the matching haircut.
-    window.ACKS.setPeasantPopulation(d, (d.demographics.peasantFamilies||0) - n);
-    hex.settlement={name:trimmedName, families:n, totalInvestment:cost, foundedTurn:this.currentCampaign?.currentTurn||1, demandModifiers:{}};
+    window.ACKS.setPeasantPopulation(this.currentCampaign, d, (d.demographics.peasantFamilies||0) - n);
+    // Single-home (T6): the settlement lives in the canonical campaign.settlements[], linked to the
+    // hex by hexId (the embedded hex.settlement mirror is gone). blankSettlement gives it a stable id.
+    const s = window.ACKS.blankSettlement({ name:trimmedName, families:n, totalInvestment:cost, foundedTurn:this.currentCampaign?.currentTurn||1, hexId:hex.id });
+    if(!Array.isArray(this.currentCampaign.settlements)) this.currentCampaign.settlements = [];
+    this.currentCampaign.settlements.push(s);
+    this.markDirty(); this.schedulePersist();
     this.showToast('Founded "'+trimmedName+'" with '+n+' families.');
   },
 
@@ -31198,7 +31182,7 @@ return {
   },
   // Push per-hex totals up to the aggregate fields (controlledHexes, peasantFamilies, weighted-avg landRevenuePerFamily)
   syncHexesToAggregate(d){
-    const hexes=d.geography?.hexes||[];
+    const hexes=window.ACKS.hexesForDomain(this.currentCampaign, d.id);
     if(hexes.length===0)return;
     const totalFam=hexes.reduce((s,h)=>s+(h.families||0),0);
     const totalLand=hexes.reduce((s,h)=>s+(h.families||0)*(h.valuePerFamily||0),0);
@@ -31645,7 +31629,7 @@ return {
   },
   // Total in-progress agricultural improvement projects across a domain (for UI display).
   domainImprovementProjectsInProgress(d){
-    const hexes=d.geography?.hexes||[];
+    const hexes=window.ACKS.hexesForDomain(this.currentCampaign, d.id);
     return hexes.reduce((s,h)=>s+(Array.isArray(h.landImprovementProjects)?h.landImprovementProjects.length:0),0);
   },
   // Total completed +bonus across all hexes (for UI display).
@@ -31719,15 +31703,12 @@ return {
     if(!ch) return '—';
     const hexId = ch.currentHexId;
     if(!hexId) return '—';
-    // domained hex (nested geography) → "<hex name> · <domain>" (canonical hex name, Architecture §11.3)
-    for(const d of (this.domains||[])){
-      const h = (d.geography?.hexes||[]).find(x => x.id === hexId);
-      if(h) return hexLabelFor(h) + ' · ' + d.name;
-    }
-    // domainless wilderness hex (top-level only)
-    const wild = (this.currentCampaign?.hexes||[]).find(x => x.id === hexId);
-    if(wild) return hexLabelFor(wild);
-    return '(unknown hex)';
+    // Single-home (T6): resolve the hex from canonical campaign.hexes; its domainId names the
+    // owning domain → "<hex name> · <domain>" (canonical hex name, Architecture §11.3), else wilderness.
+    const h = window.ACKS.findHex(this.currentCampaign, hexId);
+    if(!h) return '(unknown hex)';
+    const d = h.domainId ? (this.domains||[]).find(x => x.id === h.domainId) : null;
+    return d ? (hexLabelFor(h) + ' · ' + d.name) : hexLabelFor(h);
   },
 
   // Total XP this henchman earns this month from all roles combined. Per
@@ -32967,8 +32948,7 @@ return {
   mapEnterLocalScale(){
     if(this.mapLocalParent()){ this.mapLocalDrill(this.mapLocalParentHexId); return; }
     const A = window.ACKS;
-    const hasRegional = (this.currentCampaign?.hexes || []).some(h => A.hexScaleOf(h) === 'regional')
-      || (this.domains || []).some(d => (d.geography?.hexes || []).some(h => A.hexScaleOf(h) === 'regional'));
+    const hasRegional = (this.currentCampaign?.hexes || []).some(h => A.hexScaleOf(h) === 'regional');
     if(!hasRegional){ this.showToast('No 6-mile hexes on the map yet — add some first, then drill into one for 1.5-mile detail.', 5000); return; }
     this.mapBeginSelect(hexId => this.mapLocalDrill(hexId), 'Click a 6-mile hex to drill into its 1.5-mile detail.');
     this.showToast('Click a 6-mile hex to view & author its 1.5-mile detail (or pick another scale to cancel).', 5000);

@@ -435,8 +435,9 @@
     const dom = _domain(campaign, spec.defenderDomainId);
     const darmy = _army(campaign, spec.defenderArmyId);
     if(!dom && !darmy) return { ok: false, reason: 'no-defender' };
-    const hexId = spec.hexId || (dom && (dom.geography && (dom.geography.hexes || [])[0] && (dom.geography.hexes || [])[0].id))
-      || army.currentHexId || null;
+    // Single-home (T6): the defender domain's first hex from canonical campaign.hexes (by domainId).
+    const _domHex = dom ? (campaign.hexes || []).find(h => h && h.domainId === dom.id) : null;
+    const hexId = spec.hexId || (_domHex && _domHex.id) || army.currentHexId || null;
     const material = (spec.material === 'wood') ? 'wood' : 'stone';
     // Derive shp + unit capacity from the stronghold's actual components (RAW-exact catalog values, RR r10
     // p.132) when not authored — read together so a real shp never carries a stale capacity (a keep is 6

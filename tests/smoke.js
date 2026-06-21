@@ -540,47 +540,49 @@ section('Calendar day-tick pipeline (Phase 2.95)');
 section('families-per-hex-tracking — reconcile canonical direction (RR p.340 + CLAUDE #10)');
 // =============================================================================
 (function () {
+  // Single-home (T6): hexes live in campaign.hexes[] keyed by domainId (no nested geography.hexes).
   function mk(on) {
     const c = ACKS.blankCampaign();
     if (on) c.houseRules['families-per-hex-tracking'] = true;
     const d = ACKS.blankDomain({ name: 'Saltmark' });
-    d.geography.hexes = [{ id: 'h1', families: 50 }, { id: 'h2', families: 30 }];
-    d.demographics.peasantFamilies = 80; // initially consistent (80 == 50 + 30)
     c.domains = [d];
+    c.hexes = [{ id: 'h1', domainId: d.id, families: 50 }, { id: 'h2', domainId: d.id, families: 30 }];
+    d.demographics.peasantFamilies = 80; // initially consistent (80 == 50 + 30)
     return { c, d };
   }
-  const hexFams = d => d.geography.hexes.map(h => h.families);
-  const hexSum = d => d.geography.hexes.reduce((s, h) => s + (h.families || 0), 0);
+  const domHexes = (c, d) => ACKS.hexesForDomain(c, d.id);
+  const hexFams = (c, d) => domHexes(c, d).map(h => h.families);
+  const hexSum = (c, d) => domHexes(c, d).reduce((s, h) => s + (h.families || 0), 0);
 
   // Rule ON: a GM per-hex edit is canonical — reconcile derives the domain total from
   // the hexes and must NOT rescale them back to the stale peasantFamilies (the bug).
   let { c, d } = mk(true);
-  d.geography.hexes[0].families = 100; // GM edits h1 50 -> 100 (hexSum now 130, pf stale 80)
+  domHexes(c, d)[0].families = 100; // GM edits h1 50 -> 100 (hexSum now 130, pf stale 80)
   ACKS.reconcileRuralPopulation(c);
-  ok('ON: per-hex edit preserved (not rescaled away)', hexFams(d)[0] === 100 && hexFams(d)[1] === 30);
+  ok('ON: per-hex edit preserved (not rescaled away)', hexFams(c, d)[0] === 100 && hexFams(c, d)[1] === 30);
   ok('ON: peasantFamilies derived from hex sum (130)', d.demographics.peasantFamilies === 130);
 
   // Rule ON but hexes still empty (just enabled): seed from the domain total, never zero it.
   ({ c, d } = mk(true));
-  d.geography.hexes.forEach(h => h.families = 0);
+  domHexes(c, d).forEach(h => h.families = 0);
   d.demographics.peasantFamilies = 200;
   ACKS.reconcileRuralPopulation(c);
-  ok('ON + empty hexes: population seeded, not lost', hexSum(d) === 200 && d.demographics.peasantFamilies === 200);
+  ok('ON + empty hexes: population seeded, not lost', hexSum(c, d) === 200 && d.demographics.peasantFamilies === 200);
 
   // Rule OFF (RAW default): peasantFamilies is canonical — redistribute across hexes (unchanged).
   ({ c, d } = mk(false));
-  d.geography.hexes[0].families = 100;
+  domHexes(c, d)[0].families = 100;
   ACKS.reconcileRuralPopulation(c);
   ok('OFF: domain total stays canonical (80)', d.demographics.peasantFamilies === 80);
-  ok('OFF: hexes redistributed to sum to the domain total', hexSum(d) === 80);
+  ok('OFF: hexes redistributed to sum to the domain total', hexSum(c, d) === 80);
 
   // Canonical inverse setter.
   ({ c, d } = mk(true));
-  d.geography.hexes = [{ id: 'h1', families: 11 }, { id: 'h2', families: 22 }];
+  c.hexes = [{ id: 'h1', domainId: d.id, families: 11 }, { id: 'h2', domainId: d.id, families: 22 }];
   ok('syncRuralPopulationFromHexes sets pf = Σ(hex.families)',
-    ACKS.syncRuralPopulationFromHexes(d) === 33 && d.demographics.peasantFamilies === 33);
+    ACKS.syncRuralPopulationFromHexes(c, d) === 33 && d.demographics.peasantFamilies === 33);
   ACKS.reconcileRuralPopulation(c);
-  ok('ON: a synced campaign is a reconcile no-op', d.demographics.peasantFamilies === 33 && hexSum(d) === 33);
+  ok('ON: a synced campaign is a reconcile no-op', d.demographics.peasantFamilies === 33 && hexSum(c, d) === 33);
 })();
 
 // =============================================================================

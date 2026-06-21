@@ -101,6 +101,10 @@ check('D3 untouched', d3.pendingPlayerInput == null);
 
 console.log('--- Handler smoke (migrated frontier-barony template) ---');
 const camp = ACKS.migrateCampaign(JSON.parse(fs.readFileSync(path.join(__dirname,'..','Templates','v2-frontier-barony.acks.json'),'utf8')));
+// Single-home (T6): production lifts nested → campaign.hexes/.settlements before any event runs
+// (loadCampaignFromObject → _finishLoad). The handlers below read the canonical campaign.hexes
+// (e.g. adventure-result resolves its hex there), so lift here to mirror the real load path.
+ACKS.liftToTopLevelCollections(camp);
 const tBefore = camp.domains[0].treasury.gp;
 const grantEv = ACKS.newEvent('treasury-grant', {
   payload: { domainId: 'dom-barony-of-thornreach', amount: 500, label: 'adventurer windfall' }

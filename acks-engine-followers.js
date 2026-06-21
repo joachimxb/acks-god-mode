@@ -587,7 +587,7 @@
       if(fr && fr.applicable && fr.families > 0){
         if(!domain.demographics) domain.demographics = { peasantFamilies:0, urbanFamilies:0, morale:0, moraleNotes:'' };
         const cur = Number(domain.demographics.peasantFamilies || 0);
-        if(typeof A.setPeasantPopulation === 'function') A.setPeasantPopulation(domain, cur + fr.families);
+        if(typeof A.setPeasantPopulation === 'function') A.setPeasantPopulation(campaign, domain, cur + fr.families);
         else domain.demographics.peasantFamilies = cur + fr.families;
         domain.followerFamiliesArrived = (Number(domain.followerFamiliesArrived) || 0) + fr.families;   // readout marker
         familiesArrived = fr.families; familiesInfo = fr;

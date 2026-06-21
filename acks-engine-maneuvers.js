@@ -898,7 +898,7 @@
     if(results.familiesLost > 0){
       const peasant = (domain.demographics && domain.demographics.peasantFamilies) || 0;
       const fromPeasants = Math.min(peasant, results.familiesLost);
-      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(domain, peasant - fromPeasants);
+      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(campaign, domain, peasant - fromPeasants);
       else if(domain.demographics) domain.demographics.peasantFamilies = peasant - fromPeasants;
       const overflow = results.familiesLost - fromPeasants;
       if(overflow > 0) _reduceUrbanFamilies(campaign, domain, overflow);
@@ -1474,7 +1474,7 @@
     if(reqGp > 0) dom.lastRequisitionedOrd = ord;
     if(familiesLost > 0){
       const newFam = Math.max(0, fam - familiesLost);
-      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(dom, newFam);
+      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(campaign, dom, newFam);
       else if(dom.demographics) dom.demographics.peasantFamilies = newFam;
     }
     army.lastSupplyCheckOrd = ord;

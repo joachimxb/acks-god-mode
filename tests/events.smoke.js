@@ -88,10 +88,8 @@ section('P1.2 — applyEvent is transactional: rolls back partial mutations on h
 function txnFixture() {
   const c = ACKS.blankCampaign();
   c.currentTurn = 1;
-  c.domains = [{
-    id: 'dom-1', name: 'Mark', treasury: { gp: 0 },
-    geography: { hexes: [{ id: 'hex-1', explored: false }] }
-  }];
+  c.domains = [{ id: 'dom-1', name: 'Mark', treasury: { gp: 0 }, geography: {} }];
+  c.hexes = [{ id: 'hex-1', domainId: 'dom-1', explored: false }];   // single-home (T6)
   c.pendingEvents = [];
   return c;
 }
@@ -106,7 +104,7 @@ const cThrow = txnFixture();
 const before = clone(cThrow);
 throws('adventure-result with unknown destinationDomainId throws', () => ACKS.applyEvent(cThrow, throwingEv));
 deepEq('campaign fully unchanged after the throw (no partial mutation)', cThrow, before);
-ok('  → target hex.explored rolled back to false', cThrow.domains[0].geography.hexes[0].explored === false);
+ok('  → target hex.explored rolled back to false', cThrow.hexes[0].explored === false);
 
 // Success path is preserved: a well-formed adventure-result still mutates in place.
 const cOk = txnFixture();
@@ -117,7 +115,7 @@ ACKS.applyEvent(cOk, ACKS.newEvent('adventure-result', {
     treasureAwarded: [{ kind: 'gp', amount: 500, destinationDomainId: 'dom-1', label: 'loot' }]
   }
 }));
-ok('success path: hex marked explored', cOk.domains[0].geography.hexes[0].explored === true);
+ok('success path: hex marked explored', cOk.hexes[0].explored === true);
 ok('success path: treasury credited 500gp', cOk.domains[0].treasury.gp === 500);
 
 // =============================================================================
@@ -249,26 +247,25 @@ section('gm-fiat population sync — hex.families / peasantFamilies route throug
 // EXPORTED setters (syncRuralPopulationFromHexes / setPeasantPopulation). The P3.7 table above only
 // exercises gm-fiat on `notes`, so this branch had no coverage.
 (function () {
+  // Single-home (T6): hexes live in campaign.hexes[] keyed by domainId (no nested geography.hexes).
   function fixture() {
     const c = ACKS.blankCampaign();
-    c.domains = [{
-      id: 'dom-1', name: 'Mark', demographics: { peasantFamilies: 80 },
-      geography: { hexes: [{ id: 'h1', families: 50 }, { id: 'h2', families: 30 }] }
-    }];
+    c.domains = [{ id: 'dom-1', name: 'Mark', demographics: { peasantFamilies: 80 }, geography: {} }];
+    c.hexes = [{ id: 'h1', domainId: 'dom-1', families: 50 }, { id: 'h2', domainId: 'dom-1', families: 30 }];
     return c;
   }
   // Editing a hex's families must not throw, and must sync peasantFamilies = Σ(rural hexes).
   const c1 = fixture();
   const ev1 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'h1' }, mutation: { fieldPath: 'families', newValue: 100 } } });
   doesNotThrow('gm-fiat hex.families edit applies without ReferenceError', () => ACKS.applyEvent(c1, ev1));
-  ok('  hex.families set to 100', c1.domains[0].geography.hexes[0].families === 100);
+  ok('  hex.families set to 100', ACKS.findHex(c1, 'h1').families === 100);
   ok('  peasantFamilies synced to hex sum (130)', c1.domains[0].demographics.peasantFamilies === 130);
   // Editing domain peasantFamilies must not throw, and must redistribute across the hexes.
   const c2 = fixture();
   const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'domain', id: 'dom-1' }, mutation: { fieldPath: 'demographics.peasantFamilies', newValue: 160 } } });
   doesNotThrow('gm-fiat peasantFamilies edit applies without ReferenceError', () => ACKS.applyEvent(c2, ev2));
   ok('  peasantFamilies set to 160', c2.domains[0].demographics.peasantFamilies === 160);
-  ok('  hexes redistributed to sum to 160', c2.domains[0].geography.hexes.reduce((s, h) => s + (h.families || 0), 0) === 160);
+  ok('  hexes redistributed to sum to 160', ACKS.hexesForDomain(c2, 'dom-1').reduce((s, h) => s + (h.families || 0), 0) === 160);
 })();
 
 // =============================================================================

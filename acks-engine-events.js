@@ -2110,15 +2110,9 @@ function applyEvent_gmFiat(campaign, event){
     case 'domain':     entity = (campaign.domains||[]).find(x => x.id === target.id); break;
     case 'character':  entity = (campaign.characters||[]).find(x => x.id === target.id); break;
     case 'hex':
-      // Top-level collection first (Foundation #14/#193 — domainless wilderness hexes live ONLY
-      // here; domained hexes are reference-unified, same object). Then walk legacy nested storage.
+      // Single-home (T6): hexes live in the canonical campaign.hexes[] (domained + domainless wilderness
+      // alike; the per-domain geography.hexes mirror is gone).
       entity = (campaign.hexes||[]).find(h => h.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          const h = (d.geography?.hexes||[]).find(h => h.id === target.id);
-          if(h) entity = h;
-        });
-      }
       break;
     case 'settlement':
       // T6 single-home — the settlement lives in the canonical campaign.settlements[].
@@ -2157,11 +2151,11 @@ function applyEvent_gmFiat(campaign, event){
   // dormant until the families-per-hex per-hex editor became reachable. (2026-06-01.)
   const _eng = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
   if(target.kind === 'domain' && mutation.fieldPath === 'demographics.peasantFamilies'){
-    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(entity, mutation.newValue);
+    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(campaign, entity, mutation.newValue);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'families'){
-    const owningDomain = (campaign.domains||[]).find(dd =>
-      (dd.geography?.hexes||[]).some(h => h.id === target.id));
-    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
+    // Single-home (T6): a hex's owning domain is its hex.domainId (campaign.hexes is canonical).
+    const owningDomain = (entity && entity.domainId) ? (campaign.domains||[]).find(dd => dd.id === entity.domainId) : null;
+    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(campaign, owningDomain);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'domainId'){
     // Canonical setter (#10): a hex's domainId is the truth; moving it must move its geography.hexes
     // mirror too. Routes through the exported reconciler so the hex panel, the Inspector, the Event
@@ -2313,11 +2307,10 @@ function applyEvent_adventureResult(campaign, event){
   let targetHex = null;
   let targetDomainId = null;
   if(p.hexId){
-    (campaign.domains||[]).forEach(d => {
-      const h = (d.geography?.hexes||[]).find(x => x.id === p.hexId);
-      if(h){ targetHex = h; targetDomainId = d.id; }
-    });
+    // Single-home (T6): hexes are canonical in campaign.hexes[]; the owning domain is hex.domainId.
+    targetHex = (campaign.hexes||[]).find(x => x.id === p.hexId) || null;
     if(!targetHex) throw new Error('adventure-result: hex not found: '+p.hexId);
+    targetDomainId = targetHex.domainId || null;
     if(!targetHex.explored){ targetHex.explored = true; changed.hexesChanged.push(targetHex.id); summaryParts.push('hex '+targetHex.id+' marked explored'); }
   }
 

@@ -329,8 +329,14 @@ function incomeBreakdown(campaign, d){
   const totalImprovementBonus = domainTotalLandImprovementBonus(campaign, d);
   const improvedTag = totalImprovementBonus > 0 ? ' [improved +' + totalImprovementBonus + ' total]' : '';
   if(isHouseRuleEnabled(campaign, 'families-per-hex-tracking') && hexes.length > 0){
-    const hexTotal = hexes.reduce((s, h) => s + (h.families||0)*effectiveHexValue(h), 0);
-    const hexFam   = hexes.reduce((s, h) => s + (h.families||0), 0);
+    // Land revenue is from RURAL peasant families only — a hex bearing a settlement is urban (its
+    // families are the urban population, counted in service/tax/trade, not land). Single-home (T6):
+    // exclude hexes with a settlement (settlementForHex) from the land sum; the label still reports
+    // the full hex count. (Pre-T6 the nested mirror copy had the urban hex's rural families at 0;
+    // reading the canonical campaign.hexes makes the exclusion explicit.)
+    const ruralHexes = hexes.filter(h => !settlementForHex(campaign, h.id));
+    const hexTotal = ruralHexes.reduce((s, h) => s + (h.families||0)*effectiveHexValue(h), 0);
+    const hexFam   = ruralHexes.reduce((s, h) => s + (h.families||0), 0);
     landRow = { label: 'Land revenue (hex-by-hex, ' + hexes.length + ' hexes, ' + hexFam + ' families)' + improvedTag, gp: bankersRound(hexTotal) };
   } else if(hexes.length > 0){
     const avgValue = hexes.reduce((s, h) => s + effectiveHexValue(h), 0) / hexes.length;
