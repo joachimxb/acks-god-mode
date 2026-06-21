@@ -19654,6 +19654,12 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast(dn ? '🔗 The chaplain co-extracts divine power from the dungeon' : 'Co-extraction unlinked');
   },
+  // ════ TEAM SESSION (burst14 2026-06-21) — per-lane Alpine state + methods. Each builder inserts its
+  //      data props + methods AFTER its own @b14-<lane> marker (disjoint lines → clean merge at integration).
+  //      UI markup goes in each lane's OWN subsystem region (disjoint — no marker needed there). ════
+  // === @b14-domvariants  (team) — Domain Variants P5-TERR (Terrain Transformation): state + methods ===
+  // === @b14-construction (team) — Construction siege-support (circumvallation / war-machine field-assembly / siege-hijinks): state + methods ===
+  // === @b14-politics     (team) — Politics P-5 generative Senate Wizard (materialize a populated senate): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
   // (defaults off each session — kept out of the shared session-restore region).
