@@ -1,19 +1,19 @@
 // =============================================================================
-// single-home.smoke.js — T6 (audit 2026-06-14, integration C1 / thermonuclear).
+// single-home.smoke.js — T6 single-home (2026-06-21).
 //
-// The dual-homed collections (hexes / settlements / units live BOTH top-level AND
-// nested under domains[].geography / hexes[].settlement / domains[].garrison /
-// characters[].mercenaryCompany) must not persist DIVERGENT copies. INTEGRATION.md §3
-// states the rule: the top-level collection is authoritative; the nested copies are
-// engine-rebuilt mirrors. ACKS.projectNestedMirrors makes that true at SAVE time —
-// after serialize, every nested copy is a strict, deep, exact projection of its
-// canonical top-level entity, so a save→reload can't produce two divergent entities.
+// The hexes / settlements / units used to live in TWO homes: top-level
+// (campaign.hexes / .settlements / .units) AND nested (domains[].geography.hexes /
+// hexes[].settlement / domains[].garrison.units / characters[].mercenaryCompany.units).
+// The reader sweep made every reader read the top-level collection, so the nested
+// mirror is now deleted: it is ABSENT in memory after load and ABSENT on disk after
+// save. The single home is the only home. Membership is the canonical pointer
+// (hex.domainId / settlement.hexId / unit.stationedAt) on the top-level entity.
 //
-// This suite locks: the projection heals a divergent campaign; a save (stampCampaignForSave)
-// produces no divergent copies; membership is derived from the canonical pointers
-// (hex.domainId / settlement.hexId / unit.stationedAt); the projection is pure-wrt-non-mirror-
-// fields + idempotent; and the integration reviewer's exact finding (nested ≠ top-level on a
-// round-trip) no longer reproduces on the shipped templates.
+// This suite locks: an old/nested-only campaign loads via lift-then-strip (the nested
+// data is promoted to top-level, then the mirror is stripped); migrateCampaign strips the
+// UNIT mirror (order 155); stripHexSettlementMirrors strips the hex/settlement mirror;
+// a save (stampCampaignForSave) carries NO nested mirror; the strip is idempotent + pure
+// wrt the canonical entities; and the shipped templates ship single-homed on disk.
 // =============================================================================
 const path = require('path');
 const fs = require('fs');
@@ -26,148 +26,28 @@ function ok(name, cond, detail){ if(cond){ pass++; } else { fail++; failures.pus
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // --- helpers --------------------------------------------------------------
-// Count nested copies that DIVERGE from (or are missing) their top-level entity.
-function hexDivergence(c){
-  const top = new Map((c.hexes||[]).map(h => [h.id, h]));
-  let div = 0, total = 0;
-  for(const d of (c.domains||[])){
-    for(const h of ((d.geography && d.geography.hexes) || [])){
-      total++;
-      const t = top.get(h.id);
-      if(!t || JSON.stringify(t) !== JSON.stringify(h)) div++;
-    }
-  }
-  return { div, total };
+// Count surviving NESTED mirror entries of each kind (the single-home target is 0).
+function nestedHexes(c){ let n = 0; for(const d of (c.domains||[])){ if(d.geography && Array.isArray(d.geography.hexes)) n += d.geography.hexes.length; } return n; }
+function nestedSettlements(c){ let n = 0; for(const h of (c.hexes||[])){ if(h && 'settlement' in h) n++; } return n; }
+function nestedUnits(c){
+  let n = 0;
+  for(const d of (c.domains||[])){ if(d.garrison && Array.isArray(d.garrison.units)) n += d.garrison.units.length; }
+  for(const ch of (c.characters||[])){ if(ch.mercenaryCompany && Array.isArray(ch.mercenaryCompany.units)) n += ch.mercenaryCompany.units.length; }
+  return n;
 }
-function settlementDivergence(c){
-  const top = new Map((c.settlements||[]).map(s => [s.id, s]));
-  let div = 0, total = 0;
-  for(const h of (c.hexes||[])){
-    if(h.settlement && h.settlement.id){
-      total++;
-      const t = top.get(h.settlement.id);
-      if(!t || JSON.stringify(t) !== JSON.stringify(h.settlement)) div++;
-    }
-  }
-  return { div, total };
+// Any surviving nested-mirror KEY at all (even an empty array / wrapper)?
+function anyNestedMirrorKey(c){
+  for(const d of (c.domains||[])){ if(d.geography && 'hexes' in d.geography) return true; if('garrison' in d) return true; }
+  for(const h of (c.hexes||[])){ if(h && 'settlement' in h) return true; }
+  for(const ch of (c.characters||[])){ if('mercenaryCompany' in ch) return true; }
+  return false;
 }
-function unitDivergence(c){
-  const top = new Map((c.units||[]).map(u => [u.id, u]));
-  let div = 0, total = 0;
-  const scan = (arr) => { for(const u of (arr||[])){ total++; const t = top.get(u.id); if(!t || JSON.stringify(t) !== JSON.stringify(u)) div++; } };
-  for(const d of (c.domains||[])) scan(d.garrison && d.garrison.units);
-  for(const ch of (c.characters||[])) scan(ch.mercenaryCompany && ch.mercenaryCompany.units);
-  return { div, total };
-}
-// Strip the mirror arrays so we can assert projectNestedMirrors changed NOTHING else.
-function stripMirrors(c){
-  const x = clone(c);
-  for(const d of (x.domains||[])){ if(d.geography) d.geography.hexes = '<<m>>'; if(d.garrison) d.garrison.units = '<<m>>'; }
-  for(const h of (x.hexes||[])){ if('settlement' in h) h.settlement = '<<m>>'; }
-  for(const ch of (x.characters||[])){ if(ch.mercenaryCompany) ch.mercenaryCompany.units = '<<m>>'; }
-  return x;
-}
-
-console.log('--- export surface ---');
-ok('ACKS.projectNestedMirrors is a function', typeof ACKS.projectNestedMirrors === 'function');
-
-// =============================================================================
-console.log('--- (1) hand-built divergent campaign → projection heals all three mirrors ---');
-// Top-level is the rich/authoritative copy; nested copies are deliberately thin + stale (the
-// shipped-template failure mode: a hex authored 25 keys top-level / 18 keys nested).
-function divergentCampaign(){
-  const hexFull = { schemaVersion: 2, kind: 'hex', id: 'hex-1', domainId: 'dom-a', coord: { q: 0, r: 0 }, terrain: 'grassland', families: 120, valuePerFamily: 5, hasRoad: true, roadSides: [0], economyType: 'agricultural', elevationFt: 200 };
-  const hexThin = { schemaVersion: 2, kind: 'hex', id: 'hex-1', coord: { q: 0, r: 0 }, terrain: 'grassland', families: 999 }; // stale + thin
-  const setFull = { schemaVersion: 2, kind: 'settlement', id: 'set-1', hexId: 'hex-1', name: 'Town', families: 80, totalInvestment: 5000 };
-  const setThin = { schemaVersion: 2, kind: 'settlement', id: 'set-1', hexId: 'hex-1', name: 'Town', families: 11 }; // stale
-  const unitFull = { schemaVersion: 2, kind: 'unit', id: 'unit-1', displayName: 'Foot', count: 60, stationedAt: { kind: 'domain-garrison', id: 'dom-a' }, brPerSoldier: 0.05 };
-  const unitThin = { schemaVersion: 2, kind: 'unit', id: 'unit-1', displayName: 'Foot', count: 1, stationedAt: { kind: 'domain-garrison', id: 'dom-a' } };
-  const mercFull = { schemaVersion: 2, kind: 'unit', id: 'unit-2', displayName: 'Bows', count: 20, stationedAt: { kind: 'character', id: 'chr-1' } };
-  const mercThin = { schemaVersion: 2, kind: 'unit', id: 'unit-2', displayName: 'Bows', count: 2, stationedAt: { kind: 'character', id: 'chr-1' } };
-  const hexTopWithThinSettlement = clone(hexFull); hexTopWithThinSettlement.settlement = setThin; // hex.settlement stale vs top-level
-  return {
-    schemaVersion: 2, kind: 'campaign', id: 'cmp-div', name: 'Div', currentTurn: 1, houseRules: {},
-    hexes: [hexTopWithThinSettlement],
-    settlements: [setFull],
-    units: [unitFull, mercFull],
-    characters: [{ schemaVersion: 2, kind: 'character', id: 'chr-1', name: 'Cap', mercenaryCompany: { units: [mercThin] } }],
-    domains: [{ schemaVersion: 2, kind: 'domain', id: 'dom-a', name: 'A',
-      geography: { hexes: [hexThin] },
-      garrison: { units: [unitThin] } }],
-    eventLog: [], rumors: [],
-  };
-}
-const dc = divergentCampaign();
-ok('precondition: built campaign IS divergent (hex)', hexDivergence(dc).div === 1);
-ok('precondition: built campaign IS divergent (settlement)', settlementDivergence(dc).div === 1);
-ok('precondition: built campaign IS divergent (units)', unitDivergence(dc).div === 2);
-
-const healed = ACKS.projectNestedMirrors(clone(dc));
-ok('projection heals hex divergence', hexDivergence(healed).div === 0 && hexDivergence(healed).total === 1);
-ok('projection heals settlement divergence (hex.settlement)', settlementDivergence(healed).div === 0 && settlementDivergence(healed).total === 1);
-ok('projection heals garrison + mercenary unit divergence', unitDivergence(healed).div === 0 && unitDivergence(healed).total === 2);
-// the nested copies now carry the canonical (rich) values, not the stale ones
-ok('nested hex now has the canonical families (120, not stale 999)', healed.domains[0].geography.hexes[0].families === 120);
-ok('nested hex now carries the rich keys (hasRoad)', healed.domains[0].geography.hexes[0].hasRoad === true);
-ok('nested hex.settlement now canonical (80 families, not stale 11)', healed.hexes[0].settlement.families === 80);
-ok('garrison unit now canonical (count 60, not stale 1)', healed.domains[0].garrison.units[0].count === 60);
-ok('merc unit now canonical (count 20, not stale 2)', healed.characters[0].mercenaryCompany.units[0].count === 20);
-
-// =============================================================================
-console.log('--- (2) projection is a deep copy (mutating top-level later does not touch nested) ---');
-const h2 = ACKS.projectNestedMirrors(clone(dc));
-h2.hexes[0].families = 7;       // mutate the canonical copy
-ok('nested hex is an independent deep copy (not a shared ref)', h2.domains[0].geography.hexes[0].families === 120);
-ok('nested hex is not === the top-level object', h2.domains[0].geography.hexes[0] !== h2.hexes[0]);
-
-// =============================================================================
-console.log('--- (3) membership is derived from the canonical pointers ---');
-// move a hex to a different domain via hex.domainId; projection re-homes the nested copy.
-const mc = clone(dc);
-mc.domains.push({ schemaVersion: 2, kind: 'domain', id: 'dom-b', name: 'B', geography: { hexes: [] }, garrison: { units: [] } });
-mc.hexes[0].domainId = 'dom-b';
-const moved = ACKS.projectNestedMirrors(mc);
-ok('hex re-homed: dom-a nested hexes now empty', (moved.domains.find(d=>d.id==='dom-a').geography.hexes||[]).length === 0);
-ok('hex re-homed: dom-b nested hexes now hold it', (moved.domains.find(d=>d.id==='dom-b').geography.hexes||[]).some(h=>h.id==='hex-1'));
-// move a unit to a character via stationedAt
-const uc = clone(dc);
-uc.units[0].stationedAt = { kind: 'character', id: 'chr-1' };
-const umoved = ACKS.projectNestedMirrors(uc);
-ok('unit re-homed: dom-a garrison empty', (umoved.domains[0].garrison.units||[]).length === 0);
-ok('unit re-homed: chr-1 company holds both units', (umoved.characters[0].mercenaryCompany.units||[]).length === 2);
-// a top-level hex whose domainId points nowhere is simply absent from every nested mirror (wilderness)
-const wc = clone(dc); wc.hexes[0].domainId = null;
-const wmoved = ACKS.projectNestedMirrors(wc);
-ok('wilderness hex (domainId null) lands in no domain mirror', (wmoved.domains[0].geography.hexes||[]).length === 0);
-
-// =============================================================================
-console.log('--- (4) projection touches ONLY the mirror arrays + is idempotent ---');
-ok('projection leaves all non-mirror fields byte-identical', JSON.stringify(stripMirrors(dc)) === JSON.stringify(stripMirrors(healed)));
-const twice = ACKS.projectNestedMirrors(clone(healed));
-ok('projection is idempotent (project∘project === project)', JSON.stringify(twice) === JSON.stringify(healed));
-// a campaign with NO mirrors / no domains is a clean no-op
-const bare = { schemaVersion: 2, kind: 'campaign', id: 'cmp-bare', name: 'Bare', hexes: [], settlements: [], units: [], domains: [], characters: [] };
-ok('projection is a no-op on a mirror-less campaign', JSON.stringify(ACKS.projectNestedMirrors(clone(bare))) === JSON.stringify(bare));
-
-// =============================================================================
-console.log('--- (5) stampCampaignForSave routes through the projection (no divergent copies on disk) ---');
-const saved = ACKS.stampCampaignForSave(dc, { savedAt: '2026-06-14' });
-ok('stampCampaignForSave output: 0 hex divergence', hexDivergence(saved).div === 0);
-ok('stampCampaignForSave output: 0 settlement divergence', settlementDivergence(saved).div === 0);
-ok('stampCampaignForSave output: 0 unit divergence', unitDivergence(saved).div === 0);
-ok('stampCampaignForSave does NOT mutate its input (still divergent)', hexDivergence(dc).div === 1);
-ok('stampCampaignForSave stamps engineVersion', saved.engineVersion === ACKS.ENGINE_VERSION);
-
-// =============================================================================
-console.log('--- (6) the integration finding no longer reproduces on the shipped templates ---');
-// Reproduce the reviewer's deep-compare: load each template through the app pipeline, serialize,
-// and assert the on-disk nested copies are a strict projection of top-level (no 25-vs-18 split).
+// The full load path (index.html _finishLoad): migrate (strips the unit mirror) → lift → strip
+// hex/settlement mirror. Leaves the single-home in-memory shape.
 function appLoad(raw){
   let camp = ACKS.migrateCampaign(clone(raw));
-  if(!Array.isArray(camp.hexes)) camp.hexes = [];
-  if(!Array.isArray(camp.settlements)) camp.settlements = [];
-  if(!Array.isArray(camp.rumors)) camp.rumors = [];
-  const ds = camp.domains || [];
+  ['domains','hexes','settlements','rumors'].forEach(k => { if(!Array.isArray(camp[k])) camp[k] = []; });
+  const ds = camp.domains;
   ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => ACKS.migrateHexToAccumulatedImprovement(h)));
   ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => ACKS.migrateHexToMultiSupervisor(h)));
   ds.forEach(d => ACKS.ensureMagistratesShape(d));
@@ -175,30 +55,147 @@ function appLoad(raw){
   ACKS.liftToTopLevelCollections(synth);
   camp.hexes = synth.hexes; camp.settlements = synth.settlements; camp.rumors = synth.rumors;
   ACKS.migrateAgriculturalToProjects(camp);
+  ACKS.stripHexSettlementMirrors(camp);
   return camp;
 }
+
+console.log('--- export surface ---');
+ok('ACKS.stripNestedMirrors is a function', typeof ACKS.stripNestedMirrors === 'function');
+ok('ACKS.stripUnitMirrors is a function', typeof ACKS.stripUnitMirrors === 'function');
+ok('ACKS.stripHexSettlementMirrors is a function', typeof ACKS.stripHexSettlementMirrors === 'function');
+ok('the old projectNestedMirrors is GONE', typeof ACKS.projectNestedMirrors === 'undefined');
+
+// =============================================================================
+console.log('--- (1) an OLD nested-only campaign loads via lift-then-strip (single home) ---');
+// The shape a pre-T6 file / a v1 import carries: hexes/settlements/units ONLY nested, top-level empty.
+function nestedOnlyCampaign(){
+  return {
+    schemaVersion: 2, kind: 'campaign', id: 'cmp-old', name: 'Old', currentTurn: 1, houseRules: {},
+    hexes: [], settlements: [], units: [], rumors: [], eventLog: [],
+    characters: [{ schemaVersion: 2, kind: 'character', id: 'chr-1', name: 'Cap',
+      mercenaryCompany: { units: [{ schemaVersion: 2, id: 'unit-2', displayName: 'Bows', count: 20 }] } }],
+    domains: [{ schemaVersion: 2, kind: 'domain', id: 'dom-a', name: 'A',
+      demographics: { peasantFamilies: 120, urbanFamilies: 80, morale: 0 },
+      geography: { hexes: [
+        { schemaVersion: 2, id: 'hex-1', coord: { q: 0, r: 0 }, terrain: 'grassland', families: 120,
+          settlement: { schemaVersion: 2, id: 'set-1', name: 'Town', families: 80 } }
+      ] },
+      garrison: { units: [{ schemaVersion: 2, id: 'unit-1', displayName: 'Foot', count: 60 }] } }]
+  };
+}
+const loaded = appLoad(nestedOnlyCampaign());
+ok('lift promoted the hex to campaign.hexes', (loaded.hexes||[]).some(h => h.id === 'hex-1'));
+ok('lift promoted the settlement to campaign.settlements (with hexId)',
+  (loaded.settlements||[]).some(s => s.id === 'set-1' && s.hexId === 'hex-1'));
+ok('lift promoted the garrison unit to campaign.units (stationedAt the domain)',
+  (loaded.units||[]).some(u => u.id === 'unit-1' && u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-a'));
+ok('lift promoted the mercenary unit to campaign.units (stationedAt the character)',
+  (loaded.units||[]).some(u => u.id === 'unit-2' && u.stationedAt && u.stationedAt.kind === 'character' && u.stationedAt.id === 'chr-1'));
+ok('lift backfilled hex.domainId from nested membership', ACKS.findHex(loaded, 'hex-1').domainId === 'dom-a');
+ok('NO nested hexes remain after load', nestedHexes(loaded) === 0);
+ok('NO nested settlements remain after load', nestedSettlements(loaded) === 0);
+ok('NO nested units remain after load', nestedUnits(loaded) === 0);
+ok('NO nested-mirror KEY remains after load (geography.hexes / garrison / hex.settlement / mercenaryCompany)',
+  anyNestedMirrorKey(loaded) === false);
+// the canonical accessors find the lifted entities
+ok('hexesForDomain finds the lifted hex', ACKS.hexesForDomain(loaded, 'dom-a').length === 1);
+ok('unitsStationedAt finds the lifted garrison unit', ACKS.unitsStationedAt(loaded, { kind: 'domain-garrison', id: 'dom-a' }).length === 1);
+ok('unitsStationedAt finds the lifted merc unit', ACKS.unitsStationedAt(loaded, { kind: 'character', id: 'chr-1' }).length === 1);
+
+// =============================================================================
+console.log('--- (2) migrateCampaign strips the UNIT mirror (order 155); the hex/settlement strip is _finishLoad ---');
+const m = ACKS.migrateCampaign(clone(nestedOnlyCampaign()));
+ok('migrateCampaign promoted units to campaign.units', (m.units||[]).length === 2);
+ok('migrateCampaign stripped the garrison mirror (no d.garrison)', !('garrison' in m.domains[0]));
+ok('migrateCampaign stripped the mercenaryCompany mirror', !('mercenaryCompany' in m.characters[0]));
+// migrateCampaign does NOT lift/strip hexes (that's _finishLoad) — the nested hex survives a migrate-only pass
+ok('migrateCampaign leaves the nested hex (hex lift/strip is _finishLoad, not migrate)', nestedHexes(m) === 1);
+ok('stripHexSettlementMirrors then removes the nested hex + settlement', (function(){ const x = ACKS.stripHexSettlementMirrors(clone(m)); return nestedHexes(x) === 0 && !('hexes' in (x.domains[0].geography||{})); })());
+
+// =============================================================================
+console.log('--- (3) the strips are idempotent + leave the canonical entities untouched ---');
+const onceStripped = appLoad(nestedOnlyCampaign());
+const twiceStripped = ACKS.stripNestedMirrors(clone(onceStripped));
+ok('strip is idempotent (strip∘load === load)', JSON.stringify(twiceStripped) === JSON.stringify(onceStripped));
+// the canonical top-level entities are byte-identical before/after a redundant strip
+ok('canonical hexes untouched by a redundant strip', JSON.stringify(twiceStripped.hexes) === JSON.stringify(onceStripped.hexes));
+ok('canonical units untouched by a redundant strip', JSON.stringify(twiceStripped.units) === JSON.stringify(onceStripped.units));
+// a mirror-less campaign is a clean no-op
+const bare = { schemaVersion: 2, kind: 'campaign', id: 'cmp-bare', name: 'Bare', hexes: [], settlements: [], units: [], domains: [], characters: [] };
+ok('strip is a no-op on a mirror-less campaign', JSON.stringify(ACKS.stripNestedMirrors(clone(bare))) === JSON.stringify(bare));
+
+// =============================================================================
+console.log('--- (4) stampCampaignForSave carries NO nested mirror to disk ---');
+const saved = ACKS.stampCampaignForSave(appLoad(nestedOnlyCampaign()), { savedAt: '2026-06-21' });
+ok('saved file: 0 nested hexes', nestedHexes(saved) === 0);
+ok('saved file: 0 nested settlements', nestedSettlements(saved) === 0);
+ok('saved file: 0 nested units', nestedUnits(saved) === 0);
+ok('saved file: no nested-mirror key at all', anyNestedMirrorKey(saved) === false);
+ok('saved file keeps the canonical collections', (saved.hexes||[]).length === 1 && (saved.settlements||[]).length === 1 && (saved.units||[]).length === 2);
+ok('stampCampaignForSave stamps engineVersion', saved.engineVersion === ACKS.ENGINE_VERSION);
+// stamp clones — it must not mutate the loaded campaign (which already had no mirror, but assert clone-ness)
+const loadedRef = appLoad(nestedOnlyCampaign());
+ACKS.stampCampaignForSave(loadedRef, { savedAt: '2026-06-21' });
+ok('stampCampaignForSave does not mutate its input', anyNestedMirrorKey(loadedRef) === false && (loadedRef.units||[]).length === 2);
+
+// =============================================================================
+console.log('--- (5) the shipped templates ship single-homed on disk (regenerated) ---');
 const tplDir = path.join(DIR, 'Templates');
 fs.readdirSync(tplDir).filter(f => /^v2-.*\.acks\.json$/.test(f)).forEach(f => {
   const raw = JSON.parse(fs.readFileSync(path.join(tplDir, f), 'utf8'));
-  const camp = appLoad(raw);
-  const out = ACKS.stampCampaignForSave(camp, { savedAt: '2026-06-14' });
-  const hd = hexDivergence(out), sd = settlementDivergence(out), ud = unitDivergence(out);
-  ok('saved template has 0 divergent copies: ' + f, hd.div === 0 && sd.div === 0 && ud.div === 0,
-     'hex ' + hd.div + '/' + hd.total + ', set ' + sd.div + '/' + sd.total + ', unit ' + ud.div + '/' + ud.total);
+  ok('template ships with NO nested mirror on disk: ' + f, anyNestedMirrorKey(raw) === false,
+     'nestedHexes ' + nestedHexes(raw) + ', nestedUnits ' + nestedUnits(raw) + ', nestedSettlements ' + nestedSettlements(raw));
+  // and it round-trips: load → save → still single-homed
+  const out = ACKS.stampCampaignForSave(appLoad(raw), { savedAt: '2026-06-21' });
+  ok('template round-trips single-homed: ' + f, anyNestedMirrorKey(out) === false);
 });
 
-// And a full save→reload round-trip on the demo: the structural guarantee is that NO save ever
-// produces divergent copies — on the first save, and again after a reload. (Whole-campaign byte
-// stability is a SEPARATE, pre-existing content matter: v2-established-march/the demo ship a
-// peasantFamilies(480)↔per-hex-rural-families(300) inconsistency that the families-per-hex reconcile
-// collapses on the first save→reload — independent of T6's mirror projection. See the SUMMARY +
-// the §11.11 follow-up note. This suite locks the mirror invariant, not that content bug.)
+// the demo too
 require('../acks-demo-template.js');
-const demoSaved = ACKS.stampCampaignForSave(appLoad(global.ACKS_DEMO_TEMPLATE), { savedAt: '2026-06-14' });
-ok('demo save: 0 divergent copies on disk', hexDivergence(demoSaved).div === 0 && settlementDivergence(demoSaved).div === 0 && unitDivergence(demoSaved).div === 0);
-const demoResaved = ACKS.stampCampaignForSave(appLoad(demoSaved), { savedAt: '2026-06-14' });
-ok('demo save→reload→save: still 0 divergent copies (mirror invariant holds across the round-trip)',
-   hexDivergence(demoResaved).div === 0 && settlementDivergence(demoResaved).div === 0 && unitDivergence(demoResaved).div === 0);
+ok('the demo ships with NO nested mirror on disk', anyNestedMirrorKey(global.ACKS_DEMO_TEMPLATE) === false);
+const demoSaved = ACKS.stampCampaignForSave(appLoad(global.ACKS_DEMO_TEMPLATE), { savedAt: '2026-06-21' });
+ok('demo save: no nested mirror on disk', anyNestedMirrorKey(demoSaved) === false);
+const demoResaved = ACKS.stampCampaignForSave(appLoad(demoSaved), { savedAt: '2026-06-21' });
+ok('demo save→reload→save: still single-homed', anyNestedMirrorKey(demoResaved) === false);
+
+// =============================================================================
+console.log('--- (6) commitTurn drives the economy off the canonical collections on a STRIPPED campaign (the browser path) ---');
+// The suite's OTHER commitTurn tests run on a non-stripped campaign (a headless migrate has no
+// _finishLoad, so the nested hex/settlement mirror survives there). This is the one test that runs
+// proposeMonthlyTurn/commitTurn AFTER the hex/settlement strip — proving the agricultural + urban
+// loops read campaign.hexes / campaign.settlements (NOT the now-absent nested mirror). That is the
+// silent-breaker class T6 must not regress: a missed reader would read [] and quietly do nothing.
+{
+  // A fully-shaped campaign whose hex + settlement live ONLY in the top-level collections (the
+  // single-home shape — no domain.geography.hexes / hex.settlement). If a propose/commit reader
+  // still reached for the nested mirror it would read undefined/[] and silently do nothing.
+  const camp = ACKS.blankCampaign({ name: 'StrippedTurn' });
+  camp.houseRules = { 'abstract-construction': { enabled: true } }; // instant ag path
+  const d = ACKS.blankDomain({ name: 'March' }); d.treasury = { gp: 1000000 };
+  d.demographics.peasantFamilies = 1000; d.demographics.urbanFamilies = 0; d.demographics.morale = 0;
+  camp.domains = [d];
+  const hex = ACKS.blankHex({ id: 'hex-sh', coord: { q: 0, r: 0 } });
+  hex.valuePerFamily = 5; hex.families = 100; hex.domainId = d.id;
+  camp.hexes = [hex];
+  const settle = ACKS.blankSettlement({ id: 'set-sh', name: 'Shtown' });
+  settle.hexId = 'hex-sh'; settle.families = 200; settle.marketClass = 5;
+  camp.settlements = [settle];
+  // blankHex seeds a benign settlement:null mirror field (stripped on every save/load) — strip it so
+  // the fixture is the true post-load single-home shape.
+  ACKS.stripHexSettlementMirrors(camp);
+  ok('(6) precondition: the hex lives only in campaign.hexes (no nested mirror)',
+     !(d.geography && d.geography.hexes) && anyNestedMirrorKey(camp) === false);
+  const prop = ACKS.proposeMonthlyTurn(camp);
+  const tp = prop.turnProposal.find(t => t.domainId === d.id);
+  ok('(6) proposeMonthlyTurn built an agricultural order from campaign.hexes', !!tp && (tp.agriculturalOrders||[]).some(o => o.hexId === 'hex-sh'));
+  ok('(6) proposeMonthlyTurn built an urban-investment line from campaign.settlements', !!tp && (tp.urbanInvestments||[]).some(o => o.hexId === 'hex-sh'));
+  tp.agriculturalOrders.find(o => o.hexId === 'hex-sh').gpAmount = 25000;
+  ACKS.commitTurn(camp, prop);
+  ok('(6) commitTurn applied the agricultural bonus to the canonical hex (read campaign.hexes, not a nested mirror)',
+     ACKS.findHex(camp, 'hex-sh').landImprovementBonus >= 1, 'bonus ' + ACKS.findHex(camp, 'hex-sh').landImprovementBonus);
+  ok('(6) commitTurn debited the treasury (improvement spent)', d.treasury.gp < 1000000);
+  ok('(6) still no nested mirror after a full turn', anyNestedMirrorKey(camp) === false);
+}
 
 // ─── summary ───
 console.log('\n=============================================');

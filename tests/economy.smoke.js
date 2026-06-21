@@ -95,6 +95,10 @@ function buildDemoCampaign(){
   // which would likewise perturb the pure income/expense/treasury invariant asserted below.
   // Disable it here — favors-and-duties.smoke.js owns the F&D gp flows end-to-end.
   camp.houseRules['favor-duty-auto-roll'] = { enabled: false };
+  // T6 single-home — _finishLoad strips the nested hex/settlement mirror after the lift (the unit
+  // mirror was already stripped inside migrateCampaign). Mirror that here so the rebuilt campaign
+  // matches the real loaded shape (campaign.hexes/.settlements/.units are the single home).
+  if(ACKS.stripHexSettlementMirrors) ACKS.stripHexSettlementMirrors(camp);
   return camp;
 }
 
@@ -138,8 +142,9 @@ Object.keys(ORACLE.invariants).forEach(id => {
     && (d.demographics.urbanFamilies||0) === inv.urbanFamiliesRaw
     && d.demographics.morale === inv.morale
     && (d.treasury.gp||0) === inv.treasuryGp
-    && ((d.geography&&d.geography.hexes)||[]).length === inv.nestedHexCount
-    && ((d.garrison&&d.garrison.units)||[]).length === inv.garrisonUnitCount
+    // T6 single-home — count via the canonical accessors (geography.hexes / garrison.units are gone).
+    && ACKS.hexesForDomain(demo, d.id).length === inv.nestedHexCount
+    && ACKS.unitsStationedAt(demo, { kind: 'domain-garrison', id: d.id }).length === inv.garrisonUnitCount
     && (d.liegeId||null) === inv.liegeId
     && (d.rulerCharacterId||null) === inv.rulerCharacterId,
     'rebuilt campaign drifted from the captured one for ' + id);

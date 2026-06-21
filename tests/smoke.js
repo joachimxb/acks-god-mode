@@ -671,14 +671,16 @@ section('liftToTopLevelCollections — backfills domainId on the SURVIVING canon
   };
   ACKS.liftToTopLevelCollections(camp);
   const top = camp.hexes.find(h => h.id === 'hex-reunify');
-  const geo = camp.domains[0].geography.hexes.find(h => h.id === 'hex-reunify');
   ok('surviving top-level hex got domainId backfilled', top && top.domainId === 'dom-x', 'got ' + (top && JSON.stringify(top.domainId)));
-  ok('geography hex is re-unified to the same object', geo === top);
-  ok('geography hex therefore reports the same domainId', geo && geo.domainId === 'dom-x');
-  // A genuine wilderness hex (in campaign.hexes, in NO domain's geography) keeps a null/absent domainId.
+  // Single-home (T6): the lift no longer re-unifies the nested copy — _finishLoad strips it. After the
+  // strip there is no nested hex; the canonical top-level hex carries the claim, found via hexesForDomain.
+  ACKS.stripHexSettlementMirrors(camp);
+  ok('nested geography.hexes stripped after lift', !(camp.domains[0].geography && 'hexes' in camp.domains[0].geography));
+  ok('hexesForDomain(dom-x) finds the canonical hex', ACKS.hexesForDomain(camp, 'dom-x').some(h => h.id === 'hex-reunify' && h.domainId === 'dom-x'));
+  // A genuine wilderness hex (in campaign.hexes, in NO domain) keeps a null/absent domainId.
   camp.hexes.push({ schemaVersion: 2, id: 'hex-wild', coord: { q: 9, r: 9 }, terrain: 'waste' });
   ACKS.liftToTopLevelCollections(camp);
-  ok('wilderness hex (no geography membership) is NOT claimed', !camp.hexes.find(h => h.id === 'hex-wild').domainId);
+  ok('wilderness hex (no domain) is NOT claimed', !camp.hexes.find(h => h.id === 'hex-wild').domainId);
   // Idempotent: a second lift doesn't churn the now-correct scalar.
   ACKS.liftToTopLevelCollections(camp);
   ok('lift is idempotent on the healed scalar', camp.hexes.find(h => h.id === 'hex-reunify').domainId === 'dom-x');

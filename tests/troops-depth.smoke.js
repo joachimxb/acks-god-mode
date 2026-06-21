@@ -94,7 +94,7 @@ section('Levy setters — conscripts/militia as Units (RR pp.430–433)');
   ok('conscript morale: −2 base + steadfast +1 (moraleAdjustment +1, loyalty +1)', con.moraleAdjustment === 1 && con.loyalty === 1);
   ok('conscript carries homeDomainId + calledUp + stationed in garrison', con.homeDomainId === 'dom-c' && con.calledUp === true && con.stationedAt && con.stationedAt.kind === 'domain-garrison');
   ok('conscriptCount reads it back', A.conscriptCount(camp, d) === 100);
-  ok('in campaign.units AND the garrison mirror', camp.units.some(u => u.id === con.id) && (d.garrison.units || []).some(u => u.id === con.id));
+  ok('in campaign.units, stationed to the garrison (single home)', camp.units.some(u => u.id === con.id) && A.unitsStationedAt(camp, { kind: 'domain-garrison', id: d.id }).some(u => u.id === con.id));
   // over-cap clamps to remaining room (120 cap − 100 = 20), never rejects
   const more = levyC(camp, 'dom-c', { count: 50 });
   ok('over-cap levy clamps to remaining 20', more && more.count === 20);
@@ -280,7 +280,6 @@ function mkFeudal(opts){
   const vassalDomain = A.blankDomain({ id: 'dom-vassal', name: 'Vassal Realm' });
   vassalDomain.rulerCharacterId = 'chr-vassal'; vassalDomain.liegeId = 'dom-lord'; vassalDomain.treasury = { gp: 50000 };
   vassalDomain.demographics.peasantFamilies = opts.vassalFamilies || 600; vassalDomain.tags = ['barony'];
-  vassalDomain.geography.hexes = [{ id: 'hex-v', coord: { q: 0, r: 0 } }];
   return {
     schemaVersion: 2, currentTurn: 5, houseRules: {}, domains: [lordDomain, vassalDomain], characters: [lord, vassal],
     units: [], armies: [], hexes: [{ id: 'hex-seat', domainId: 'dom-lord' }, { id: 'hex-v', domainId: 'dom-vassal' }],

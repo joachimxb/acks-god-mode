@@ -1075,6 +1075,10 @@ const MIGRATIONS = [
   // collection, reference-unified (the hexes precedent, Architecture §3.3). Runs after lazy-default
   // guarantees campaign.units[] / armies[]. Idempotent + self-healing in both directions.
   ['garrison-units-to-units', migrateGarrisonUnitsToUnits, 150],
+  // T6 single-home — strip the now-redundant nested UNIT mirrors (domain.garrison /
+  // character.mercenaryCompany), right after the @150 lift promotes them to campaign.units. The
+  // hex/settlement mirror is stripped later, in _finishLoad after the hex lift (NOT here). Idempotent.
+  ['strip-unit-mirror', stripUnitMirrors, 155],
   // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
   // lazy-default (guarantees campaign.projects[]) and reads campaign.hexes. Idempotent.
   ['agricultural-to-projects', migrateAgriculturalToProjects, 160],
@@ -1141,10 +1145,11 @@ function migrateCampaign(raw){
 function stampCampaignForSave(campaign, opts){
   opts = opts || {};
   const c = _deepCloneCampaignForSave(campaign);
-  // T6 — make the on-disk nested mirrors (geography.hexes / hex.settlement / garrison.units /
-  // mercenaryCompany.units) exact projections of the canonical top-level collections, so a save
-  // can't persist divergent copies (audit 2026-06-14 integration C1). Runs on the clone; pure wrt input.
-  projectNestedMirrors(c);
+  // T6 single-home — the nested mirrors (geography.hexes / hex.settlement / garrison / mercenaryCompany)
+  // are gone from the data model; strip them from the save-clone so the on-disk file carries only the
+  // canonical top-level collections (campaign.hexes / .settlements / .units). Old files that still carry
+  // nested data load via the lift-then-strip path. Runs on the clone; pure wrt input.
+  stripNestedMirrors(c);
   const today = opts.savedAt || new Date().toISOString().slice(0, 10);
   c.engineVersion = ENGINE_VERSION;
   c.savedAt = today;
@@ -1158,116 +1163,6 @@ function _deepCloneCampaignForSave(c){
   return JSON.parse(JSON.stringify(c));
 }
 
-// =============================================================================
-// T6 — single-home the dual-homed collections at SERIALIZE time (audit 2026-06-14,
-// integration C1 / thermonuclear). A few entities are mirrored in two places for the
-// engine's own convenience (INTEGRATION.md §3): a hex in campaign.hexes[] AND under
-// domains[].geography.hexes[]; a settlement in campaign.settlements[] AND as hexes[].settlement;
-// a unit in campaign.units[] AND under domains[].garrison.units[] / characters[].mercenaryCompany.units[].
-//
-// In MEMORY these stay reference-unified (the same JS object in both homes — the lift /
-// migrateGarrisonUnitsToUnits re-point the nested copy at the canonical top-level object on load).
-// But the save path deep-clones the campaign, which SPLITS each shared object into two independent
-// JSON objects — so any historical drift (e.g. a template authored with thin nested hexes — the
-// shipped v2-established-march had 25-key top-level hexes but 18-key nested copies) persists to disk
-// as two divergent entities "healed" only by the next load's reconcile. For a data layer other tools
-// read AND write, a third-party writer can't tell which copy wins.
-//
-// The fix: AFTER the save-clone, overwrite every nested mirror with a fresh deep PROJECTION of the
-// canonical top-level entity, so the on-disk nested copy is — by construction — a strict, lossless,
-// exact projection of top-level. Divergence on disk becomes structurally impossible; on the next load
-// the existing lift re-unifies the (now-identical) copies as before. The top-level collection is the
-// single home; the nested copies are a derived view (kept on disk only so readers that walk the nested
-// path — the economy's hexSettlements, ~125 UI/engine sites — keep working without a reader sweep).
-//
-// Membership is derived from the canonical pointers (CLAUDE #10): a domain's nested hexes = top-level
-// hexes with hex.domainId === domain.id; a hex's settlement = the top-level settlement whose
-// hexId === hex.id; a domain's / character's nested units = top-level units whose stationedAt names it.
-// Existing nested ORDER is preserved (matched by id), then any belonging-but-missing entities are
-// appended in top-level order — so a coherent file is byte-stable (no churn) while a divergent one heals.
-//
-// Mutates `campaign` in place — call ONLY on a save-clone (stampCampaignForSave / index.html's
-// serializedCampaign both clone first). Idempotent. Deliberately NOT called by migrateCampaign:
-// it's a SAVE-time projection, and migrateCampaign must remain a byte no-op on the shipped templates
-// (migrations.smoke P3.6) — the templates are regenerated through this serializer so their on-disk
-// nested copies already equal their top-level (and migrateCampaign doesn't touch nested content/order).
-function projectNestedMirrors(campaign){
-  if(!campaign || typeof campaign !== 'object') return campaign;
-  const clone = (o) => {
-    try { if(typeof structuredClone === 'function') return structuredClone(o); } catch(e){}
-    return JSON.parse(JSON.stringify(o));
-  };
-  // Rebuild `nestedArr` (the on-domain/on-character mirror) from `belongs` (the canonical top-level
-  // entities that belong to this owner), preserving the nested array's existing id-order, then
-  // appending any belonging entities not already present (in their top-level order). Each emitted
-  // entry is a fresh deep copy of the canonical top-level entity — never the (possibly stale) nested one.
-  const projectList = (nestedArr, belongs) => {
-    const byId = new Map(belongs.map(e => [e.id, e]));
-    const out = [];
-    const seen = new Set();
-    if(Array.isArray(nestedArr)){
-      for(const old of nestedArr){
-        if(!old || !old.id) continue;          // drop malformed
-        const canon = byId.get(old.id);
-        if(!canon) continue;                    // drop stale (no longer belongs / deleted top-level)
-        if(seen.has(old.id)) continue;          // de-dupe
-        out.push(clone(canon));
-        seen.add(old.id);
-      }
-    }
-    for(const e of belongs){                    // append belonging entities the nested array lacked
-      if(e && e.id && !seen.has(e.id)){ out.push(clone(e)); seen.add(e.id); }
-    }
-    return out;
-  };
-
-  const topHexes = Array.isArray(campaign.hexes) ? campaign.hexes.filter(h => h && h.id) : [];
-  const topSettlements = Array.isArray(campaign.settlements) ? campaign.settlements.filter(s => s && s.id) : [];
-  const topUnits = Array.isArray(campaign.units) ? campaign.units.filter(u => u && u.id) : [];
-  const settlementByHexId = new Map();
-  for(const s of topSettlements){ if(s.hexId != null && !settlementByHexId.has(s.hexId)) settlementByHexId.set(s.hexId, s); }
-
-  // Hexes → domains[].geography.hexes (membership by hex.domainId). Also re-project each top-level
-  // hex's own .settlement so campaign.hexes[].settlement is the same projection (it's the source the
-  // nested geography copy is derived from on load).
-  for(const h of topHexes){
-    if('settlement' in h){
-      const s = settlementByHexId.get(h.id);
-      if(s) h.settlement = clone(s);
-      else if(h.settlement) delete h.settlement;   // no top-level settlement here → drop a stale nested one
-    }
-  }
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      if(!d) continue;
-      const belongs = topHexes.filter(h => (h.domainId || null) === d.id);
-      if(!d.geography && belongs.length === 0) continue;   // leave a geography-less domain untouched
-      if(!d.geography) d.geography = {};
-      d.geography.hexes = projectList(d.geography.hexes, belongs);
-    }
-  }
-
-  // Units → domains[].garrison.units + characters[].mercenaryCompany.units (membership by stationedAt).
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      if(!d) continue;
-      const belongs = topUnits.filter(u => u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === d.id);
-      if(!d.garrison && belongs.length === 0) continue;
-      if(!d.garrison) d.garrison = {};
-      d.garrison.units = projectList(d.garrison.units, belongs);
-    }
-  }
-  if(Array.isArray(campaign.characters)){
-    for(const c of campaign.characters){
-      if(!c) continue;
-      const belongs = topUnits.filter(u => u.stationedAt && u.stationedAt.kind === 'character' && u.stationedAt.id === c.id);
-      if(!c.mercenaryCompany && belongs.length === 0) continue;
-      if(!c.mercenaryCompany) c.mercenaryCompany = {};
-      c.mercenaryCompany.units = projectList(c.mercenaryCompany.units, belongs);
-    }
-  }
-  return campaign;
-}
 
 // =============================================================================
 // T6 — single-home: STRIP the nested mirrors (2026-06-21). The reader sweep made every
@@ -1285,21 +1180,38 @@ function projectNestedMirrors(campaign){
 // character.mercenaryCompany (held only units). Idempotent — a no-op once stripped. Pure wrt
 // every non-mirror field. Membership is unaffected: a hex's domain is hex.domainId, a unit's
 // owner is unit.stationedAt, a settlement's hex is settlement.hexId — all on the canonical entity.
-function stripNestedMirrors(campaign){
+// Units half — strip domain.garrison + character.mercenaryCompany. Safe to run inside migrateCampaign
+// (order 155, right after the @150 garrison-units-to-units lift), because that lift has already
+// promoted any old-save nested units to campaign.units before this deletes the mirror.
+function stripUnitMirrors(campaign){
   if(!campaign || typeof campaign !== 'object') return campaign;
   if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      if(!d) continue;
-      if(d.geography && 'hexes' in d.geography) delete d.geography.hexes;
-      if('garrison' in d) delete d.garrison;
-    }
-  }
-  if(Array.isArray(campaign.hexes)){
-    for(const h of campaign.hexes){ if(h && 'settlement' in h) delete h.settlement; }
+    for(const d of campaign.domains){ if(d && 'garrison' in d) delete d.garrison; }
   }
   if(Array.isArray(campaign.characters)){
     for(const c of campaign.characters){ if(c && 'mercenaryCompany' in c) delete c.mercenaryCompany; }
   }
+  return campaign;
+}
+// Hexes + settlements half — strip domain.geography.hexes + hex.settlement. Must run AFTER
+// liftToTopLevelCollections (index.html _finishLoad), NOT inside migrateCampaign: the hex lift runs in
+// _finishLoad, so the nested hexes of a nested-only template aren't on campaign.hexes yet at migrate
+// time — deleting them here would lose them. The geography object itself survives (controlledHexes etc.).
+function stripHexSettlementMirrors(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){ if(d && d.geography && 'hexes' in d.geography) delete d.geography.hexes; }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && 'settlement' in h) delete h.settlement; }
+  }
+  return campaign;
+}
+// The full strip (all four mirrors) — used at SAVE time (stampCampaignForSave + index.html
+// serializedCampaign), where every collection is already lifted, so it's safe to drop everything.
+function stripNestedMirrors(campaign){
+  stripUnitMirrors(campaign);
+  stripHexSettlementMirrors(campaign);
   return campaign;
 }
 
@@ -4011,65 +3923,21 @@ function stationUnit(campaign, unitOrId, stationedAt){
   const idx = campaign.units.findIndex(u => u && u.id === unit.id);
   if(idx < 0) campaign.units.push(unit);
   else if(campaign.units[idx] !== unit) campaign.units[idx] = unit;
-  // drop from every nested mirror that is NOT the target
-  for(const d of (campaign.domains || [])){
-    const arr = d && d.garrison && d.garrison.units;
-    if(!Array.isArray(arr)) continue;
-    const keep = stationedAt && stationedAt.kind === 'domain-garrison' && stationedAt.id === d.id;
-    const i = arr.findIndex(u => u && u.id === unit.id);
-    if(i >= 0 && !keep) arr.splice(i, 1);
-  }
-  for(const c of (campaign.characters || [])){
-    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
-    if(!Array.isArray(arr)) continue;
-    const keep = stationedAt && stationedAt.kind === 'character' && stationedAt.id === c.id;
-    const i = arr.findIndex(u => u && u.id === unit.id);
-    if(i >= 0 && !keep) arr.splice(i, 1);
-  }
-  // add to the target mirror (same object reference)
-  if(stationedAt && stationedAt.kind === 'domain-garrison'){
-    const d = (campaign.domains || []).find(x => x && x.id === stationedAt.id);
-    if(d){
-      if(!d.garrison) d.garrison = { units: [] };
-      if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
-      const i = d.garrison.units.findIndex(u => u && u.id === unit.id);
-      if(i < 0) d.garrison.units.push(unit);
-      else if(d.garrison.units[i] !== unit) d.garrison.units[i] = unit;
-    }
-  } else if(stationedAt && stationedAt.kind === 'character'){
-    const c = (campaign.characters || []).find(x => x && x.id === stationedAt.id);
-    if(c){
-      if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
-      if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
-      const i = c.mercenaryCompany.units.findIndex(u => u && u.id === unit.id);
-      if(i < 0) c.mercenaryCompany.units.push(unit);
-      else if(c.mercenaryCompany.units[i] !== unit) c.mercenaryCompany.units[i] = unit;
-    }
-  }
+  // Single-home (T6): a unit's station IS unit.stationedAt; campaign.units is the only home.
+  // No nested garrison/mercenaryCompany mirror to maintain.
   unit.stationedAt = stationedAt || null;
   return unit;
 }
 
-// Remove a unit from the world: campaign.units[] + every nested mirror (the merge /
-// disband destructor — the counterpart of stationUnit). Returns the removed unit or null.
+// Remove a unit from the world: campaign.units[] (the single home, T6 — the merge / disband
+// destructor, the counterpart of stationUnit). Returns the removed unit or null.
 function disbandUnit(campaign, unitOrId){
   const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !unit) return null;
+  // Single-home (T6): campaign.units is the only home — no nested mirror to also splice.
   if(Array.isArray(campaign.units)){
     const i = campaign.units.findIndex(u => u && u.id === unit.id);
     if(i >= 0) campaign.units.splice(i, 1);
-  }
-  for(const d of (campaign.domains || [])){
-    const arr = d && d.garrison && d.garrison.units;
-    if(!Array.isArray(arr)) continue;
-    const i = arr.findIndex(u => u && u.id === unit.id);
-    if(i >= 0) arr.splice(i, 1);
-  }
-  for(const c of (campaign.characters || [])){
-    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
-    if(!Array.isArray(arr)) continue;
-    const i = arr.findIndex(u => u && u.id === unit.id);
-    if(i >= 0) arr.splice(i, 1);
   }
   return unit;
 }
@@ -5645,38 +5513,17 @@ function migrateGarrisonUnitsToUnits(campaign){
       if(!byId.has(u.id)){ campaign.units.push(u); byId.set(u.id, u); }
     }
   }
+  // Forward lift ONLY (T6 single-home): promote any old-save nested units to campaign.units. The
+  // strip-unit-mirror load-migration (order 155) deletes the nested arrays right after, so there is
+  // no reverse pass — campaign.units is the single home; the nested mirror is not rebuilt.
   for(const d of (campaign.domains || [])){
     if(d && d.garrison) lift(d.garrison.units, { kind: 'domain-garrison', id: d.id });
   }
   for(const c of (campaign.characters || [])){
     if(c && c.mercenaryCompany) lift(c.mercenaryCompany.units, { kind: 'character', id: c.id });
   }
-  // reverse pass: first-class units whose station names a mirror they're missing from
-  for(const u of campaign.units){
-    if(!u) continue;
-    _lazyDefaultUnitFields(u);
-    const st = u.stationedAt;
-    if(!st) continue;
-    if(st.kind === 'domain-garrison'){
-      const d = (campaign.domains || []).find(x => x && x.id === st.id);
-      if(d){
-        if(!d.garrison) d.garrison = { units: [] };
-        if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
-        const i = d.garrison.units.findIndex(x => x && x.id === u.id);
-        if(i < 0) d.garrison.units.push(u);
-        else if(d.garrison.units[i] !== u) d.garrison.units[i] = u;
-      }
-    } else if(st.kind === 'character'){
-      const c = (campaign.characters || []).find(x => x && x.id === st.id);
-      if(c){
-        if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
-        if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
-        const i = c.mercenaryCompany.units.findIndex(x => x && x.id === u.id);
-        if(i < 0) c.mercenaryCompany.units.push(u);
-        else if(c.mercenaryCompany.units[i] !== u) c.mercenaryCompany.units[i] = u;
-      }
-    }
-  }
+  // Ensure every first-class unit has its lazy fields (the reverse pass used to do this).
+  for(const u of campaign.units){ if(u) _lazyDefaultUnitFields(u); }
   return campaign;
 }
 
@@ -8000,25 +7847,12 @@ function removeRumorReach(rumor, settlementId){
 
 // --- Migration: lift nested storage to top-level collections ---
 
-// Canonical setter (CLAUDE #10): `hex.domainId` is the truth; each domain's nested `geography.hexes[]`
-// is a reference-unified MIRROR that must follow it. Ensure `hex` lives in exactly its domainId's
-// geography.hexes (creating the array if needed) and in NO other domain's, and that it's present in
-// the top-level campaign.hexes. Idempotent. The gm-fiat handler calls this whenever a hex's domainId
-// is set (the hex panel, the Inspector, the Event Wizard, an integrator) so the move never drifts from
-// the mirror; index.html's mapRehomeHex does the same move for the (unlogged, bulk) map editor.
+// Canonical setter (CLAUDE #10): `hex.domainId` is the truth — and, single-home (T6), the ONLY home.
+// Setting hex.domainId IS the move; there's no nested geography.hexes mirror to follow it. This just
+// ensures the hex is present in the canonical campaign.hexes. Kept (the gm-fiat hex-domainId edit calls
+// it) but reduced to that one invariant. Idempotent.
 function reconcileHexDomainMembership(campaign, hex){
   if(!campaign || !hex) return;
-  const want = hex.domainId || null;
-  (campaign.domains || []).forEach(d => {
-    if(!d) return;
-    if(d.id === want){
-      if(!d.geography) d.geography = {};
-      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-      if(!d.geography.hexes.some(h => h && h.id === hex.id)) d.geography.hexes.push(hex);
-    } else if(d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id)){
-      d.geography.hexes = d.geography.hexes.filter(h => h && h.id !== hex.id);
-    }
-  });
   if(Array.isArray(campaign.hexes) && !campaign.hexes.some(h => h && h.id === hex.id)) campaign.hexes.push(hex);
 }
 
@@ -8093,33 +7927,25 @@ function liftToTopLevelCollections(campaign){
         legacySettlement.rumors = [];
       }
     });
-    // NOTE: We intentionally do NOT clear d.geography.hexes[]. Hexes (and their settlement
-    // references) live by reference in both campaign.hexes[] and d.geography.hexes[] during
-    // this transition pass. Old code that walks the legacy path keeps working, mutations
-    // through either path propagate to both. The next schema bump (or a future cleanup pass)
-    // can remove the legacy field; for now we ship both as views of the same data.
-    //
-    // Ref re-unification: after a save→load round-trip, the JSON parse creates two separate
-    // JS objects for each hex (one in d.geography.hexes, one in campaign.hexes). Replace each
-    // legacy entry with the top-level reference, matched by id, so mutations stay coherent.
+    // Single-home (T6): the nested d.geography.hexes mirror is stripped right after this lift
+    // (stripHexSettlementMirrors, index.html _finishLoad), so there is NO reference re-unification.
+    // But preserve the load-bearing BACKFILL onto the canonical (top-level) survivor: when
+    // campaign.hexes already held this hex as a SEPARATE object (a save round-trip / shared file whose
+    // top-level hexes lack domainId, or a pre-hexId settlement), the forward-lift above backfilled the
+    // discarded nested copy, not the survivor — so adopt the domain claim (membership IS the claim,
+    // CLAUDE #10) onto the top-level hex, and the hex link onto the top-level settlement.
     if(Array.isArray(d.geography.hexes)){
-      d.geography.hexes = d.geography.hexes.map(h => {
+      for(const h of d.geography.hexes){
+        if(!h || !h.id) continue;
         const topRef = campaign.hexes.find(x => x.id === h.id);
-        if(!topRef) return h;
-        // Backfill domainId on the SURVIVING (canonical, top-level) copy. The per-hex backfill
-        // above runs on the geography copy `h`, but when campaign.hexes already held this hex
-        // (a save round-trip, a pre-backfill session cache, or a shared .acks.json whose
-        // top-level hexes lack domainId), that geography copy is discarded here in favour of
-        // topRef — so the backfill would be lost unless we also apply it to topRef. Membership
-        // in d.geography.hexes[] IS the domain claim (CLAUDE #10): adopt it onto the scalar.
+        if(!topRef) continue;
         if(!topRef.domainId) topRef.domainId = d.id;
-        // Also re-unify h.settlement against campaign.settlements
-        if(topRef.settlement && topRef.settlement.id){
-          const topSet = campaign.settlements.find(s => s.id === topRef.settlement.id);
-          if(topSet) topRef.settlement = topSet;
+        const embedded = h.settlement;
+        if(embedded && embedded.id){
+          const topSet = campaign.settlements.find(s => s.id === embedded.id);
+          if(topSet && !topSet.hexId) topSet.hexId = h.id;
         }
-        return topRef;
-      });
+      }
     }
   });
 }
@@ -9508,8 +9334,9 @@ function proposeMonthlyTurn(campaign, options){
         moraleRoll: rollD6(rng) + rollD6(rng),
         event: global.ACKS.sampleEvent(d.demographics.morale),
         hasPlayerInput: !!d.pendingPlayerInput,
-        urbanInvestments: global.ACKS.hexSettlements(campaign, d).map(({hexIndex, settlement}) => ({
+        urbanInvestments: global.ACKS.hexSettlements(campaign, d).map(({hexIndex, hex, settlement}) => ({
           hexIndex,
+          hexId: hex.id,
           settlementName: settlement.name || '(unnamed)',
           marketClass: global.ACKS.settlementMarketClass(settlement),
           currentFamilies: settlement.families || 0,
@@ -9520,7 +9347,7 @@ function proposeMonthlyTurn(campaign, options){
         // (not a boolean). The GM can allocate any value. proposeMonthlyTurn pre-seeds it from
         // hex.queuedImprovementGp (set in the Hexes tab prep section). commitTurn adds gpAmount
         // to hex.landImprovementInvested and ratchets +1 per 25k accumulated.
-        agriculturalOrders: (d.geography?.hexes || []).map((h, hexIndex) => {
+        agriculturalOrders: hexesForDomain(campaign, d.id).map((h, hexIndex) => {
           const base = h.valuePerFamily || 0;
           const bonus = h.landImprovementBonus || 0;
           const invested = h.landImprovementInvested || 0;
@@ -9741,15 +9568,17 @@ function commitTurn(campaign, proposal, options){
     const urbanInvestmentResults = [];
     const urbanGrowthResults = [];
     let totalInvestmentSpent = 0, totalUrbanFamiliesGained = 0;
-    (d.geography?.hexes || []).forEach((hex, hexIdx) => {
-      if(!hex.settlement) return;
-      const s = hex.settlement;
+    hexesForDomain(campaign, d.id).forEach((hex, hexIdx) => {
+      const s = settlementForHex(campaign, hex.id);
+      if(!s) return;
       const before = s.families || 0;
       const settK = Math.max(1, Math.ceil(before / 1000));
       const natInc = rollNaturalIncrease(settK, moraleAfter);
       const natDec = rollNaturalDecrease(settK);
       const moraleExtraUrban = rollMoraleExtra(moraleAfter, settK);
-      const invLine = (p.urbanInvestments || []).find(inv => inv.hexIndex === hexIdx);
+      // Single-home (T6): match the order by hexId (order-independent); fall back to the legacy
+      // positional hexIndex for older proposals that predate the hexId stamp.
+      const invLine = (p.urbanInvestments || []).find(inv => inv.hexId ? inv.hexId === hex.id : inv.hexIndex === hexIdx);
       const investAmount = Math.floor(invLine?.amount || 0);
       const thousands = Math.floor(investAmount / 1000);
       let investImmigrants = 0;
@@ -9807,7 +9636,10 @@ function commitTurn(campaign, proposal, options){
     };
     (p.agriculturalOrders || []).forEach(ord => {
       const gpAmount = Math.max(0, Number(ord.gpAmount) || 0);
-      const hex = d.geography?.hexes?.[ord.hexIndex];
+      // Single-home (T6): resolve the order's hex by hexId (order-independent); fall back to the
+      // legacy positional hexIndex for older proposals that predate the hexId stamp.
+      const dHexes = hexesForDomain(campaign, d.id);
+      const hex = (ord.hexId && dHexes.find(h => h.id === ord.hexId)) || dHexes[ord.hexIndex];
       if(!hex) return;
       // Ensure migration is applied lazily — old saves may still have only the singular field.
       if(!Array.isArray(hex.constructionSupervisorCharacterIds)){
@@ -9987,7 +9819,7 @@ function commitTurn(campaign, proposal, options){
       } catch(e){ /* mirror is additive — never let it fail the economic turn */ }
     });
     // Clear queue prep — the order has been consumed regardless of how much the GM ultimately spent.
-    (d.geography?.hexes || []).forEach(hex => { if(hex.queuedImprovementGp) hex.queuedImprovementGp = 0; });
+    hexesForDomain(campaign, d.id).forEach(hex => { if(hex.queuedImprovementGp) hex.queuedImprovementGp = 0; });
 
     // Foundation #18 followup — Construction Notability rumors (M&M p.4).
     // For each hex where we committed agricultural construction spending this turn, compare the
@@ -10039,7 +9871,7 @@ function commitTurn(campaign, proposal, options){
     // still have landImprovementProjects[] entries that haven't migrated yet).
     const projectsCompleted = [];
     const upcomingTurn = currentTurnNum + 1;
-    (d.geography?.hexes || []).forEach((hex, hxi) => {
+    hexesForDomain(campaign, d.id).forEach((hex, hxi) => {
       if(!Array.isArray(hex.landImprovementProjects) || hex.landImprovementProjects.length === 0) return;
       const remaining = [];
       hex.landImprovementProjects.forEach(proj => {
@@ -12034,10 +11866,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   registerCollection, registeredCollections, seededCollections, lazyDefaultCollections, importableCollections,
   // Save-time serializer — stamps engineVersion/savedAt (the data-layer contract; INTEGRATION.md).
   stampCampaignForSave,
-  // T6 — project the dual-homed nested mirrors from the canonical top-level at save time (INTEGRATION.md §3).
-  projectNestedMirrors,
   // T6 single-home — strip the nested mirrors (the reader sweep made the top-level the single home).
-  stripNestedMirrors,
+  // stripNestedMirrors = both halves (save time); stripHexSettlementMirrors = the hex/settlement half
+  // (index.html _finishLoad, after the hex lift); stripUnitMirrors = the unit half (load-migration @155).
+  stripNestedMirrors, stripUnitMirrors, stripHexSettlementMirrors,
 
   // Core constants
   DEFAULT_TAX_RATES, REQUIRED_GARRISON_PER_FAMILY, HEX_CLASSIFICATIONS,

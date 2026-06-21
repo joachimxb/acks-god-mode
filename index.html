@@ -18425,12 +18425,15 @@ function buildDomainFromTemplate(tpl){
   d.income.landRevenuePerFamily=tpl.landRev||6;
   d.income.tariffs=tpl.tariffs||0;
   d.expenses.personalExpenses=tpl.personalExpenses||0;
-  // Convert v1 garrison units to v2 shape (add ids, displayName/unitTypeKey)
-  d.garrison.units=(tpl.garrison||[]).map(u => ({
+  // Convert v1 garrison units to v2 shape (add ids, displayName/unitTypeKey). Single-home (T6):
+  // blankDomain no longer creates d.garrison, so build the legacy nested shape here — the load-time
+  // garrison-units-to-units lift promotes it to campaign.units, then strip-unit-mirror drops it.
+  // (Legacy/dead path: addFromTemplate is unwired + the v1 .domain.json templates were removed in v0.9.)
+  d.garrison = { units:(tpl.garrison||[]).map(u => ({
     schemaVersion:2, id:window.ACKS.newId(window.ACKS.ID_PREFIXES.garrisonUnit),
     displayName:u.name||'Unit', unitTypeKey:window.ACKS.slugify(u.name||'unit'),
     count:u.count||0, monthlyWage:u.monthlyWage||0, brPerSoldier:u.brPerSoldier||0, stationedAtHexId:null
-  }));
+  })) };
   if(tpl.stronghold)d.stronghold=Object.assign(d.stronghold,tpl.stronghold);
   if(tpl.specialists)d.specialists=tpl.specialists.map(s => ({
     schemaVersion:2, id:window.ACKS.newId(window.ACKS.ID_PREFIXES.specialist),
@@ -30456,6 +30459,11 @@ return {
     // Wave Construction-B — materialize agricultural Projects now that hexes are lifted into
     // camp.hexes (templates ship hexes nested, so migrateCampaign's earlier pass saw none). Idempotent.
     window.ACKS.migrateAgriculturalToProjects(camp);
+    // T6 single-home — now that the hexes/settlements are lifted (and any legacy nested membership has
+    // backfilled domainId/hexId onto the canonical entities), STRIP the nested hex/settlement mirror so
+    // the single home (campaign.hexes / .settlements) is the only home in memory. The unit mirror was
+    // already stripped inside migrateCampaign (strip-unit-mirror, order 155). Idempotent.
+    if(window.ACKS.stripHexSettlementMirrors) window.ACKS.stripHexSettlementMirrors(camp);
   },
 
   // Templates ship with our app and must never be overwritten by Save.
@@ -30576,10 +30584,10 @@ return {
     // Domains live on currentCampaign (single home), so the deep clone already includes them — no
     // re-stitch. Stamp lastModifiedAt on the campaign + each domain, drop the legacy field.
     const c=JSON.parse(JSON.stringify(this.currentCampaign));
-    // T6 — make the dual-homed nested mirrors (geography.hexes / hex.settlement / garrison.units /
-    // mercenaryCompany.units) exact projections of the canonical top-level collections, so the saved
-    // file never carries divergent copies (audit 2026-06-14 integration C1). Runs on the clone above.
-    if(window.ACKS.projectNestedMirrors) window.ACKS.projectNestedMirrors(c);
+    // T6 single-home — strip the now-gone nested mirrors (geography.hexes / hex.settlement /
+    // garrison / mercenaryCompany) from the save-clone so the saved file carries only the canonical
+    // top-level collections (campaign.hexes / .settlements / .units). Runs on the clone above.
+    if(window.ACKS.stripNestedMirrors) window.ACKS.stripNestedMirrors(c);
     const today=new Date().toISOString().slice(0,10);
     c.lastModifiedAt=today;
     (c.domains||[]).forEach(dc=>{ dc.lastModifiedAt=today; });
@@ -31654,9 +31662,6 @@ return {
     });
     return total;
   },
-  // Resolve character.currentHexId → "(q,r) · Domain Name" string. Walks
-  // every domain's geography.hexes[] for a match. Returns "—" when location
-  // is unset or unresolved.
   // Resolve a character's current location label. Two layers:
   //   (1) BASE LOCATION — venture-aware (in-transit / selling override hex),
   //       else the hex coord + domain name, else "—".

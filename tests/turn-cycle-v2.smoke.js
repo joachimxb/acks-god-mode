@@ -144,7 +144,7 @@ check('character hp.current updated via dotted path', ch.hp.current === hpBefore
 const lairsBefore = ACKS.lairsAtHex(camp, 'hex-thorn-wood');
 check('thorn-wood goblin lair lifted to campaign.lairs before adventure', lairsBefore.length === 1 && lairsBefore[0].id === 'lai-thorn-wood-goblins');
 check('the lifted goblin lair is active before adventure', lairsBefore[0].status === 'active');
-check('nested hex.lairs cleared by the lift', (camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood').lairs||[]).length === 0);
+check('the lifted hex has no leftover nested lairs', (ACKS.findHex(camp, 'hex-thorn-wood').lairs||[]).length === 0);
 const advEv = ACKS.newEvent('adventure-result', {
   submittedBy: 'tool:rpgmaker-test',
   payload: {
@@ -158,7 +158,7 @@ const advEv = ACKS.newEvent('adventure-result', {
   }
 });
 const advR = ACKS.applyEvent(camp, advEv);
-const hexAfter = camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood');
+const hexAfter = ACKS.findHex(camp, 'hex-thorn-wood');
 check('thorn-wood hex now explored', hexAfter.explored === true);
 const lairAfter = ACKS.findLair(camp, 'lai-thorn-wood-goblins');
 check('thorn-wood goblin lair flipped to cleared (structure remains, #476 M0)', lairAfter && lairAfter.status === 'cleared');
@@ -170,9 +170,9 @@ check('adventure narrative composed', advR.result.narrativeSummary.indexOf('clea
 const dawEv = ACKS.newEvent('daw-result', {
   payload: { outcome: 'defender-holds', defenderDomainId: 'dom-barony-of-thornreach', defenderLosses: [{unitId:'gar-thornreach-foot', count: 5}] }
 });
-const footBefore = camp.domains[0].garrison.units.find(u => u.id === 'gar-thornreach-foot').count;
+const footBefore = ACKS.findUnit(camp, 'gar-thornreach-foot').count;
 ACKS.applyEvent(camp, dawEv);
-const footAfter = camp.domains[0].garrison.units.find(u => u.id === 'gar-thornreach-foot').count;
+const footAfter = ACKS.findUnit(camp, 'gar-thornreach-foot').count;
 check('daw losses applied to garrison count', footAfter === footBefore - 5);
 
 const claudeEv = ACKS.newEvent('claude-event', {

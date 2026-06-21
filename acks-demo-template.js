@@ -63,141 +63,6 @@ global.ACKS_DEMO_TEMPLATE = {
         "controlledHexes": 8,
         "claimedHexes": 12,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-saltspur-keep",
-            "coord": {
-              "q": 7,
-              "r": 3
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 180,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 1,
-            "landImprovementProjects": [],
-            "terrain": "coast",
-            "primaryStructure": "Saltspur Keep (Marquis's seat)",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-saltspur-town",
-              "name": "Saltspur",
-              "families": 220,
-              "totalInvestment": 30000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "salt": -2,
-                "grain-vegetables": -1,
-                "spices": 1
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class V market town clustered around the keep. Famous for the salt pans on the coast."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Seat of the March. Town and keep share the hex.",
-            "name": "Saltspur"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-saltspur-fields",
-            "coord": {
-              "q": 7,
-              "r": 2
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 224,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [
-              {
-                "id": "lip-2t8kgh9",
-                "schemaVersion": 2,
-                "targetBonus": 1,
-                "monthlyContribution": 800,
-                "accumulated": 1600,
-                "startedTurn": 3,
-                "supervisors": [
-                  {
-                    "characterId": "chr-05qogak",
-                    "monthsLeft": 4
-                  }
-                ],
-                "notes": "Drainage works in the western fields — financed in part by the Saltspur Distillery to expand barley supply."
-              }
-            ],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Grain country. The march's breadbasket.",
-            "name": "Saltspur Fields"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-saltpans",
-            "coord": {
-              "q": 6,
-              "r": 3
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 144,
-            "valuePerFamily": 8,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "coast",
-            "primaryStructure": "Salt-pan complex",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-salt-pans",
-                "name": "Saltspur Pans",
-                "kind": "industry",
-                "description": "The pans that gave the march its name. Tariff revenue is significant."
-              }
-            ],
-            "monsterNotes": "",
-            "notes": "Source of the march's salt wealth and identity.",
-            "name": "The Saltpans"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-coastal-march",
-            "coord": {
-              "q": 6,
-              "r": 2
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 112,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Fishing villages along the coast.",
-            "name": "Saltspur Vale"
-          }
-        ],
         "terrain": "coastal plains",
         "features": []
       },
@@ -244,99 +109,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-saltspur-foot",
-            "displayName": "Heavy Infantry",
-            "unitTypeKey": "heavy-infantry",
-            "count": 60,
-            "monthlyWage": 12,
-            "brPerSoldier": 0.083,
-            "stationedAtHexId": "hex-saltspur-keep",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-march-of-saltspur"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-saltspur-bows",
-            "displayName": "Bowmen",
-            "unitTypeKey": "bowmen",
-            "count": 30,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-saltspur-keep",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-march-of-saltspur"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-saltspur-horse",
-            "displayName": "Medium Cavalry",
-            "unitTypeKey": "medium-cavalry",
-            "count": 20,
-            "monthlyWage": 25,
-            "brPerSoldier": 0.15,
-            "stationedAtHexId": "hex-saltspur-keep",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-march-of-saltspur"
-            }
-          }
-        ],
-        "totalMonthlyCost": 1490,
-        "totalBR": 9.99
       },
       "stronghold": {
         "type": "Castle (small)",
@@ -423,67 +195,6 @@ global.ACKS_DEMO_TEMPLATE = {
         "controlledHexes": 4,
         "claimedHexes": 5,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-northwatch-tower",
-            "coord": {
-              "q": 6,
-              "r": 1
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 80,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Tower of Northwatch",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-northwatch-village",
-              "name": "Northwatch Village",
-              "families": 60,
-              "totalInvestment": 5000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {},
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "A market hamlet under the tower's walls."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Yorick's seat. Forward-watchtower against the wastes.",
-            "name": "Northwatch Tower"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-northwatch-farms",
-            "coord": {
-              "q": 5,
-              "r": 1
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 135,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Mixed farmland.",
-            "name": "Northwatch Farms"
-          }
-        ],
         "terrain": "hills",
         "features": []
       },
@@ -521,70 +232,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-northwatch-foot",
-            "displayName": "Light Infantry",
-            "unitTypeKey": "light-infantry",
-            "count": 25,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-northwatch-tower",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-northwatch"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-northwatch-bows",
-            "displayName": "Bowmen",
-            "unitTypeKey": "bowmen",
-            "count": 10,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-northwatch-tower",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-northwatch"
-            }
-          }
-        ],
-        "totalMonthlyCost": 240,
-        "totalBR": 1.48
       },
       "stronghold": {
         "type": "Tower",
@@ -651,77 +298,6 @@ global.ACKS_DEMO_TEMPLATE = {
         "controlledHexes": 3,
         "claimedHexes": 3,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-saltcombe-shrine",
-            "coord": {
-              "q": 5,
-              "r": 3
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 100,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "coast",
-            "primaryStructure": "Shrine-Chapter of the Salt Saint",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-saltcombe-town",
-              "name": "Saltcombe Town",
-              "families": 90,
-              "totalInvestment": 8000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "salt": -1
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "A small priestly town built around the shrine."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-salt-saint",
-                "name": "Shrine of the Salt Saint",
-                "kind": "temple",
-                "description": "A regional pilgrimage destination. Pilgrims pay a small toll which is logged as tithe income."
-              }
-            ],
-            "monsterNotes": "",
-            "notes": "Mira's seat. The shrine is the barony's identity.",
-            "name": "Saltcombe"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-saltcombe-fields",
-            "coord": {
-              "q": 5,
-              "r": 2
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 165,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Pilgrim-road farms.",
-            "name": "Saltcombe Fields"
-          }
-        ],
         "terrain": "coastal plains",
         "features": []
       },
@@ -764,41 +340,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-saltcombe-foot",
-            "displayName": "Light Infantry (lay brothers)",
-            "unitTypeKey": "light-infantry",
-            "count": 20,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-saltcombe-shrine",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-saltcombe"
-            }
-          }
-        ],
-        "totalMonthlyCost": 120,
-        "totalBR": 0.68
       },
       "stronghold": {
         "type": "Shrine-Chapter",
@@ -864,104 +405,6 @@ global.ACKS_DEMO_TEMPLATE = {
           "hex-tidewrack-strand",
           "hex-tidewrack-cove"
         ],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-tidewrack-strand",
-            "coord": {
-              "q": 1,
-              "r": 2
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 120,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementInvested": 0,
-            "landImprovementProjects": [],
-            "queuedImprovementGp": 0,
-            "improvementBudgetGp": 0,
-            "constructionSupervisorCharacterIds": [],
-            "terrain": "coast",
-            "hasRoad": false,
-            "hasTrail": false,
-            "roadSides": [],
-            "riverSides": [],
-            "crossingSides": [],
-            "elevationFt": 0,
-            "groundCondition": "clear",
-            "hasLake": false,
-            "freshWater": false,
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "The amber-strand and salt-fish flats that feed Tidewrack — grey amber comes up here after westerly storms.",
-            "economyType": "agricultural",
-            "terrainTransformationState": null,
-            "name": "Tidewrack Strand",
-            "domainId": "dom-tidewrack"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-tidewrack-cove",
-            "coord": {
-              "q": 1,
-              "r": 3
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 0,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementInvested": 0,
-            "landImprovementProjects": [],
-            "queuedImprovementGp": 0,
-            "improvementBudgetGp": 0,
-            "constructionSupervisorCharacterIds": [],
-            "terrain": "coast",
-            "hasRoad": true,
-            "hasTrail": false,
-            "roadSides": [
-              0
-            ],
-            "riverSides": [],
-            "crossingSides": [],
-            "elevationFt": 0,
-            "groundCondition": "clear",
-            "hasLake": false,
-            "freshWater": false,
-            "primaryStructure": "",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-tidewrack",
-              "name": "Tidewrack",
-              "families": 85,
-              "totalInvestment": 10000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {},
-              "placesOfPower": [],
-              "rumors": [],
-              "entryways": [],
-              "regulatedAssets": [],
-              "notes": "A salvage-port of salt-fishers, amber-gatherers, and wreck-divers on the bones of an Auran naval station. The inner harbour drowns an old warship; the Saltwidow’s shrine stands on the one Auran mole still above the tide.",
-              "hexId": "hex-tidewrack-cove",
-              "marketClass": "VI"
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "A deep, sheltered cove over a half-drowned Auran naval station; at low water the masts of an old warship break the inner harbour. The free town of Tidewrack clings to the salvage-quays.",
-            "economyType": "agricultural",
-            "terrainTransformationState": null,
-            "name": "Tidewrack Cove",
-            "domainId": "dom-tidewrack"
-          }
-        ],
         "terrain": "",
         "features": []
       },
@@ -1003,11 +446,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [],
-        "totalMonthlyCost": 0,
-        "totalBR": 0
       },
       "stronghold": {
         "components": [],
@@ -2487,24 +1925,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "coast",
       "primaryStructure": "Saltspur Keep (Marquis's seat)",
-      "settlement": {
-        "schemaVersion": 2,
-        "id": "set-saltspur-town",
-        "name": "Saltspur",
-        "families": 220,
-        "totalInvestment": 30000,
-        "foundedTurn": 1,
-        "foundedByCharacterId": null,
-        "demandModifiers": {
-          "salt": -2,
-          "grain-vegetables": -1,
-          "spices": 1
-        },
-        "rumors": [],
-        "entryways": null,
-        "regulatedAssets": null,
-        "notes": "Class V market town clustered around the keep. Famous for the salt pans on the coast."
-      },
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2519,7 +1939,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "name": "Saltspur",
       "roadSides": [
         3
-      ]
+      ],
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2552,7 +1973,6 @@ global.ACKS_DEMO_TEMPLATE = {
       ],
       "terrain": "plains",
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2565,7 +1985,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasRoad": false,
       "hasTrail": false,
       "elevationFt": 0,
-      "name": "Saltspur Fields"
+      "name": "Saltspur Fields",
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2582,7 +2003,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "coast",
       "primaryStructure": "Salt-pan complex",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [
@@ -2606,7 +2026,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "roadSides": [
         0,
         3
-      ]
+      ],
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2623,7 +2044,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "plains",
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2635,7 +2055,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasRoad": false,
       "hasTrail": false,
       "elevationFt": 0,
-      "name": "Saltspur Vale"
+      "name": "Saltspur Vale",
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2652,20 +2073,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "hills",
       "primaryStructure": "Tower of Northwatch",
-      "settlement": {
-        "schemaVersion": 2,
-        "id": "set-northwatch-village",
-        "name": "Northwatch Village",
-        "families": 60,
-        "totalInvestment": 5000,
-        "foundedTurn": 1,
-        "foundedByCharacterId": null,
-        "demandModifiers": {},
-        "rumors": [],
-        "entryways": null,
-        "regulatedAssets": null,
-        "notes": "A market hamlet under the tower's walls."
-      },
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2677,7 +2084,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasRoad": false,
       "hasTrail": false,
       "elevationFt": 0,
-      "name": "Northwatch Tower"
+      "name": "Northwatch Tower",
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2694,7 +2102,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "plains",
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2706,7 +2113,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasRoad": false,
       "hasTrail": false,
       "elevationFt": 0,
-      "name": "Northwatch Farms"
+      "name": "Northwatch Farms",
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2723,22 +2131,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "coast",
       "primaryStructure": "Shrine-Chapter of the Salt Saint",
-      "settlement": {
-        "schemaVersion": 2,
-        "id": "set-saltcombe-town",
-        "name": "Saltcombe Town",
-        "families": 90,
-        "totalInvestment": 8000,
-        "foundedTurn": 1,
-        "foundedByCharacterId": null,
-        "demandModifiers": {
-          "salt": -1
-        },
-        "rumors": [],
-        "entryways": null,
-        "regulatedAssets": null,
-        "notes": "A small priestly town built around the shrine."
-      },
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [
@@ -2762,7 +2154,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "roadSides": [
         0,
         3
-      ]
+      ],
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2779,7 +2172,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "landImprovementProjects": [],
       "terrain": "plains",
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2791,7 +2183,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasRoad": false,
       "hasTrail": false,
       "elevationFt": 0,
-      "name": "Saltcombe Fields"
+      "name": "Saltcombe Fields",
+      "constructionSupervisorCharacterIds": []
     },
     {
       "schemaVersion": 2,
@@ -2821,7 +2214,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2860,7 +2252,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2899,7 +2290,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2938,7 +2328,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -2977,7 +2366,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3016,7 +2404,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3055,7 +2442,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3094,7 +2480,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3133,7 +2518,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3172,7 +2556,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3211,7 +2594,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3250,7 +2632,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3289,7 +2670,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3328,7 +2708,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3367,7 +2746,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3406,7 +2784,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3445,7 +2822,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3484,7 +2860,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3523,7 +2898,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": true,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3562,7 +2936,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3601,7 +2974,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3640,7 +3012,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3679,7 +3050,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3720,23 +3090,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": {
-        "schemaVersion": 2,
-        "id": "set-tidewrack",
-        "name": "Tidewrack",
-        "families": 85,
-        "totalInvestment": 10000,
-        "foundedTurn": 1,
-        "foundedByCharacterId": null,
-        "demandModifiers": {},
-        "placesOfPower": [],
-        "rumors": [],
-        "entryways": [],
-        "regulatedAssets": [],
-        "notes": "A salvage-port of salt-fishers, amber-gatherers, and wreck-divers on the bones of an Auran naval station. The inner harbour drowns an old warship; the Saltwidow’s shrine stands on the one Auran mole still above the tide.",
-        "hexId": "hex-tidewrack-cove",
-        "marketClass": "VI"
-      },
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3778,7 +3131,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": true,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3822,7 +3174,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3864,7 +3215,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3903,7 +3253,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3942,7 +3291,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -3981,7 +3329,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4020,7 +3367,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4059,7 +3405,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4098,7 +3443,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4137,7 +3481,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4176,7 +3519,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4215,7 +3557,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],
@@ -4254,7 +3595,6 @@ global.ACKS_DEMO_TEMPLATE = {
       "hasLake": false,
       "freshWater": false,
       "primaryStructure": "",
-      "settlement": null,
       "lairs": [],
       "dungeons": [],
       "pointsOfInterest": [],

@@ -92,7 +92,8 @@ function blankDomain(opts={}){
     // dangerousBordersOverride: the GM's border-configuration judgment ('secure' | 'line' |
     // 'flank' | 'spearhead' | 'isolated'); null = derive from the hex map.
     dangerousBordersOverride: opts.dangerousBordersOverride || null,
-    // Geography (hexes live here for v2; canonical-store lift to campaign-level remains deferred per task #119)
+    // Geography — single-home (T6): hexes live ONLY in campaign.hexes[] (claimed by hex.domainId);
+    // geography carries the domain-level cartography aggregates, not a per-domain hex mirror.
     geography: opts.geography || {
       hexMapId: null,
       primaryHex: { q:0, r:0 },
@@ -100,7 +101,6 @@ function blankDomain(opts={}){
       controlledHexes: 1,
       claimedHexes: 1,
       controlledHexList: [],
-      hexes: [],
       terrain: '',
       features: []
     },
@@ -134,8 +134,9 @@ function blankDomain(opts={}){
       other: []
     },
     taxPolicy: opts.taxPolicy || { rate:'standard', moraleImpact:0 },
-    // Forces — units carry IDs in v2; future Forces tab (#41) uses them
-    garrison: opts.garrison || { units: [], totalMonthlyCost: 0, totalBR: 0 },
+    // Forces — single-home (T6): garrison units live in campaign.units[] (stationedAt this domain),
+    // read via unitsStationedAt. No nested garrison mirror on the domain (a caller that builds a
+    // legacy d.garrison.units gets it promoted + stripped by the load-time lift).
     // Foundation #16 — stronghold is now a list of components. A domain can have multiple
     // fortifications (Tower + Castle + Vault, etc.); each component carries its own type,
     // buildValue, and per-building catalog. garrisonCapacity sums across components.

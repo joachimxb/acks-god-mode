@@ -52,38 +52,6 @@
         "controlledHexes": 1,
         "claimedHexes": 1,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-hawks-reach-core",
-            "coord": {
-              "q": 0,
-              "r": 0
-            },
-            "classification": "Outlands",
-            "explored": true,
-            "families": 32,
-            "valuePerFamily": 5,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Palisade fort (in progress)",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-hawk-stone",
-                "name": "The Hawk Stone",
-                "kind": "landmark",
-                "description": "A weathered monolith on the south ridge, older than any local memory. Hawks roost here in summer."
-              }
-            ],
-            "monsterNotes": "Wolves in winter. Occasional goblin scouts from the eastern wastes.",
-            "notes": "The whole domain right now. Sir Corwin pitched his pennant here three months ago; the palisade is half-built."
-          }
-        ],
         "terrain": "hills",
         "features": []
       },
@@ -121,41 +89,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-hawks-foot",
-            "displayName": "Light Infantry (militia)",
-            "unitTypeKey": "light-infantry",
-            "count": 8,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-hawks-reach-core",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-hawks-reach"
-            }
-          }
-        ],
-        "totalMonthlyCost": 48,
-        "totalBR": 0.27
       },
       "stronghold": {
         "type": "Palisade fort (under construction)",
@@ -430,5 +363,45 @@
   "armies": [],
   "battles": [],
   "researchProjects": [],
-  "apprenticeships": []
+  "apprenticeships": [],
+  "hexes": [
+    {
+      "schemaVersion": 2,
+      "id": "hex-hawks-reach-core",
+      "coord": {
+        "q": 0,
+        "r": 0
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 32,
+      "valuePerFamily": 5,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "Palisade fort (in progress)",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-hawk-stone",
+          "name": "The Hawk Stone",
+          "kind": "landmark",
+          "description": "A weathered monolith on the south ridge, older than any local memory. Hawks roost here in summer."
+        }
+      ],
+      "monsterNotes": "Wolves in winter. Occasional goblin scouts from the eastern wastes.",
+      "notes": "The whole domain right now. Sir Corwin pitched his pennant here three months ago; the palisade is half-built.",
+      "domainId": "dom-hawks-reach",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    }
+  ],
+  "settlements": [],
+  "rumors": []
 }

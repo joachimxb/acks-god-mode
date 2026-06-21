@@ -376,29 +376,31 @@ section('Hex domain reassignment — gm-fiat moves the geography.hexes mirror + 
 // =============================================================================
 // hex.domainId is the canonical truth; each domain's geography.hexes[] is the mirror. Setting domainId
 // via gm-fiat (the hex panel / Inspector / an integrator) must re-home the hex AND read cleanly in the log.
+// Single-home (T6): a hex's domain claim IS hex.domainId; the hex lives only in campaign.hexes.
 function domainMoveFixture() {
   const c = ACKS.blankCampaign();
   c.currentTurn = 1;
   const hex = { id: 'hex-1', schemaVersion: 2, coord: { q: 151, r: 24 }, domainId: 'dom-a', terrain: 'plains' };
   c.domains = [
-    { id: 'dom-a', name: 'March of Saltspur', geography: { hexes: [hex] } },
-    { id: 'dom-b', name: 'Barony of Vale',    geography: { hexes: [] } },
+    { id: 'dom-a', name: 'March of Saltspur', geography: {} },
+    { id: 'dom-b', name: 'Barony of Vale',    geography: {} },
   ];
   c.hexes = [hex];
   return { c, hex };
 }
-(() => { // direct reconciler
+(() => { // direct reconciler — single-home: setting hex.domainId is the move; reconcile only ensures campaign.hexes membership
   const { c, hex } = domainMoveFixture();
   hex.domainId = 'dom-b';
   ACKS.reconcileHexDomainMembership(c, hex);
-  ok('reconcile: removed from old domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
-  ok('reconcile: added to new domain geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile: hex claimed by dom-b (hex.domainId)', ACKS.findHex(c, 'hex-1').domainId === 'dom-b');
+  ok('reconcile: hexesForDomain(dom-a) empty', ACKS.hexesForDomain(c, 'dom-a').length === 0);
+  ok('reconcile: hexesForDomain(dom-b) holds it', ACKS.hexesForDomain(c, 'dom-b').some(h => h.id === 'hex-1'));
   ok('reconcile: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
   ACKS.reconcileHexDomainMembership(c, hex); // idempotent
-  ok('reconcile: idempotent (no duplicate)', c.domains[1].geography.hexes.filter(h => h.id === 'hex-1').length === 1);
+  ok('reconcile: idempotent (no duplicate in campaign.hexes)', c.hexes.filter(h => h.id === 'hex-1').length === 1);
   hex.domainId = null;
   ACKS.reconcileHexDomainMembership(c, hex);
-  ok('reconcile → wild: in no domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1') && !c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile → wild: claimed by no domain', ACKS.hexesForDomain(c, 'dom-a').length === 0 && ACKS.hexesForDomain(c, 'dom-b').length === 0);
   ok('reconcile → wild: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
 })();
 (() => { // via gm-fiat (the path the hex panel + Inspector use)
@@ -406,8 +408,7 @@ function domainMoveFixture() {
   const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: 'dom-b' }, reason: 'Hex reassigned' } });
   const r = ACKS.applyEvent(c, ev);
   ok('gm-fiat: hex.domainId set to dom-b', c.hexes[0].domainId === 'dom-b');
-  ok('gm-fiat: moved out of dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
-  ok('gm-fiat: moved into dom-b geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat: hexesForDomain reflects the move', ACKS.hexesForDomain(c, 'dom-a').length === 0 && ACKS.hexesForDomain(c, 'dom-b').some(h => h.id === 'hex-1'));
   const narr = (r && r.result && r.result.narrativeSummary) || '';
   ok('gm-fiat: clean narrative (Moved hex 151099 from … to …)', /^Moved hex 151099 from March of Saltspur to Barony of Vale/.test(narr), narr);
 })();
@@ -415,7 +416,7 @@ function domainMoveFixture() {
   const { c } = domainMoveFixture();
   const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: null } } });
   const r = ACKS.applyEvent(c, ev);
-  ok('gm-fiat → wild: removed from dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat → wild: claimed by no domain', ACKS.hexesForDomain(c, 'dom-a').length === 0);
   ok('gm-fiat → wild: domainId cleared', !c.hexes[0].domainId);
   const narr = (r && r.result && r.result.narrativeSummary) || '';
   ok('gm-fiat → wild: narrative mentions unclaimed wilderness', /Released hex 151099 .*unclaimed wilderness/.test(narr), narr);
