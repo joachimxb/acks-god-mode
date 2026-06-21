@@ -884,6 +884,113 @@ section('D5 GUARD — D5 added NOTHING to migrateCampaign (templates stay no-ops
 })();
 
 // =============================================================================
+// D5 FOLLOW-ON (burst12) — (1) escalate a combat-risk incident → a full Encounter;
+//                          (2) the slot-66 daily check is SEEDED + byte-stable on review re-open.
+// =============================================================================
+
+section('D5 follow-on — escalateSettlementIncident (a combat-risk incident → a full Encounter)');
+ok('escalateSettlementIncident is a function', typeof ACKS.escalateSettlementIncident === 'function');
+(function(){
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a','chr-b'], mode:'holed-up' });
+  const inc = ACKS.rollAndApplySettlementIncident(c, v.id, { forcedRoll:96, rng:()=>0.5 });   // drunken-brawl (combatRisk)
+  ok('seeded a combat-risk incident (drunken-brawl)', inc.incidentKey === 'drunken-brawl' && inc.combatRisk === true);
+  const encBefore = (c.encounters || []).length;
+  const evBefore = c.eventLog.length;
+  const res = ACKS.escalateSettlementIncident(c, v.id, { incidentIndex: 0, rng:()=>0.5 });
+  ok('returns { encounter, incident }', !!res && !!res.encounter && res.incident === inc);
+  const enc = res.encounter;
+  ok('the Encounter is a real entity in campaign.encounters[]', (c.encounters || []).length === encBefore + 1 && ACKS.findEncounter(c, enc.id) === enc);
+  ok('scale "settlement" (the reserved blankEncounter scale)', enc.scale === 'settlement');
+  ok('category "civilized" (urban humans)', enc.category === 'civilized');
+  ok('trigger "settlement-incident"', enc.trigger === 'settlement-incident');
+  ok('Encounter named after the incident + settlement', enc.name === 'Brawl in Saltspur');
+  ok('monsterSide is the urban foe (brawlers ×4 with rng .5)', enc.monsterSide.label === 'brawlers' && enc.monsterSide.count === 4 && enc.monsterSide.encounterKind === 'urban');
+  ok('partySide.characterIds = the visit participants', JSON.stringify(enc.partySide.characterIds) === JSON.stringify(['chr-a','chr-b']));
+  ok('partySide.faceCharacterId set (the affected, else first)', enc.partySide.faceCharacterId === (inc.affectedCharacterId || 'chr-a'));
+  ok('hexId carried from the visit', enc.hexId === 'hex-1');
+  ok('the incident is linked back (escalatedEncounterId)', inc.escalatedEncounterId === enc.id && inc.escalated === true);
+  ok('emits a urban-incident-escalated event', c.eventLog.slice(evBefore).some(e => e.event.kind === 'urban-incident-escalated'));
+  // idempotent — re-escalating returns the SAME encounter, no duplicate
+  const res2 = ACKS.escalateSettlementIncident(c, v.id, { incidentIndex: 0 });
+  ok('idempotent — same Encounter, alreadyEscalated', res2.encounter.id === enc.id && res2.alreadyEscalated === true);
+  ok('no duplicate Encounter minted', (c.encounters || []).length === encBefore + 1);
+})();
+(function(){
+  // a non-combat incident refuses; the latest-unescalated default targeting; opts.incident (object)
+  const c = mkVisit();
+  const v = ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'holed-up' });
+  const peace = ACKS.rollAndApplySettlementIncident(c, v.id, { forcedRoll:20, rng:()=>0.5 });   // beggar — not combat
+  ok('a non-combat incident refuses (returns null)', ACKS.escalateSettlementIncident(c, v.id, { incident: peace }) === null);
+  ok('no Encounter minted for a non-combat incident', !(c.encounters || []).length);
+  const riot = ACKS.rollAndApplySettlementIncident(c, v.id, { forcedRoll:125, rng:()=>0.5 });    // riot (combatRisk)
+  // default targeting (no index) → the latest unescalated combat-risk incident
+  const res = ACKS.escalateSettlementIncident(c, v.id, { rng:()=>0.5 });
+  ok('default targets the latest unescalated combat-risk incident (riot)', !!res && res.incident === riot && res.encounter.name === 'Riot in Saltspur');
+  ok('riot foe is a mob (6 + 2d6, ×14 with rng .5)', res.encounter.monsterSide.label === 'a rioting mob' && res.encounter.monsterSide.count === 14);
+  // opts.incident object targeting on a footpad
+  const fp = ACKS.rollAndApplySettlementIncident(c, v.id, { forcedRoll:105, rng:()=>0.5 });       // footpad (combatRisk)
+  const resF = ACKS.escalateSettlementIncident(c, v.id, { incident: fp });
+  ok('opts.incident object targets that incident (footpad ×1)', resF.incident === fp && resF.encounter.monsterSide.count === 1 && resF.encounter.monsterSide.label === 'a footpad / mugger');
+})();
+
+section('D5 follow-on — urban-incident-escalated event registration (self-registered from delves.js)');
+ok("'urban-incident-escalated' in EVENT_KINDS", ACKS.EVENT_KINDS.includes('urban-incident-escalated'));
+ok("'urban-incident-escalated' has a schema (visitId + incidentKey required)", !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['urban-incident-escalated']) && ACKS.EVENT_SCHEMAS['urban-incident-escalated'].R.visitId === 'string');
+ok("'urban-incident-escalated' is Event-Wizard opt-out (record-only audit)", ACKS.EVENT_WIZARD_OPTOUT.has('urban-incident-escalated'));
+
+section('D5 follow-on — the slot-66 daily check is SEEDED + byte-stable on review re-open');
+(function(){
+  function mkHoled(){ const c = mkVisit(); c.eventLog = [];
+    ACKS.startSettlementVisit(c, { settlementId:'set-sp', participantCharacterIds:['chr-a'], mode:'holed-up' });
+    return c; }
+  const sel = p => p.pendingRecords.filter(r => r.type === 'settlement-incident');
+  // (a) proposeSettlementVisitDay (the consumer) on UNCHANGED state re-runs byte-identical — no Math.random
+  const c = mkHoled();
+  const ctx = { dayInMonth: 6, year: 1, month: 1, days: 1 };
+  ok('proposeSettlementVisitDay re-runs byte-identical (seeded, no re-roll)',
+     JSON.stringify(ACKS.proposeSettlementVisitDay(c, ctx)) === JSON.stringify(ACKS.proposeSettlementVisitDay(c, ctx)));
+  // (b) the FULL orchestrator path (proposeDayTick = how the day-tick review is built) re-opens byte-identical
+  const c2 = mkHoled();
+  ok('proposeDayTick (1 day) re-opens byte-identical (the review re-open case)',
+     JSON.stringify(sel(ACKS.proposeDayTick(c2, 1))) === JSON.stringify(sel(ACKS.proposeDayTick(c2, 1))));
+  // (c) a multi-day advance re-opens byte-identical (the working-copy accumulation stays deterministic)
+  const c3 = mkHoled();
+  const m1 = sel(ACKS.proposeDayTick(c3, 8)), m2 = sel(ACKS.proposeDayTick(c3, 8));
+  ok('proposeDayTick (8 days) re-opens byte-identical', JSON.stringify(m1) === JSON.stringify(m2));
+  ok('the 8-day sweep actually produced incidents (the test is exercising the path)', m1.length >= 1);
+  // (d) different days draw different seeds (it is NOT the same incident every day). Pin the visit id
+  // so the seed sequence is deterministic (the seed folds the visit id, which blankSettlementVisit
+  // mints randomly), then assert variety + reproducibility.
+  const c4 = mkHoled(); c4.settlementVisits[0].id = 'svt-fixed';
+  function keysOver(c){ const ks = []; for(let d = 6; d <= 20; d++){ const p = ACKS.proposeSettlementVisitDay(c, { dayInMonth:d, days:1 }); ks.push((p.pendingRecords[0] && p.pendingRecords[0].incident.incidentKey) || '-'); } return ks; }
+  const k1 = keysOver(c4), k2 = keysOver(c4);
+  ok('the 15-day key sequence is reproducible (deterministic seed)', JSON.stringify(k1) === JSON.stringify(k2));
+  ok('per-day seeds vary — several distinct incidents over the window', new Set(k1.filter(k => k !== '-')).size >= 3);
+  ok('per-day seeds vary — a mix of fire / no-fire days', k1.some(k => k !== '-') && k1.some(k => k === '-'));
+  // (e) an injected ctx.rng STILL overrides the seed (tests / scriptable ticks)
+  const c5 = mkHoled();
+  const oRng = ACKS.proposeSettlementVisitDay(c5, { dayInMonth:6, rng: ()=>0.9 });   // 0.9*6 → 6 (≥5) → an incident
+  ok('ctx.rng override still works (a forced 5+ check fires)', oRng.pendingRecords.length === 1);
+  // (f) clone-at-commit: the REAL campaign still gets the applied incident with its OWN real eventId
+  const c6 = mkHoled();
+  let committedOne = false;
+  for(let step = 0; step < 25 && !committedOne; step++){
+    const prop = ACKS.proposeDayTick(c6, 1);
+    const has = sel(prop).length > 0;
+    const before = c6.eventLog.length;
+    ACKS.commitDayTick(c6, prop);
+    if(has){ committedOne = true;
+      const v = c6.settlementVisits[0]; const last = v.incidents[v.incidents.length - 1];
+      ok('commit applies the incident to the REAL campaign (clone-at-commit)', !!last);
+      ok('the committed incident has its OWN real eventId (not the working-copy leak)', !!last.eventId);
+      ok('commit emits a real urban-incident event', c6.eventLog.slice(before).some(e => e.event.kind === 'urban-incident'));
+    }
+  }
+  ok('the advance-and-commit loop exercised a real commit', committedOne);
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
