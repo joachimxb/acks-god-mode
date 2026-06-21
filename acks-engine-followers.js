@@ -299,12 +299,11 @@
   // per-domain geography mirror against the top-level campaign.hexes (domainId match). Min 1 (the seat).
   function _domainTerritoryHexCount(campaign, domain){
     if(!domain) return 0;
-    const ids = new Set();
-    const geo = (domain.geography && Array.isArray(domain.geography.hexes)) ? domain.geography.hexes : [];
-    for(const h of geo){ if(h && h.id) ids.add(h.id); }
+    // T6 single-home — the domain's hexes are campaign.hexes filtered by domainId.
     const top = (campaign && Array.isArray(campaign.hexes)) ? campaign.hexes : [];
-    for(const h of top){ if(h && h.domainId === domain.id && h.id) ids.add(h.id); }
-    return ids.size;
+    let n = 0;
+    for(const h of top){ if(h && h.domainId === domain.id && h.id) n++; }
+    return n;
   }
 
   // Shared plan for the Families roll: { applicable, classification, spec, hexCount }. noDomain
@@ -588,7 +587,7 @@
       if(fr && fr.applicable && fr.families > 0){
         if(!domain.demographics) domain.demographics = { peasantFamilies:0, urbanFamilies:0, morale:0, moraleNotes:'' };
         const cur = Number(domain.demographics.peasantFamilies || 0);
-        if(typeof A.setPeasantPopulation === 'function') A.setPeasantPopulation(domain, cur + fr.families);
+        if(typeof A.setPeasantPopulation === 'function') A.setPeasantPopulation(campaign, domain, cur + fr.families);
         else domain.demographics.peasantFamilies = cur + fr.families;
         domain.followerFamiliesArrived = (Number(domain.followerFamiliesArrived) || 0) + fr.families;   // readout marker
         familiesArrived = fr.families; familiesInfo = fr;

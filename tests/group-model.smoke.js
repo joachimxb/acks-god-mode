@@ -185,7 +185,7 @@ ok('army inherits the party hex', newArmy.currentHexId === 'hex-d');
 ok('members become the army roster', (newArmy.memberCharacterIds || []).slice().sort().join(',') === 'chr-x,chr-y');
 ok('groupMembers(army) shows both', ACKS.groupMembers(c2, newArmy).map(c => c.id).sort().join(',') === 'chr-x,chr-y');
 ok('the mercenary unit is now stationed to the army', ACKS.findUnit(c2, 'unit-xmerc').stationedAt.kind === 'army' && ACKS.findUnit(c2, 'unit-xmerc').stationedAt.id === newArmy.id);
-ok('it left the patron’s mercenary company', (c2.characters.find(c => c.id === 'chr-x').mercenaryCompany.units || []).length === 0);
+ok('it left the patron’s mercenary company', ACKS.unitsStationedAt(c2, { kind: 'character', id: 'chr-x' }).length === 0);
 ok('army troops = the unit’s soldiers (30)', ACKS.groupHeadcount(c2, newArmy) === 30);
 ok('a Main Body division was auto-built', Array.isArray(newArmy.divisions) && newArmy.divisions.length === 1 && newArmy.divisions[0].commanderCharacterId === 'chr-x');
 ok('the party is CONSUMED (removed)', !c2.parties.some(p => p && p.id === 'par-2'));

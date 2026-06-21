@@ -210,7 +210,7 @@
     const d = _findDomain(campaign, cong.domainWorshipDomainId);
     if(!d) return 0;
     const A = _A();
-    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0)
+    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0)
                                                         : ((d.demographics && d.demographics.peasantFamilies) || 0);
     return Math.max(0, fam - (cong.personalCongregants || 0));
   }
@@ -263,7 +263,7 @@
     const d = domId ? _findDomain(campaign, domId) : null;
     if(!d) return null;
     const A = _A();
-    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
+    const fam = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
     return fam * 5;
   }
 
@@ -447,7 +447,7 @@
     if(!ch) return { ok: false, reason: 'no-caster' };
     if(!d) return { ok: false, reason: 'no-domain' };
     const A = _A();
-    const families = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
+    const families = (typeof A.totalFamilies === 'function') ? (A.totalFamilies(campaign, d) || 0) : ((d.demographics && d.demographics.peasantFamilies) || 0);
     const cost = Math.max(0, families * 2);
     const spend = spendDivinePower(campaign, casterId, cost);
     if(!spend.ok) return { ok: false, reason: 'insufficient-divine-power', cost, available: spend.remaining };
@@ -830,10 +830,11 @@
   }
   // The settlement's embedding hex (for the event's Event.context) — settlements store no hexId of their own.
   function _settlementHexId(campaign, settlement){
+    // T6 single-home — settlement.hexId is the canonical hex link (the lift sets it).
     if(settlement && settlement.hexId) return settlement.hexId;
     const sid = settlement && settlement.id;
     if(!sid || !campaign || !Array.isArray(campaign.hexes)) return null;
-    const h = campaign.hexes.find(x => x && ((x.settlement && x.settlement.id === sid) || x.settlementId === sid));
+    const h = campaign.hexes.find(x => x && x.settlementId === sid);
     return h ? h.id : null;
   }
 

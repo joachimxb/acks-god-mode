@@ -54,101 +54,6 @@
         "controlledHexes": 18,
         "claimedHexes": 22,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-vellengard-capital",
-            "coord": {
-              "q": 0,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 0,
-            "valuePerFamily": 8,
-            "landImprovementBonus": 1,
-            "landImprovementProjects": [],
-            "terrain": "river plain",
-            "primaryStructure": "Royal Citadel of Vellengard",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-vellengard-city",
-              "name": "Vellengard",
-              "families": 2400,
-              "totalInvestment": 200000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "grain-vegetables": -1,
-                "wine-spirits": 0,
-                "armor-weapons": 1,
-                "spices": 2,
-                "silk": 2
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class III royal city on the great river. Population 12,000+. Seat of king, parliament, and royal mint."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-royal-citadel",
-                "name": "Royal Citadel of Vellengard",
-                "kind": "landmark",
-                "description": "Five-towered stone citadel above the river bend. Royal seat for nine generations."
-              }
-            ],
-            "monsterNotes": "",
-            "notes": "Capital hex. The city and citadel share it."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-vellengard-royal-domain",
-            "coord": {
-              "q": 1,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 320,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "Royal granary",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Royal demesne farmland."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-vellengard-vineyards",
-            "coord": {
-              "q": 0,
-              "r": 1
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 240,
-            "valuePerFamily": 8,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Royal vineyards. The kingdom's wine."
-          }
-        ],
         "terrain": "river plain",
         "features": []
       },
@@ -195,99 +100,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-royal-foot",
-            "displayName": "Heavy Infantry (Royal)",
-            "unitTypeKey": "heavy-infantry",
-            "count": 200,
-            "monthlyWage": 12,
-            "brPerSoldier": 0.083,
-            "stationedAtHexId": "hex-vellengard-capital",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-kingdom-of-vellengard"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-royal-bows",
-            "displayName": "Composite Bowmen",
-            "unitTypeKey": "bowmen-composite",
-            "count": 80,
-            "monthlyWage": 12,
-            "brPerSoldier": 0.083,
-            "stationedAtHexId": "hex-vellengard-capital",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-kingdom-of-vellengard"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-royal-horse",
-            "displayName": "Heavy Cavalry (Royal Guard)",
-            "unitTypeKey": "heavy-cavalry",
-            "count": 50,
-            "monthlyWage": 50,
-            "brPerSoldier": 0.25,
-            "stationedAtHexId": "hex-vellengard-capital",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-kingdom-of-vellengard"
-            }
-          }
-        ],
-        "totalMonthlyCost": 5860,
-        "totalBR": 35.7
       },
       "stronghold": {
         "type": "Citadel",
@@ -360,67 +172,6 @@
         "controlledHexes": 9,
         "claimedHexes": 11,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-brennstone-seat",
-            "coord": {
-              "q": 4,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 280,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Brennstone Castle",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-brennstone-town",
-              "name": "Brennstone",
-              "families": 380,
-              "totalInvestment": 45000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "armor-weapons": -1
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class IV market town. Famous for its blacksmiths."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Duke's seat."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-brennstone-march",
-            "coord": {
-              "q": 4,
-              "r": 1
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 500,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Cropland."
-          }
-        ],
         "terrain": "hills and plains",
         "features": []
       },
@@ -467,70 +218,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-brennstone-foot",
-            "displayName": "Heavy Infantry",
-            "unitTypeKey": "heavy-infantry",
-            "count": 90,
-            "monthlyWage": 12,
-            "brPerSoldier": 0.083,
-            "stationedAtHexId": "hex-brennstone-seat",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-duchy-brennstone"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-brennstone-horse",
-            "displayName": "Medium Cavalry",
-            "unitTypeKey": "medium-cavalry",
-            "count": 30,
-            "monthlyWage": 25,
-            "brPerSoldier": 0.15,
-            "stationedAtHexId": "hex-brennstone-seat",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-duchy-brennstone"
-            }
-          }
-        ],
-        "totalMonthlyCost": 1830,
-        "totalBR": 11.97
       },
       "stronghold": {
         "type": "Castle (medium)",
@@ -599,76 +286,6 @@
         "controlledHexes": 7,
         "claimedHexes": 7,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-westfen-cathedral",
-            "coord": {
-              "q": -4,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 200,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "marsh",
-            "primaryStructure": "Cathedral of the Reed Saint",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-westfen-town",
-              "name": "Westfen Town",
-              "families": 320,
-              "totalInvestment": 38000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "salt": 1,
-                "grain-vegetables": 1
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class IV cathedral town. The duchess rules from the cathedral close."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-reed-cathedral",
-                "name": "Cathedral of the Reed Saint",
-                "kind": "temple",
-                "description": "Massive river-stone cathedral. Site of the duchess's investiture and the realm's main pilgrimage."
-              }
-            ],
-            "monsterNotes": "",
-            "notes": "Duchess's seat. Town and cathedral share the hex."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-westfen-marshlands",
-            "coord": {
-              "q": -3,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 380,
-            "valuePerFamily": 5,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "marsh",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Reclaimed fenland."
-          }
-        ],
         "terrain": "marshland",
         "features": []
       },
@@ -711,70 +328,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-westfen-foot",
-            "displayName": "Medium Infantry (Temple Guard)",
-            "unitTypeKey": "medium-infantry",
-            "count": 70,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-westfen-cathedral",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-duchy-westfen"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-westfen-bows",
-            "displayName": "Bowmen",
-            "unitTypeKey": "bowmen",
-            "count": 25,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-westfen-cathedral",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-duchy-westfen"
-            }
-          }
-        ],
-        "totalMonthlyCost": 855,
-        "totalBR": 5.99
       },
       "stronghold": {
         "type": "Cathedral-fortress",
@@ -841,65 +394,6 @@
         "controlledHexes": 4,
         "claimedHexes": 5,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-highmark-keep",
-            "coord": {
-              "q": 6,
-              "r": 0
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 95,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Highmark Keep",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-highmark-village",
-              "name": "Highmark Village",
-              "families": 70,
-              "totalInvestment": 6000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {},
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class VI hamlet under the keep walls."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Baron's seat. The bottom rung of the kingdom's vassal pyramid."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-highmark-pasture",
-            "coord": {
-              "q": 7,
-              "r": 0
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 145,
-            "valuePerFamily": 5,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Sheep country."
-          }
-        ],
         "terrain": "hills",
         "features": []
       },
@@ -937,41 +431,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-highmark-foot",
-            "displayName": "Light Infantry",
-            "unitTypeKey": "light-infantry",
-            "count": 22,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-highmark-keep",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-highmark"
-            }
-          }
-        ],
-        "totalMonthlyCost": 132,
-        "totalBR": 0.75
       },
       "stronghold": {
         "type": "Keep (small)",
@@ -1038,65 +497,6 @@
         "controlledHexes": 3,
         "claimedHexes": 4,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-stoneford-bridge",
-            "coord": {
-              "q": 5,
-              "r": 2
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 110,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "river plain",
-            "primaryStructure": "Stoneford Bridge-keep",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-stoneford-town",
-              "name": "Stoneford",
-              "families": 130,
-              "totalInvestment": 9000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {},
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class V market town at the river crossing."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Baroness's seat. Tolls from the bridge are significant."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-stoneford-orchards",
-            "coord": {
-              "q": 4,
-              "r": 2
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 185,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Orchards. Source of Stoneford's cider trade."
-          }
-        ],
         "terrain": "river plain",
         "features": []
       },
@@ -1139,70 +539,6 @@
       "taxPolicy": {
         "rate": "standard",
         "moraleImpact": 0
-      },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-stoneford-foot",
-            "displayName": "Medium Infantry",
-            "unitTypeKey": "medium-infantry",
-            "count": 30,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-stoneford-bridge",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-stoneford"
-            }
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-stoneford-bows",
-            "displayName": "Bowmen",
-            "unitTypeKey": "bowmen",
-            "count": 12,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-stoneford-bridge",
-            "race": "man",
-            "loadout": null,
-            "veteran": false,
-            "elite": false,
-            "casualties": 0,
-            "source": "mercenary",
-            "scale": "company",
-            "trainingState": null,
-            "lieutenantCharacterId": null,
-            "loyalty": 0,
-            "moraleAdjustment": 0,
-            "calamities": [],
-            "supplyState": "supplied",
-            "history": [],
-            "notes": "",
-            "stationedAt": {
-              "kind": "domain-garrison",
-              "id": "dom-barony-stoneford"
-            }
-          }
-        ],
-        "totalMonthlyCost": 378,
-        "totalBR": 2.65
       },
       "stronghold": {
         "type": "Bridge-keep",
@@ -2901,5 +2237,425 @@
   "armies": [],
   "battles": [],
   "researchProjects": [],
-  "apprenticeships": []
+  "apprenticeships": [],
+  "hexes": [
+    {
+      "schemaVersion": 2,
+      "id": "hex-vellengard-capital",
+      "coord": {
+        "q": 0,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 8,
+      "landImprovementBonus": 1,
+      "landImprovementProjects": [],
+      "terrain": "river plain",
+      "primaryStructure": "Royal Citadel of Vellengard",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-royal-citadel",
+          "name": "Royal Citadel of Vellengard",
+          "kind": "landmark",
+          "description": "Five-towered stone citadel above the river bend. Royal seat for nine generations."
+        }
+      ],
+      "monsterNotes": "",
+      "notes": "Capital hex. The city and citadel share it.",
+      "domainId": "dom-kingdom-of-vellengard",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-vellengard-royal-domain",
+      "coord": {
+        "q": 1,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 320,
+      "valuePerFamily": 7,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "plains",
+      "primaryStructure": "Royal granary",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Royal demesne farmland.",
+      "domainId": "dom-kingdom-of-vellengard",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-vellengard-vineyards",
+      "coord": {
+        "q": 0,
+        "r": 1
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 240,
+      "valuePerFamily": 8,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Royal vineyards. The kingdom's wine.",
+      "domainId": "dom-kingdom-of-vellengard",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-brennstone-seat",
+      "coord": {
+        "q": 4,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 280,
+      "valuePerFamily": 7,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "Brennstone Castle",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Duke's seat.",
+      "domainId": "dom-duchy-brennstone",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-brennstone-march",
+      "coord": {
+        "q": 4,
+        "r": 1
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 500,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "plains",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Cropland.",
+      "domainId": "dom-duchy-brennstone",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-westfen-cathedral",
+      "coord": {
+        "q": -4,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 200,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "marsh",
+      "primaryStructure": "Cathedral of the Reed Saint",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-reed-cathedral",
+          "name": "Cathedral of the Reed Saint",
+          "kind": "temple",
+          "description": "Massive river-stone cathedral. Site of the duchess's investiture and the realm's main pilgrimage."
+        }
+      ],
+      "monsterNotes": "",
+      "notes": "Duchess's seat. Town and cathedral share the hex.",
+      "domainId": "dom-duchy-westfen",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-westfen-marshlands",
+      "coord": {
+        "q": -3,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 380,
+      "valuePerFamily": 5,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "marsh",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Reclaimed fenland.",
+      "domainId": "dom-duchy-westfen",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-highmark-keep",
+      "coord": {
+        "q": 6,
+        "r": 0
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 95,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "Highmark Keep",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Baron's seat. The bottom rung of the kingdom's vassal pyramid.",
+      "domainId": "dom-barony-highmark",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-highmark-pasture",
+      "coord": {
+        "q": 7,
+        "r": 0
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 145,
+      "valuePerFamily": 5,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Sheep country.",
+      "domainId": "dom-barony-highmark",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-stoneford-bridge",
+      "coord": {
+        "q": 5,
+        "r": 2
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 110,
+      "valuePerFamily": 7,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "river plain",
+      "primaryStructure": "Stoneford Bridge-keep",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Baroness's seat. Tolls from the bridge are significant.",
+      "domainId": "dom-barony-stoneford",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-stoneford-orchards",
+      "coord": {
+        "q": 4,
+        "r": 2
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 185,
+      "valuePerFamily": 7,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "plains",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Orchards. Source of Stoneford's cider trade.",
+      "domainId": "dom-barony-stoneford",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    }
+  ],
+  "settlements": [
+    {
+      "schemaVersion": 2,
+      "id": "set-vellengard-city",
+      "name": "Vellengard",
+      "families": 2400,
+      "totalInvestment": 200000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {
+        "grain-vegetables": -1,
+        "wine-spirits": 0,
+        "armor-weapons": 1,
+        "spices": 2,
+        "silk": 2
+      },
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class III royal city on the great river. Population 12,000+. Seat of king, parliament, and royal mint.",
+      "hexId": "hex-vellengard-capital",
+      "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-brennstone-town",
+      "name": "Brennstone",
+      "families": 380,
+      "totalInvestment": 45000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {
+        "armor-weapons": -1
+      },
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class IV market town. Famous for its blacksmiths.",
+      "hexId": "hex-brennstone-seat",
+      "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-westfen-town",
+      "name": "Westfen Town",
+      "families": 320,
+      "totalInvestment": 38000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {
+        "salt": 1,
+        "grain-vegetables": 1
+      },
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class IV cathedral town. The duchess rules from the cathedral close.",
+      "hexId": "hex-westfen-cathedral",
+      "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-highmark-village",
+      "name": "Highmark Village",
+      "families": 70,
+      "totalInvestment": 6000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {},
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class VI hamlet under the keep walls.",
+      "hexId": "hex-highmark-keep",
+      "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-stoneford-town",
+      "name": "Stoneford",
+      "families": 130,
+      "totalInvestment": 9000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {},
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class V market town at the river crossing.",
+      "hexId": "hex-stoneford-bridge",
+      "placesOfPower": []
+    }
+  ],
+  "rumors": []
 }

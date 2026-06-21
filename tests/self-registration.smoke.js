@@ -265,19 +265,19 @@ const EXP_LOAD_MIGRATIONS = [
   [40,'remove-tribute-pct'],[50,'character-classification'],[60,'character-proficiencies'],
   [70,'character-coins'],[80,'wave-a-relations'],[90,'domain-treasuries'],[100,'stash-item-shapes'],
   [110,'reconcile-stashes'],[120,'reconcile-treasury-scalars'],[130,'lazy-default-v1-reservations'],
-  [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[160,'agricultural-to-projects'],
+  [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[155,'strip-unit-mirror'],[160,'agricultural-to-projects'],
   [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes']
 ];
 
-section('the seeded load-migration pipeline is byte-identical to the pre-refactor inline block');
+section('the seeded load-migration pipeline (T6: + strip-unit-mirror @155)');
 const lm = ACKS.registeredLoadMigrations();
-ok('exactly 19 passes seeded', lm.length === 19, 'got ' + lm.length);
-ok('passes in the exact pre-refactor order with the exact order numbers',
+ok('exactly 20 passes seeded', lm.length === 20, 'got ' + lm.length);
+ok('passes in the exact order with the exact order numbers',
   JSON.stringify(lm.map(p => [p.order, p.name])) === JSON.stringify(EXP_LOAD_MIGRATIONS),
   'got ' + JSON.stringify(lm.map(p => [p.order, p.name])));
 ok('every pass has a function', lm.every(p => typeof p.fn === 'function'));
 ok('registeredLoadMigrations() returns a fresh array (mutating it cannot corrupt the store)',
-  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 19; })());
+  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 20; })());
 
 section('registerLoadMigration — the kernel (explicit-order pipeline)');
 ok('registerLoadMigration exported', typeof ACKS.registerLoadMigration === 'function');

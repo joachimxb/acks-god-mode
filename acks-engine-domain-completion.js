@@ -74,7 +74,7 @@ function _hex(campaign, hexId){
 // the line-4498 convention) and its family count. A hex with no urban settlement → 0.
 function _settlementAtHex(campaign, hex){
   if(!hex) return null;
-  return hex.settlement || ACKS.settlementForHex(campaign, hex.id) || null;
+  return ACKS.settlementForHex(campaign, hex.id) || null;   // T6 single-home
 }
 function _familiesAtHex(campaign, hex){
   const s = _settlementAtHex(campaign, hex);

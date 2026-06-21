@@ -810,7 +810,7 @@ function ruralDemographicDelta(campaign, hex, opts){
 // hex.families). Checks both the embedded hex.settlement and a top-level settlement at the hex.
 function _hexIsRural(campaign, hex){
   if(!hex) return false;
-  if(hex.settlement) return false;
+  // T6 single-home — a hex is urban iff a canonical settlement sits on it.
   if(typeof ACKS.settlementForHex === 'function' && ACKS.settlementForHex(campaign, hex.id)) return false;
   return true;
 }
@@ -827,7 +827,7 @@ function _domainRuralHexes(campaign, domain){
 function ruralResidents(campaign, domain){
   const hexes = _domainRuralHexes(campaign, domain);
   const ids = new Set(hexes.map(h => h.id));
-  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h) : (h.id || '');
+  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h, campaign) : (h.id || '');
   const hexById = {}; hexes.forEach(h => { hexById[h.id] = h; });
   const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
   const out = [];
@@ -852,7 +852,7 @@ function domainRuralDemographics(campaign, domain){
   const authoredSum = hexes.reduce((s, h) => s + (Number(h.families) || 0), 0);
   const peasantFamilies = (domain.demographics && Number(domain.demographics.peasantFamilies)) || 0;
   const evenShare = hexes.length > 0 ? (peasantFamilies / hexes.length) : 0;
-  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h) : (h.id || '');
+  const nameOf = h => (typeof ACKS.hexName === 'function') ? ACKS.hexName(h, campaign) : (h.id || '');
 
   // Combined expected + realized grids (MAX_NPC_LEVEL rows), summed across the rural hexes.
   const combExp = []; const combReal = [];

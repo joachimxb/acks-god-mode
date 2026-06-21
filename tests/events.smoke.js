@@ -88,10 +88,8 @@ section('P1.2 — applyEvent is transactional: rolls back partial mutations on h
 function txnFixture() {
   const c = ACKS.blankCampaign();
   c.currentTurn = 1;
-  c.domains = [{
-    id: 'dom-1', name: 'Mark', treasury: { gp: 0 },
-    geography: { hexes: [{ id: 'hex-1', explored: false }] }
-  }];
+  c.domains = [{ id: 'dom-1', name: 'Mark', treasury: { gp: 0 }, geography: {} }];
+  c.hexes = [{ id: 'hex-1', domainId: 'dom-1', explored: false }];   // single-home (T6)
   c.pendingEvents = [];
   return c;
 }
@@ -106,7 +104,7 @@ const cThrow = txnFixture();
 const before = clone(cThrow);
 throws('adventure-result with unknown destinationDomainId throws', () => ACKS.applyEvent(cThrow, throwingEv));
 deepEq('campaign fully unchanged after the throw (no partial mutation)', cThrow, before);
-ok('  → target hex.explored rolled back to false', cThrow.domains[0].geography.hexes[0].explored === false);
+ok('  → target hex.explored rolled back to false', cThrow.hexes[0].explored === false);
 
 // Success path is preserved: a well-formed adventure-result still mutates in place.
 const cOk = txnFixture();
@@ -117,7 +115,7 @@ ACKS.applyEvent(cOk, ACKS.newEvent('adventure-result', {
     treasureAwarded: [{ kind: 'gp', amount: 500, destinationDomainId: 'dom-1', label: 'loot' }]
   }
 }));
-ok('success path: hex marked explored', cOk.domains[0].geography.hexes[0].explored === true);
+ok('success path: hex marked explored', cOk.hexes[0].explored === true);
 ok('success path: treasury credited 500gp', cOk.domains[0].treasury.gp === 500);
 
 // =============================================================================
@@ -249,26 +247,25 @@ section('gm-fiat population sync — hex.families / peasantFamilies route throug
 // EXPORTED setters (syncRuralPopulationFromHexes / setPeasantPopulation). The P3.7 table above only
 // exercises gm-fiat on `notes`, so this branch had no coverage.
 (function () {
+  // Single-home (T6): hexes live in campaign.hexes[] keyed by domainId (no nested geography.hexes).
   function fixture() {
     const c = ACKS.blankCampaign();
-    c.domains = [{
-      id: 'dom-1', name: 'Mark', demographics: { peasantFamilies: 80 },
-      geography: { hexes: [{ id: 'h1', families: 50 }, { id: 'h2', families: 30 }] }
-    }];
+    c.domains = [{ id: 'dom-1', name: 'Mark', demographics: { peasantFamilies: 80 }, geography: {} }];
+    c.hexes = [{ id: 'h1', domainId: 'dom-1', families: 50 }, { id: 'h2', domainId: 'dom-1', families: 30 }];
     return c;
   }
   // Editing a hex's families must not throw, and must sync peasantFamilies = Σ(rural hexes).
   const c1 = fixture();
   const ev1 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'h1' }, mutation: { fieldPath: 'families', newValue: 100 } } });
   doesNotThrow('gm-fiat hex.families edit applies without ReferenceError', () => ACKS.applyEvent(c1, ev1));
-  ok('  hex.families set to 100', c1.domains[0].geography.hexes[0].families === 100);
+  ok('  hex.families set to 100', ACKS.findHex(c1, 'h1').families === 100);
   ok('  peasantFamilies synced to hex sum (130)', c1.domains[0].demographics.peasantFamilies === 130);
   // Editing domain peasantFamilies must not throw, and must redistribute across the hexes.
   const c2 = fixture();
   const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'domain', id: 'dom-1' }, mutation: { fieldPath: 'demographics.peasantFamilies', newValue: 160 } } });
   doesNotThrow('gm-fiat peasantFamilies edit applies without ReferenceError', () => ACKS.applyEvent(c2, ev2));
   ok('  peasantFamilies set to 160', c2.domains[0].demographics.peasantFamilies === 160);
-  ok('  hexes redistributed to sum to 160', c2.domains[0].geography.hexes.reduce((s, h) => s + (h.families || 0), 0) === 160);
+  ok('  hexes redistributed to sum to 160', ACKS.hexesForDomain(c2, 'dom-1').reduce((s, h) => s + (h.families || 0), 0) === 160);
 })();
 
 // =============================================================================
@@ -379,29 +376,31 @@ section('Hex domain reassignment — gm-fiat moves the geography.hexes mirror + 
 // =============================================================================
 // hex.domainId is the canonical truth; each domain's geography.hexes[] is the mirror. Setting domainId
 // via gm-fiat (the hex panel / Inspector / an integrator) must re-home the hex AND read cleanly in the log.
+// Single-home (T6): a hex's domain claim IS hex.domainId; the hex lives only in campaign.hexes.
 function domainMoveFixture() {
   const c = ACKS.blankCampaign();
   c.currentTurn = 1;
   const hex = { id: 'hex-1', schemaVersion: 2, coord: { q: 151, r: 24 }, domainId: 'dom-a', terrain: 'plains' };
   c.domains = [
-    { id: 'dom-a', name: 'March of Saltspur', geography: { hexes: [hex] } },
-    { id: 'dom-b', name: 'Barony of Vale',    geography: { hexes: [] } },
+    { id: 'dom-a', name: 'March of Saltspur', geography: {} },
+    { id: 'dom-b', name: 'Barony of Vale',    geography: {} },
   ];
   c.hexes = [hex];
   return { c, hex };
 }
-(() => { // direct reconciler
+(() => { // direct reconciler — single-home: setting hex.domainId is the move; reconcile only ensures campaign.hexes membership
   const { c, hex } = domainMoveFixture();
   hex.domainId = 'dom-b';
   ACKS.reconcileHexDomainMembership(c, hex);
-  ok('reconcile: removed from old domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
-  ok('reconcile: added to new domain geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile: hex claimed by dom-b (hex.domainId)', ACKS.findHex(c, 'hex-1').domainId === 'dom-b');
+  ok('reconcile: hexesForDomain(dom-a) empty', ACKS.hexesForDomain(c, 'dom-a').length === 0);
+  ok('reconcile: hexesForDomain(dom-b) holds it', ACKS.hexesForDomain(c, 'dom-b').some(h => h.id === 'hex-1'));
   ok('reconcile: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
   ACKS.reconcileHexDomainMembership(c, hex); // idempotent
-  ok('reconcile: idempotent (no duplicate)', c.domains[1].geography.hexes.filter(h => h.id === 'hex-1').length === 1);
+  ok('reconcile: idempotent (no duplicate in campaign.hexes)', c.hexes.filter(h => h.id === 'hex-1').length === 1);
   hex.domainId = null;
   ACKS.reconcileHexDomainMembership(c, hex);
-  ok('reconcile → wild: in no domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1') && !c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile → wild: claimed by no domain', ACKS.hexesForDomain(c, 'dom-a').length === 0 && ACKS.hexesForDomain(c, 'dom-b').length === 0);
   ok('reconcile → wild: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
 })();
 (() => { // via gm-fiat (the path the hex panel + Inspector use)
@@ -409,8 +408,7 @@ function domainMoveFixture() {
   const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: 'dom-b' }, reason: 'Hex reassigned' } });
   const r = ACKS.applyEvent(c, ev);
   ok('gm-fiat: hex.domainId set to dom-b', c.hexes[0].domainId === 'dom-b');
-  ok('gm-fiat: moved out of dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
-  ok('gm-fiat: moved into dom-b geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat: hexesForDomain reflects the move', ACKS.hexesForDomain(c, 'dom-a').length === 0 && ACKS.hexesForDomain(c, 'dom-b').some(h => h.id === 'hex-1'));
   const narr = (r && r.result && r.result.narrativeSummary) || '';
   ok('gm-fiat: clean narrative (Moved hex 151099 from … to …)', /^Moved hex 151099 from March of Saltspur to Barony of Vale/.test(narr), narr);
 })();
@@ -418,7 +416,7 @@ function domainMoveFixture() {
   const { c } = domainMoveFixture();
   const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: null } } });
   const r = ACKS.applyEvent(c, ev);
-  ok('gm-fiat → wild: removed from dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat → wild: claimed by no domain', ACKS.hexesForDomain(c, 'dom-a').length === 0);
   ok('gm-fiat → wild: domainId cleared', !c.hexes[0].domainId);
   const narr = (r && r.result && r.result.narrativeSummary) || '';
   ok('gm-fiat → wild: narrative mentions unclaimed wilderness', /Released hex 151099 .*unclaimed wilderness/.test(narr), narr);

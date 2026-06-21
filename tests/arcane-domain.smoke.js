@@ -780,7 +780,8 @@ section('AD-F — the arcane↔divine seam stub (RR p.388, D2): the arcane-usurp
     ACKS.blankCharacter({ id:'chr-ftr', name:'Brann', class:'Fighter', level: 9 })
   ];
   c.hexes = [{ id:'hex-s', coord:{q:2,r:3}, terrain:'grassland', settlement:{ id:'set-x' } }];
-  c.settlements = [ ACKS.blankSettlement({ id:'set-x', name:'Greenford', families: 300 }) ];
+  // T6 single-home — the canonical settlement carries its hexId (settlement.hexId is the hex link).
+  c.settlements = [ ACKS.blankSettlement({ id:'set-x', name:'Greenford', families: 300, hexId:'hex-s' }) ];
 
   ok('a non-arcane caster cannot usurp', ACKS.flagArcaneUsurpation(c, { characterId:'chr-ftr', settlementId:'set-x' }).ok === false);
   ok('a missing settlement is refused', ACKS.flagArcaneUsurpation(c, { characterId:'chr-mage', settlementId:'nope' }).ok === false);

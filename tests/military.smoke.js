@@ -277,25 +277,27 @@ function mkArmyCampaign(){
      ACKS.validateArmyOrganization(camp, army).some(f => f.code === 'commander-unqualified'));
 }
 
-section('stationUnit / disbandUnit — both homes, one object');
+section('stationUnit / disbandUnit — single home (campaign.units + stationedAt)');
 {
-  const camp = { units: [], armies: [], characters: [{ id: 'chr-a', name: 'A' }], domains: [{ id: 'dom-a', name: 'A', garrison: { units: [] } }] };
+  const camp = { units: [], armies: [], characters: [{ id: 'chr-a', name: 'A' }], domains: [{ id: 'dom-a', name: 'A', geography: {} }] };
   const u = ACKS.blankUnit({ unitTypeKey: 'light-infantry', count: 60 });
   ACKS.stationUnit(camp, u, { kind: 'domain-garrison', id: 'dom-a' });
-  ok('stationed to garrison: first-class + mirror share the object',
-     camp.units[0] === u && camp.domains[0].garrison.units[0] === u && u.stationedAt.kind === 'domain-garrison');
+  ok('stationed to garrison: in campaign.units, claimed by stationedAt (no nested mirror)',
+     camp.units[0] === u && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-a' && !('garrison' in camp.domains[0]) &&
+     ACKS.unitsStationedAt(camp, { kind: 'domain-garrison', id: 'dom-a' })[0] === u);
   ACKS.stationUnit(camp, u, { kind: 'character', id: 'chr-a' });
-  ok('re-stationed to a character: garrison mirror drops it, company mirror gains it',
-     camp.domains[0].garrison.units.length === 0 && camp.characters[0].mercenaryCompany.units[0] === u &&
-     camp.units.length === 1);
+  ok('re-stationed to a character: stationedAt updated, still one in campaign.units',
+     u.stationedAt.kind === 'character' && u.stationedAt.id === 'chr-a' && camp.units.length === 1 &&
+     ACKS.unitsStationedAt(camp, { kind: 'domain-garrison', id: 'dom-a' }).length === 0 &&
+     ACKS.unitsStationedAt(camp, { kind: 'character', id: 'chr-a' })[0] === u && !('mercenaryCompany' in camp.characters[0]));
   ACKS.stationUnit(camp, u, { kind: 'army', id: 'army-x' });
-  ok('stationed to an army: no nested mirror (the army org chart owns it)',
-     camp.characters[0].mercenaryCompany.units.length === 0 && camp.units[0] === u && u.stationedAt.kind === 'army');
+  ok('stationed to an army: stationedAt army, still one in campaign.units',
+     u.stationedAt.kind === 'army' && u.stationedAt.id === 'army-x' && camp.units[0] === u && camp.units.length === 1);
   ACKS.disbandUnit(camp, u);
-  ok('disbandUnit removes from every home', camp.units.length === 0);
+  ok('disbandUnit removes it from campaign.units', camp.units.length === 0);
 }
 
-section('migrateGarrisonUnitsToUnits — the reference-unified lift');
+section('migrateGarrisonUnitsToUnits — the lift-then-strip (single home)');
 function legacyCampaign(){
   return {
     schemaVersion: 2, kind: 'campaign', id: 'cmp-legacy', name: 'Legacy', currentTurn: 3,
@@ -319,31 +321,35 @@ function legacyCampaign(){
   const camp = ACKS.migrateCampaign(legacyCampaign());
   ok('lift: 3 first-class units', camp.units.length === 3, 'got ' + camp.units.length);
   const lifted = camp.units.find(x => x.id === 'gar-leg1');
-  ok('lifted unit IS the nested object (reference-unified)', lifted === camp.domains[0].garrison.units[0]);
+  ok('the unit mirror was stripped (no d.garrison)', !('garrison' in camp.domains[0]));
   ok('gar- ids preserved (id stability)', lifted.id === 'gar-leg1');
   ok('stationedAt stamped from the home', lifted.stationedAt.kind === 'domain-garrison' && lifted.stationedAt.id === 'dom-l');
+  ok('unitsStationedAt finds the lifted garrison unit', ACKS.unitsStationedAt(camp, { kind: 'domain-garrison', id: 'dom-l' }).some(x => x.id === 'gar-leg1'));
   const compU = camp.units.find(x => x.id === 'gar-comp1');
   ok('mercenary-company unit stationed to the character', compU && compU.stationedAt.kind === 'character' && compU.stationedAt.id === 'chr-cap');
+  ok('the mercenaryCompany mirror was stripped', !('mercenaryCompany' in camp.characters[0]));
   ok('military fields lazy-defaulted (stored wage/BR untouched)', lifted.race === 'man' && lifted.supplyState === 'supplied' &&
      Array.isArray(lifted.calamities) && lifted.brPerSoldier === 0.083 && lifted.monthlyWage === 12);
-  ok('a unit without an id got one', camp.domains[0].garrison.units[1].id && camp.units.includes(camp.domains[0].garrison.units[1]));
+  ok('a unit without an id got one (lifted to campaign.units)', camp.units.some(x => x.unitTypeKey === 'bowman' && x.id));
   // idempotence
   const before = camp.units.length;
   ACKS.migrateGarrisonUnitsToUnits(camp);
   ok('idempotent re-run adds nothing', camp.units.length === before);
-  // JSON round-trip re-unification (a save duplicates the shared objects)
+  // JSON round-trip — a re-migrate of the single-home shape is a serialization fixed point
   const reloaded = ACKS.migrateCampaign(JSON.parse(JSON.stringify(camp)));
-  ok('a JSON round-trip re-unifies by id', reloaded.units.find(x => x.id === 'gar-leg1') === reloaded.domains[0].garrison.units[0]);
+  ok('a JSON round-trip keeps the unit in campaign.units', reloaded.units.some(x => x.id === 'gar-leg1') && !('garrison' in reloaded.domains[0]));
   ok('… and stays a serialization fixed point', JSON.stringify(ACKS.migrateCampaign(JSON.parse(JSON.stringify(reloaded)))) === JSON.stringify(reloaded));
 }
 {
-  // reverse heal: a first-class unit with a garrison station missing from the mirror
+  // A first-class unit whose station names a domain — stays in campaign.units, no mirror rebuilt.
   const camp = legacyCampaign();
+  delete camp.domains[0].garrison; delete camp.characters[0].mercenaryCompany;
   camp.units = [{ schemaVersion: 2, id: 'unit-solo', displayName: 'Solo', unitTypeKey: 'slinger', count: 10,
                   monthlyWage: 6, brPerSoldier: 0.01, stationedAt: { kind: 'domain-garrison', id: 'dom-l' } }];
   const m = ACKS.migrateCampaign(camp);
-  ok('reverse pass pushes a stationed first-class unit into its mirror',
-     m.domains[0].garrison.units.some(x => x && x.id === 'unit-solo'));
+  ok('a stationed first-class unit stays in campaign.units (no mirror rebuilt)',
+     m.units.some(x => x && x.id === 'unit-solo') && !('garrison' in m.domains[0]) &&
+     ACKS.unitsStationedAt(m, { kind: 'domain-garrison', id: 'dom-l' }).some(x => x.id === 'unit-solo'));
 }
 
 section('Registry / schemas / prefixes / house rule');
@@ -378,19 +384,19 @@ section('createArmy / muster / disbandArmy (the Action + Admin verb engine)');
   const camp = {
     currentTurn: 4,
     characters: [{ schemaVersion: 2, id: 'chr-cmd', name: 'Aelric', alive: true }],
-    domains: [{ id: 'dom-a', name: 'March', garrison: { units: [] } }],
+    domains: [{ id: 'dom-a', name: 'March' }],
     journeys: [], armies: [], units: []
   };
   for(const [id, n] of [['unit-1', 'Foot'], ['unit-2', 'Bows'], ['unit-3', 'Horse']]){
     ACKS.stationUnit(camp, ACKS.blankUnit({ id, displayName: n, unitTypeKey: 'light-infantry', count: 60, brPerSoldier: 0.01 }), { kind: 'domain-garrison', id: 'dom-a' });
   }
-  ok('setup: 3 units in campaign.units + the garrison mirror', camp.units.length === 3 && camp.domains[0].garrison.units.length === 3);
+  ok('setup: 3 units in campaign.units, stationed (single home)', camp.units.length === 3 && ACKS.unitsStationedAt(camp, { kind: 'domain-garrison', id: 'dom-a' }).length === 3);
 
   const army = ACKS.createArmy(camp, { name: 'Field Army', leaderCharacterId: 'chr-cmd', currentHexId: 'hex-x', strategicStance: 'offensive', unitIds: ['unit-1', 'unit-2', 'unit-3'] });
   ok('createArmy pushes to campaign.armies', camp.armies.length === 1 && camp.armies[0] === army);
   ok('army carries name/leader/hex/stance', army.name === 'Field Army' && army.leaderCharacterId === 'chr-cmd' && army.currentHexId === 'hex-x' && army.strategicStance === 'offensive');
   ok('stationed units read via armyUnits', ACKS.armyUnits(camp, army).length === 3);
-  ok('stationing PULLED the units out of the garrison mirror (reference-unified)', camp.domains[0].garrison.units.length === 0 && camp.units.every(u => u.stationedAt && u.stationedAt.kind === 'army'));
+  ok('stationing PULLED the units out of the garrison (re-stationed to the army)', ACKS.unitsStationedAt(camp, { kind: 'domain-garrison', id: 'dom-a' }).length === 0 && camp.units.every(u => u.stationedAt && u.stationedAt.kind === 'army'));
   ok('auto Main Body division led by the commander holds the roster', army.divisions.length === 1 && army.divisions[0].name === 'Main Body' && army.divisions[0].commanderCharacterId === 'chr-cmd' && army.divisions[0].unitIds.length === 3);
   ok('history stamps a mustered entry', army.history.some(h => h.type === 'mustered'));
   ok('createArmy is id-stable (idempotent)', ACKS.createArmy(camp, { id: army.id }) === army && camp.armies.length === 1);

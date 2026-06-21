@@ -642,8 +642,8 @@
     if(friendlyWages <= 0) return [];
     const fam = Math.max(1, (domain.demographics && domain.demographics.peasantFamilies) || 0);
     const perFam = friendlyWages / fam;
-    const req = (typeof Ax.requiredGarrison === 'function' && typeof Ax.totalFamilies === 'function' && Ax.totalFamilies(domain) > 0)
-      ? Ax.requiredGarrison(campaign, domain) / Ax.totalFamilies(domain) : 2;
+    const req = (typeof Ax.requiredGarrison === 'function' && typeof Ax.totalFamilies === 'function' && Ax.totalFamilies(campaign, domain) > 0)
+      ? Ax.requiredGarrison(campaign, domain) / Ax.totalFamilies(campaign, domain) : 2;
     if(perFam >= req) return [{ label: 'Friendly army in the domain counts as garrison (RR p.458)', value: 1 }];
     return [];
   }
@@ -671,14 +671,14 @@
       if(w > occupierBest){ occupierBest = w; occupierLeaderId = ar.leaderCharacterId || null; }
     }
     // defenders: the domain's own garrison spend + friendly armies present
-    let defendingWages = (typeof Ax.garrisonCost === 'function') ? Ax.garrisonCost(domain) : 0;
+    let defendingWages = (typeof Ax.garrisonCost === 'function') ? Ax.garrisonCost(campaign, domain) : 0;
     for(const ar of (campaign.armies || [])){
       if(!ar || !posOf(ar) || !domHexIds[posOf(ar)]) continue;
       if(!domainFriendlyToArmy(campaign, domain, ar)) continue;
       defendingWages += (typeof Ax.armyWageMonthly === 'function') ? Ax.armyWageMonthly(campaign, ar) : 0;
     }
     const fam = (domain.demographics && domain.demographics.peasantFamilies) || 0;
-    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(domain) : fam;
+    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(campaign, domain) : fam;
     const threshold = (totalFam > 0 && typeof Ax.requiredGarrison === 'function')
       ? Ax.requiredGarrison(campaign, domain) / totalFam : 2;
     const netPerFamily = fam > 0 ? (occupyingWages - defendingWages) / fam : 0;
@@ -818,7 +818,7 @@
     if(!army.leaderCharacterId || domain.rulerCharacterId !== army.leaderCharacterId) return { ok: false, reason: 'not-conquered' };
     const j = army.journeyId && typeof Ax.findJourney === 'function' ? Ax.findJourney(campaign, army.journeyId) : null;
     if(j && j.status === 'in-transit') return { ok: false, reason: 'still-marching' };
-    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(domain) : ((domain.demographics && domain.demographics.peasantFamilies) || 0);
+    const totalFam = (typeof Ax.totalFamilies === 'function') ? Ax.totalFamilies(campaign, domain) : ((domain.demographics && domain.demographics.peasantFamilies) || 0);
     if(totalFam <= 0) return { ok: false, reason: 'nothing-left' };
     const req = Ax.pillageRequirementRow(totalFam);
     const troops = armyTroopCount(campaign, army);
@@ -842,7 +842,7 @@
     const Ax = A();
     const rng = (opts && opts.rng) || Math.random;
     const peasant = (domain.demographics && domain.demographics.peasantFamilies) || 0;
-    const urban = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(domain) : ((domain.demographics && domain.demographics.urbanFamilies) || 0);
+    const urban = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(campaign, domain) : ((domain.demographics && domain.demographics.urbanFamilies) || 0);
     const totalFam = peasant + urban;
     const proportion = Math.max(0, Math.min(1, (opts && opts.proportionUnits != null ? opts.proportionUnits : 1) * (opts && opts.proportionTime != null ? opts.proportionTime : 1)));
     let out;
@@ -898,7 +898,7 @@
     if(results.familiesLost > 0){
       const peasant = (domain.demographics && domain.demographics.peasantFamilies) || 0;
       const fromPeasants = Math.min(peasant, results.familiesLost);
-      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(domain, peasant - fromPeasants);
+      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(campaign, domain, peasant - fromPeasants);
       else if(domain.demographics) domain.demographics.peasantFamilies = peasant - fromPeasants;
       const overflow = results.familiesLost - fromPeasants;
       if(overflow > 0) _reduceUrbanFamilies(campaign, domain, overflow);
@@ -950,9 +950,11 @@
   }
   function _reduceUrbanFamilies(campaign, domain, n){
     let remaining = n;
-    for(const h of ((domain.geography && domain.geography.hexes) || [])){
+    // T6 single-home — the domain's settlements are the canonical campaign.settlements[] on its hexes.
+    const Ax = A();
+    for(const h of (Ax.hexesForDomain ? Ax.hexesForDomain(campaign, domain.id) : [])){
       if(remaining <= 0) break;
-      const s = h && h.settlement;
+      const s = Ax.settlementForHex ? Ax.settlementForHex(campaign, h.id) : null;
       if(!s || !(s.families > 0)) continue;
       const cut = Math.min(s.families, remaining);
       s.families -= cut;
@@ -1055,7 +1057,7 @@
     const gross = rows.reduce((s, r) => s + (r.gp || 0), 0);
     if(gross <= 0) return 1;
     const fam = (d.demographics && d.demographics.peasantFamilies) || 0;
-    const urb = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(d) : 0;
+    const urb = (typeof Ax.effectiveUrbanFamilies === 'function') ? Ax.effectiveUrbanFamilies(campaign, d) : 0;
     const famShare = (fam + urb) > 0 ? fam / (fam + urb) : 1;
     let peasantGp = 0;
     for(const r of rows){
@@ -1124,7 +1126,9 @@
     if(dom){
       const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
       if(!domHexes.length) return null;
-      return domHexes.find(h => h.settlement && (h.settlement.families > 0)) || domHexes[0];
+      // T6 single-home — the seat is the hex with the largest canonical settlement.
+      const Ax = A();
+      return domHexes.find(h => { const s = Ax.settlementForHex ? Ax.settlementForHex(campaign, h.id) : null; return s && s.families > 0; }) || domHexes[0];
     }
     const cst = _constructible(campaign, baseId);
     if(cst) return _hex(campaign, cst.hexId) || null;
@@ -1470,7 +1474,7 @@
     if(reqGp > 0) dom.lastRequisitionedOrd = ord;
     if(familiesLost > 0){
       const newFam = Math.max(0, fam - familiesLost);
-      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(dom, newFam);
+      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(campaign, dom, newFam);
       else if(dom.demographics) dom.demographics.peasantFamilies = newFam;
     }
     army.lastSupplyCheckOrd = ord;

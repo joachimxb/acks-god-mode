@@ -94,7 +94,7 @@ section('Levy setters — conscripts/militia as Units (RR pp.430–433)');
   ok('conscript morale: −2 base + steadfast +1 (moraleAdjustment +1, loyalty +1)', con.moraleAdjustment === 1 && con.loyalty === 1);
   ok('conscript carries homeDomainId + calledUp + stationed in garrison', con.homeDomainId === 'dom-c' && con.calledUp === true && con.stationedAt && con.stationedAt.kind === 'domain-garrison');
   ok('conscriptCount reads it back', A.conscriptCount(camp, d) === 100);
-  ok('in campaign.units AND the garrison mirror', camp.units.some(u => u.id === con.id) && (d.garrison.units || []).some(u => u.id === con.id));
+  ok('in campaign.units, stationed to the garrison (single home)', camp.units.some(u => u.id === con.id) && A.unitsStationedAt(camp, { kind: 'domain-garrison', id: d.id }).some(u => u.id === con.id));
   // over-cap clamps to remaining room (120 cap − 100 = 20), never rejects
   const more = levyC(camp, 'dom-c', { count: 50 });
   ok('over-cap levy clamps to remaining 20', more && more.count === 20);
@@ -251,14 +251,15 @@ section('Economy wiring — oracle-safety + the W7 morale/adequacy/revenue terms
 {
   // No militia / wage-waived / scutage → adequacy spend == garrisonCost; revenue == population.
   const d = mkDomain(500, 1, 'dom-clean');
-  d.garrison = { units: [A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 60, monthlyWage: 12 })] };
   const camp = mkCamp([d], 1);
-  ok('clean domain: garrisonAdequacySpend == garrisonCost', A.garrisonAdequacySpend(camp, d) === A.garrisonCost(d));
+  // T6 single-home — station units into campaign.units[] (the canonical home garrisonCost reads).
+  A.stationUnit(camp, A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 60, monthlyWage: 12 }), { kind: 'domain-garrison', id: d.id });
+  ok('clean domain: garrisonAdequacySpend == garrisonCost', A.garrisonAdequacySpend(camp, d) === A.garrisonCost(camp, d));
   ok('clean domain: revenue families == population', A.effectivePeasantFamiliesForRevenue(camp, d) === 500);
   // a wage-waived lord garrison is excluded from garrisonCost but counts toward adequacy
   const waived = A.blankUnit({ unitTypeKey: 'light-infantry', count: 96, monthlyWage: 6 }); waived.wageWaived = true;
-  d.garrison.units.push(waived);
-  ok('wage-waived lord troops excluded from garrisonCost', A.garrisonCost(d) === 60 * 12);
+  A.stationUnit(camp, waived, { kind: 'domain-garrison', id: d.id });
+  ok('wage-waived lord troops excluded from garrisonCost', A.garrisonCost(camp, d) === 60 * 12);
   ok('wage-waived lord troops counted in garrisonAdequacySpend', A.garrisonAdequacySpend(camp, d) === 60 * 12 + 96 * 6);
   // moraleModifiersFor surfaces the militia term when militia are called up
   const md = mkDomain(1200, 2, 'dom-mm'); const mcamp = mkCamp([md], 1);
@@ -279,7 +280,6 @@ function mkFeudal(opts){
   const vassalDomain = A.blankDomain({ id: 'dom-vassal', name: 'Vassal Realm' });
   vassalDomain.rulerCharacterId = 'chr-vassal'; vassalDomain.liegeId = 'dom-lord'; vassalDomain.treasury = { gp: 50000 };
   vassalDomain.demographics.peasantFamilies = opts.vassalFamilies || 600; vassalDomain.tags = ['barony'];
-  vassalDomain.geography.hexes = [{ id: 'hex-v', coord: { q: 0, r: 0 } }];
   return {
     schemaVersion: 2, currentTurn: 5, houseRules: {}, domains: [lordDomain, vassalDomain], characters: [lord, vassal],
     units: [], armies: [], hexes: [{ id: 'hex-seat', domainId: 'dom-lord' }, { id: 'hex-v', domainId: 'dom-vassal' }],
@@ -315,7 +315,7 @@ function mkFeudal(opts){
   const u = camp.units.find(x => x.id === r.obligation.materializedUnitIds[0]);
   ok('lord troops stationed in the VASSAL garrison', !!u && u.source === 'vassal' && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-vassal');
   ok('lord troops are wage-waived (vassal pays no wages, RR p.348)', u.wageWaived === true);
-  ok('wage-waived troops NOT in the vassal garrisonCost', A.garrisonCost(vassalDomain) === 0);
+  ok('wage-waived troops NOT in the vassal garrisonCost', A.garrisonCost(camp, vassalDomain) === 0);
   ok('wage-waived troops DO count toward the vassal garrison adequacy', A.garrisonAdequacySpend(camp, vassalDomain) >= u.count * 6);
   A.revokeFavorDutyObligation(camp, r.obligation.id, 6, 'gm-revoked');
   ok('revoke disbands the granted garrison', !camp.units.some(x => x.id === u.id));

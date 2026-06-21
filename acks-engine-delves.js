@@ -1144,8 +1144,8 @@
   // the Tidewrack pattern). Returns 'the settlement' when unresolved (a narrative fallback).
   function _findSettlementD5(campaign, id){
     if(!id) return null;
+    // T6 single-home — settlements live in the canonical campaign.settlements[].
     if(campaign && Array.isArray(campaign.settlements)){ const s = campaign.settlements.find(x => x && x.id === id); if(s) return s; }
-    if(campaign && Array.isArray(campaign.hexes)){ for(const h of campaign.hexes){ if(h && h.settlement && h.settlement.id === id) return h.settlement; } }
     return null;
   }
   function _settlementName(campaign, id){ const s = _findSettlementD5(campaign, id); return (s && s.name) || 'the settlement'; }

@@ -81,17 +81,19 @@ IDs are `prefix-suffix`. The suffix is a 7-char base36 string for runtime-minted
 
 ---
 
-## 3. The canonical-home rule (read this before you *write*)
+## 3. Single home — top-level collections only (read this before you *read or write*)
 
-A few entities are **mirrored in two places** for the engine's own convenience, and the copies are not always identical:
+A hex, a settlement, and a unit each live in **exactly one place** — the top-level collection. Membership is a pointer on the entity:
 
-- a hex lives in `campaign.hexes[]` **and** is mirrored under `domains[].geography.hexes[]`
-- a settlement lives in `campaign.settlements[]` **and** is mirrored as `hexes[].settlement`
-- a unit lives in `campaign.units[]` **and** is mirrored under `domains[].garrison.units[]` / `characters[].mercenaryCompany.units[]`
+- a **hex** is `campaign.hexes[]`; it belongs to a domain via `hex.domainId` (a domainless hex — `domainId: null` — is unclaimed wilderness)
+- a **settlement** is `campaign.settlements[]`; it sits on a hex via `settlement.hexId`
+- a **unit** is `campaign.units[]`; it is stationed via `unit.stationedAt = { kind, id }` (`kind` ∈ `domain-garrison` | `character` | `army` | `hex` | `constructible`; `unit.homeDomainId` records the garrison it returns to)
 
-> **The top-level collection is authoritative. The nested copies are engine-rebuilt mirrors. As a writer, write only the top-level collection; the engine re-derives the rest on load.**
+> **There is no nested mirror.** Earlier files duplicated these under `domains[].geography.hexes[]` / `hexes[].settlement` / `domains[].garrison.units[]` / `characters[].mercenaryCompany.units[]`. Those paths are **gone** — neither read them nor write them.
 
-Reading either is fine (the engine reconciles in memory on load). But a *writer* that updates only a nested copy — adding a soldier to `domains[0].garrison.units`, say — risks the top-level `units[]` overriding it on the next load (or vice-versa). Stick to the top level and let the engine mirror. (This is also why a naive deep-equality diff of two saves can show "duplicate" entities — they're the same entity in its two homes.)
+To join the data: a domain's hexes = `campaign.hexes` filtered by `hex.domainId`; a hex's settlement = the `campaign.settlements` entry whose `hexId` matches; a domain's garrison = `campaign.units` whose `stationedAt` is `{kind:'domain-garrison', id: domainId}` (the engine exposes these as `ACKS.hexesForDomain` / `settlementForHex` / `unitsStationedAt`).
+
+**Old files still load.** A pre-2026-06-21 `.acks.json` that carries the nested mirror is upgraded on load: the engine promotes each nested entry to the top-level collection (backfilling `domainId` / `hexId` / `stationedAt` from where it was nested), then strips the redundant mirror. So a third-party *reader* of an old file should still prefer the top-level collection (the nested copy may lag); a *writer* always writes only the top level. (A naive deep-equality diff of an old save vs. a new one will differ structurally — the nested mirror is simply absent in the new one.)
 
 ---
 

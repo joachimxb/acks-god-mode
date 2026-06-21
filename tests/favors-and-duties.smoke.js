@@ -140,7 +140,7 @@ section('realmFamiliesForDomain — own domain + sub-vassal realms (RR p.346)');
   sub.liegeId = 'dom-vassal'; sub.demographics.peasantFamilies = 200;
   c.domains.push(sub);
   const vassalDomain = c.domains.find(d => d.id === 'dom-vassal');
-  ok('vassal alone = 500 families', ACKS.totalFamilies(vassalDomain) === 500);
+  ok('vassal alone = 500 families', ACKS.totalFamilies(c, vassalDomain) === 500);
   ok('realm families = vassal 500 + sub-vassal 200 = 700', ACKS.realmFamiliesForDomain(c, vassalDomain) === 700);
 }
 
@@ -758,7 +758,8 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
 }
 {
   const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
-  c.domains.find(d=>d.id==='dom-lord').garrison = { units:[{ id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }] }; // 10,000gp troops ≫ 500gp scutage
+  // T6 single-home — station the lord's troops in campaign.units[] (the home garrisonCost reads).
+  ACKS.stationUnit(c, { id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }, { kind:'domain-garrison', id:'dom-lord' }); // 10,000gp troops ≫ 500gp scutage
   const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
   ACKS.payScutageObligation(c, scu.id, {});
   const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });

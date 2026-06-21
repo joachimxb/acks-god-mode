@@ -392,8 +392,9 @@ section('The Marcus/Sarotem occupation example (RR p.458) — 9.6gp > 2gp');
   mkLeader(c, 'chr-s', 'Lord of Sarotem');
   c.domains.push({ id: 'dom-s', name: 'Sarotem', rulerCharacterId: 'chr-s', liegeId: null, classification: 'Civilized',
     demographics: { peasantFamilies: 500, urbanFamilies: 0, morale: 2 }, geography: { hexes: [] },
-    garrison: { units: [{ id: 'g1', displayName: 'Town Watch', count: 200, monthlyWage: 6 }] },
     income: {}, expenses: { tithePaid: true }, treasury: { gp: 0 }, stronghold: { components: [] } });
+  // T6 single-home — the town watch lives in campaign.units[] (the home garrisonCost reads).
+  ACKS.stationUnit(c, { id: 'g1', displayName: 'Town Watch', count: 200, monthlyWage: 6 }, { kind: 'domain-garrison', id: 'dom-s' });
   const a = mkArmy(c, 'army-occ', 'Host of Marcus', 'chr-m', 'hx-s', [{ unitTypeKey: 'heavy-cavalry', count: 100 }]);
   const st = ACKS.domainOccupationStatus(c, c.domains[0]);
   ok('100 heavy cavalry = 6,000gp/month wages', st.occupyingWages === 6000, String(st.occupyingWages));
@@ -544,10 +545,10 @@ section('The Luseatum salt-the-earth example (RR p.459)');
 section('Pillage end-to-end — begin → the consumer ticks → the world writes');
 {
   const c = mkCampaign();
-  c.hexes.push({ id: 'hx-pp', coord: { q: 0, r: 0 }, terrain: 'grassland', domainId: 'dom-pp' });
+  c.hexes.push({ id: 'hx-pp', coord: { q: 0, r: 0 }, terrain: 'grassland', domainId: 'dom-pp', families: 400 });
   const leader = mkLeader(c, 'chr-pl', 'Plunder Lord', { payKeepFromTreasury: false, xp: 0 });
   const dom = { id: 'dom-pp', name: 'Prize March', rulerCharacterId: 'chr-pl', liegeId: null, classification: 'Civilized',
-    demographics: { peasantFamilies: 400, urbanFamilies: 0, morale: 0 }, geography: { hexes: [{ id: 'hx-pp', coord: { q: 0, r: 0 }, terrain: 'grassland', families: 400 }] },
+    demographics: { peasantFamilies: 400, urbanFamilies: 0, morale: 0 }, geography: { hexes: [] },
     garrison: { units: [] }, income: {}, expenses: {}, treasury: { gp: 0 },
     stronghold: { components: [{ name: 'Tower', buildValue: 3000 }] }, history: [] };
   c.domains.push(dom);
@@ -563,7 +564,7 @@ section('Pillage end-to-end — begin → the consumer ticks → the world write
   ok('the leader’s purse received the plunder (GP Wave B)', (leader.coins.gp || 0) === 3600, String(leader.coins.gp));
   ok('… and the spoils XP (1/gp, RR p.459)', leader.xp === 3600, String(leader.xp));
   ok('prisoners ride the army', a.prisoners === rec.results.prisoners && a.prisoners === Math.round(2 * 400 / 10));
-  ok('families fell via the canonical setter (hex sync)', dom.demographics.peasantFamilies === 400 - rec.results.familiesLost && dom.geography.hexes[0].families === dom.demographics.peasantFamilies);
+  ok('families fell via the canonical setter (hex sync)', dom.demographics.peasantFamilies === 400 - rec.results.familiesLost && ACKS.hexesForDomain(c, 'dom-pp')[0].families === dom.demographics.peasantFamilies);
   ok('the stronghold lost 1gp per 1gp plundered', dom.stronghold.components[0].buildValue === 0, String(dom.stronghold.components[0].buildValue));
   ok('the pillage state cleared', a.pillage === null);
   ok('… the −4 morale roll applied', rec.morale && dom.demographics.morale === rec.morale.after);

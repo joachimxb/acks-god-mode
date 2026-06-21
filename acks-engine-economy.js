@@ -52,6 +52,10 @@ const computePersonalAuthority     = (...a) => ACKS.computePersonalAuthority(...
 const computeGpThreshold           = (...a) => ACKS.computeGpThreshold(...a);
 const isPlayerControlled           = (...a) => ACKS.isPlayerControlled(...a);
 const isHenchman                   = (...a) => ACKS.isHenchman(...a);
+// T6 single-home — garrison units come from the canonical campaign.units[] by stationedAt.
+const domainGarrisonUnits          = (...a) => ACKS.domainGarrisonUnits(...a);
+const hexesForDomain               = (...a) => ACKS.hexesForDomain(...a);
+const settlementForHex             = (...a) => ACKS.settlementForHex(...a);
 const isHouseRuleEnabled           = (campaign, id) => ACKS.isHouseRuleEnabled(campaign, id);
 
 // =============================================================================
@@ -77,20 +81,24 @@ function vassalChainUnder(campaign, rootId){
 // =============================================================================
 // Population + families
 // =============================================================================
-function hexSettlements(d){
-  return (d.geography?.hexes||[])
-    .map((h,i) => ({ hex:h, hexIndex:i, settlement:h.settlement }))
+// T6 single-home — a domain's settled hexes, joined to their canonical settlements. Reads
+// campaign.hexes[] (by domainId) + campaign.settlements[] (by hexId), NOT the deleted
+// domain.geography.hexes[].settlement nested mirror. hexIndex is the index into the domain's
+// hexes (a stable UI key only — math here is order-independent reductions).
+function hexSettlements(campaign, d){
+  return hexesForDomain(campaign, d.id)
+    .map((h,i) => ({ hex:h, hexIndex:i, settlement: settlementForHex(campaign, h.id) }))
     .filter(x => x.settlement);
 }
-function totalUrbanFamiliesFromHexes(d){ return hexSettlements(d).reduce((s,x) => s + (x.settlement.families||0), 0); }
-function totalUrbanInvestmentFromHexes(d){ return hexSettlements(d).reduce((s,x) => s + (x.settlement.totalInvestment||0), 0); }
+function totalUrbanFamiliesFromHexes(campaign, d){ return hexSettlements(campaign, d).reduce((s,x) => s + (x.settlement.families||0), 0); }
+function totalUrbanInvestmentFromHexes(campaign, d){ return hexSettlements(campaign, d).reduce((s,x) => s + (x.settlement.totalInvestment||0), 0); }
 // Per-hex settlements take precedence; falls back to legacy aggregate demographics.urbanFamilies.
-function effectiveUrbanFamilies(d){
-  const fromHexes = totalUrbanFamiliesFromHexes(d);
-  if(fromHexes > 0 || hexSettlements(d).length > 0) return fromHexes;
+function effectiveUrbanFamilies(campaign, d){
+  const fromHexes = totalUrbanFamiliesFromHexes(campaign, d);
+  if(fromHexes > 0 || hexSettlements(campaign, d).length > 0) return fromHexes;
   return d.demographics?.urbanFamilies || 0;
 }
-function totalFamilies(d){ return (d.demographics.peasantFamilies||0) + effectiveUrbanFamilies(d); }
+function totalFamilies(campaign, d){ return (d.demographics.peasantFamilies||0) + effectiveUrbanFamilies(campaign, d); }
 
 // =============================================================================
 // Land value + improvements
@@ -101,9 +109,8 @@ function effectiveHexValue(h){
   const bonus = h?.landImprovementBonus || 0;
   return Math.min(9, base + bonus);
 }
-function domainTotalLandImprovementBonus(d){
-  const hexes = d.geography?.hexes || [];
-  return hexes.reduce((s,h) => s + (h.landImprovementBonus||0), 0);
+function domainTotalLandImprovementBonus(campaign, d){
+  return hexesForDomain(campaign, d.id).reduce((s,h) => s + (h.landImprovementBonus||0), 0);
 }
 
 // =============================================================================
@@ -113,11 +120,11 @@ function settlementMarketClass(s){ return lookupMarketClass(s.families||0).class
 function settlementTradeRate(s){ return lookupMarketClass(s.families||0).tradePerFamily; }
 function settlementCapacity(s){ return urbanMaxFamilies(s.totalInvestment||0); }
 // Domain-level market class summary (largest settlement's class, or legacy aggregate).
-function marketClassRow(d){ return lookupMarketClass(effectiveUrbanFamilies(d)); }
-function marketClass(d){ return marketClassRow(d).class; }
-function tradeRevenuePerFamily(d){ return marketClassRow(d).tradePerFamily; }
-function urbanCapacity(d){
-  const hexInv = totalUrbanInvestmentFromHexes(d);
+function marketClassRow(campaign, d){ return lookupMarketClass(effectiveUrbanFamilies(campaign, d)); }
+function marketClass(campaign, d){ return marketClassRow(campaign, d).class; }
+function tradeRevenuePerFamily(campaign, d){ return marketClassRow(campaign, d).tradePerFamily; }
+function urbanCapacity(campaign, d){
+  const hexInv = totalUrbanInvestmentFromHexes(campaign, d);
   if(hexInv > 0) return urbanMaxFamilies(hexInv);
   return urbanMaxFamilies(d.urban?.totalInvestment||0);
 }
@@ -125,23 +132,23 @@ function urbanCapacity(d){
 // =============================================================================
 // Garrison (RR p.351)
 // =============================================================================
-function garrisonHeadcount(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0), 0); }
+function garrisonHeadcount(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => s + (u.count||0), 0); }
 // Military W7 (burst4) — a Troops-favor garrison the LORD provides is wageWaived: the vassal pays
 // nothing for it (RR p.348), so it never bills as the vassal's garrison expense (its adequacy credit
 // is added in garrisonAdequacySpend below). Demo units carry no flag → unchanged.
-function garrisonCost(d){ return (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s : s + (u.count||0)*(u.monthlyWage||0), 0); }
-function garrisonBR(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0)*(u.brPerSoldier||0), 0); }
+function garrisonCost(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => u.wageWaived ? s : s + (u.count||0)*(u.monthlyWage||0), 0); }
+function garrisonBR(campaign, d){ return domainGarrisonUnits(campaign, d).reduce((s,u) => s + (u.count||0)*(u.brPerSoldier||0), 0); }
 // === Military W7 (burst4) — the gp the domain's garrison adequacy check sees (RR pp.341, 347). The
 // vassal's billed garrisonCost + scutage paid (counts as garrison, RR p.347) + the implicit wages of
 // trained militia kept at home (RR p.341) + lord-provided wage-waived troops that defend it (those
 // were excluded from garrisonCost but still garrison the realm). On the demo (no militia/scutage/
 // wage-waived troops) this equals garrisonCost, so the economy oracle is unchanged.
 function garrisonAdequacySpend(campaign, d){
-  let spend = garrisonCost(d) + scutagePaidThisMonth(campaign, d);
+  let spend = garrisonCost(campaign, d) + scutagePaidThisMonth(campaign, d);
   if(global.ACKS && typeof global.ACKS.domainTrainedMilitiaCredit === 'function'){
     spend += global.ACKS.domainTrainedMilitiaCredit(campaign, d) || 0;   // RR p.341 — trained militia at home
   }
-  spend += (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
+  spend += domainGarrisonUnits(campaign, d).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
   return spend;
 }
 // === Military W7 (burst4) — peasant families that produce REVENUE this month: the population minus
@@ -157,7 +164,7 @@ function effectivePeasantFamiliesForRevenue(campaign, d){
 // Required garrison cost = peasant rate × peasant families + 2gp × urban families (urban flat, RR p.351).
 function requiredGarrison(campaign, d){
   const peasantReq = (REQUIRED_GARRISON_PER_FAMILY[effectiveDomainClassification(d)]||2) * (d.demographics.peasantFamilies||0);
-  const urbanReq = 2 * effectiveUrbanFamilies(d);
+  const urbanReq = 2 * effectiveUrbanFamilies(campaign, d);
   return peasantReq + urbanReq;
 }
 // Bandits per RR p.350 — emerge from disgruntled domains at low morale.
@@ -207,9 +214,9 @@ function strongholdValue(campaign, d){
 function magistrateBaseExpenseForRole(campaign, d, roleKey){
   if(!d) return 0;
   const fam = d.demographics?.peasantFamilies || 0;
-  const urb = effectiveUrbanFamilies(d);
+  const urb = effectiveUrbanFamilies(campaign, d);
   switch(roleKey){
-    case 'captainOfGuard': return garrisonCost(d);
+    case 'captainOfGuard': return garrisonCost(campaign, d);
     case 'chaplain':       return d.expenses?.tithePaid ? (fam+urb) : 0;
     case 'munerator':      return (d.expenses?.liturgyPerFamily ?? 1) * (fam+urb);
     case 'steward':        return fam + urb;
@@ -285,8 +292,8 @@ function tributeOwed(campaign, d){
   if(d.expenses?.tributePaid === false) return 0;
   if(d.expenses?.tributeAuto !== false){
     // Realm families = this domain + every sub-vassal realm's families (recursive chain).
-    let realmFamilies = totalFamilies(d);
-    for(const { domain:v } of vassalChainUnder(campaign, d.id)) realmFamilies += totalFamilies(v);
+    let realmFamilies = totalFamilies(campaign, d);
+    for(const { domain:v } of vassalChainUnder(campaign, d.id)) realmFamilies += totalFamilies(campaign, v);
     return rawTributeForRealmFamilies(realmFamilies);
   }
   return roundToNearest5(d.expenses?.tributeToLiege || 0);
@@ -311,19 +318,25 @@ function incomeFactor(morale){ return INCOME_FACTOR_BY_MORALE[String(Math.max(-4
 function incomeBreakdown(campaign, d){
   // Military W7 — called-up militia stop producing revenue (RR p.432). Demo: 0 militia → peasantFamilies.
   const fam = effectivePeasantFamiliesForRevenue(campaign, d);
-  const urb = effectiveUrbanFamilies(d);
+  const urb = effectiveUrbanFamilies(campaign, d);
   const taxRate = DEFAULT_TAX_RATES[d.taxPolicy?.rate] ?? (d.income.taxPerFamily||2);
   // Land revenue (RR p.339–340). DEFAULT (average effective value × peasantFamilies) IS the RAW model
   // (single-hex / uniform-value domains, where avg × families == the per-hex sum). families-per-hex-
   // tracking is a beyond-RAW high-fidelity overlay computing the literal per-hex sum. "effective value"
   // = base valuePerFamily + landImprovementBonus, capped at 9 (RR p.341).
   let landRow;
-  const hexes = d.geography?.hexes || [];
-  const totalImprovementBonus = domainTotalLandImprovementBonus(d);
+  const hexes = hexesForDomain(campaign, d.id);   // T6 single-home — canonical hexes by domainId
+  const totalImprovementBonus = domainTotalLandImprovementBonus(campaign, d);
   const improvedTag = totalImprovementBonus > 0 ? ' [improved +' + totalImprovementBonus + ' total]' : '';
   if(isHouseRuleEnabled(campaign, 'families-per-hex-tracking') && hexes.length > 0){
-    const hexTotal = hexes.reduce((s, h) => s + (h.families||0)*effectiveHexValue(h), 0);
-    const hexFam   = hexes.reduce((s, h) => s + (h.families||0), 0);
+    // Land revenue is from RURAL peasant families only — a hex bearing a settlement is urban (its
+    // families are the urban population, counted in service/tax/trade, not land). Single-home (T6):
+    // exclude hexes with a settlement (settlementForHex) from the land sum; the label still reports
+    // the full hex count. (Pre-T6 the nested mirror copy had the urban hex's rural families at 0;
+    // reading the canonical campaign.hexes makes the exclusion explicit.)
+    const ruralHexes = hexes.filter(h => !settlementForHex(campaign, h.id));
+    const hexTotal = ruralHexes.reduce((s, h) => s + (h.families||0)*effectiveHexValue(h), 0);
+    const hexFam   = ruralHexes.reduce((s, h) => s + (h.families||0), 0);
     landRow = { label: 'Land revenue (hex-by-hex, ' + hexes.length + ' hexes, ' + hexFam + ' families)' + improvedTag, gp: bankersRound(hexTotal) };
   } else if(hexes.length > 0){
     const avgValue = hexes.reduce((s, h) => s + effectiveHexValue(h), 0) / hexes.length;
@@ -349,7 +362,7 @@ function incomeBreakdown(campaign, d){
     { label: 'Tax (' + taxRate + ' × ' + (fam+urb) + ')', gp: taxRate*(fam+urb) }
   ];
   // Trade revenue (RR p.351). Per-settlement when hex settlements exist; per-domain aggregate otherwise.
-  const settlements = hexSettlements(d);
+  const settlements = hexSettlements(campaign, d);
   if(settlements.length > 0){
     settlements.forEach(({settlement}) => {
       const rate = settlementTradeRate(settlement);
@@ -358,9 +371,9 @@ function incomeBreakdown(campaign, d){
       }
     });
   } else if(urb > 0){
-    const tradeRate = tradeRevenuePerFamily(d);
+    const tradeRate = tradeRevenuePerFamily(campaign, d);
     if(tradeRate > 0){
-      rows.push({ label: 'Trade revenue (Class ' + marketClass(d) + ': ' + tradeRate + ' × ' + urb + ' urban)', gp: bankersRound(tradeRate * urb) });
+      rows.push({ label: 'Trade revenue (Class ' + marketClass(campaign, d) + ': ' + tradeRate + ' × ' + urb + ' urban)', gp: bankersRound(tradeRate * urb) });
     }
   }
   if(d.income.tariffs) rows.push({ label: 'Tariffs', gp: d.income.tariffs });
@@ -390,12 +403,12 @@ function monthlyGrossIncome(campaign, d){ return incomeBreakdown(campaign, d).re
 
 function expenseBreakdown(campaign, d){
   const fam = d.demographics.peasantFamilies || 0;
-  const urb = effectiveUrbanFamilies(d);
+  const urb = effectiveUrbanFamilies(campaign, d);
   const liturgy = (d.expenses.liturgyPerFamily ?? 1) * (fam+urb);
   const tithe = d.expenses.tithePaid ? (fam+urb) : 0;
   const strongholdMaint = fam;  // 1gp per peasant family
   const urbanUpkeep = urb;      // 1gp per urban family (RR p.351)
-  const garrison = garrisonCost(d);
+  const garrison = garrisonCost(campaign, d);
   // Magistrate salary annotation — paid out of the existing expense pool (total unchanged).
   const charById = (id) => (campaign.characters||[]).find(c => c.id === id);
   const magistrateNoteFor = (roleKey) => {

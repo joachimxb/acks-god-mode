@@ -2050,7 +2050,8 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     const hexLabel = function(id){
       if(!id) return null;
       const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
-      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      const st = (h && A && A.settlementForHex) ? A.settlementForHex(campaign, h.id) : null;   // T6 single-home
+      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (st && st.name ? ' · ' + st.name : '');
       return id;
     };
     if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
@@ -2109,44 +2110,22 @@ function applyEvent_gmFiat(campaign, event){
     case 'domain':     entity = (campaign.domains||[]).find(x => x.id === target.id); break;
     case 'character':  entity = (campaign.characters||[]).find(x => x.id === target.id); break;
     case 'hex':
-      // Top-level collection first (Foundation #14/#193 — domainless wilderness hexes live ONLY
-      // here; domained hexes are reference-unified, same object). Then walk legacy nested storage.
+      // Single-home (T6): hexes live in the canonical campaign.hexes[] (domained + domainless wilderness
+      // alike; the per-domain geography.hexes mirror is gone).
       entity = (campaign.hexes||[]).find(h => h.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          const h = (d.geography?.hexes||[]).find(h => h.id === target.id);
-          if(h) entity = h;
-        });
-      }
       break;
     case 'settlement':
-      // Check top-level collection first (Foundation #14), then walk legacy nested storage.
+      // T6 single-home — the settlement lives in the canonical campaign.settlements[].
       entity = (campaign.settlements||[]).find(s => s.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          (d.geography?.hexes||[]).forEach(h => {
-            if(h.settlement && h.settlement.id === target.id) entity = h.settlement;
-          });
-        });
-      }
       break;
     case 'rumor':
       entity = (campaign.rumors||[]).find(r => r.id === target.id) || null;
       break;
     case 'garrison-unit':
-      // §310.3f-fix7 — garrison units live two places: domain.garrison.units
-      // (the domain's garrison) and character.mercenaryCompany.units (a
-      // patron's private retinue). Walk both.
-      (campaign.domains||[]).forEach(d => {
-        const u = (d.garrison && d.garrison.units || []).find(u => u.id === target.id);
-        if(u) entity = u;
-      });
-      if(!entity){
-        (campaign.characters||[]).forEach(c => {
-          const u = (c.mercenaryCompany && c.mercenaryCompany.units || []).find(u => u.id === target.id);
-          if(u) entity = u;
-        });
-      }
+      // T6 single-home — every unit (garrison or private retinue) lives in the canonical
+      // campaign.units[]; find it by id there (the nested domain.garrison.units /
+      // character.mercenaryCompany.units mirror is gone).
+      entity = (campaign.units||[]).find(u => u && u.id === target.id) || null;
       break;
     default: {
       // Entity Registry fallback (#562 — 2026-05-31). The Registry (acks-engine-entity-registry.js,
@@ -2172,11 +2151,11 @@ function applyEvent_gmFiat(campaign, event){
   // dormant until the families-per-hex per-hex editor became reachable. (2026-06-01.)
   const _eng = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
   if(target.kind === 'domain' && mutation.fieldPath === 'demographics.peasantFamilies'){
-    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(entity, mutation.newValue);
+    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(campaign, entity, mutation.newValue);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'families'){
-    const owningDomain = (campaign.domains||[]).find(dd =>
-      (dd.geography?.hexes||[]).some(h => h.id === target.id));
-    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
+    // Single-home (T6): a hex's owning domain is its hex.domainId (campaign.hexes is canonical).
+    const owningDomain = (entity && entity.domainId) ? (campaign.domains||[]).find(dd => dd.id === entity.domainId) : null;
+    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(campaign, owningDomain);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'domainId'){
     // Canonical setter (#10): a hex's domainId is the truth; moving it must move its geography.hexes
     // mirror too. Routes through the exported reconciler so the hex panel, the Inspector, the Event
@@ -2328,11 +2307,10 @@ function applyEvent_adventureResult(campaign, event){
   let targetHex = null;
   let targetDomainId = null;
   if(p.hexId){
-    (campaign.domains||[]).forEach(d => {
-      const h = (d.geography?.hexes||[]).find(x => x.id === p.hexId);
-      if(h){ targetHex = h; targetDomainId = d.id; }
-    });
+    // Single-home (T6): hexes are canonical in campaign.hexes[]; the owning domain is hex.domainId.
+    targetHex = (campaign.hexes||[]).find(x => x.id === p.hexId) || null;
     if(!targetHex) throw new Error('adventure-result: hex not found: '+p.hexId);
+    targetDomainId = targetHex.domainId || null;
     if(!targetHex.explored){ targetHex.explored = true; changed.hexesChanged.push(targetHex.id); summaryParts.push('hex '+targetHex.id+' marked explored'); }
   }
 
@@ -2497,9 +2475,11 @@ function applyEvent_dawResult(campaign, event){
   function applyLossesToDomain(domainId, losses){
     if(!domainId) return;
     const d = (campaign.domains||[]).find(x => x.id === domainId);
-    if(!d || !d.garrison) return;
+    if(!d) return;
+    // T6 single-home — the domain's garrison units come from campaign.units[] by stationedAt.
+    const garrison = global.ACKS.domainGarrisonUnits(campaign, d);
     (losses||[]).forEach(loss => {
-      const u = (d.garrison.units||[]).find(x => x.id === loss.unitId);
+      const u = garrison.find(x => x.id === loss.unitId);
       if(u){
         u.count = Math.max(0, (u.count||0) - (loss.count||0));
         changed.domainsChanged.push(d.id);
@@ -4920,7 +4900,8 @@ function beginTracking(campaign, opts){
     // Folk head for the nearest settlement (dwellings, never dens — the E4 rule).
     let best = null, bestD = Infinity;
     for(const h of (campaign.hexes || [])){
-      if(!h || !h.coord || !h.settlement) continue;
+      if(!h || !h.coord) continue;
+      if(!(A.settlementForHex && A.settlementForHex(campaign, h.id))) continue;   // T6 single-home — settled hexes only
       const d = (typeof A.hexAxialDistance === 'function') ? A.hexAxialDistance(meetHex.coord, h.coord) : Infinity;
       if(d < bestD){ best = h; bestD = d; }
     }

@@ -107,6 +107,10 @@ function buildOracleCampaign(hexSpecs){
     return h;
   });
   campaign.domains = [domain];
+  // Single-home (T6): the canonical top-level collection IS the home. Share the same hex objects so
+  // the engine's hexesForDomain(campaign, d.id) finds them AND the test's domain.geography.hexes
+  // assertions read the same mutated objects (the in-memory reference-unified shape; no _finishLoad/strip here).
+  campaign.hexes = domain.geography.hexes;
   return { campaign, domain };
 }
 
@@ -620,7 +624,7 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     const c = ACKS.blankCampaign({ name: 'budget' }); c.projects = []; c.calendar = null; // null the calendar so runDayTickToMonthEnd does NOT drip — isolates the monthly ag block's budget accumulation
     const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
     const hex = ACKS.blankHex({ id: 'hex-b', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.domainId = d.id;
-    d.geography.hexes = [hex]; c.domains = [d];
+    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = [d];
     // realistic/timed path: blankCampaign's houseRules are empty ⇒ 'abstract-construction' off ⇒ realistic.
     const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
       domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,
