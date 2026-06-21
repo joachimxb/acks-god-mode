@@ -812,11 +812,114 @@ ACKS.rerollJourneyDay(_rr5.c, _rr5.j, { rng: () => 0.99 });   // reverts the gro
 ok('reroll reverts the depth grounding + hull damage (refloated + restored on a clean re-roll)', _rr5.v.shp === 200 && _rr5.v.grounded == null);
 
 // =============================================================================
+section('SEAMS — deferred cross-subsystem hooks (vessel-construction / marines / port-repair)');
+// =============================================================================
+(function(){   // IIFE — isolate the seam temp vars from the flat file scope
+
+// ── SEAM 2 — marines-as-Group binding ──
+ok('blankVessel has a marineGroupIds array (default [])', Array.isArray(ACKS.blankVessel({}).marineGroupIds) && ACKS.blankVessel({}).marineGroupIds.length === 0);
+const _sc = ACKS.blankCampaign({ name: 'Seams' }); _sc.currentTurn = 3; _sc.currentDayInMonth = 5;
+const _sv = ACKS.createVessel(_sc, { name: 'Liburna', catalogKey: 'galley-2-rower', currentHexId: 'hex-port' });
+const _mg = ACKS.embarkMarines(_sc, _sv, { count: 30, commanderCharacterId: 'chr-cap' });
+ok('embarkMarines creates a foot-troop Group', _mg && _mg.count === 30 && _mg.socialTier === 'mercenary' && _mg.groupTemplate.creatureTypes[0] === 'humanoid');
+ok('embarkMarines places the Group at the vessel hex', _mg.currentHexId === 'hex-port');
+ok('embarkMarines pushes it to campaign.groups', _sc.groups.indexOf(_mg) >= 0);
+ok('embarkMarines binds it via marineGroupIds', _sv.marineGroupIds.indexOf(_mg.id) >= 0);
+ok('embarkMarines bumps crewComplement.marines', _sv.crewComplement.marines === 30);
+ok('vesselMarineGroups resolves the bound Group', ACKS.vesselMarineGroups(_sc, _sv).length === 1 && ACKS.vesselMarineGroups(_sc, _sv)[0] === _mg);
+ok('vesselMarineCount = active strength (30)', ACKS.vesselMarineCount(_sc, _sv) === 30);
+_mg.casualties = 12;
+ok('vesselMarineCount nets casualties (30−12=18)', ACKS.vesselMarineCount(_sc, _sv) === 18);
+ok('bindMarineGroup is idempotent', ACKS.bindMarineGroup(_sc, _sv, _mg.id) === false && _sv.marineGroupIds.length === 1);
+ok('unbindMarineGroup disembarks (Group survives in campaign.groups)', ACKS.unbindMarineGroup(_sc, _sv, _mg.id) === true && _sv.marineGroupIds.length === 0 && _sc.groups.indexOf(_mg) >= 0);
+
+// ── SEAM 1 — Vessel-as-Construction-Project (onVesselConstructed) ──
+const _cc = ACKS.blankCampaign({ name: 'VesselBuild' }); _cc.currentTurn = 4; _cc.currentDayInMonth = 2;
+_cc.characters = [{ id: 'chr-cap', name: 'Captain Mara' }];
+const _p = ACKS.blankProject({ constructibleKind: 'vessel', constructibleSubtype: 'galley-2-rower', name: 'Sea Serpent', ownerCharacterId: 'chr-cap', siteHexId: 'hex-yard' });
+_cc.projects.push(_p); _p.lifecycleState = 'complete';
+const _ov = ACKS.onVesselConstructed(_cc, _p);
+ok('onVesselConstructed mints a Vessel from a completed kind:vessel Project', _ov && _ov.name === 'Sea Serpent' && _ov.catalogKey === 'galley-2-rower');
+ok('the minted Vessel takes the class base SHP (galley-2-rower=25)', _ov.shp === 25);
+ok('the minted Vessel takes the owner + hex from the Project', _ov.ownerId === 'chr-cap' && _ov.currentHexId === 'hex-yard');
+ok('proj.vesselId links the Project to the Vessel', _p.vesselId === _ov.id);
+ok('onVesselConstructed is idempotent (returns the same Vessel)', ACKS.onVesselConstructed(_cc, _p) === _ov && _cc.vessels.length === 1);
+ok('onVesselConstructed refuses a non-vessel Project (→ null)', ACKS.onVesselConstructed(_cc, ACKS.blankProject({ constructibleKind: 'stronghold-component', lifecycleState: 'complete' })) === null);
+const _pNoCat = ACKS.blankProject({ constructibleKind: 'vessel', constructibleSubtype: 'not-a-class', name: 'Mystery Hull', siteHexId: 'hex-yard' });
+_cc.projects.push(_pNoCat); _pNoCat.lifecycleState = 'complete';
+const _ovNoCat = ACKS.onVesselConstructed(_cc, _pNoCat);
+ok('an unknown subtype mints a vessel with catalogKey "" (GM picks the class later)', _ovNoCat && _ovNoCat.catalogKey === '' && _ovNoCat.name === 'Mystery Hull');
+
+// ── SEAM 3 — port-repair sites ──
+const _pc = ACKS.blankCampaign({ name: 'PortRepair' });
+_pc.settlements = [{ id: 'set-1', name: 'Harborton', hexId: 'hex-harbor' }];
+const _dv = ACKS.createVessel(_pc, { name: 'Battered', catalogKey: 'sailing-ship-large', currentHexId: 'hex-harbor', shp: 150 }); // base 200, 20 sailors
+ok('vesselPortRepairSite finds a port at a settlement hex', (function(){ const s = ACKS.vesselPortRepairSite(_pc, _dv); return s && s.settlementName === 'Harborton' && s.friendly === true; })());
+ok('vesselPortRepairPerDay = floor((sailors+rowers)/5) (20/5=4)', ACKS.vesselPortRepairPerDay(_pc, _dv) === 4);
+const _av = ACKS.createVessel(_pc, { name: 'Adrift', catalogKey: 'boat-sail', currentHexId: 'hex-openwater', shp: 1 });
+ok('vesselPortRepairSite → null when not at a settlement hex', ACKS.vesselPortRepairSite(_pc, _av) === null);
+// untracked crew (complement all-zero) uses the catalog full crew; a shipwright officer doubles
+const _uv = ACKS.createVessel(_pc, { name: 'Untracked', catalogKey: 'sailing-ship-large', currentHexId: 'hex-harbor', shp: 100 });
+ok('untracked crew uses the catalog full crew (20 sailors → 4/day)', ACKS.vesselPortRepairPerDay(_pc, _uv) === 4);
+_pc.characters = [{ id: 'chr-wright', name: 'Master Shipwright', proficiencies: [{ key: 'shipwright', ranks: 2 }] }];
+_uv.officerCharacterIds = ['chr-wright'];
+ok('a shipwright officer aboard doubles the repair rate (4→8)', ACKS.vesselPortRepairPerDay(_pc, _uv) === 8);
+
+// ── The 'voyages' day-tick consumer — auto-fires launch + repair ──
+ok("a 'voyages' day-tick consumer is registered (order 53)", (function(){ const c = ACKS.dayConsumersInOrder().find(x => x.name === 'voyages'); return c && c.order === 53 && typeof c.commit === 'function'; })());
+ok('vessel-launched + vessel-repaired event kinds self-registered', ACKS.registeredEventKinds().includes('vessel-launched') && ACKS.registeredEventKinds().includes('vessel-repaired'));
+ok('both voyage event kinds are wizard-opt-out (record-only audits)', ACKS.EVENT_WIZARD_OPTOUT.has('vessel-launched') && ACKS.EVENT_WIZARD_OPTOUT.has('vessel-repaired'));
+
+const _dc = ACKS.blankCampaign({ name: 'AutoFire' }); _dc.currentTurn = 1; _dc.currentDayInMonth = 1;
+_dc.characters = [{ id: 'chr-1', name: 'Owner' }];
+_dc.settlements = [{ id: 'set-1', name: 'Harborton', hexId: 'hex-harbor' }];
+const _dp = ACKS.blankProject({ constructibleKind: 'vessel', constructibleSubtype: 'longship', name: 'Wave Reaver', siteHexId: 'hex-port', ownerCharacterId: 'chr-1' });
+_dc.projects.push(_dp); _dp.lifecycleState = 'complete';
+const _ddmg = ACKS.createVessel(_dc, { name: 'Battered', catalogKey: 'sailing-ship-large', currentHexId: 'hex-harbor', shp: 150 }); // repair 4/day
+const _ev0 = (_dc.eventLog || []).length;
+const _prop = ACKS.proposeDayTick(_dc, 1, { force: true });
+ok('propose emits a voyages vessel-launch record', _prop.pendingRecords.some(r => r.kind === 'vessel-launch' && r.consumer === 'voyages' && r.vesselProjectId === _dp.id));
+ok('propose emits a voyages vessel-repair record', _prop.pendingRecords.some(r => r.kind === 'vessel-repair' && r.consumer === 'voyages' && r.vesselId === _ddmg.id));
+ok('propose did NOT mutate the real campaign (no vessel minted yet)', !_dc.vessels.some(v => v.name === 'Wave Reaver') && _ddmg.shp === 150);
+ACKS.commitDayTick(_dc, _prop, null);
+ok('commit mints the launched Vessel', _dc.vessels.some(v => v.name === 'Wave Reaver') && !!_dp.vesselId);
+ok('commit repairs the docked Vessel (150→154)', _ddmg.shp === 154);
+const _newEvs = (_dc.eventLog || []).slice(_ev0).map(e => e.event.kind);
+ok('commit emits a vessel-launched audit event', _newEvs.includes('vessel-launched'));
+ok('commit emits a vessel-repaired audit event', _newEvs.includes('vessel-repaired'));
+const _launchEv = _dc.eventLog.find(e => e.event.kind === 'vessel-launched');
+ok('the launch event carries the §3.5 context (vessel + the real owner)', _launchEv && _launchEv.event.context && _launchEv.event.context.relatedEntities.length === 2 && _launchEv.event.context.relatedEntities.some(r => r.kind === 'character' && r.id === 'chr-1'));
+const _repEv = _dc.eventLog.find(e => e.event.kind === 'vessel-repaired');
+ok('an in-progress repair stays out of the Campaign Log (campaignLogHidden)', !!_repEv.campaignLogHidden);
+// idempotency + multi-day mend
+const _vCount = _dc.vessels.length;
+ACKS.commitDayTick(_dc, ACKS.proposeDayTick(_dc, 1, { force: true }), null);
+ok('a 2nd tick does NOT re-launch (idempotent)', _dc.vessels.length === _vCount);
+ok('a 2nd tick keeps repairing (154→158)', _ddmg.shp === 158);
+ACKS.runDayTickToMonthEnd(_dc);
+ok('multi-day repair caps at the class base SHP (sailing-ship-large=200)', _ddmg.shp === 200);
+ok('a fully-mended vessel flips condition → seaworthy', _ddmg.condition === 'seaworthy');
+ok('the full-mend repair event surfaces (not campaignLogHidden)', _dc.eventLog.some(e => e.event.kind === 'vessel-repaired' && !e.campaignLogHidden));
+
+// defensive: a project-less / vessel-less campaign yields no voyages records (no crash)
+const _empty = ACKS.blankCampaign({ name: 'Empty' });
+const _ep = ACKS.proposeDayTick(_empty, 1, { force: true });
+ok('an empty campaign yields no voyages records (defensive)', !_ep.pendingRecords.some(r => r.consumer === 'voyages'));
+// a grounded vessel at a port does NOT dock-repair (must refloat first)
+const _gc = ACKS.blankCampaign({ name: 'Grounded' });
+_gc.settlements = [{ id: 'set-1', name: 'Port', hexId: 'hex-h' }];
+const _gv = ACKS.createVessel(_gc, { name: 'Stuck', catalogKey: 'sailing-ship-large', currentHexId: 'hex-h', shp: 100 });
+_gv.grounded = 'sandbar';
+ok('a grounded vessel at a port is NOT dock-repaired', !ACKS.proposeDayTick(_gc, 1, { force: true }).pendingRecords.some(r => r.kind === 'vessel-repair'));
+
+})();   // end SEAMS IIFE
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Voyages V1 + V2 + V3a + V3b + V3c + V5 smoke checks passed.');
+  console.log('\nAll Voyages V1 + V2 + V3a + V3b + V3c + V5 + SEAMS smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
