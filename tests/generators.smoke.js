@@ -320,6 +320,30 @@ ok('landRoster(partyObject) flattens leader + companions', ptyLanded.length === 
 ok('the leader lands first', ptyLanded[0].socialTier !== 'henchman' && ptyLanded.slice(1).every(c => c.socialTier === 'henchman'));
 
 // =============================================================================
+section('G2 — regenProposal: per-row re-roll keeps the row context (slot/office/home/liege)');
+// =============================================================================
+const regenCamp = freshDemo();
+// an entourage row carries an office + homeDomainId — re-rolling it must preserve both, new id.
+if(regenCamp.domains && regenCamp.domains[0] && typeof ACKS.realmCommandStructure === 'function'){
+  const entR = ACKS.generateEntourage(regenCamp, regenCamp.domains[0].id, { seed: 'rg-e' });
+  if(entR.length){
+    const row = entR[0];
+    const re = ACKS.regenProposal(regenCamp, row, { seed: 'rg-e2' });
+    ok('regen returns a NEW proposal (fresh Character id)', re.character.id !== row.character.id);
+    ok('regen preserves the office tag', JSON.stringify(re.office) === JSON.stringify(row.office));
+    ok("regen preserves the office's expected level + bucket", re.character.level === row.office.expectedLevel && ACKS.coreBucketForCharacter(regenCamp, re.character) === row.office.bucket);
+    ok('regen preserves homeDomainId (the post field)', re.character.homeDomainId === regenCamp.domains[0].id);
+    ok('regen carries its _regen descriptor forward (re-rollable again)', re._regen && re._regen.ctx);
+  } else { ok('entourage regen skipped (no open offices)', true); }
+} else { ok('entourage regen skipped (no demo domain)', true); }
+// a party companion row carries a liege + henchman tier — re-rolling preserves both.
+const rgParty = ACKS.generateNpcParty(regenCamp, { leaderLevel: 6, companions: 2, seed: 'rg-p' });
+const rgComp = ACKS.regenProposal(regenCamp, rgParty.companions[0], { seed: 'rg-p2' });
+ok('regen preserves the henchman role + socialTier', rgComp.role === 'henchman' && rgComp.character.socialTier === 'henchman');
+ok('regen preserves the liege pointer', rgComp.character.liegeCharacterId === rgParty.leader.character.id);
+ok('a proposal with no _regen is returned unchanged', (() => { const bare = { character: { id: 'x' } }; return ACKS.regenProposal(regenCamp, bare, {}) === bare; })());
+
+// =============================================================================
 section('G2 — determinism: a seeded batch is byte-reproducible');
 // =============================================================================
 const detA = ACKS.generateRoster(freshDemo(), { count: 4, minLevel: 1, maxLevel: 5 }, { seed: 'g2-det' })

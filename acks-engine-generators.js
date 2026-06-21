@@ -581,6 +581,19 @@
     if (id && typeof AC.findSettlement === 'function') { const s = AC.findSettlement(campaign, id); if (s) return s; }
     return (campaign && Array.isArray(campaign.settlements)) ? (campaign.settlements.find(s => s && s.id === id) || null) : null;
   }
+  // Build ONE batch proposal: generateNPC(ctx) + apply post-generation fields (homeDomainId /
+  // liegeCharacterId — generateNPC homes only via settlementId, so the realm-court / party-liege
+  // pointers are set here, the SD-2b pattern) + attach the row tags (slot / office / role) + a
+  // TRANSIENT `_regen` descriptor (ctx + post) so the UI's per-row ⟳ regenerates with the SAME
+  // context. `_regen` is in-memory only — landRoster ignores it, it is never serialized. → null on fail.
+  function _propose(campaign, ctx, opts, post, tags) {
+    const p = generateNPC(campaign, ctx, opts);
+    if (!p || !p.character) return null;
+    if (post) Object.assign(p.character, post);
+    if (tags) { for (const k in tags) if (tags[k] != null) p[k] = tags[k]; }
+    p._regen = { ctx: Object.assign({}, ctx), post: post || null };
+    return p;
+  }
 
   // generateRoster(campaign, ctx, opts) → N proposals for a context.
   //   ctx (all optional): settlementId (homes each + lets useCensusSlots read the census) · domainId ·
@@ -608,8 +621,8 @@
       const slots = AC.demographicOpenNotableSlots(campaign, settlement, { minLevel }) || [];
       for (const s of slots) {
         for (let k = 0; k < s.open && out.length < cap; k++) {
-          const p = generateNPC(campaign, Object.assign({}, baseCtx, { bucket: s.bucket, targetLevel: s.level }), _batchOpts(opts, out.length));
-          if (p && p.character) { p.slot = { bucket: s.bucket, level: s.level }; out.push(p); }
+          const p = _propose(campaign, Object.assign({}, baseCtx, { bucket: s.bucket, targetLevel: s.level }), _batchOpts(opts, out.length), null, { slot: { bucket: s.bucket, level: s.level } });
+          if (p) out.push(p);
         }
         if (out.length >= cap) break;
       }
@@ -628,8 +641,8 @@
         const hi = (ctx.maxLevel != null) ? Math.max(lo, Number(ctx.maxLevel)) : lo;
         c.targetLevel = lo + _int(_resolveRng(_batchOpts(opts, 'lvl-' + i)), (hi - lo + 1));
       }
-      const p = generateNPC(campaign, c, _batchOpts(opts, i));
-      if (p && p.character) out.push(p);
+      const p = _propose(campaign, c, _batchOpts(opts, i), null, null);
+      if (p) out.push(p);
     }
     return out;
   }
@@ -649,15 +662,16 @@
     const offices = (rc && Array.isArray(rc.offices)) ? rc.offices.filter(o => !o.filled && o.mapsTo === 'entourage' && o.bucket) : [];
     if (offices.length) {
       offices.forEach((o, i) => {
-        const p = generateNPC(campaign, { bucket: o.bucket, targetLevel: o.expectedLevel, domainId, controlledBy: 'gm', socialTier: 'independent' }, _batchOpts(opts, i));
-        if (p && p.character) { p.character.homeDomainId = domainId; p.office = { key: o.key, label: o.label, bucket: o.bucket, expectedLevel: o.expectedLevel }; out.push(p); }
+        const p = _propose(campaign, { bucket: o.bucket, targetLevel: o.expectedLevel, domainId, controlledBy: 'gm', socialTier: 'independent' },
+          _batchOpts(opts, i), { homeDomainId: domainId }, { office: { key: o.key, label: o.label, bucket: o.bucket, expectedLevel: o.expectedLevel } });
+        if (p) out.push(p);
       });
       return out;
     }
     const count = Math.max(1, Math.min(12, (opts.count != null) ? Number(opts.count) : 3));
     for (let i = 0; i < count; i++) {
-      const p = generateNPC(campaign, { domainId, controlledBy: 'gm', socialTier: 'independent' }, _batchOpts(opts, i));
-      if (p && p.character) { p.character.homeDomainId = domainId; out.push(p); }
+      const p = _propose(campaign, { domainId, controlledBy: 'gm', socialTier: 'independent' }, _batchOpts(opts, i), { homeDomainId: domainId }, null);
+      if (p) out.push(p);
     }
     return out;
   }
@@ -675,19 +689,16 @@
     const leaderLevel = Math.max(1, Math.min(14, (opts.leaderLevel != null) ? Number(opts.leaderLevel) : 5));
     const nCompanions = Math.max(0, Math.min(12, (opts.companions != null) ? Number(opts.companions) : 3));
     const where = { hexId: opts.hexId || null, domainId: opts.domainId || null, race: opts.race || undefined, controlledBy: 'gm' };
-    const lp = generateNPC(campaign, Object.assign({}, where, {
+    const lp = _propose(campaign, Object.assign({}, where, {
       targetLevel: leaderLevel, class: opts.leaderClass || undefined, bucket: opts.leaderBucket || undefined, socialTier: 'independent'
-    }), _batchOpts(opts, 'leader'));
+    }), _batchOpts(opts, 'leader'), null, { role: 'leader' });
     const leaderId = (lp && lp.character) ? lp.character.id : null;
     const companions = [];
     for (let i = 0; i < nCompanions; i++) {
       const lvl = Math.max(1, leaderLevel - 1 - (i % 3));   // −1 / −2 / −3, repeating
-      const cp = generateNPC(campaign, Object.assign({}, where, { targetLevel: lvl, socialTier: 'henchman' }), _batchOpts(opts, 'comp-' + i));
-      if (cp && cp.character) {
-        if (leaderId) cp.character.liegeCharacterId = leaderId;   // the soft patron pointer the roster reads
-        cp.role = 'henchman';
-        companions.push(cp);
-      }
+      const cp = _propose(campaign, Object.assign({}, where, { targetLevel: lvl, socialTier: 'henchman' }),
+        _batchOpts(opts, 'comp-' + i), (leaderId ? { liegeCharacterId: leaderId } : null), { role: 'henchman' });
+      if (cp) companions.push(cp);
     }
     return { leader: lp, companions, partyName: opts.partyName || (lp && lp.character ? (lp.character.name + "'s band") : 'NPC party'), leaderLevel };
   }
@@ -710,12 +721,29 @@
     return landed;
   }
 
+  // regenProposal(campaign, proposal, opts) — the UI's per-row ⟳: re-roll ONE proposal with a fresh
+  //   seed but the SAME context (the `_regen` descriptor _propose attached), preserving the row tags
+  //   (slot / office / role) + the post fields (homeDomainId / liegeCharacterId). Returns a NEW
+  //   proposal (a fresh Character id) the caller swaps into the batch. A proposal with no `_regen`
+  //   (e.g. an externally-built one) is returned unchanged.
+  function regenProposal(campaign, proposal, opts) {
+    opts = opts || {};
+    if (!proposal || !proposal._regen) return proposal;
+    const r = proposal._regen;
+    const seed = (opts.seed != null) ? opts.seed : null;
+    const np = _propose(campaign, Object.assign({}, r.ctx),
+      { detailLevel: opts.detailLevel, attributeMethod: opts.attributeMethod, seed: seed, rng: (seed == null ? opts.rng : undefined) },
+      r.post,
+      { slot: proposal.slot, office: proposal.office, role: proposal.role });
+    return np || proposal;
+  }
+
   // ── exports ──
   Object.assign(A, {
     // the generator + the land/convenience verbs
     generateNPC, landGeneratedNPC, generateAndLandNPC,
-    // G2 — batch generation (rosters / entourages / NPC parties) + the batch land
-    generateRoster, generateEntourage, generateNpcParty, landRoster,
+    // G2 — batch generation (rosters / entourages / NPC parties) + the batch land + per-row re-roll
+    generateRoster, generateEntourage, generateNpcParty, landRoster, regenProposal,
     // pure derivations (the consume-seam + the smoke-tested RAW oracle)
     attackThrowFor, savingThrowsFor, rollAttributes, rollHp, acFor, rollOccupation,
     rollProficiencies, rollAge, npcWealthFor, rollAppearance, rollClassBucket,
