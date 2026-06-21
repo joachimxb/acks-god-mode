@@ -18036,6 +18036,17 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b10-treasure   (team) — T3/T5: special-treasures + captives + Heroic/Gritty mode in the 💰 Treasure wizard === -->
 <!-- === @b10-religion   (team) — R3/R5: consecrate (altar/fields/ruler) wizard + divine-transgression modal === -->
 
+<!-- ════ TEAM SESSION (burst12 2026-06-21) — per-agent NEW modal/overlay/panel markup. Append your markup
+     ONLY after your own @b12-<lane> marker below. None of the 6 lanes adds a top-level tab; each extends an
+     existing view (Demographics / Magic Items / Dungeons / char-sheet / Vessels / Generators tab) or is a
+     wizard / modal / panel. The Lead reconciles this block at integration (CLAUDE §15.4). ════ -->
+<!-- === @b12-census     (team) — SD-6/SD-7 magic-item + wealth census panels (Demographics roster) + MI-3 per-Class availability (🪄 Magic Items market). ⚠ IP §13.6/§13.9 — TT availability/value tables as mechanical facts only, like the monster catalog. === -->
+<!-- === @b12-delves     (team) — Delves D5 follow-on: escalate a settlement urban-incident → a full Encounter; the seeded-daily-check readout (World ▸ 🕳️ Dungeons ▸ Settlement Visits). === -->
+<!-- === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: the Dynasty panel (char-sheet Lifecycle) + kinship/succession (dyn- entity). === -->
+<!-- === @b12-treasure   (team) — Treasure Wave-C captives→confinements: the Confinements panel (💰 Treasure wizard) — ransom/release/escape (cnf- relation). === -->
+<!-- === @b12-voyages    (team) — Voyages deferred seams: Vessel-as-Construction-Project + marines-as-Group + port-repair (🚢 Vessels view). === -->
+<!-- === @b12-generators (team) — NPC Generator G2: roster + entourage generation + UI deep-links (🧙 Generators tab; do NOT touch the Demographics roster — that is the @b12-census lane's region). === -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -19981,6 +19992,16 @@ return {
     };
   },
   _signed(n){ return (n != null && n >= 0 ? '+' : '') + n; },
+  // ════ TEAM SESSION (burst12 2026-06-21) — per-agent domainApp state + methods. Append your Alpine state
+  //      + methods ONLY after your own @b12-<lane> marker below. Self-register engine prefixes / collections /
+  //      events from your OWN module (the kernel shipped PR #89 — no central-registry edits). The Lead
+  //      reconciles this block at integration (CLAUDE §15.4). ════
+  // === @b12-census     (team) — SD-6/SD-7 census + MI-3 per-Class availability: state + methods ===
+  // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
+  // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
+  // === @b12-treasure   (team) — Treasure Wave-C confinements: state + methods ===
+  // === @b12-voyages    (team) — Voyages deferred seams (vessel-construction / marines / port-repair): state + methods ===
+  // === @b12-generators (team) — NPC Generator G2 (rosters / entourages / deep-links): state + methods ===
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
   // The ⚖ Governance card on the 🏛 Senate tab + the oligarchy modal. Thin UI over the P-7 engine
   // (establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision +
