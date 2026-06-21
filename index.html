@@ -90,7 +90,7 @@
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-treasure.js?v=2026-06-20-burst10"></script>
+<script src="acks-engine-treasure.js?v=2026-06-21-burst12"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
@@ -18044,6 +18044,74 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b12-delves     (team) — Delves D5 follow-on: escalate a settlement urban-incident → a full Encounter; the seeded-daily-check readout (World ▸ 🕳️ Dungeons ▸ Settlement Visits). === -->
 <!-- === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: the Dynasty panel (char-sheet Lifecycle) + kinship/succession (dyn- entity). === -->
 <!-- === @b12-treasure   (team) — Treasure Wave-C captives→confinements: the Confinements panel (💰 Treasure wizard) — ransom/release/escape (cnf- relation). === -->
+<!-- 🔒 Prisoners FAB — appears once a generated hoard yields a captive (a confinement). Sits above the 💰 Treasure FAB. -->
+<button x-show="currentCampaign && confinementRows().length" @click="openConfinements()" x-cloak
+        class="fixed bottom-20 right-4 px-3 py-2 border-2 border-ink rounded-full shadow-lg bg-stone-200 hover:bg-stone-300 text-sm font-semibold opacity-80 hover:opacity-100 no-print"
+        style="z-index:40" title="Prisoners held — ransom, release, or track escapes (confinement relation)">
+  🔒 Prisoners <span x-show="heldConfinements().length" x-text="'· ' + heldConfinements().length" class="opacity-70"></span></button>
+<div x-show="confinePanel.open" @keydown.escape.window="if(confinePanel.open && !$event.defaultPrevented){ confinePanel.open=false; $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="confinePanel.open=false">
+  <template x-if="confinePanel.open">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full mt-12 p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="font-bold text-lg">🔒 Prisoners & Captives <span class="text-sm font-normal opacity-70">· confinement relation (TT p.23)</span></h2>
+        <button @click="confinePanel.open=false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+      </div>
+      <p class="text-xs opacity-70">Captives taken from generated hoards. Ransom routes the gp to the captor (a character/domain holder, else off-campaign); the ransom value is editable — that is the negotiation. <span class="opacity-60">Escapes also roll automatically each monthly turn (per-prisoner chance below; 0 disables).</span></p>
+
+      <!-- Held -->
+      <div>
+        <h3 class="font-semibold text-sm mb-1">Held <span class="opacity-60" x-text="'(' + heldConfinements().length + ')'"></span></h3>
+        <template x-if="!heldConfinements().length"><p class="text-sm italic opacity-60">No prisoners currently held.</p></template>
+        <div class="space-y-2">
+          <template x-for="conf in heldConfinements()" :key="conf.id">
+            <div class="border border-ink/40 rounded p-2 text-sm">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-semibold" x-text="confineCaptiveName(conf)"></span>
+                  <span class="opacity-60" x-text="conf.confinementType === 'slave' ? ' · slave' : ' · ransom'"></span>
+                  <span class="opacity-60" x-text="' · held by ' + confineCaptorLabel(conf)"></span>
+                </div>
+                <span class="text-xs opacity-50" x-text="conf.hexId ? ('@ ' + conf.hexId) : ''"></span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 mt-2">
+                <label class="flex items-center gap-1 text-xs">💰 value
+                  <input type="number" min="0" x-model.number="conf.ransomValueGp" @change="markDirty(); schedulePersist()" class="w-24 border border-ink rounded px-1 py-0.5 text-right"> gp</label>
+                <label class="flex items-center gap-1 text-xs opacity-70" title="🔧 Monthly escape chance (0–1); 0 disables. No RAW basis.">🏃 escape/mo
+                  <input type="number" min="0" max="1" step="0.05" x-model.number="conf.escapeChanceMonthly" @change="markDirty(); schedulePersist()" class="w-16 border border-ink rounded px-1 py-0.5 text-right"></label>
+                <span class="flex-1"></span>
+                <button @click="ransomCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100 font-semibold">💰 Ransom</button>
+                <button @click="releaseCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100">🕊 Release</button>
+                <button @click="escapeCaptive(conf)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100" title="Mark this prisoner as escaped">🏃 Escaped</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Resolved log -->
+      <template x-if="resolvedConfinements().length">
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Resolved <span class="opacity-60" x-text="'(' + resolvedConfinements().length + ')'"></span></h3>
+          <div class="space-y-1">
+            <template x-for="conf in resolvedConfinements()" :key="conf.id">
+              <div class="text-xs opacity-70 flex items-center gap-2">
+                <span x-text="conf.resolution === 'ransomed' ? '💰' : conf.resolution === 'released' ? '🕊' : '🏃'"></span>
+                <span x-text="confineCaptiveName(conf)"></span>
+                <span class="opacity-60" x-text="'— ' + conf.resolution + (conf.resolvedAtTurn != null ? (' · turn ' + conf.resolvedAtTurn) : '')"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <div class="flex justify-end pt-1">
+        <button @click="confinePanel.open=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+      </div>
+    </div>
+  </template>
+</div>
+<!-- === @b12-treasure end === -->
 <!-- === @b12-voyages    (team) — Voyages deferred seams: Vessel-as-Construction-Project + marines-as-Group + port-repair (🚢 Vessels view). === -->
 <!-- === @b12-generators (team) — NPC Generator G2: roster + entourage generation + UI deep-links (🧙 Generators tab; do NOT touch the Demographics roster — that is the @b12-census lane's region). === -->
 
@@ -20000,6 +20068,44 @@ return {
   // === @b12-delves     (team) — Delves D5 incident→Encounter escalation + seeded daily check: state + methods ===
   // === @b12-lifecycle  (team) — Lifecycle CL-4b dynasty: state + methods ===
   // === @b12-treasure   (team) — Treasure Wave-C confinements: state + methods ===
+  // The 🔒 Prisoners panel — thin UI over the confinement engine (ransom/release/escape verbs +
+  // the auto-monthly escape check). Captives auto-lift into confinements on materializeHoard.
+  confinePanel: { open:false },
+  confinementRows(){ return (this.currentCampaign && Array.isArray(this.currentCampaign.confinements)) ? this.currentCampaign.confinements : []; },
+  heldConfinements(){ return this.confinementRows().filter(c => c && c.status === 'held'); },
+  resolvedConfinements(){ return this.confinementRows().filter(c => c && c.status !== 'held')
+      .slice().sort((a,b) => (b.resolvedAtTurn||0) - (a.resolvedAtTurn||0)); },
+  openConfinements(){ this.confinePanel.open = true; },
+  confineCaptiveName(conf){
+    const c = this.currentCampaign && (this.currentCampaign.characters||[]).find(x => x && x.id === conf.captiveCharacterId);
+    return (c && c.name) || conf.captiveCharacterId || 'the captive';
+  },
+  confineCaptorLabel(conf){
+    const cap = conf && conf.captor;
+    if(!cap) return 'unknown';
+    if(cap.kind === 'character'){ const c = (this.currentCampaign.characters||[]).find(x => x && x.id === cap.id); return (c && c.name) || cap.label || 'a captor'; }
+    if(cap.kind === 'domain'){ const d = (this.domains||[]).find(x => x && x.id === cap.id); return (d && d.name) || cap.label || 'a domain'; }
+    if(cap.kind === 'lair') return cap.label || 'a lair';
+    return cap.label || cap.kind || 'unknown';
+  },
+  ransomCaptive(conf){
+    const r = window.ACKS.ransomConfinement(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not ransom: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('💰 ' + this.confineCaptiveName(conf) + ' ransomed for ' + (r.amountGp||0).toLocaleString() + ' gp.');
+  },
+  releaseCaptive(conf){
+    const r = window.ACKS.releaseConfinement(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not release: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🕊 ' + this.confineCaptiveName(conf) + ' released.');
+  },
+  escapeCaptive(conf){
+    const r = window.ACKS.captiveEscapes(this.currentCampaign, conf.id, {});
+    if(!r || !r.ok){ this.showToast('Could not mark escaped: ' + ((r && r.reason) || 'error')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🏃 ' + this.confineCaptiveName(conf) + ' escaped.');
+  },
   // === @b12-voyages    (team) — Voyages deferred seams (vessel-construction / marines / port-repair): state + methods ===
   // === @b12-generators (team) — NPC Generator G2 (rosters / entourages / deep-links): state + methods ===
   // === @b10-politics   (team) — Politics P-7 Eldermoot + rule-of-the-few oligarchy mode: state + methods ===
