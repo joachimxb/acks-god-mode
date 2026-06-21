@@ -2778,12 +2778,49 @@ document.addEventListener('alpine:init', () => {
       <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
            settlement-building falls here too — a building pick above fills the default, the GM may raise it.
            In REPAIR mode (Wave F) the cost field always shows (prefilled with the RR p.339 repair cost). -->
-      <template x-if="constructionWizard.repairTargetId || (constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine')">
+      <template x-if="constructionWizard.repairTargetId || (constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine' && constructionWizard.kind !== 'siege-construction')">
         <div class="space-y-1">
           <label class="block"><span x-text="constructionWizard.repairTargetId ? 'Repair cost (gp):' : 'Cost (gp):'"></span>
             <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
           </label>
           <p class="text-[11px] opacity-60" x-show="!constructionWizard.repairTargetId" x-text="constructionWizardKindNote()"></p>
+        </div>
+      </template>
+      <!-- === @b14-construction (team) — siege-support works: target siege + work + the per-work parameter
+           (RR p.474 circumvallation / p.449 war-machine field-assembly). Cost is DERIVED (1gp/ft · 1/100 the
+           machine cost); the Project is labor-timed on the Day Clock and feeds the siege on completion. === -->
+      <template x-if="constructionWizard.kind === 'siege-construction' && !constructionWizard.repairTargetId">
+        <div class="space-y-2 border border-ink/30 rounded p-2 bg-white/30">
+          <label class="block text-sm">Target siege:
+            <select x-model="constructionWizard.siegeId" @change="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— pick a siege —</option>
+              <template x-for="o in siegeWizardSiegeOptions()" :key="o.id"><option :value="o.id" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <label class="block text-sm">Siege work:
+            <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— pick one —</option>
+              <template x-for="o in constructionWizardSubtypeOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+            </select>
+          </label>
+          <template x-if="constructionWizard.structureKey === 'circumvallation'">
+            <label class="block text-sm">Length (ft) <span class="opacity-60 text-xs">(≥2,500' segments · 1gp/ft)</span>
+              <input type="number" min="2500" step="250" x-model.number="constructionWizard.circumvallationFeet" @input="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+            </label>
+          </template>
+          <template x-if="constructionWizard.structureKey === 'war-machine-assembly'">
+            <div>
+              <label class="block text-sm">War machine to assemble:
+                <select x-model="constructionWizard.assemblyMachineId" @change="siegeWizardSyncCost()" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
+                  <option value="">— pick a built war machine —</option>
+                  <template x-for="o in siegeWizardMachineOptions()" :key="o.id"><option :value="o.id" x-text="o.label + ' — assemble ' + o.cost.toLocaleString() + 'gp'"></option></template>
+                </select>
+              </label>
+              <p class="text-[11px] text-amber-700 mt-0.5" x-show="siegeWizardMachineOptions().length === 0">No built war machines available — build one (kind: War machine) first, then field-assemble it here.</p>
+            </div>
+          </template>
+          <p class="text-[11px] opacity-70" x-text="constructionWizardKindNote()"></p>
+          <p class="text-[11px]">Derived cost: <span class="font-semibold" x-text="(Number(constructionWizard.totalCost)||0).toLocaleString()"></span> gp · labor-timed on the Day Clock.</p>
         </div>
       </template>
 
@@ -15173,6 +15210,22 @@ document.addEventListener('alpine:init', () => {
                     <button @click="siegeResolve(currentSiege(),'lifted')" class="px-2 py-1 border-2 rounded text-xs" style="border-color:#7a1f1f;color:#7a1f1f">↩ Lift (withdraw)</button>
                   </div>
                 </div>
+                <!-- === @b14-construction (team) — 🧱 Siege works: build-over-time circumvallation + war-machine
+                     field-assembly (RR p.474 / p.449). The instant ⛓ blockade above is the admin shortcut; these
+                     are labor-timed Construction Projects raised via the Wizard that feed the siege on completion. === -->
+                <div class="border border-ink/30 rounded p-2">
+                  <p class="font-semibold text-sm mb-1">🧱 Siege works <span class="opacity-60 font-normal text-xs">(RR p.474 / p.449 — built over time)</span></p>
+                  <p class="text-xs mb-1" x-text="siegeWorksReadout(currentSiege())"></p>
+                  <div class="flex flex-wrap gap-2">
+                    <button @click="openSiegeWorkWizard(currentSiege(), 'circumvallation')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">🧱 Raise circumvallation (build)</button>
+                    <button @click="openSiegeWorkWizard(currentSiege(), 'war-machine-assembly')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">⚙ Field-assemble a war machine</button>
+                  </div>
+                  <template x-if="siegeWorksProjects(currentSiege()).length">
+                    <ul class="text-xs space-y-0.5 mt-1">
+                      <template x-for="p in siegeWorksProjects(currentSiege())" :key="p.id"><li class="opacity-80" x-text="'· ' + p.label"></li></template>
+                    </ul>
+                  </template>
+                </div>
               </div>
             </template>
 
@@ -19445,6 +19498,7 @@ return {
     const A = window.ACKS, cw = this.constructionWizard;
     if(cw.kind === 'vessel')      return (A.vesselConstructionCatalog ? A.vesselConstructionCatalog() : ((A.VESSEL_CATALOG)||[])).map(v => ({ key:v.key, label:v.label, costGp:v.costGp||0 }));
     if(cw.kind === 'war-machine') return (A.warMachineCatalogList ? A.warMachineCatalogList() : []).map(m => ({ key:m.key, label:m.label, costGp:m.costGp||0 }));
+    if(cw.kind === 'siege-construction') return (A.siegeConstructionCatalogList ? A.siegeConstructionCatalogList() : []).map(s => ({ key:s.key, label:s.label, costGp:0 }));  /* @b14-construction */
     // Wave E + H — the editable-cost catalog kinds (settlement-building / civic-monument / trap /
     // field-fortification / road): a catalog pick fills a DEFAULT cost the GM can then raise (minCost =
     // the RAW threshold the cost can't drop below; 0 = freely GM-set). One generic lookup; the modal shows
@@ -19455,7 +19509,7 @@ return {
   },
   // The current kind has a subtype catalog → the subtype picker shows. Fixed-cost kinds (vessel /
   // war-machine) take their cost from the pick; the editable-cost kinds show the cost field too.
-  constructionWizardHasCatalog(){ return this.constructionWizardSubtypeOptions().length > 0; },
+  constructionWizardHasCatalog(){ return this.constructionWizard.kind !== 'siege-construction' && this.constructionWizardSubtypeOptions().length > 0; },  /* @b14-construction: siege works use their own picker (derived cost) */
   constructionWizardFixedCost(){ const k = this.constructionWizard.kind; return k === 'vessel' || k === 'war-machine'; },
   constructionWizardSubtypeLabel(){
     return ({ 'vessel':'Vessel class (RR p.316):', 'war-machine':'War machine (RR pp.136–137):',
@@ -19470,6 +19524,8 @@ return {
     const o = this.constructionWizardSubtypeOptions().find(x => x.key === key);
     if(o){ cw.totalCost = o.costGp; if(!cw.name || !cw.name.trim()) cw.name = o.label; }
     else { cw.totalCost = 0; }
+    // @b14-construction — a siege work's cost is derived from its secondary input (feet / machine), not the catalog.
+    if(cw.kind === 'siege-construction'){ cw.assemblyMachineId = ''; if(key === 'circumvallation' && !(cw.circumvallationFeet >= 2500)) cw.circumvallationFeet = 2500; this.siegeWizardSyncCost(); }
   },
   // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
   // Pastoralist economics readouts + the economyType setter. Logic lives in acks-engine-domain-variants.js;
@@ -19668,6 +19724,81 @@ return {
   //      UI markup goes in each lane's OWN subsystem region (disjoint — no marker needed there). ════
   // === @b14-domvariants  (team) — Domain Variants P5-TERR (Terrain Transformation): state + methods ===
   // === @b14-construction (team) — Construction siege-support (circumvallation / war-machine field-assembly / siege-hijinks): state + methods ===
+  // The buildable siege-support works (RR p.474 / p.449) are raised through the Construction Wizard
+  // (kind 'siege-construction') and read back on the Siege panel. The Wizard cost is DERIVED (1gp/ft
+  // for circumvallation; 1/100 the machine cost for assembly), so these helpers feed the picker, sync
+  // the cost, and render the siege-panel readout. The siege state is the source of truth (the engine
+  // writes siege.blockade.circumvallationFeet / siege.besiegerArtillery on completion).
+  // The active sieges a siege-support Project can target (the Wizard's siege picker).
+  siegeWizardSiegeOptions(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!c || !A.activeSieges) return [];
+    return A.activeSieges(c).map(s => ({ id: s.id, label: s.name || s.id }));
+  },
+  // The built war machines available to field-assemble at the selected siege (Wave-D war-machine
+  // Constructibles, not destroyed, not already assembled at this siege). The GM picks which is theirs.
+  siegeWizardMachineOptions(){
+    const A = window.ACKS, c = this.currentCampaign, cw = this.constructionWizard;
+    if(!c || !cw.siegeId) return [];
+    return (c.constructibles || []).filter(m => m && m.constructibleKind === 'war-machine'
+        && m.damageState !== 'destroyed'
+        && !(m.functionData && m.functionData.assembledAtSiegeId === cw.siegeId))
+      .map(m => ({ id: m.id, subtype: m.constructibleSubtype,
+        label: (m.name || A.warMachineLabel(m.constructibleSubtype)),
+        cost: A.warMachineAssemblyCostGp ? A.warMachineAssemblyCostGp(m.constructibleSubtype) : 0 }));
+  },
+  // Keep cw.totalCost in sync with the derived siege-work cost (circumvallation 1gp/ft; assembly
+  // 1/100 the machine's build cost). Called from the secondary-input handlers + subtype pick.
+  siegeWizardSyncCost(){
+    const A = window.ACKS, cw = this.constructionWizard;
+    if(cw.kind !== 'siege-construction') return;
+    if(cw.structureKey === 'circumvallation'){
+      cw.totalCost = A.circumvallationProjectCostGp ? A.circumvallationProjectCostGp(Number(cw.circumvallationFeet) || 0) : (Number(cw.circumvallationFeet) || 0);
+    } else if(cw.structureKey === 'war-machine-assembly'){
+      const m = this.siegeWizardMachineOptions().find(x => x.id === cw.assemblyMachineId);
+      cw.totalCost = m ? m.cost : 0;
+    } else { cw.totalCost = 0; }
+  },
+  // 🧱 Siege-panel readout — circumvallation progress (feet → blockade-unit relief + complete-ring /
+  // −4-smuggling) + assembled artillery. Reads the engine directly (the siege is the source of truth).
+  siegeWorksReadout(siege){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!siege || !c) return '';
+    const prof = A.siegeStrongholdProfile ? A.siegeStrongholdProfile(c, siege) : { unitCapacity: 0 };
+    const feet = (siege.blockade && siege.blockade.circumvallationFeet) || 0;
+    const toEncircle = A.circumvallationFeetToEncircle ? A.circumvallationFeetToEncircle(prof.unitCapacity) : 0;
+    const units = A.blockadeUnitsAfterCircumvallation ? A.blockadeUnitsAfterCircumvallation(prof.unitCapacity, feet) : 0;
+    const full = A.siegeFullyCircumvallated ? A.siegeFullyCircumvallated(c, siege) : false;
+    const smug = A.siegeSmugglingModifier ? A.siegeSmugglingModifier(c, siege) : 0;
+    const art = A.artilleryBonusUnits ? A.artilleryBonusUnits(siege.besiegerArtillery) : 0;
+    const parts = ['Circumvallation ' + feet.toLocaleString() + "' / " + toEncircle.toLocaleString() + "' to encircle — blockade needs " + units + ' unit' + (units === 1 ? '' : 's') + (full ? ' (ring complete)' : '')];
+    if(smug) parts.push('smuggling ' + smug);
+    if(art) parts.push('assembled artillery +' + art + ' units');
+    return parts.join(' · ');
+  },
+  // Open the Construction Wizard pre-filled to raise a siege-support work against this siege.
+  openSiegeWorkWizard(siege, supportType){
+    if(!siege) return;
+    this.openConstructionWizard({
+      kind: 'siege-construction', siegeId: siege.id, siegeSupportType: supportType,
+      siteHexId: siege.hexId || '',
+      name: supportType === 'circumvallation' ? ('Circumvallation of ' + (siege.name || 'the siege'))
+                                               : ('Field-assembly at ' + (siege.name || 'the siege')) });
+    if(this.closeSiegePanel) this.closeSiegePanel();
+  },
+  // In-progress siege-support Projects targeting this siege (the build-queue readout).
+  siegeWorksProjects(siege){
+    if(!siege || !this.currentCampaign) return [];
+    const A = window.ACKS;
+    return (this.currentCampaign.projects || []).filter(p => p && p.constructibleKind === 'siege-construction'
+        && p.completionSpec && p.completionSpec.siegeSupport && p.completionSpec.siegeSupport.siegeId === siege.id
+        && p.lifecycleState === 'under-construction')
+      .map(p => {
+        const f = A.projectConstructionForecast ? A.projectConstructionForecast(this.currentCampaign, p) : null;
+        const icon = (p.completionSpec.siegeSupport.supportType === 'circumvallation') ? '🧱' : '⚙';
+        return { id: p.id, label: icon + ' ' + (p.name || 'siege work') + (f ? (' — ' + f.pctComplete + '% (' + (f.daysToComplete != null ? f.daysToComplete + ' days left' : 'stalled') + ')') : '') };
+      });
+  },
   // === @b14-politics     (team) — Politics P-5 generative Senate Wizard (materialize a populated senate): state + methods ===
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
@@ -23455,7 +23586,9 @@ return {
       { key:'field-fortification',  label:'Field fortification (palisade, rampart, ditch, border fort)' },  /* Wave H — renamed from 'fortification' to match the W5 border fort */
       { key:'civic-monument',       label:'Civic monument (statue, triumphal arch)' },                      /* Wave H */
       { key:'trap',                 label:'Trap' },                                                          /* Wave H */
-      { key:'road',                 label:'Road / bridge' }                                                 /* Wave H */
+      { key:'road',                 label:'Road / bridge' },                                                /* Wave H */
+      // @b14-construction — siege-support works (RR p.474 / p.449), shown only while a siege is under way.
+      ...((camp && A.activeSieges && A.activeSieges(camp).length > 0) ? [{ key:'siege-construction', label:'Siege works (circumvallation / war-machine assembly)' }] : [])
     ];
   },
   constructionWizardKindNote(){
@@ -23463,6 +23596,11 @@ return {
     // @b13-construction (Wave D) — vessels + war machines are catalog-driven (RR p.316 / pp.136–137).
     if(k === 'vessel') return 'Pick a waterway-adjacent site + a class. On completion it is launched as a real Vessel (RR p.316).';
     if(k === 'war-machine') return 'A buildable war machine (RR pp.136–137). On completion it can be brought to a siege (it feeds the Sieges-Simplified bonus + bombardment). Needs a siege engineer / engineer supervisor (RR p.174).';
+    if(k === 'siege-construction'){  /* @b14-construction */
+      if(this.constructionWizard.structureKey === 'circumvallation')      return "A besieger's encircling line (RR p.474) — 1gp/ft, built in ≥2,500' segments. On completion each 250' relieves 2 blockading units; a complete ring imposes −4 on enemy smuggling.";
+      if(this.constructionWizard.structureKey === 'war-machine-assembly') return 'Field-(dis)assembly of an existing war machine for the siege (RR p.449) — 1/100 the build cost. On completion it joins the besieger’s bombardment + assault bonus.';
+      return 'Siege works built over time against a siege (RR p.474 / p.449). Pick the target siege + the work.';
+    }
     // Wave E + H — the editable-cost catalog kinds: once a subtype is picked, show its note (the RAW cite +
     // any threshold / downstream-enables for settlement buildings); before a pick, a per-kind hint.
     const ent = window.ACKS.findConstructionSubtype ? window.ACKS.findConstructionSubtype(k, this.constructionWizard.structureKey) : null;
@@ -23524,8 +23662,12 @@ return {
       siteHexId: prefill.siteHexId || '',
       laborers: 0, masons: 0, carpenters: 0, smiths: 0,
       supervisorIds: [],
-      repairTargetId: prefill.repairTargetConstructibleId || ''
+      repairTargetId: prefill.repairTargetConstructibleId || '',
+      // @b14-construction — siege-support fields (the siege-construction kind only)
+      siegeId: prefill.siegeId || '', circumvallationFeet: 2500, assemblyMachineId: ''
     };
+    // @b14-construction — pre-pick the siege work (circumvallation / war-machine-assembly) + derive its cost.
+    if(prefill.siegeSupportType){ this.constructionWizard.structureKey = prefill.siegeSupportType; this.siegeWizardSyncCost(); }
   },
   closeConstructionWizard(){ this.constructionWizard.open = false; },
   // Wave F — the label of the Constructible being repaired (name + damage state), for the repair banner.
@@ -23603,6 +23745,7 @@ return {
     // Reset the per-kind picks when the kind changes (the catalog structure only applies to strongholds).
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
+    if(cw.kind === 'siege-construction'){ cw.siegeId = cw.siegeId || ''; cw.circumvallationFeet = 2500; cw.assemblyMachineId = ''; }  /* @b14-construction */
     // A catalog-driven kind (stronghold-component / vessel / war-machine / settlement-building / the
     // Wave-H kinds) re-fills its cost from the pick, so zero it on a kind switch. Wave G's free-form
     // class-bound kinds get a sensible RAW default the GM adjusts (RR p.386 sanctum/dungeon, p.353 vault,
@@ -23686,6 +23829,13 @@ return {
         const ent = window.ACKS.findConstructionSubtype(cw.kind, cw.structureKey);
         if(ent && ent.minCost > 0 && Number(cw.totalCost) < ent.minCost) return 'Cost must be at least ' + ent.minCost.toLocaleString() + 'gp for a ' + ent.label;
       }
+      // @b14-construction — siege works need a target siege + the per-work parameter.
+      if(cw.kind === 'siege-construction'){
+        if(!cw.siegeId) return 'Pick a siege to support';
+        if(!cw.structureKey) return 'Pick a siege work (circumvallation / war-machine assembly)';
+        if(cw.structureKey === 'circumvallation' && !(Number(cw.circumvallationFeet) >= 2500)) return "Circumvallation is built in ≥2,500' segments";
+        if(cw.structureKey === 'war-machine-assembly' && !cw.assemblyMachineId) return 'Pick a built war machine to assemble';
+      }
     }
     if(!(Number(cw.totalCost) > 0)) return cw.repairTargetId ? 'Repair cost must be greater than 0' : 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
@@ -23716,6 +23866,17 @@ return {
     if(cw.repairTargetId){ opts.isRepair = true; opts.repairTargetConstructibleId = cw.repairTargetId; }
     if(cw.kind === 'stronghold-component' && !cw.repairTargetId){
       opts.completionSpec = { componentType: cw.componentType || '', structures: cw.structureKey ? [{ structureKey: cw.structureKey, quantity: 1 }] : [] };
+    }
+    // @b14-construction — a siege work carries its target siege + parameters; on completion the slot-51
+    // consumer feeds the siege (circumvallation → blockade unit relief; assembly → besieger artillery).
+    if(cw.kind === 'siege-construction' && !cw.repairTargetId){
+      const support = { siegeId: cw.siegeId, supportType: cw.structureKey };
+      if(cw.structureKey === 'circumvallation'){ support.feet = Number(cw.circumvallationFeet) || 0; }
+      else if(cw.structureKey === 'war-machine-assembly'){
+        const m = this.siegeWizardMachineOptions().find(x => x.id === cw.assemblyMachineId);
+        support.machineSubtype = m ? m.subtype : null; support.machineConstructibleId = cw.assemblyMachineId || null;
+      }
+      opts.completionSpec = { siegeSupport: support };
     }
     // Wave E — a settlement-building is embedded in its hex's settlement: carry the settlement link so the
     // completed Constructible knows its settlement (the data layer + the function-chip readout).
