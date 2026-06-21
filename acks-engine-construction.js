@@ -96,6 +96,43 @@
   function warMachineLabel(key){ const m = findWarMachineClass(key); return m ? m.label : (key || ''); }
   function warMachineCostGp(key){ const m = findWarMachineClass(key); return m ? m.costGp : 0; }
 
+  // ── SETTLEMENT_BUILDING_CATALOG (Wave E — JJ pp.217–221 + RR p.133 + AXIOMS 4) ──
+  // The functional buildings a settlement can host. Each entry carries a `fn` (the settlement function
+  // it provides → a chip on the hex card) + `enables` (the downstream subsystem it unlocks when built —
+  // a stub today, real when that phase lands). `cost` is the default the Wizard fills; `minCost` is the
+  // RAW threshold the cost can't drop below (0 = freely GM-set: the building has no RAW threshold, so the
+  // default is a representative figure from the RR p.133 building table, flagged in the note).
+  //   IP (CLAUDE §13.6): mechanical values + page cites only, no rulebook prose.
+  const SETTLEMENT_BUILDING_CATALOG = [
+    { key:'mercenary-guildhouse', label:'Mercenary Guildhouse', cost:5000,  minCost:5000,  fn:'mercenary-hiring', fnLabel:'Mercenary hiring',   enables:null,                page:'JJ p.218', note:'A hall where mercenaries gather for hire (JJ p.218). Guildhouse threshold 5,000gp (RR p.43).' },
+    { key:'merchant-guildhouse',  label:'Merchant Guildhouse',  cost:5000,  minCost:5000,  fn:'banking',          fnLabel:'Banking / monopoly', enables:'Banking (#148)',     page:'RR p.43',  note:'A venturer guildhouse — raises passive-investment caps + grants monopoly power (RR p.43). Enables the Banking subsystem when built.' },
+    { key:'temple',               label:'Temple',               cost:15000, minCost:15000, fn:'religion',         fnLabel:'Divine worship',     enables:'Religion (#146)',    page:'RR p.421', note:'A divine stronghold (15,000gp threshold). Enables the Religion subsystem when built.' },
+    { key:'tower-of-knowledge',   label:'Tower of Knowledge',   cost:15000, minCost:15000, fn:'magic-research',   fnLabel:'Magic research',     enables:'Magic Research',     page:'RR p.386', note:'A magical academy (sanctum threshold 15,000gp). Enables the Magic Research subsystem when built.' },
+    { key:'emporium',             label:'Emporium / Agora',     cost:3000,  minCost:0,     fn:'market',           fnLabel:'Daily market',       enables:null,                page:'JJ p.218', note:"The settlement's daily market hall (JJ p.218). Cost representative (RR p.133 villa); GM-set." },
+    { key:'public-bath',          label:'Public Bath',          cost:13250, minCost:13250, fn:'civic-amenity',    fnLabel:'Public amenity',     enables:null,                page:'RR p.133', note:'A civic amenity — hot/tepid/cold pools + sauna (RR p.133).' },
+    { key:'public-theater',       label:'Public Theater',       cost:16000, minCost:16000, fn:'civic-amenity',    fnLabel:'Public amenity',     enables:null,                page:'RR p.133', note:'A 32,000-sq-ft civic theater (RR p.133).' },
+    { key:'inn',                  label:'Inn',                  cost:1500,  minCost:0,     fn:'lodging',          fnLabel:'Lodging',            enables:null,                page:'RR p.133', note:'A lodging house. Cost representative (RR p.133 townhouse); GM-set.' },
+    { key:'smithy',               label:'Smithy',               cost:1500,  minCost:0,     fn:'craft',            fnLabel:'Craft / equipment',  enables:null,                page:'RR p.133', note:'A craft workshop. Cost representative (RR p.133 townhouse); GM-set.' },
+    { key:'tradehouse',           label:'Tradehouse',           cost:3000,  minCost:0,     fn:'commerce',         fnLabel:'Commerce',           enables:null,                page:'RR p.133', note:'A commercial house. Cost representative (RR p.133 villa); GM-set.' },
+    { key:'amphitheater',         label:'Amphitheater',         cost:16000, minCost:0,     fn:'arena',            fnLabel:'Arena (games)',      enables:'Gladiators (#150)', marketClassMin:4, page:'AXIOMS 4 p.21', note:'Hosts gladiatorial games (market class IV+). Seat count + economics via the Gladiators subsystem (AXIOMS 4); the cost here is GM-set (representative).' },
+    { key:'gladiator-school',     label:'Gladiatorial School',  cost:5000,  minCost:0,     fn:'arena',            fnLabel:'Gladiator school',   enables:'Gladiators (#150)', page:'AXIOMS 4 p.24', note:'Trains + houses gladiators. Detailed structures + economics via the Gladiators subsystem (AXIOMS 4); the cost here is GM-set (representative).' }
+  ].map(Object.freeze);
+  Object.freeze(SETTLEMENT_BUILDING_CATALOG);
+  const SETTLEMENT_BUILDING_BY_KEY = {};
+  for(const b of SETTLEMENT_BUILDING_CATALOG){ SETTLEMENT_BUILDING_BY_KEY[b.key] = b; }
+  function findSettlementBuilding(key){ return (key && SETTLEMENT_BUILDING_BY_KEY[key]) || null; }
+  function settlementBuildingCatalogList(){ return SETTLEMENT_BUILDING_CATALOG.slice(); }   // defensive copy
+  function settlementBuildingLabel(key){ const b = findSettlementBuilding(key); return b ? b.label : (key || ''); }
+  // Settlement-building Constructibles (constructibleKind:'settlement-building') standing at a hex — the
+  // function-chip readout the hex card reads. Reads the SHIPPED constructiblesAtHex; filters to the kind +
+  // out the destroyed/being-demolished. Late-bound (constructiblesAtHex lives in acks-engine.js).
+  function settlementBuildingsAtHex(campaign, hexId){
+    const A = global.ACKS || ACKS;
+    const list = (typeof A.constructiblesAtHex === 'function') ? A.constructiblesAtHex(campaign, hexId)
+               : ((campaign && campaign.constructibles) || []).filter(c => c && c.hexId === hexId);
+    return list.filter(c => c && c.constructibleKind === 'settlement-building' && c.damageState !== 'destroyed' && c.constructionState !== 'being-demolished');
+  }
+
   // ── vessel construction — the construction SIDE of the shipped voyages seam ──
   // The materialization (Project → Vessel) is voyages's onVesselConstructed + its day-tick
   // consumer; this just hands the Wizard the VESSEL_CATALOG cost so a vessel Project is costed
@@ -238,7 +275,10 @@
     findWarMachineClass, isWarMachineClass, warMachineCatalogList, warMachineClassKeys, warMachineLabel, warMachineCostGp,
     vesselConstructionCatalog, vesselConstructionCost,
     materializeWaveDConstructible,
-    warMachinesForOwner, warMachineSiegeContribution, warMachineSiegeBonusUnits, warMachineBombardmentPerDay
+    warMachinesForOwner, warMachineSiegeContribution, warMachineSiegeBonusUnits, warMachineBombardmentPerDay,
+    // Wave E — settlement buildings
+    SETTLEMENT_BUILDING_CATALOG,
+    findSettlementBuilding, settlementBuildingCatalogList, settlementBuildingLabel, settlementBuildingsAtHex
   });
 
 })(typeof window !== 'undefined' ? window : global);

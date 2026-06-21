@@ -11089,13 +11089,25 @@ function commitConstructionRecord(campaign, record){
       turn: campaign.currentTurn || null, type: 'completed',
       narrative: 'Project completed after ' + p.daysElapsed + ' days of work.'
     });
-    // === @b13-construction (team) — Wave D: materialize the completed Constructible on the Day
-    // Clock. The shipped day-tick LOGS construction-completed but never applyEvent()s it (see
-    // emitDayTickEvents), so the generic events.js mint never fires here. The Wave-D materializer
-    // mints the war-machine Constructible (the onVesselConstructed analog; no new day-tick slot).
-    // It no-ops for every other kind — vessels are minted by the voyages day-tick consumer off
-    // lifecycleState:'complete'; dungeons/strongholds keep their applyEvent_constructionCompleted path.
-    try { if(global.ACKS && typeof global.ACKS.materializeWaveDConstructible === 'function') global.ACKS.materializeWaveDConstructible(campaign, p); } catch(_e){}
+    // ── Materialize the completed Constructible on the Day Clock (Wave E fix, 2026-06-21) ──
+    // The shipped day-tick LOGS construction-completed but never applyEvent()s it (emitDayTickEvents
+    // only emits the narrative log line), so before this fix a project completing on the Day Clock
+    // produced NO Constructible for any kind except vessel + war-machine — strongholds (Wave C),
+    // settlement buildings (Wave E), sanctums (AD-B), and the rest all completed empty. The two
+    // special materializers stay: a WAR MACHINE mints via materializeWaveDConstructible (the Wave-D
+    // analog) and a VESSEL via the voyages day-tick consumer (off lifecycleState:'complete'). EVERY
+    // OTHER kind now runs the full construction-completed handler here — spawning the Constructible +
+    // growing the stronghold (Wave C) + firing the sanctum (AD-B) / dungeon (AD-C) hooks — the same
+    // path the event-apply already runs. Idempotent: the project is 'complete' now, so it yields no
+    // further day-tick record (proposeConstructionDay skips non-under-construction projects).
+    try {
+      const A = global.ACKS;
+      if(p.constructibleKind === 'war-machine'){
+        if(A && typeof A.materializeWaveDConstructible === 'function') A.materializeWaveDConstructible(campaign, p);
+      } else if(p.constructibleKind !== 'vessel' && A && typeof A.applyEvent === 'function' && typeof A.newEvent === 'function'){
+        A.applyEvent(campaign, A.newEvent('construction-completed', { payload: { projectId: p.id }, submittedBy: 'engine', status: 'applied', targetTurn: campaign.currentTurn || 1 }));
+      }
+    } catch(_e){}
   }
 }
 

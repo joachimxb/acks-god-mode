@@ -111,7 +111,7 @@
 <!-- @b13-domvariants — Domain Variants: Pastoralist economics (Phase 5 §3, JJ pp.436–438). Loads after acks-engine-economy.js (its incomeBreakdown hook is late-bound) + catalogs (terrainBase) + events (registerEventKind); before player-view. -->
 <script src="acks-engine-domain-variants.js?v=2026-06-21-b13"></script>
 <!-- @b13-construction (team) — Phase 4 Construction Wave D (vessels / war machines). The WAR_MACHINE_CATALOG + the war-machine materializer + the siege feed; self-registers war-machine-built. Late-binds the construction/voyages/sieges core, so load order is irrelevant (it reads global.ACKS at call time); placed before player-view (which must stay last). -->
-<script src="acks-engine-construction.js?v=2026-06-21-b13-wave-d"></script>
+<script src="acks-engine-construction.js?v=2026-06-21-wave-ehi"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
@@ -2752,18 +2752,22 @@ document.addEventListener('alpine:init', () => {
       <!-- === @b13-construction (team) — Wave D: vessel + war-machine catalog subtype pickers (RR p.316 / pp.136–137).
            Pick a class → cost + name fill from the catalog. The vessel mints via the shipped voyages seam on
            completion; the war machine mints a kind:'war-machine' Constructible that feeds sieges. === -->
-      <template x-if="constructionWizard.kind === 'vessel' || constructionWizard.kind === 'war-machine'">
+      <template x-if="constructionWizard.kind === 'vessel' || constructionWizard.kind === 'war-machine' || constructionWizard.kind === 'settlement-building'">
         <label class="block">
-          <span x-text="constructionWizard.kind === 'vessel' ? 'Vessel class (RR p.316):' : 'War machine (RR pp.136–137):'"></span>
+          <span x-text="constructionWizard.kind === 'vessel' ? 'Vessel class (RR p.316):' : constructionWizard.kind === 'war-machine' ? 'War machine (RR pp.136–137):' : 'Building (JJ pp.217–221 + RR p.133):'"></span>
           <select :value="constructionWizard.structureKey" @change="constructionWizardPickSubtype($event.target.value)" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
             <option value="">— pick one —</option>
             <template x-for="o in constructionWizardSubtypeOptions()" :key="o.key">
               <option :value="o.key" x-text="o.label + ' — ' + o.costGp.toLocaleString() + ' gp'"></option>
             </template>
           </select>
-          <p class="text-[11px] opacity-60 mt-0.5" x-text="constructionWizardKindNote()"></p>
+          <!-- vessel/war-machine show their note here (their cost is fixed); settlement-building shows its
+               note by the editable cost field below (so it isn't doubled). -->
+          <p class="text-[11px] opacity-60 mt-0.5" x-show="constructionWizard.kind !== 'settlement-building'" x-text="constructionWizardKindNote()"></p>
         </label>
       </template>
+      <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
+           settlement-building falls here too — a building pick above fills the default, the GM may raise it. -->
       <template x-if="constructionWizard.kind !== 'stronghold-component' && constructionWizard.kind !== 'vessel' && constructionWizard.kind !== 'war-machine'">
         <div class="space-y-1">
           <label class="block">Cost (gp):
@@ -13674,6 +13678,35 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <!-- Construction Wave E — settlement buildings (constructibleKind:'settlement-building'): the
+           function-chip readout + a "+ Found building" deep-link into the Construction Wizard, for a
+           settlement-bearing hex. Each built building shows what settlement function it provides + the
+           downstream subsystem it enables. -->
+      <template x-if="hexSettlementFor(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <h4 class="font-semibold text-sm">🏛 Settlement buildings <span class="opacity-60 font-normal text-xs" x-text="'(' + settlementBuildingRows(worldHexEditingHex()).length + ')'"></span></h4>
+            <button @click="openConstructionWizard({ kind:'settlement-building', siteHexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Found a new building here (JJ pp.217–221 + RR p.133) — built over time via the Construction Wizard">+ Found building</button>
+          </div>
+          <template x-if="settlementBuildingRows(worldHexEditingHex()).length === 0 && settlementBuildingProjectsAtHex(worldHexEditingHex()).length === 0">
+            <p class="text-xs italic opacity-60 mt-1">No buildings founded here yet — guildhouses, a temple, a tower of knowledge, baths, an emporium… (JJ pp.217–221 + RR p.133).</p>
+          </template>
+          <ul class="text-xs mt-1 space-y-0.5">
+            <template x-for="b in settlementBuildingRows(worldHexEditingHex())" :key="b.id">
+              <li class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-semibold" x-text="b.name"></span>
+                <span class="px-1.5 rounded bg-amber-100 border border-amber-300" x-text="b.fnLabel"></span>
+                <span x-show="b.enables" class="opacity-60" x-text="'· enables ' + b.enables"></span>
+                <span x-show="b.damageState && b.damageState !== 'intact'" class="accent-red font-semibold" x-text="'· ' + b.damageState"></span>
+              </li>
+            </template>
+            <template x-for="p in settlementBuildingProjectsAtHex(worldHexEditingHex())" :key="p.id">
+              <li class="opacity-70 italic" x-text="'🏗 ' + (p.name || 'building') + ' — under construction'"></li>
+            </template>
+          </ul>
+        </div>
+      </template>
+
       <!-- Forage / Hunt (Provisioning V4) — live off the land here; available on any hex. -->
       <div class="vellum border border-ink/40 rounded p-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -19382,6 +19415,10 @@ return {
     const A = window.ACKS, cw = this.constructionWizard;
     if(cw.kind === 'vessel')      return (A.vesselConstructionCatalog ? A.vesselConstructionCatalog() : ((A.VESSEL_CATALOG)||[])).map(v => ({ key:v.key, label:v.label, costGp:v.costGp||0 }));
     if(cw.kind === 'war-machine') return (A.warMachineCatalogList ? A.warMachineCatalogList() : []).map(m => ({ key:m.key, label:m.label, costGp:m.costGp||0 }));
+    // Wave E — settlement buildings: a catalog pick that fills a DEFAULT cost the GM can then raise
+    // (minCost = the RAW threshold the cost can't drop below; 0 = freely GM-set). So the modal shows
+    // BOTH the subtype picker AND the editable cost field for this kind.
+    if(cw.kind === 'settlement-building') return (A.settlementBuildingCatalogList ? A.settlementBuildingCatalogList() : []).map(b => ({ key:b.key, label:b.label, costGp:b.cost||0, minCost:b.minCost||0 }));
     return [];
   },
   // Pick a vessel class / war machine → set the subtype (reusing cw.structureKey, already plumbed to
@@ -23371,7 +23408,11 @@ return {
     // @b13-construction (Wave D) — vessels + war machines are catalog-driven (RR p.316 / pp.136–137).
     if(k === 'vessel') return 'Pick a waterway-adjacent site + a class. On completion it is launched as a real Vessel (RR p.316).';
     if(k === 'war-machine') return 'A buildable war machine (RR pp.136–137). On completion it can be brought to a siege (it feeds the Sieges-Simplified bonus + bombardment). Needs a siege engineer / engineer supervisor (RR p.174).';
-    if(k === 'settlement-building') return 'Requires a settlement at the site. Building catalogs land in a later wave — enter the cost.';
+    if(k === 'settlement-building'){
+      const b = window.ACKS.findSettlementBuilding ? window.ACKS.findSettlementBuilding(this.constructionWizard.structureKey) : null;
+      if(b) return b.note + (b.minCost > 0 ? (' Minimum ' + b.minCost.toLocaleString() + 'gp — build grander if you like.') : ' Raise the cost for a grander building.') + (b.enables ? ' Enables ' + b.enables + ' when built.' : '');
+      return 'Requires a settlement at the site (JJ pp.217–221 + RR p.133). Pick a building, then set its cost.';
+    }
     return 'Per-kind catalogs land in later waves — enter the RR cost for now.';
   },
   openConstructionWizard(prefill){
@@ -23462,8 +23503,9 @@ return {
     const cw = this.constructionWizard;
     cw.structureKey = ''; cw.componentType = '';
     // @b13-construction (Wave D) — vessel + war-machine cost comes from the catalog pick, so zero it
-    // on a kind switch (the user re-picks a class) alongside the stronghold-component reset.
-    if(cw.kind === 'stronghold-component' || cw.kind === 'vessel' || cw.kind === 'war-machine') cw.totalCost = 0;
+    // on a kind switch (the user re-picks a class) alongside the stronghold-component reset. Wave E:
+    // settlement-building also re-fills its cost from the building pick, so zero it too.
+    if(cw.kind === 'stronghold-component' || cw.kind === 'vessel' || cw.kind === 'war-machine' || cw.kind === 'settlement-building') cw.totalCost = 0;
   },
   constructionWizardPickStructure(key){
     const cw = this.constructionWizard;
@@ -23532,6 +23574,11 @@ return {
     if(!cw.name || !cw.name.trim()) return 'Name the structure';
     if(cw.kind === 'stronghold-component' && !cw.structureKey) return 'Pick a structure';
     if((cw.kind === 'vessel' || cw.kind === 'war-machine') && !cw.structureKey) return cw.kind === 'vessel' ? 'Pick a vessel class' : 'Pick a war machine';  /* @b13-construction (Wave D) */
+    if(cw.kind === 'settlement-building'){
+      if(!cw.structureKey) return 'Pick a building';
+      const b = window.ACKS.findSettlementBuilding ? window.ACKS.findSettlementBuilding(cw.structureKey) : null;
+      if(b && b.minCost > 0 && Number(cw.totalCost) < b.minCost) return 'Cost must be at least ' + b.minCost.toLocaleString() + 'gp for a ' + b.label;
+    }
     if(!(Number(cw.totalCost) > 0)) return 'Cost must be greater than 0';
     if(cw.ownerKind === 'domain' && !cw.ownerDomainId) return 'Pick an owner domain';
     if(cw.ownerKind === 'character' && !cw.ownerCharacterId) return 'Pick an owner character';
@@ -23559,6 +23606,12 @@ return {
     if(cw.kind === 'stronghold-component'){
       opts.completionSpec = { componentType: cw.componentType || '', structures: cw.structureKey ? [{ structureKey: cw.structureKey, quantity: 1 }] : [] };
     }
+    // Wave E — a settlement-building is embedded in its hex's settlement: carry the settlement link so the
+    // completed Constructible knows its settlement (the data layer + the function-chip readout).
+    if(cw.kind === 'settlement-building' && cw.siteHexId && window.ACKS.settlementForHex){
+      const st = window.ACKS.settlementForHex(camp, cw.siteHexId);
+      if(st) opts.siteSettlementId = st.id;
+    }
     const p = window.ACKS.startConstructionProject(camp, opts);
     if(!p){ this.showToast && this.showToast('Could not start the project.'); return; }
     // Audit: emit construction-project-started (the handler stamps the 'started' history + a narrative).
@@ -23575,6 +23628,20 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(out.result && out.result.narrativeSummary ? out.result.narrativeSummary : ('Construction begun on ' + opts.name + '.'));
     this.closeConstructionWizard();
+  },
+  // Wave E — settlement buildings at a hex (built Constructibles) for the hex-card function-chip readout.
+  settlementBuildingRows(hex){
+    if(!hex || !this.currentCampaign || !window.ACKS.settlementBuildingsAtHex) return [];
+    return window.ACKS.settlementBuildingsAtHex(this.currentCampaign, hex.id).map(c => {
+      const b = window.ACKS.findSettlementBuilding ? window.ACKS.findSettlementBuilding(c.constructibleSubtype) : null;
+      return { id: c.id, name: c.name || (b ? b.label : 'Building'), fnLabel: b ? b.fnLabel : (c.constructibleSubtype || 'building'),
+               enables: b ? b.enables : null, damageState: c.damageState };
+    });
+  },
+  // Under-construction settlement-building projects at a hex (so the GM sees in-progress ones on the card).
+  settlementBuildingProjectsAtHex(hex){
+    if(!hex || !this.currentCampaign) return [];
+    return (this.currentCampaign.projects || []).filter(p => p && p.constructibleKind === 'settlement-building' && p.siteHexId === hex.id && p.lifecycleState === 'under-construction');
   },
   // In-flight construction projects for the Stronghold tab — under-construction structure projects for a
   // domain, each with its live forecast. (Agricultural improvements have their own Demographics surface.)
