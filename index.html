@@ -77,6 +77,8 @@
 <script src="acks-engine-voyages.js?v=2026-06-21-burst12-voyages"></script>
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
+<!-- Mounts MO-1 (RR p.161 Domesticated Animals): the Mount entity + load/speed/feed accessors; loads after subsystems (journeys) — the journey consumer late-binds A.mount*, this module late-binds carryTotalEncumbrance/itemEncumbranceSt -->
+<script src="acks-engine-mounts.js?v=2026-06-21-mounts-mo1"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-21-burst12-delves"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
