@@ -95,12 +95,14 @@
 <script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<script src="acks-engine-magic-items.js?v=2026-06-20-burst11"></script>
+<!-- @b12-census (burst12) — the licensed Treasure-Tome magic-item availability/value reference tables (SD-6 census + MI-3 per-Class market gate). ⚠ IP §13.6/§13.9 — mechanical facts only, catalog posture like the monster catalog. Pure data; consumed at call-time by magic-items.js + demographics.js (load order irrelevant). -->
+<script src="acks-engine-magic-item-availability.js?v=2026-06-21-burst12"></script>
+<script src="acks-engine-magic-items.js?v=2026-06-21-burst12"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-19-demogautogen"></script>
+<script src="acks-engine-demographics.js?v=2026-06-21-burst12"></script>
 <!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
 <script src="acks-engine-generators.js?v=2026-06-19-b8gen"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
