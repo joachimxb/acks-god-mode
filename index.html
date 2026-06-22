@@ -10923,6 +10923,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="settlementSheetTab='overview'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='overview' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📋 Overview</button>
       <button @click="settlementSheetTab='demographics'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demographics' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">👥 Demographics</button>
       <button @click="settlementSheetTab='demand'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demand' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📊 Demand</button>
+      <button @click="settlementSheetTab='market'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='market' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">🛒 Market</button>
     </div>
     <div class="p-4">
       <!-- OVERVIEW -->
@@ -11255,6 +11256,40 @@ document.addEventListener('alpine:init', () => {
         </div>
         <p class="text-sm opacity-70 mt-3 italic">Effective prices shown here are <code>basePrice + (priceStep × DM)</code>, floored at one priceStep to keep them positive. The full market price calculation (RR p.375) also adds a 4d4−10 random roll, a ±1 market-class shift, and seasonal/situational adjustments — those apply at venture-time in Phase 2b.4, not here. <span x-show="isHouseRuleEnabled('random-merchandise-rolling')">For full RAW DM generation (environmental + biome + age + land revenue + racial + trade routes), see queued task #95.</span></p>
       </div>
+      <!-- MARKET availability (moved from Activities ▸ Market, 2026-06-22; per-settlement, reuses the trade engine) -->
+      <div x-show="settlementSheetTab==='market'" class="text-sm">
+        <template x-if="settlementMarketClass(settlementSheet())==='VI*'">
+          <p class="text-sm italic opacity-70">This settlement is too small for a market — a market needs 75+ families (Class V or better). Items can still be bought from a larger market or an army camp via the Trade wizard.</p>
+        </template>
+        <template x-if="settlementMarketClass(settlementSheet())!=='VI*'">
+          <div class="space-y-3">
+            <div class="flex flex-wrap gap-2 items-center text-sm">
+              <span class="opacity-70" x-text="'Class ' + settlementMarketClass(settlementSheet()) + ' market'"></span>
+              <input type="text" x-model="marketSheetSearch" placeholder="Search item…" class="w-48">
+              <select x-model="marketSheetCategory" class="text-sm">
+                <template x-for="c in marketCategoryOptions()" :key="c"><option :value="c" x-text="c==='all' ? 'All categories' : c"></option></template>
+              </select>
+              <span class="opacity-60" x-text="marketSheetItems().length + ' item(s)'"></span>
+            </div>
+            <div class="overflow-y-auto" style="max-height:55vh">
+              <table class="bookkeeping text-sm w-full">
+                <thead><tr><th>Item</th><th class="text-right">Price (gp)</th><th class="text-right">Stone</th><th class="text-right">Availability</th></tr></thead>
+                <tbody>
+                  <template x-for="item in marketSheetItems()" :key="item.id">
+                    <tr>
+                      <td x-text="item.name"></td>
+                      <td class="text-right" x-text="(item.listPriceGp||0).toLocaleString()"></td>
+                      <td class="text-right opacity-70" x-text="item.stone != null ? item.stone : ''"></td>
+                      <td class="text-right text-xs" x-text="marketAvailLabelFor(settlementMarketClass(settlementSheet()), item.listPriceGp)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-sm opacity-70 italic">Availability follows the RR p.124 Equipment Availability table for this settlement's market class. To actually buy or sell, open the Trade wizard from a settlement or army camp.</p>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
   </template>
@@ -11339,73 +11374,6 @@ document.addEventListener('alpine:init', () => {
       </table>
     </template>
   </div>
-</div>
-
-<!-- ═══════════ Activities ▸ MARKET (UI overhaul 2026-06-22) — all markets + per-market availability sheet ═══════════ -->
-<div x-show="currentView === 'activities' && activitiesSubView === 'market'" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
-      <h3 class="font-bold text-lg">🛒 Markets <span class="text-sm opacity-70 font-normal" x-text="'· ' + marketRows().length + ' market(s)'"></span></h3>
-      <span class="text-sm opacity-60">Click a market for current item availability (RR p.124).</span>
-    </div>
-    <template x-if="marketRows().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No markets yet. A settlement with 75+ families (Class V or better) holds a market.</p>
-    </template>
-    <template x-if="marketRows().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Market</th><th>Domain</th><th>Market class</th><th class="text-right">Families</th></tr></thead>
-        <tbody>
-          <template x-for="row in marketRows()" :key="row.settlement.id">
-            <tr class="hover:bg-yellow-50/60">
-              <td><button @click="openMarketSheet(row.settlement.id)" class="underline font-semibold text-left" x-text="row.settlement.name || '(unnamed)'"></button></td>
-              <td x-text="row.domainName || '(wilderness)'"></td>
-              <td x-text="'Class ' + row.marketClass"></td>
-              <td class="text-right" x-text="(row.settlement.families||0).toLocaleString()"></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-  </div>
-</div>
-
-<!-- Market sheet modal — item availability at the chosen market (reuses the trade engine; read-only). -->
-<div x-show="marketSheetId" @keydown.escape.window="if(marketSheetId){ closeMarketSheet(); }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
-     style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeMarketSheet()">
-  <template x-if="marketSheetId && marketSheetRow()">
-  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
-    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🛒 <span x-text="marketSheetRow().settlement.name || '(market)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· Class ' + marketSheetRow().marketClass + ' market'"></span></h2>
-      <button @click="closeMarketSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
-    </div>
-    <div class="p-4 space-y-3">
-      <div class="flex flex-wrap gap-2 items-center text-sm">
-        <input type="text" x-model="marketSheetSearch" placeholder="Search item…" class="w-48">
-        <select x-model="marketSheetCategory" class="text-sm">
-          <template x-for="c in marketCategoryOptions()" :key="c"><option :value="c" x-text="c==='all' ? 'All categories' : c"></option></template>
-        </select>
-        <span class="opacity-60" x-text="marketSheetItems().length + ' item(s)'"></span>
-      </div>
-      <div class="overflow-y-auto" style="max-height:55vh">
-        <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th class="text-right">Price (gp)</th><th class="text-right">Stone</th><th class="text-right">Availability</th></tr></thead>
-          <tbody>
-            <template x-for="item in marketSheetItems()" :key="item.id">
-              <tr>
-                <td x-text="item.name"></td>
-                <td class="text-right" x-text="(item.listPriceGp||0).toLocaleString()"></td>
-                <td class="text-right opacity-70" x-text="item.stone != null ? item.stone : ''"></td>
-                <td class="text-right text-xs" x-text="marketAvailLabelFor(marketSheetRow().marketClass, item.listPriceGp)"></td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-sm opacity-70 italic">Availability follows the RR p.124 Equipment Availability table for this market's class. To actually buy or sell, open the Trade wizard from a settlement or army camp.</p>
-    </div>
-  </div>
-  </template>
 </div>
 
 <!-- ───── Activities ▸ RECRUIT (moved here from the Characters tab, 2026-06-06) ───── -->
@@ -20595,6 +20563,8 @@ return {
         if(this.currentView==='events'){ this.currentView='review'; this.reviewSubView='event-log'; }
         // Domain Review promoted out of Review into its own Domain Turn tab.
         if(this.currentView==='review' && this.reviewSubView==='domain-review'){ this.currentView='domain-turn'; }
+        // 🛒 Market re-homed from Activities to the Settlement sheet (2026-06-22) — fall back to the dashboard.
+        if(this.currentView==='activities' && this.activitiesSubView==='market') this.activitiesSubView='activities';
         // Final safety net — land on the default if currentView is still unknown.
         if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='domains';
         // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
@@ -26644,7 +26614,7 @@ return {
   // Roster ▸ Settlements sheet (B2) + Activities ▸ Market sheet (B5) modal selection.
   settlementSheetId: null,
   settlementSheetTab: 'overview',   // Overview | Demographics | Demand (UI overhaul 2026-06-22)
-  marketSheetId: null, marketSheetSearch: '', marketSheetCategory: 'all',
+  marketSheetSearch: '', marketSheetCategory: 'all',
   // §12 Group model — the merged "Parties" view selection (one detail open at a time).
   groupSelKind: null,        // null | 'party' | 'army' | 'unit'
   partySelectedId: null,
@@ -26663,7 +26633,6 @@ return {
     const tabs = [
       { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
-      { id:'market',         label:'🛒 Market',        ready: true,  count: null, placeholderNote: '' },
       { id:'banking',        label:'🏦 Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
       { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
@@ -26713,11 +26682,7 @@ return {
   settlementSheet(){ const id=this.settlementSheetId; if(!id) return null; return (this.currentCampaign?.settlements||[]).find(s=>s&&s.id===id)||null; },
   // B4 — Roster ▸ Ships location label (hexLabelFor is a global helper).
   vesselHexLabel(v){ if(!v||!v.hexId) return '—'; const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===v.hexId); return h ? hexLabelFor(h) : '—'; },
-  // B5 — Activities ▸ Market: market-bearing settlements + per-market item availability (reuses the trade engine).
-  marketRows(){ const rows=(typeof this.allSettlements==='function')?this.allSettlements():[]; return rows.filter(r=>r&&r.marketClass&&r.marketClass!=='VI*'); },
-  openMarketSheet(id){ this.marketSheetId=id; },
-  closeMarketSheet(){ this.marketSheetId=null; },
-  marketSheetRow(){ const id=this.marketSheetId; if(!id) return null; return this.marketRows().find(r=>r.settlement&&r.settlement.id===id)||null; },
+  // B5 — Settlement sheet ▸ Market tab: per-settlement item availability (reuses the trade engine).
   _marketClassIdx(mc){ if(typeof mc!=='string') return 5; const k=mc.replace('*',''); return ({I:0,II:1,III:2,IV:3,V:4,VI:5})[k] ?? 5; },
   marketAvailLabelFor(mc, priceGp){ try { const a=window.ACKS.equipmentAvailability(priceGp, this._marketClassIdx(mc), {visitedBefore:false,partyOf12Dedicated:false}); return this.tradeAvailLabel(a); } catch(e){ return '—'; } },
   marketSheetItems(){ let l=(window.ACKS&&window.ACKS.EQUIPMENT_CATALOG)||[]; if(this.marketSheetCategory!=='all') l=l.filter(e=>e&&e.category===this.marketSheetCategory); const q=(this.marketSheetSearch||'').trim().toLowerCase(); if(q) l=l.filter(e=>(e.name||'').toLowerCase().includes(q)); return l; },
