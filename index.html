@@ -8269,8 +8269,8 @@ document.addEventListener('alpine:init', () => {
       </template>
         </div><!-- /LIFESTYLE -->
 
-      <!-- ═══ DOMAINS sub-tab (cont.) — syndicate tribute ═══ -->
-      <div x-show="monthlyTurnSubView==='domains'">
+      <!-- ═══ SYNDICATES sub-tab — criminal-syndicate monthly tribute (RR p.362) ═══ -->
+      <div x-show="monthlyTurnSubView==='syndicates'">
       <template x-if="turnSyndicateTributeProposal && turnSyndicateTributeProposal.ruleOn && (turnSyndicateTributeProposal.collections||[]).length">
         <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
           <h3 class="font-bold text-base mb-1">🏛 Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
@@ -8292,7 +8292,10 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
       </template>
-        </div><!-- /DOMAINS (syndicate tribute) -->
+      <template x-if="!turnSyndicateTributeProposal || !turnSyndicateTributeProposal.ruleOn || !(turnSyndicateTributeProposal.collections||[]).length">
+        <p class="text-sm italic opacity-60 py-4">No syndicate tribute due this month — no active syndicates, or the "Syndicates — auto-collect the monthly tribute" house rule (⚙ House Rules ▸ 🗡 Hijinks) is off. Run criminal syndicates from 🎭 Activities ▸ Hijinks.</p>
+      </template>
+        </div><!-- /SYNDICATES -->
 
       <!-- ═══ CONSTRUCTION sub-tab — every domain's building projects + the urban/agricultural investments ═══ -->
       <div x-show="monthlyTurnSubView==='construction'">
@@ -26484,14 +26487,16 @@ return {
   // building projects + the urban/agricultural investments lifted out of the per-domain cards) |
   // Investments (in-transit ventures + their vagaries) | Lifestyle (living expenses + wages).
   get monthlyTurnSubTabs(){
-    let cons = 0, lifx = 0, ventx = 0;
+    let cons = 0, lifx = 0, ventx = 0, syndx = 0;
     try { cons = this.allConstructionProjects().length; } catch(e){}
     try { lifx = (this.turnLivingExpenseProposal && this.turnLivingExpenseProposal.ruleOn) ? (this.turnLivingExpenseProposal.charges||[]).length : 0; } catch(e){}
     try { ventx = (this.turnVentureProposals||[]).length; } catch(e){}
+    try { syndx = (this.turnSyndicateTributeProposal && this.turnSyndicateTributeProposal.ruleOn) ? (this.turnSyndicateTributeProposal.collections||[]).length : 0; } catch(e){}
     return [
       { id:'domains',      label:'🏰 Domains',      count: (this.turnProposal||[]).length || null },
       { id:'construction', label:'🏗 Construction', count: cons || null },
       { id:'investments',  label:'🌊 Investments',  count: ventx || null },
+      { id:'syndicates',   label:'🗡 Syndicates',   count: syndx || null },
       { id:'lifestyle',    label:'🏠 Lifestyle',    count: lifx || null }
     ];
   },
