@@ -10273,9 +10273,9 @@ document.addEventListener('alpine:init', () => {
                     <span class="opacity-40 italic">—</span>
                   </template>
                   <span class="inline-flex flex-wrap items-center gap-x-2">
-                    <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
-                      <button @click.stop="selectedDomainId = r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
-                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
+                    <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + (r.domainId || r.view || '') + ':' + r.label">
+                      <button @click.stop="if(r.view){ currentView='activities'; activitiesSubView=r.view; } else { selectedDomainId=r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor(); }"
+                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : (r.kind === 'gladiator' ? '🏟 ' : '🏰 ')) + r.label + ' →'"></button>
                     </template>
                   </span>
                 </td>
@@ -28180,6 +28180,18 @@ return {
         }
       });
     });
+    // Gladiator of a school — a standing membership role (Gladiators G1). Unlike
+    // training or a scheduled bout (transient activities), being contracted to a
+    // school is a constant role; it deep-links to the ⚔ Gladiators view, not a domain.
+    if(c.socialTier === 'gladiator' && c.alive !== false && c.lifecycleState !== 'deceased'){
+      const sch = c.contractSchoolId ? (this.currentCampaign?.gladiatorSchools||[]).find(s => s && s.id === c.contractSchoolId) : null;
+      out.push({
+        kind: 'gladiator',
+        label: 'Gladiator' + (sch ? ' of ' + (sch.name || 'the school') : ''),
+        view: 'gladiators',
+        income: 0,
+      });
+    }
     return out;
   },
   // Sum of all role incomes — RR p.425 "domain income" for the character.
