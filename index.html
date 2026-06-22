@@ -10156,9 +10156,10 @@ document.addEventListener('alpine:init', () => {
             <div class="text-xs font-semibold opacity-70 mb-1">Actions <span class="font-normal opacity-60">· greyed actions can't be done where this character stands</span></div>
             <div class="flex flex-wrap gap-1.5">
               <template x-for="act in characterActionMenu(row.c)" :key="act.key">
-                <button @click="act.enabled && runCharacterAction(act.key, row.c)"
-                        :disabled="!act.enabled"
-                        :class="act.enabled ? 'hover:bg-yellow-100' : 'opacity-40 cursor-not-allowed'"
+                <button @click="(act.active || act.enabled) && runCharacterAction(act, row.c)"
+                        :disabled="!act.active && !act.enabled"
+                        :class="act.active ? 'cursor-pointer' : (act.enabled ? 'hover:bg-yellow-100 cursor-pointer' : 'opacity-40 cursor-not-allowed')"
+                        :style="act.active ? 'background:#2a1f12;color:#f4ecd8;border-color:#2a1f12' : ''"
                         class="text-sm px-2 py-1 border border-ink rounded"
                         :title="act.title">
                   <span x-text="act.icon + ' ' + act.label"></span>
@@ -27379,28 +27380,54 @@ return {
   // enabled=false greys the button out with `title` saying why; runCharacterAction dispatches the enabled ones.
   characterActionMenu(c){
     if(!c) return [];
+    const camp = this.currentCampaign || {};
+    const A = window.ACKS || {};
     const set = this.characterAtSettlement(c);
     const atHex = !!c.currentHexId, atSet = !!set;
     const setName = set ? (set.name || 'the local market') : '';
     const hexReason = 'Place this character on a hex first (its Location tab).';
     const setReason = 'Move this character to a settlement to do this.';
+    // In-flight engagements → the action renders "active" (dark) and NAVIGATES to the thing in progress
+    // instead of starting a new one. (A character already on a journey can't begin another, etc.)
+    const onJourney = !!this.characterJourneyOf(c);
+    const onVenture = !!this.characterActiveVenture(c);
+    const recruiting = (c.recruitmentDrives || []).some(d => d && d.status === 'active');
+    const hijinking = (camp.hijinks || []).some(h => h && h.perpetratorCharacterId === c.id && !['complete','failed','caught'].includes(h.status));
+    let gladiating = false;
+    if(c.socialTier === 'gladiator'){
+      const tInfo = A.gladiatorTrainingInfo ? A.gladiatorTrainingInfo(camp, c) : { inTraining:false };
+      const inBout = (camp.bouts || []).some(b => b && b.status === 'scheduled' && [].concat(b.sideA?.combatantIds||[], b.sideB?.combatantIds||[]).includes(c.id));
+      gladiating = !!(tInfo.inTraining || inBout);
+    }
     const T = (ok, okText, reason) => ok ? okText : reason;
     return [
-      { key:'market',         icon:'🛒', label:'Market',        enabled:atSet,  title:T(atSet, 'Buy or sell at ' + setName, setReason) },
-      { key:'recruit',        icon:'⚔', label:'Recruit',        enabled:atSet,  title:T(atSet, 'Recruit hirelings, henchmen or specialists here', setReason) },
-      { key:'travel',         icon:'🧭', label:'Travel',         enabled:atHex,  title:T(atHex, (this.characterPartyOf(c) ? "Start a journey for this character's party" : 'Start a journey'), hexReason) },
-      { key:'forage',         icon:'🌿', label:'Forage / Hunt',  enabled:atHex,  title:T(atHex, 'Forage or hunt — live off the land (RR p.278)', hexReason) },
-      { key:'search',         icon:'🔍', label:'Search hex',     enabled:atHex,  title:T(atHex, 'Search this hex for lairs & points of interest (RR pp.276–277)', hexReason) },
-      { key:'hijinks',        icon:'🗡', label:'Hijinks',        enabled:atSet,  title:T(atSet, 'Attempt an urban hijink here (RR pp.358–370)', setReason) },
-      { key:'ventures',       icon:'⚖', label:'Ventures',       enabled:atSet,  title:T(atSet, 'Launch or manage a mercantile venture', setReason) },
-      { key:'banking',        icon:'🏦', label:'Banking',        enabled:atSet,  title:T(atSet, 'Banking & loans (RR p.42)', setReason) },
-      { key:'magic-items',    icon:'🪄', label:'Magic Items',    enabled:atSet,  title:T(atSet, 'Identify, buy, sell or commission magic items', setReason) },
-      { key:'gladiators',     icon:'🏟', label:'Gladiators',     enabled:this.gladiatorsTabVisible(), title:T(this.gladiatorsTabVisible(), 'Arena games & gladiator schools', 'Enable the Gladiators house rule first.') },
-      { key:'spell-research', icon:'📜', label:'Spell Research', enabled:false,  title:'Coming soon (Phase 4.6).' }
+      { key:'market',         icon:'🛒', label:'Market',        active:false,     enabled:atSet, title:T(atSet, 'Buy or sell at ' + setName, setReason) },
+      { key:'recruit',        icon:'⚔', label:'Recruit',        active:recruiting, enabled:atSet, title: recruiting ? 'Recruiting now — go to the hiring drive →' : T(atSet, 'Recruit hirelings, henchmen or specialists here', setReason) },
+      { key:'travel',         icon:'🧭', label:'Travel',         active:onJourney,  enabled:atHex && !onVenture, title: onJourney ? 'On a journey — go to it →' : (onVenture ? "Away on a venture — can't travel until it resolves." : T(atHex, (this.characterPartyOf(c) ? "Start a journey for this character's party" : 'Start a journey'), hexReason)) },
+      { key:'forage',         icon:'🌿', label:'Forage / Hunt',  active:false,     enabled:atHex, title:T(atHex, 'Forage or hunt — live off the land (RR p.278)', hexReason) },
+      { key:'search',         icon:'🔍', label:'Search hex',     active:false,     enabled:atHex, title:T(atHex, 'Search this hex for lairs & points of interest (RR pp.276–277)', hexReason) },
+      { key:'hijinks',        icon:'🗡', label:'Hijinks',        active:hijinking,  enabled:atSet, title: hijinking ? 'A hijink is under way — go to it →' : T(atSet, 'Attempt an urban hijink here (RR pp.358–370)', setReason) },
+      { key:'ventures',       icon:'⚖', label:'Ventures',       active:onVenture,  enabled:atSet, title: onVenture ? 'On a venture — go to it →' : T(atSet, 'Launch or manage a mercantile venture', setReason) },
+      { key:'banking',        icon:'🏦', label:'Banking',        active:false,     enabled:atSet, title:T(atSet, 'Banking & loans (RR p.42)', setReason) },
+      { key:'magic-items',    icon:'🪄', label:'Magic Items',    active:false,     enabled:atSet, title:T(atSet, 'Identify, buy, sell or commission magic items', setReason) },
+      { key:'gladiators',     icon:'🏟', label:'Gladiators',     active:gladiating, enabled:this.gladiatorsTabVisible(), title: gladiating ? 'In the arena — go to the Gladiators view →' : T(this.gladiatorsTabVisible(), 'Arena games & gladiator schools', 'Enable the Gladiators house rule first.') },
+      { key:'spell-research', icon:'📜', label:'Spell Research', active:false,     enabled:false, title:'Coming soon (Phase 4.6).' }
     ];
   },
-  runCharacterAction(key, c){
-    if(!c) return;
+  runCharacterAction(act, c){
+    if(!act || !c) return;
+    const key = act.key;
+    // Active (in-progress) → navigate to the thing already under way rather than start a new one.
+    if(act.active){
+      switch(key){
+        case 'travel':     this.openJourneyForCharacter(c); return;
+        case 'recruit':    this.recruitDeepLink({ patronId: c.id }); return;   // recruitStart adopts the in-flight drive
+        case 'ventures':   this.openVenturesForCharacter(c); return;
+        case 'hijinks':    this.currentView = 'activities'; this.activitiesSubView = 'hijinks'; return;
+        case 'gladiators': this.currentView = 'activities'; this.activitiesSubView = 'gladiators'; return;
+        default: break;
+      }
+    }
     switch(key){
       case 'market':      this.openTrade({ actorCharacterId: c.id }); break;
       case 'recruit':     this.recruitDeepLink({ patronId: c.id }); break;
@@ -29990,6 +30017,10 @@ return {
   // party (prefills its members + start hex); otherwise just this character.
   startJourneyForCharacter(ch){
     if(!ch) return;
+    // A character already committed to travel can't begin another journey — open what they're on instead.
+    const j = this.characterJourneyOf(ch);
+    if(j){ this.openJourneyForCharacter(ch); this.showToast('Already on a journey — opening it.'); return; }
+    if(this.characterActiveVenture(ch)){ this.openVenturesForCharacter(ch); this.showToast("Away on a venture — can't start a journey until it resolves."); return; }
     const pt = this.characterPartyOf(ch);
     this.closeCharacterEditor();
     if(pt) this.startJourneyDeepLink({ partyId: pt.id });
