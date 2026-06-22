@@ -719,7 +719,7 @@ document.addEventListener('alpine:init', () => {
     <template x-if="turnProposal">
       <div class="border-2 border-yellow-700/60 rounded p-3 text-sm flex items-center justify-between gap-2" style="background:#f4eed5">
         <span class="font-semibold">🏰 The monthly turn is staged and awaiting your review.</span>
-        <button @click="reviewSubView='domain-review'" class="underline font-semibold shrink-0">Open Domain Review →</button>
+        <button @click="currentView='domain-turn'" class="underline font-semibold shrink-0">Open Domain Turn →</button>
       </div>
     </template>
 
@@ -897,7 +897,7 @@ document.addEventListener('alpine:init', () => {
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="hexLabelFor(entry.hex)"></button>
               </td>
               <td class="text-base">
-                <button @click="selectedDomainId=entry.domainId; currentView='world'; worldSubView='domains'" class="underline" x-text="entry.domainName"></button>
+                <button @click="selectedDomainId=entry.domainId; currentView='domains'; domainsSubView='domains'" class="underline" x-text="entry.domainName"></button>
               </td>
               <td class="text-base" x-text="effectiveHexClassification(domains.find(x=>x.id===entry.domainId), entry.hex)"></td>
               <td class="text-base" x-text="entry.hex.terrain || '—'"></td>
@@ -4806,9 +4806,22 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
-<!-- ═══════════ VIEW: DOMAINS — now a World sub-view (#225, 2026-06-02). Markup unchanged; only the
-     x-show flipped from top-level currentView==='domains' to currentView==='world' && worldSubView. ═══════════ -->
-<div x-show="currentView === 'world' && worldSubView === 'domains'" x-cloak>
+<!-- ═══════════ VIEW: DOMAINS (UI overhaul 2026-06-22 — promoted back to a top-level tab from a World
+     sub-view). The sub-tab strip drives domainsSubView: Domains | Governance/Senate. The strip only
+     appears when a senate exists or rule-of-the-few makes governance available (dormant-until-used). ═══════════ -->
+<div x-show="currentCampaign && currentView === 'domains' && domainsSubTabs.length > 1" class="px-4 pt-3" x-cloak>
+  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+    <template x-for="tab in domainsSubTabs" :key="tab.id">
+      <button @click="domainsSubView=tab.id"
+              :class="domainsSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+              class="px-3 py-1 text-sm border-b-2"
+              :style="domainsSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+              x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
+    </template>
+  </div>
+</div>
+
+<div x-show="currentView === 'domains' && domainsSubView === 'domains'" x-cloak>
 
   <main class="p-4">
     <template x-if="!currentCampaign">
@@ -6641,7 +6654,7 @@ document.addEventListener('alpine:init', () => {
               <thead><tr><th>Army</th><th>Commander</th><th>Location</th><th>Troops</th><th title="Battle rating">BR</th><th title="Miles per day">Speed</th><th>Status</th></tr></thead>
               <tbody>
                 <template x-for="row in domainFieldArmyRows(selectedDomain)" :key="'fa-'+row.army.id">
-                  <tr class="cursor-pointer hover:bg-yellow-50/60" @click="currentView='characters'; charactersSubView='parties'; selectGroup('army', row.army.id)" title="Open in Characters ▸ Parties">
+                  <tr class="cursor-pointer hover:bg-yellow-50/60" @click="currentView='roster'; rosterSubView='groups'; selectGroup('army', row.army.id)" title="Open in Roster ▸ Groups">
                     <td class="whitespace-nowrap"><span x-text="row.icon"></span> <span class="underline" x-text="row.army.name || 'Army'"></span></td>
                     <td x-text="row.leaderName"></td>
                     <td class="whitespace-nowrap text-xs" x-text="row.location"></td>
@@ -7262,7 +7275,7 @@ document.addEventListener('alpine:init', () => {
             <template x-if="rulerCharacter(selectedDomain)">
               <div>
                 <template x-if="(currentCampaign?.characters||[]).filter(c => c.liegeCharacterId === rulerCharacter(selectedDomain).id && ACKS.isHenchman(c) && ACKS.isActive(c)).length === 0">
-                  <p class="text-sm italic opacity-70">No henchmen sworn to <span x-text="rulerCharacter(selectedDomain).name"></span>. Create characters with <code>kind=henchman</code> and <code>liegeCharacterId</code> set on the <button @click="currentView='characters'" class="underline">👥 Characters</button> tab.</p>
+                  <p class="text-sm italic opacity-70">No henchmen sworn to <span x-text="rulerCharacter(selectedDomain).name"></span>. Create characters with <code>kind=henchman</code> and <code>liegeCharacterId</code> set on the <button @click="currentView='roster'; rosterSubView='characters'" class="underline">👥 Roster</button> tab.</p>
                 </template>
                 <template x-if="(currentCampaign?.characters||[]).filter(c => c.liegeCharacterId === rulerCharacter(selectedDomain).id && ACKS.isHenchman(c) && ACKS.isActive(c)).length > 0">
                   <table class="bookkeeping text-sm">
@@ -7542,19 +7555,8 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
-        <div x-show="activeTab==='raw'">
-          <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Raw JSON</h2>
-            <textarea x-ref="rawJson" class="w-full h-96 font-mono text-sm"
-              @focus="$el.value = JSON.stringify(selectedDomain, null, 2)"
-              x-init="$el.value = JSON.stringify(selectedDomain, null, 2)"></textarea>
-            <div class="mt-2 flex gap-2">
-              <button @click="applyRawJson()" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300">Apply</button>
-              <button @click="$refs.rawJson.value = JSON.stringify(selectedDomain, null, 2)" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Revert</button>
-              <span class="text-sm" :class="rawJsonError.startsWith('Applied') ? 'accent-green' : 'accent-red'" x-text="rawJsonError"></span>
-            </div>
-          </div>
-        </div>
+        <!-- The per-domain "Raw JSON" tab was removed in the 2026-06-22 UI overhaul. The whole-campaign
+             JSON is still reachable via 💾 Save / the Inspector; per-domain raw editing is retired. -->
       </div>
     </template>
   </main>
@@ -7570,7 +7572,7 @@ document.addEventListener('alpine:init', () => {
      Registry (acks-engine-entity-registry.js). Emits a gm-narrative event with the
      context envelope populated from attached entities. Lands in Event Log + Campaign Log
      + entity history views via the existing derived-history machinery (#528). -->
-<div x-show="currentView === 'events' && eventsSubView === 'chronicle'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'chronicle'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
       <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
@@ -7639,7 +7641,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'events' && eventsSubView === 'emit-wizard'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'emit-wizard'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
       <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
@@ -7692,7 +7694,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'events' && eventsSubView === 'event-log'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'event-log'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <!-- Events log sub-tab bar (shared with Campaign log). -->
     <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
@@ -7712,7 +7714,7 @@ document.addEventListener('alpine:init', () => {
     <!-- Header guidance — explains the Event Log / Campaign Log relationship.
          Post-v0.9 refactor (#234) will collapse this duplication. -->
     <p class="text-sm opacity-70 italic mb-3 px-2 py-1 rounded" style="background:rgba(232,243,223,0.5)">
-      🔧 The Event Log is the structured audit trail — every typed event with its full payload, submitter, target turn, and result. Pending events can be resolved here (accept / reject / inline edit) without waiting for the month commit; the calendar-paged queue lives in <button @click="goToReview('pending-events')" class="underline font-semibold">📋 Review ▸ Pending Events</button>. For at-the-table narrative reading, see the <button @click="currentView='events'; eventsSubView='campaign-log'" class="underline font-semibold">📜 Campaign Log</button>.
+      🔧 The Event Log is the structured audit trail — every typed event with its full payload, submitter, target turn, and result. Pending events can be resolved here (accept / reject / inline edit) without waiting for the month commit; the calendar-paged queue lives in <button @click="goToReview('pending-events')" class="underline font-semibold">📋 Review ▸ Pending Events</button>. For at-the-table narrative reading, see the <button @click="currentView='review'; reviewSubView='event-log'; eventsSubView='campaign-log'" class="underline font-semibold">📜 Campaign Log</button>.
     </p>
     <div class="flex flex-wrap gap-2 mb-3 text-sm">
       <select x-model="eventLogFilter.kind" class="text-sm">
@@ -7858,7 +7860,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'events' && eventsSubView === 'campaign-log'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'campaign-log'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <!-- Events log sub-tab bar (shared with Event log). -->
     <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
@@ -7877,7 +7879,7 @@ document.addEventListener('alpine:init', () => {
          eventLog. No separate campaign.log[] array — every entry's prose comes from a
          typed event's narrativeSummary. Single source of truth, no double-write. -->
     <p class="text-sm opacity-70 italic mb-3 px-2 py-1 rounded" style="background:rgba(244,236,210,0.5)">
-      📖 The Campaign Log is the GM-facing narrative stream — a prose timeline derived from the same typed events the <button @click="currentView='events'; eventsSubView='event-log'" class="underline font-semibold">📥 Event Log</button> displays. Same source, different reading experience: structured rows there, story-shaped prose here.
+      📖 The Campaign Log is the GM-facing narrative stream — a prose timeline derived from the same typed events the <button @click="currentView='review'; reviewSubView='event-log'; eventsSubView='event-log'" class="underline font-semibold">📥 Event Log</button> displays. Same source, different reading experience: structured rows there, story-shaped prose here.
     </p>
 
     <template x-if="campaignLogEntries().length === 0">
@@ -7943,7 +7945,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- No active characters -->
     <template x-if="currentCampaign && activityDashboardRows().length === 0">
-      <div class="vellum border border-ink rounded p-6 text-center opacity-70">No active characters yet. Add characters from the <button @click="currentView='characters'; charactersSubView='roster'" class="underline">Roster</button>.</div>
+      <div class="vellum border border-ink rounded p-6 text-center opacity-70">No active characters yet. Add characters from the <button @click="currentView='roster'; rosterSubView='characters'" class="underline">Roster</button>.</div>
     </template>
 
     <!-- Dashboard table -->
@@ -8404,7 +8406,7 @@ document.addEventListener('alpine:init', () => {
 <!-- ═══════════ Review ▸ 🏰 Domain Review — the monthly Turn Resolution. 2026-06-13: the old
      "Advance Month" MODAL re-homed as a Review sub-view; the inner content (pending-event
      decisions, living expenses, per-domain economy + morale, ventures) is unchanged. ═══════════ -->
-<div x-show="currentView === 'review' && reviewSubView === 'domain-review'" class="p-4" x-cloak>
+<div x-show="currentView === 'domain-turn'" class="p-4" x-cloak>
   <div class="max-w-screen-lg">
     <div class="vellum border border-ink rounded p-4">
       <h2 class="font-bold text-lg mb-2">🏰 Domain Review — Turn Resolution</h2>
@@ -10275,29 +10277,31 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- ═══════════ VIEW: CHARACTERS (Phase 2.6) ═══════════ -->
-<div x-show="currentView === 'characters'" class="p-4" x-cloak>
+<!-- ═══════════ VIEW: ROSTER (UI overhaul 2026-06-22 — was the Characters view; now hosts Characters ·
+     Monsters · Groups · Settlements · Ships · NPC Generators · Knowledge). ═══════════ -->
+<div x-show="currentView === 'roster'" class="p-4" x-cloak>
   <div class="space-y-4">
 
-    <!-- Header + sub-tab bar -->
+    <!-- Header + Roster sub-tab strip (data-driven from rosterSubTabs) -->
     <div class="vellum border border-ink rounded p-3">
       <div class="flex justify-between items-baseline flex-wrap gap-3 mb-2">
-        <h2 class="font-bold text-xl">👥 Characters</h2>
-        <span class="text-sm opacity-70" x-text="(currentCampaign?.characters||[]).filter(c=>c.alive!==false).length + ' alive · ' + (currentCampaign?.characters||[]).filter(c=>c.alive===false).length + ' deceased/retired · ' + (currentCampaign?.parties||[]).length + ' parties'"></span>
+        <h2 class="font-bold text-xl">👥 Roster</h2>
+        <span class="text-sm opacity-70" x-show="rosterSubView==='characters'" x-text="(currentCampaign?.characters||[]).filter(c=>c.alive!==false).length + ' alive · ' + (currentCampaign?.characters||[]).filter(c=>c.alive===false).length + ' deceased/retired · ' + (currentCampaign?.parties||[]).length + ' parties'"></span>
       </div>
       <div class="flex flex-wrap gap-1 mt-2 border-b border-ink/40">
-        <button @click="charactersSubView='roster'" :class="charactersSubView==='roster' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='roster' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
-          Roster <span class="opacity-60 text-sm" x-text="'(' + filteredCharacters().length + ')'"></span>
-        </button>
-        <button @click="charactersSubView='parties'" :class="charactersSubView==='parties' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='parties' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
-          🧭 Parties <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.parties||[]).length + ')'"></span>
-        </button>
+        <template x-for="tab in rosterSubTabs" :key="tab.id">
+          <button @click="rosterSubView=tab.id"
+                  :class="rosterSubView===tab.id ? 'tab-active' : 'hover:bg-yellow-100'"
+                  class="px-3 py-1 text-sm border-b-2"
+                  :style="rosterSubView===tab.id ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'"
+                  x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
+        </template>
       </div>
     </div>
 
 
-    <!-- ───── Sub-tab: ROSTER ───── -->
-    <div x-show="charactersSubView==='roster'" class="vellum border border-ink rounded p-4">
+    <!-- ───── Sub-tab: CHARACTERS (roster) ───── -->
+    <div x-show="rosterSubView==='characters'" class="vellum border border-ink rounded p-4">
       <div class="flex flex-wrap justify-between items-baseline gap-3 mb-3">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <label>Control:
@@ -10407,7 +10411,7 @@ document.addEventListener('alpine:init', () => {
                   <!-- Structural roles: ruler (with vassal prefix when liege exists) + magistrate slots. -->
                   <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
                     <div>
-                      <button @click="selectedDomainId = r.domainId; currentView='world'; worldSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
+                      <button @click="selectedDomainId = r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
                               class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
                     </div>
                   </template>
@@ -10456,7 +10460,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <!-- ───── Sub-tab: PARTIES (Phase 2.6.5 placeholder) ───── -->
-    <div x-show="charactersSubView==='parties'" class="p-4" x-cloak>
+    <div x-show="rosterSubView==='groups'" class="p-4" x-cloak>
 
       <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
            loose units as three clickable-row tables. Clicking a row opens that group's
@@ -11748,7 +11752,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="text-right font-mono" x-text="(domainIncome(d)||0).toLocaleString() + 'gp/mo'"></td>
                     <td class="text-right font-mono" :class="computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'accent-green':'accent-red'" x-text="(computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'+':'') + computePersonalAuthority(characterEditing.level||1, domainIncome(d))"></td>
                     <td class="text-right font-mono" x-text="computeGpThreshold(characterEditing.level||1).toLocaleString() + 'gp'"></td>
-                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='world'; worldSubView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
+                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='domains'; domainsSubView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -14606,7 +14610,7 @@ document.addEventListener('alpine:init', () => {
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — per-agent NEW top-level HTML (views / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
 <!-- ── agent-1 (Religion R1): your new ⛪ Religion top-level view block goes below ── -->
 <!-- ═══════════ VIEW: RELIGION (R1 — divine power, RR pp.421–425) ═══════════ -->
-<div x-show="currentCampaign && currentView === 'religion'" class="p-4 space-y-4" x-cloak>
+<div x-show="currentCampaign && currentView === 'world' && worldSubView === 'religion'" class="p-4 space-y-4" x-cloak>
 
   <!-- Intro -->
   <div class="vellum border border-ink rounded p-4">
@@ -15829,7 +15833,7 @@ document.addEventListener('alpine:init', () => {
      renders inline. Thin Alpine layer over acks-engine-politics.js (senateVote / enactPolicy / the
      derived tally + benefits). State + methods live at the b5-politics domainApp marker. -->
 <!-- ═══════════ VIEW: SENATE (P-2 — voting + benefits + disputes, RR pp.355–360) ═══════════ -->
-<div x-show="currentCampaign && currentView === 'senate'" class="p-4 space-y-4" x-cloak>
+<div x-show="currentCampaign && currentView === 'domains' && domainsSubView === 'governance'" class="p-4 space-y-4" x-cloak>
 
   <!-- Intro + senate picker -->
   <div class="vellum border border-ink rounded p-4">
@@ -16372,7 +16376,7 @@ document.addEventListener('alpine:init', () => {
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
 <!-- ═══ Banking & Loans (team b7 — B1, #148; RR p.42 + p.313) ═══ -->
-<div x-show="currentCampaign && currentView === 'banking'" class="p-4 space-y-4" x-cloak>
+<div x-show="currentCampaign && currentView === 'activities' && activitiesSubView === 'banking'" class="p-4 space-y-4" x-cloak>
 
   <div class="vellum border border-ink rounded p-4">
     <h3 class="font-bold text-lg">🏦 Banking &amp; Loans</h3>
@@ -16529,7 +16533,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 
 </div>
-<div x-show="currentView === 'magic-items'" class="p-4" x-cloak>
+<div x-show="currentView === 'activities' && activitiesSubView === 'magic-items'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🪄 Magic Items <span class="text-sm opacity-70 font-normal" x-text="'· ' + magicItemList().length + ' notable'"></span></h3>
@@ -16734,7 +16738,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably.
      Wave B (team burst11) — gated on the knowledge-tracking master rule; + promote-rumor + provenance. -->
-<div x-show="currentView === 'knowledge' && isHouseRuleEnabled('knowledge-tracking')" class="p-4" x-cloak>
+<div x-show="currentView === 'roster' && rosterSubView === 'knowledge' && isHouseRuleEnabled('knowledge-tracking')" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h2 class="font-bold text-xl">📚 Knowledge <span class="text-sm opacity-70 font-normal">· the Lore your campaign tracks — who knows what, how reliably</span></h2>
@@ -17072,7 +17076,7 @@ document.addEventListener('alpine:init', () => {
      <template>/fixed-overlay modal AFTER your OWN marker (disjoint anchors → clean merge).
      A lane that only extends an existing tab edits that tab's region in-place instead. ─── -->
 <!-- === @b8-generators (team) — NPC Generator modal === -->
-<div x-show="currentCampaign && currentView === 'generators'" class="p-4" x-cloak>
+<div x-show="currentCampaign && currentView === 'roster' && rosterSubView === 'npc-generators'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
     <div class="flex items-baseline gap-3 flex-wrap">
       <h2 class="text-xl font-bold">🧙 NPC Generator</h2>
@@ -17703,7 +17707,7 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b9-sages      (team) — SG-3 retainer UI is folded INTO the Consult-a-Sage modal above (the 🤝 Retainer section, per the task); state+methods at the @b9-sages domainApp marker === -->
 <!-- === @b9-gladiators (team) — arena: schedule-bout / hold-game modal === -->
 <!-- ═══════════ VIEW: GLADIATORS (G2 — the arena, AXIOMS 4 pp.20–31) ═══════════ -->
-<div x-show="currentCampaign && currentView === 'gladiators'" class="p-4 space-y-4" x-cloak>
+<div x-show="currentCampaign && currentView === 'activities' && activitiesSubView === 'gladiators'" class="p-4 space-y-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
     <div class="flex items-baseline gap-3 flex-wrap">
       <h2 class="text-xl font-bold">⚔ Gladiators</h2>
@@ -19042,7 +19046,7 @@ document.addEventListener('alpine:init', () => {
      PREVIEW (per-row ⟳ re-roll via regenProposal / ✕ drop) the GM commits (landRoster → one shipped
      `generation` event per NPC). Ungated GM tooling — reads the census open-slot accessors READ-ONLY
      (it never edits the Demographics roster, the @b12-census lane's region). -->
-<div x-show="currentCampaign && currentView === 'generators'" class="px-4 pb-8" x-cloak>
+<div x-show="currentCampaign && currentView === 'roster' && rosterSubView === 'npc-generators'" class="px-4 pb-8" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-3">
     <div class="border-t border-ink/20 pt-4 flex items-baseline gap-3 flex-wrap">
       <h2 class="text-xl font-bold">👥 Roster &amp; Entourage</h2>
@@ -20027,13 +20031,13 @@ return {
   // Top-level view tabs. Extensible — add Phase 2.7 syndicates, Phase 4 senates, etc. by adding entries here.
   // #225 (2026-06-02): default is now World; the Domains manager (which hosts the first-run welcome
   // banner) is the default World sub-view, so the landing experience is unchanged.
-  currentView:'world',
+  currentView:'domains',   // UI overhaul 2026-06-22 — default lands on Domains (the heart of the tool + first-run welcome banner)
   campaignLogFilter:'',
   activeTab:'overview',
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
   // (Phase 4 senate, Phase 4.6 mines/mushroom-farms, etc.) will insert into this list conditionally.
   get tabs(){
-    return ['overview','demographics','economy','officers','military','vassalage','stronghold','history','raw'];
+    return ['overview','demographics','economy','officers','military','vassalage','stronghold','history'];   // 'raw' tab removed (UI overhaul 2026-06-22)
   },
   turnProposal:null,turnProposalError:'',   // (showTurnModal retired 2026-06-13 — the turn now stages in Review ▸ Domain Review)
   turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
@@ -20303,19 +20307,41 @@ return {
         this.selectedDomainId=sess.selectedDomainId||(this.domains[0]?this.domains[0].id:null);
         this.fileName=sess.fileName||'';
         if(sess.currentView)this.currentView=sess.currentView;
-        // #225 (2026-06-02): Map + Domains moved under World as sub-views. Migrate any stale
-        // top-level 'map'/'domains' currentView (incl. the OLD default 'domains') into World + the
-        // matching sub-view, then restore the persisted sub-view if present.
-        if(this.currentView==='map' || this.currentView==='domains'){ this.worldSubView=this.currentView; this.currentView='world'; }
+        // Restore persisted sub-views — the original two plus the new ones from the 2026-06-22 UI overhaul.
         if(sess.worldSubView)this.worldSubView=sess.worldSubView;
         if(sess.reviewSubView)this.reviewSubView=sess.reviewSubView;
-        // 2026-06-13: Encounters + Battles moved from World sub-views to the 📋 Review tab —
-        // migrate a stale restored sub-view so old sessions land on the new home.
+        if(sess.rosterSubView)this.rosterSubView=sess.rosterSubView;
+        if(sess.activitiesSubView)this.activitiesSubView=sess.activitiesSubView;
+        if(sess.domainsSubView)this.domainsSubView=sess.domainsSubView;
+        if(sess.eventsSubView)this.eventsSubView=sess.eventsSubView;
+        // ── Legacy session migration ──────────────────────────────────────────────
+        // (pre-#225) 'map' was a top-level view → now a World sub-view.
+        if(this.currentView==='map'){ this.worldSubView='map'; this.currentView='world'; }
+        // (pre-2026-06-13) Encounters + Battles were briefly World sub-views → now Events (id 'review').
         if(this.worldSubView==='encounters' || this.worldSubView==='battles'){
           if(this.currentView==='world'){ this.currentView='review'; this.reviewSubView=this.worldSubView; }
-          this.worldSubView='domains';
+          this.worldSubView='map';
         }
-        if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='world';
+        // ── UI overhaul 2026-06-22 — re-home the former top-level + World sub-views into their new homes.
+        // World ▸ Stashes/Lairs/Dungeons folded into World ▸ Points of Interest.
+        if(this.currentView==='world' && ['stashes','lairs','dungeons'].includes(this.worldSubView)) this.worldSubView='poi';
+        // World ▸ Domains promoted to its own top-level tab.
+        if(this.currentView==='world' && this.worldSubView==='domains'){ this.currentView='domains'; this.domainsSubView='domains'; }
+        // Former top-level tabs → sub-views.
+        if(this.currentView==='religion'){ this.currentView='world'; this.worldSubView='religion'; }
+        if(this.currentView==='senate'){ this.currentView='domains'; this.domainsSubView='governance'; }
+        if(this.currentView==='banking'){ this.currentView='activities'; this.activitiesSubView='banking'; }
+        if(this.currentView==='magic-items'){ this.currentView='activities'; this.activitiesSubView='magic-items'; }
+        if(this.currentView==='gladiators'){ this.currentView='activities'; this.activitiesSubView='gladiators'; }
+        if(this.currentView==='characters'){ this.currentView='roster'; this.rosterSubView=(sess.charactersSubView==='parties')?'groups':'characters'; }
+        if(this.currentView==='generators'){ this.currentView='roster'; this.rosterSubView='npc-generators'; }
+        if(this.currentView==='knowledge'){ this.currentView='roster'; this.rosterSubView='knowledge'; }
+        // Old standalone Events (chronicle/log) view folds under the Events ▸ Event Log sub-tab.
+        if(this.currentView==='events'){ this.currentView='review'; this.reviewSubView='event-log'; }
+        // Domain Review promoted out of Review into its own Domain Turn tab.
+        if(this.currentView==='review' && this.reviewSubView==='domain-review'){ this.currentView='domain-turn'; }
+        // Final safety net — land on the default if currentView is still unknown.
+        if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='domains';
         // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
         // 'inspect' (select is transient). A null/absent viewBox lazily re-fits on first map open.
         if(sess.mapPrefs){
@@ -20355,6 +20381,11 @@ return {
     // sub-view switches to Map; persist the active sub-view so a reload restores it.
     this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world'){ this._hexAddReturn = null; this._journeyDestPickAbandon(); this._journeyWaypointPickAbandon(); this._journeyMapView = null; } }); // left World entirely → abandon the add-hex / destination / waypoints / journey-view flows
     this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else { this._hexAddReturn = null; this._journeyDestPickAbandon(); this._journeyWaypointPickAbandon(); this._journeyMapView = null; } }); // left Map for another World sub-view → abandon the add-hex / destination / waypoints / journey-view flows
+    // UI overhaul 2026-06-22 — persist the new sub-views so a reload restores the exact sub-tab (parity with worldSubView).
+    this.$watch('rosterSubView',()=>this.schedulePersist());
+    this.$watch('domainsSubView',()=>this.schedulePersist());
+    this.$watch('activitiesSubView',()=>this.schedulePersist());
+    this.$watch('eventsSubView',()=>this.schedulePersist());
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -20400,6 +20431,7 @@ return {
         currentCampaign:this._campaignForCache(),   // domains live inside it now (single home); eventLog tail-capped for the cache only
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView, worldSubView:this.worldSubView, reviewSubView:this.reviewSubView,
+        rosterSubView:this.rosterSubView, activitiesSubView:this.activitiesSubView, domainsSubView:this.domainsSubView, eventsSubView:this.eventsSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
         // (plan §8); mode always restores to 'inspect' (select is transient).
         mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
@@ -20434,39 +20466,23 @@ return {
       const c = this.currentCampaign;
       reviewCount = (window.ACKS.dailyAdvanceBlockers(c) || []).length
         + (c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0)
-        + (this.dayTickProposal ? 1 : 0) + (this.turnProposal ? 1 : 0);
+        + (this.dayTickProposal ? 1 : 0);   // turnProposal badge now lives on the Domain Turn tab (de-dup)
     } catch(e){ reviewCount = 0; }
+    // UI overhaul 2026-06-22 — the 8 stable top-level tabs. Map/Domains are pulled out of World;
+    // the former conditional top-level tabs (religion, senate, banking, magic-items, knowledge,
+    // generators, gladiators) are now SUB-views of World/Domains/Roster/Activities (see the *SubTabs
+    // getters). 'review' keeps its internal id but is relabelled "📜 Events" (the old standalone
+    // 'events' chronicle/log view folds in as its Event-Log sub-tab). Domain Turn is the promoted
+    // old review/domain-review. All left-aligned, document order (no alignRight float).
     return [
-      // #225 (2026-06-02): Map + Domains are now World sub-views (see worldSubTabs), not top-level tabs.
-      { id:'world',        label:'🌍 World',           count: hexCount || null },
-      { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
-      { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
-      { id:'events',       label:'📜 Events',      count: (pendingEv + loggedEv) || null },
-      // Religion R1 (team 2026-06-13) — the ⛪ Religion top-level tab (sole tab-adder this burst).
-      { id:'religion',     label:'⛪ Religion',       count: (this.currentCampaign?.congregations||[]).length || null },
-      { id:'inspector',    label:'🔍 Inspector' },  // #555 Wave Inspector-B (2026-05-31)
-      { id:'house-rules',  label:'⚙ House Rules',     count: enabledRules || null },
-      // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
-      // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
-      // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
-      // P-7 (burst10): the tab also appears for an oligarchy-capable realm when rule-of-the-few is ON
-      // (so a GM can reach the ⚖ Governance card to establish/manage one even with no senate). Label
-      // adapts — 🏛 Senate when a senate exists, else ⚖ Governance. Hidden entirely when rule OFF + no senate.
-      ...((this.campaignHasSenate() || this.governanceTabAvailable()) ? [{ id:'senate', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null }] : []),
-      { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
-      { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
-      // Knowledge Layer (Wave B, team burst11 2026-06-20) — the 📚 Knowledge tab is now GATED on the
-      // knowledge-tracking master house rule (default OFF, opt-in). Hidden when off (principle 8 —
-      // non-functional AND hidden). The lore[]/knowledge[] data is benign core; the FEATURE gates here.
-      ...(this.isHouseRuleEnabled('knowledge-tracking') ? [{ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore||[]).length || null }] : []),
-      // === burst8 tab adds (team) — @b8-generators inserts its top-level tab entry here (the only lane that adds a tab; others extend an existing tab) ===
-      { id:'generators',   label:'🧙 Generators',     count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
-      // === burst9 tab adds (team) — @b9-gladiators inserts its ⚔ Gladiators top-level tab entry here (the only burst9 lane that adds a tab; others extend an existing tab) ===
-      // Gladiators G2 (#150, burst9) — the ⚔ Gladiators top-level tab, DORMANT-UNTIL-USED (present only
-      // when gladiator-games is on OR a school already exists; the gladiator-as-Character data is ungated core).
-      ...(this.gladiatorsTabVisible() ? [{ id:'gladiators', label:'⚔ Gladiators', count: (this.currentCampaign?.gladiatorSchools||[]).length || null }] : []),
-      // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
-      { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
+      { id:'world',        label:'🌍 World',        count: hexCount || null },
+      { id:'domains',      label:'🏰 Domains',      count: (this.domains||[]).length || null },
+      { id:'roster',       label:'👥 Roster',       count: aliveChars || null },
+      { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
+      { id:'inspector',    label:'🔍 Inspector' },
+      { id:'review',       label:'📜 Events',       count: (pendingEv + loggedEv) || null },
+      { id:'domain-turn',  label:'🏰 Domain Turn',  count: this.turnProposal ? 1 : null },
+      { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
     ];
   },
 
@@ -21268,7 +21284,7 @@ return {
   // cold-start realm with no senate can still reach the generator). Hidden when there's no realm.
   senGenLauncherVisible(){
     return !!(this.currentCampaign && this.senGenApexRows().length > 0
-      && (this.currentView === 'senate' || (this.currentView === 'world' && this.worldSubView === 'domains')));
+      && this.currentView === 'domains');
   },
   senGenCharName(id){ const ch = ((this.currentCampaign||{}).characters||[]).find(c => c && c.id === id); return (ch && (ch.name||ch.id)) || id; },
   openSenateGen(apexId){
@@ -21319,7 +21335,7 @@ return {
     this.markDirty(); this.schedulePersist();
     if(r && r.ok){
       this.senGen.open = false;
-      this.currentView = 'senate';
+      this.currentView = 'domains'; this.domainsSubView = 'governance';
       this.senateSelectedId = r.senate.id;
       this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + '.', 6000);
     } else {
@@ -25027,7 +25043,7 @@ return {
 
 
   // Phase 2.7 World — UI state for the World view
-  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' | 'stashes' | 'lairs' | 'dungeons' (default Domains — the heart of the tool + first-run welcome)
+  worldSubView:'map', // 'map' | 'hexes' | 'poi' | 'rumors' | 'religion' (UI overhaul 2026-06-22 — Domains/Stashes/Lairs/Dungeons moved out)
   // ── 📋 Review tab (2026-06-13) — the GM work queue: sub-view + the Pending Events cursors ──
   reviewSubView: 'pending-events',   // 'pending-events' | 'domain-review' | 'encounters' | 'battles'
   reviewDayOffset: 0,                // Daily Events calendar cursor — days relative to today
@@ -25130,7 +25146,7 @@ return {
     if(!r || !r.ok){ if(this.showToast) this.showToast('Could not deploy — ' + ((r && r.reason) || 'check the force')); return; }
     this.markDirty(); this.schedulePersist();
     this.garrisonDeployOpen = false;
-    this.currentView = 'characters'; this.charactersSubView = 'parties'; this.selectGroup('army', r.army.id);
+    this.currentView = 'roster'; this.rosterSubView = 'groups'; this.selectGroup('army', r.army.id);
     if(this.showToast) this.showToast('⚔ Deployed against ' + (band ? band.name : 'the band') + (r.journey ? ' — marching to meet them.' : ' — engaging.'));
   },
   // The Military-tab threats-table preview: the band vs the domain's whole garrison (the default
@@ -25323,7 +25339,7 @@ return {
     this.markDirty(); this.schedulePersist();
     this.musterArmyOpen = false;
     // jump to the merged Parties view focused on the new army (§12 Group model)
-    this.currentView = 'characters'; this.charactersSubView = 'parties'; this.selectGroup('army', army.id);
+    this.currentView = 'roster'; this.rosterSubView = 'groups'; this.selectGroup('army', army.id);
     const troops = (window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(this.currentCampaign, army) : 0);
     if(this.showToast) this.showToast('🎖 ' + (army.name || 'Army') + ' mustered — ' + troops.toLocaleString() + ' troops' + (callUp.length ? (', ' + callUp.length + ' marching in') : '') + '. Steer it here.');
   },
@@ -26164,44 +26180,41 @@ return {
   },
 
   get worldSubTabs(){
+    // UI overhaul 2026-06-22 — Map · Hexes · Points of Interest · Religion. Domains is promoted to a
+    // top-level tab; the located-POI collections (Stashes / Lairs / Dungeons) are absorbed by the
+    // combined Points-of-Interest view; Religion is re-homed here from a top-level tab.
     const tabs = [
-      { id:'map',     label:'🗺 Map',     count: null },
-      { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null },
-      { id:'hexes',   label:'⬡ Hexes',    count: null },
+      { id:'map',   label:'🗺 Map',   count: null },
+      { id:'hexes', label:'⬡ Hexes',  count: null },
+      { id:'poi',   label:'📍 Points of Interest',
+        count: ((this.currentCampaign?.lairs?.length||0) + (this.currentCampaign?.dungeons?.length||0) + (this.currentCampaign?.stashes?.length||0)) || null },
     ];
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
     }
-    // Stash subsystem is always-on core (inventory-stash-system rule removed v0.17.0).
-    tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
-    // #476 M7 — first-class lairs (campaign.lairs[]; RAW core, always on). Renamed Lairs →
-    // Monsters at E4h (Joachim 2026-06-11): the tab now also lists the LOOSE bands (migrant +
-    // pursuing groups) beneath the lairs, so it covers the world's monsters generally. The
-    // internal sub-view id stays 'lairs' (session-restore + deep-links unchanged); the count
-    // = recorded lairs + bands abroad.
-    tabs.push({ id:'lairs', label:'🐉 Monsters', count: ((this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) + this.monsterLooseBandRows().length) || null });
-    // === Delves D2 (burst4) — Dungeons sub-view (delve targets / arcane sources; campaign.dungeons[]). ===
-    tabs.push({ id:'dungeons', label:'🕳️ Dungeons', count: (this.currentCampaign && this.currentCampaign.dungeons ? this.currentCampaign.dungeons.length : 0) || null });
-    // Phase 3 Military W4 — armies moved into the merged Characters ▸ Parties view (§12
-    // Group model): parties, armies, and loose units live together there. No World tab.
-    // 2026-06-13 — Encounters + Battles moved to the 📋 Review tab (the GM work queue);
-    // their content blocks kept their markup, only the x-show gates flipped.
+    tabs.push({ id:'religion', label:'⛪ Religion', count: (this.currentCampaign?.congregations||[]).length || null });
     return tabs;
   },
 
-  // ── 📋 Review sub-tabs (2026-06-13) — Pending Events | Domain Review | Encounters | Battles.
-  // Badges: due pending events (+ a staged day), the staged turn, active encounters, battles
-  // in motion. The same numbers the top-tab badge sums.
+  // ── 📜 Events sub-tabs (UI overhaul 2026-06-22 — was the 📋 Review tab). Daily Events | Monthly
+  // Events | Event Log | Construction | Encounters | Battles | Sieges. The internal view id stays
+  // 'review'. Domain Review is promoted to its own top-level 'domain-turn' tab; the old standalone
+  // 'events' chronicle/log view folds in under Event Log (its inner eventsSubView toggle preserved).
   get reviewSubTabs(){
     const c = this.currentCampaign;
-    let due = 0, enc = 0, btl = 0, sie = 0;
-    try { due = c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0; } catch(e){}
+    let dueM = 0, blk = 0, enc = 0, btl = 0, sie = 0, con = 0;
+    const loggedEv = (c?.eventLog?.length) || 0;
+    try { dueM = c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0; } catch(e){}
+    try { blk = c ? (window.ACKS.dailyAdvanceBlockers(c) || []).length : 0; } catch(e){}
     try { enc = (window.ACKS.activeEncounters(c) || []).length; } catch(e){}
     try { btl = (window.ACKS.activeBattles(c) || []).length; } catch(e){}
     try { sie = (window.ACKS.activeSieges(c) || []).length; } catch(e){}   // Military W6 (burst3)
+    try { con = this.allConstructionProjects().length; } catch(e){}        // B6 — defined below
     return [
-      { id:'pending-events', label:'📥 Pending Events', count: (due + (this.dayTickProposal ? 1 : 0)) || null },
-      { id:'domain-review',  label:'🏰 Domain Review',  count: this.turnProposal ? 1 : null },
+      { id:'pending-events', label:'📥 Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
+      { id:'monthly-events', label:'📅 Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
+      { id:'event-log',      label:'📜 Event Log',      count: loggedEv || null },
+      { id:'construction',   label:'🏗 Construction',   count: con || null },
       { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
       { id:'battles',        label:'🎌 Battles',        count: btl || null },
       { id:'sieges',         label:'🏯 Sieges',         count: sie || null }
@@ -26364,8 +26377,10 @@ return {
   },
   // Phase 2b — UI state for the Ventures view
   venturesSubView:'active', // 'active' | 'history' | 'venturers' | 'passive' | 'reference'
-  // Phase 2.6 — UI state for the Characters view
-  charactersSubView:'roster', // 'roster' | 'parties'
+  // UI overhaul 2026-06-22 — Roster sub-view (was charactersSubView; values roster→characters,
+  // parties→groups) + Domains sub-view. The Characters view is now Roster ▸ Characters.
+  rosterSubView:'characters', // 'characters' | 'monsters' | 'groups' | 'settlements' | 'ships' | 'npc-generators' | 'knowledge'
+  domainsSubView:'domains',   // 'domains' | 'governance'
   // §12 Group model — the merged "Parties" view selection (one detail open at a time).
   groupSelKind: null,        // null | 'party' | 'army' | 'unit'
   partySelectedId: null,
@@ -26380,14 +26395,43 @@ return {
   // sub-view matches the first tab.
   activitiesSubView: 'activities',
   get activitiesSubTabs(){
-    return [
+    // UI overhaul 2026-06-22 — Market / Banking / Magic Items added; Gladiators re-homed here (conditional).
+    const tabs = [
       { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'market',         label:'🛒 Market',        ready: true,  count: null, placeholderNote: '' },
+      { id:'banking',        label:'🏦 Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
+      { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
+    if(this.gladiatorsTabVisible())
+      tabs.push({ id:'gladiators', label:'🏟 Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
+    return tabs;
+  },
+  // UI overhaul 2026-06-22 — Roster sub-tabs: Characters · Monsters · Groups · Settlements · Ships ·
+  // NPC Generators (+ Knowledge when the knowledge-tracking rule is on).
+  get rosterSubTabs(){
+    const tabs = [
+      { id:'characters',     label:'👤 Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
+      { id:'monsters',       label:'🐉 Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
+      { id:'groups',         label:'🧭 Groups',         count: (this.currentCampaign?.parties?.length) || null },
+      { id:'settlements',    label:'🏘 Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
+      { id:'ships',          label:'⛵ Ships',          count: (this.currentCampaign?.vessels?.length) || null },
+      { id:'npc-generators', label:'🧙 NPC Generators', count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
+    ];
+    if(this.isHouseRuleEnabled('knowledge-tracking'))
+      tabs.push({ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore?.length) || null });
+    return tabs;
+  },
+  // UI overhaul 2026-06-22 — Domains sub-tabs: Domains (+ Governance/Senate, dormant-until-used).
+  get domainsSubTabs(){
+    const tabs = [ { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null } ];
+    if(this.campaignHasSenate() || this.governanceTabAvailable())
+      tabs.push({ id:'governance', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null });
+    return tabs;
   },
   // Legacy: anything that sets currentView='ventures' now redirects through Activities > Ventures sub-tab.
   redirectLegacyVenturesNav(){
@@ -27450,7 +27494,7 @@ return {
   startJourneyDeepLink(opts){
     opts = opts || {};
     this._journeyResetWizard();
-    const origin = { view:this.currentView, charactersSubView:this.charactersSubView, activitiesSubView:this.activitiesSubView };
+    const origin = { view:this.currentView, rosterSubView:this.rosterSubView, activitiesSubView:this.activitiesSubView };
     if(opts.characterId){
       this.journeyWizard.participantIds = [opts.characterId];
       const c = (this.currentCampaign?.characters||[]).find(x=>x.id===opts.characterId);
@@ -27470,7 +27514,7 @@ return {
     if(origin){
       this.currentView = origin.view || 'activities';
       this.activitiesSubView = origin.activitiesSubView || 'journeys';
-      if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+      if(origin.rosterSubView) this.rosterSubView = origin.rosterSubView;
     }
   },
   startJourneySubmit(){
@@ -28638,7 +28682,7 @@ return {
     // Capture origin BEFORE recruitStart so we can return after submit/cancel.
     const origin = {
       view: this.currentView,
-      charactersSubView: this.charactersSubView,
+      rosterSubView: this.rosterSubView,
       activitiesSubView: this.activitiesSubView,
       selectedDomainId: this.selectedDomainId,
       activeTab: this.activeTab
@@ -28817,7 +28861,7 @@ return {
     // §310.3f-fix6 — restore origin view if we deep-linked from elsewhere.
     if(origin){
       if(origin.view) this.currentView = origin.view;
-      if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+      if(origin.rosterSubView) this.rosterSubView = origin.rosterSubView;
       if(origin.activitiesSubView) this.activitiesSubView = origin.activitiesSubView;
       if(origin.selectedDomainId) this.selectedDomainId = origin.selectedDomainId;
       if(origin.activeTab) this.activeTab = origin.activeTab;
@@ -29353,8 +29397,8 @@ return {
   },
   // Jump to Characters › Parties, select the party, and scroll its detail into view.
   openPartyView(partyId){
-    this.currentView = 'characters';
-    this.charactersSubView = 'parties';
+    this.currentView = 'roster';
+    this.rosterSubView = 'groups';
     if(partyId) this.selectGroup('party', partyId);
     setTimeout(() => {
       const el = partyId && document.getElementById('party-card-' + partyId);
@@ -29442,7 +29486,7 @@ return {
     const armyId = army.id;
     this.mapBeginSelect((hexId) => {
       this.armyMarchDest = hexId || '';
-      this.currentView = 'characters'; this.charactersSubView = 'parties';
+      this.currentView = 'roster'; this.rosterSubView = 'groups';
       this.selectGroup('army', armyId);
     }, 'Click the destination hex for the march, then ✓ confirm.');
   },
@@ -32243,8 +32287,8 @@ return {
     this.fileHandle = null;
     this.fileName = '';
     this.mapViewBox = null;
-    this.currentView = 'world';      // the welcome banner lives on World ▸ Domains
-    this.worldSubView = 'domains';
+    this.currentView = 'domains';    // the welcome banner lives on the Domains tab
+    this.domainsSubView = 'domains';
     this.dirty = false;
     const release = () => { this._ignoreMutations = false; this.dirty = false; };
     if(typeof this.$nextTick === 'function') this.$nextTick(release); else setTimeout(release, 0);
@@ -33932,7 +33976,7 @@ return {
       const result = window.ACKS.proposeMonthlyTurn(this.currentCampaign);
       if(result.error){
         this.turnProposalError = result.error;
-        this.goToReview('domain-review');
+        this.currentView='domain-turn';
         return;
       }
       this.turnEventProposals   = result.turnEventProposals;
@@ -33940,11 +33984,11 @@ return {
       this.turnProposal         = result.turnProposal;
       this.turnLivingExpenseProposal = result.livingExpenseProposal || null;   // CoL-2 preview
       this.turnSyndicateTributeProposal = result.syndicateTributeProposal || null;   // HJ-2 preview
-      this.goToReview('domain-review');   // 2026-06-13 — the turn stages in Review ▸ Domain Review (was a modal)
+      this.currentView='domain-turn';   // 2026-06-13 — the turn stages in Review ▸ Domain Review (was a modal)
     } catch(e){
       console.error('proposeMonthlyTurn error', e);
       this.turnProposalError = 'Failed to propose turn: ' + e.message;
-      this.goToReview('domain-review');
+      this.currentView='domain-turn';
     }
   },
 
