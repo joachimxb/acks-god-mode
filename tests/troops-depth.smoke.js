@@ -92,7 +92,7 @@ section('Levy setters — conscripts/militia as Units (RR pp.430–433)');
   ok('levied 100 conscripts', con && con.count === 100 && con.source === 'conscript');
   ok('conscript untrained: 3gp wage, type untrained-levy', con.monthlyWage === 3 && con.unitTypeKey === 'untrained-levy');
   ok('conscript morale: −2 base + steadfast +1 (moraleAdjustment +1, loyalty +1)', con.moraleAdjustment === 1 && con.loyalty === 1);
-  ok('conscript carries homeDomainId + calledUp + stationed in garrison', con.homeDomainId === 'dom-c' && con.calledUp === true && con.stationedAt && con.stationedAt.kind === 'domain-garrison');
+  ok('conscript carries ownerDomainId + calledUp + stationed in garrison', con.ownerDomainId === 'dom-c' && con.calledUp === true && con.stationedAt && con.stationedAt.kind === 'domain-garrison');
   ok('conscriptCount reads it back', A.conscriptCount(camp, d) === 100);
   ok('in campaign.units, stationed to the garrison (single home)', camp.units.some(u => u.id === con.id) && A.unitsStationedAt(camp, { kind: 'domain-garrison', id: d.id }).some(u => u.id === con.id));
   // over-cap clamps to remaining room (120 cap − 100 = 20), never rejects
@@ -198,7 +198,7 @@ section('Training qualifying cap is POOL-WIDE, not per-unit (RR p.431, 2026-06-1
   const rx = A.trainLevyUnit(camp2, x, { targetTroopType: 'heavy-infantry', count: 30 });
   const ry = A.trainLevyUnit(camp2, y, { targetTroopType: 'heavy-infantry', count: 30 });
   ok('two units 30+30 heavy = 60 total fits the shared 120-pool cap', rx.trained === 30 && ry.trained === 30 && A.domainLevyTrainedOfType(camp2, 'dom-share', 'conscript', 'heavy-infantry') === 60);
-  const leftover = camp2.units.find(u => u.homeDomainId === 'dom-share' && u.unitTypeKey === 'untrained-levy' && !u.trainingState);   // a true untrained remainder, not an in-training cohort (still typed untrained-levy until it completes)
+  const leftover = camp2.units.find(u => u.ownerDomainId === 'dom-share' && u.unitTypeKey === 'untrained-levy' && !u.trainingState);   // a true untrained remainder, not an in-training cohort (still typed untrained-levy until it completes)
   ok('a leftover untrained unit can’t add more heavy (pool cap 60 reached)', leftover && A.trainLevyUnit(camp2, leftover, { targetTroopType: 'heavy-infantry' }).reason === 'too-few-qualify');
 }
 
@@ -474,7 +474,7 @@ section('Realm-scale mercenary recruitment (RR p.428; W7-continuation)');
   const r = A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 50, instant: true, rng: seq });
   ok('recruited 50 — a real light-infantry mercenary unit (not untrained-levy)', r && r.recruited === 50 && r.unit.unitTypeKey === 'light-infantry' && r.unit.source === 'mercenary' && r.unit.count === 50);
   ok('the merc unit draws the RAW mercenary wage (light-infantry = 6gp/mo)', r.unit.monthlyWage === 6);
-  ok('stationed in the garrison + homeDomainId set + calledUp', r.unit.homeDomainId === 'dom-rc' && r.unit.calledUp === true && r.unit.stationedAt && r.unit.stationedAt.kind === 'domain-garrison');
+  ok('stationed in the garrison + ownerDomainId set + calledUp', r.unit.ownerDomainId === 'dom-rc' && r.unit.calledUp === true && r.unit.stationedAt && r.unit.stationedAt.kind === 'domain-garrison');
   ok('a realm fee was rolled (4d10×10 = 40..400, multiple of 10) + debited from the treasury', r.feeGp >= 40 && r.feeGp <= 400 && r.feeGp % 10 === 0 && (1000000 - dc.treasury.gp) === r.feeGp);
   ok('availability decremented: 85 − 50 = 35 left this period', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 35);
 
@@ -607,8 +607,8 @@ section('Standing-army capacity (RR p.434 — Vassal Troops by Realm Size)');
 
   // realmStandingArmyCapacity — tier caps + the realm's current fielded force.
   const d = mkDomain(1150, 1, 'dom-realm'); const camp = mkCamp([d], 1);
-  const u1 = A.blankUnit({ unitTypeKey: 'light-infantry', count: 80, displayName: 'Foot' }); u1.homeDomainId = 'dom-realm'; u1.count = 80;
-  const u2 = A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 30, displayName: 'Heavy' }); u2.homeDomainId = 'dom-realm'; u2.count = 30;
+  const u1 = A.blankUnit({ unitTypeKey: 'light-infantry', count: 80, displayName: 'Foot' }); u1.ownerDomainId = 'dom-realm'; u1.count = 80;
+  const u2 = A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 30, displayName: 'Heavy' }); u2.ownerDomainId = 'dom-realm'; u2.count = 30;
   camp.units.push(u1, u2);
   const cap = A.realmStandingArmyCapacity(camp, 'dom-realm');
   ok('capacity read: Viscount tier', cap && cap.tier === 'viscount' && cap.title === 'Viscount');
@@ -622,13 +622,13 @@ section('Standing-army capacity (RR p.434 — Vassal Troops by Realm Size)');
 
   // over the RAW capacity — a baron fielding 50 (max standing army 20).
   const db = mkDomain(150, 1, 'dom-baron'); const campB = mkCamp([db], 1);
-  const ub = A.blankUnit({ unitTypeKey: 'light-infantry', count: 50 }); ub.homeDomainId = 'dom-baron'; ub.count = 50; campB.units.push(ub);
+  const ub = A.blankUnit({ unitTypeKey: 'light-infantry', count: 50 }); ub.ownerDomainId = 'dom-baron'; ub.count = 50; campB.units.push(ub);
   const capB = A.realmStandingArmyCapacity(campB, 'dom-baron');
   ok('over-cap: Baron tier, 50 troops > the RAW max 20 → fitsArmyCap false',
      capB.tier === 'baron' && capB.currentRealmTroops === 50 && capB.maxStandingArmy === 20 && capB.fitsArmyCap === false);
 
   // a unit homed in a NON-realm domain is not counted.
-  const uOther = A.blankUnit({ unitTypeKey: 'light-infantry', count: 40 }); uOther.homeDomainId = 'dom-elsewhere'; uOther.count = 40; camp.units.push(uOther);
+  const uOther = A.blankUnit({ unitTypeKey: 'light-infantry', count: 40 }); uOther.ownerDomainId = 'dom-elsewhere'; uOther.count = 40; camp.units.push(uOther);
   ok('a foreign-homed unit is not counted in the realm force (still 110)',
      A.realmStandingArmyCapacity(camp, 'dom-realm').currentRealmTroops === 110);
 

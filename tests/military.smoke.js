@@ -151,7 +151,7 @@ ok('blankUnit id uses the unit- prefix', /^unit-/.test(u1.id));
 ok('blankUnit military fields', u1.race === 'man' && u1.veteran === false && u1.elite === false && u1.casualties === 0 &&
    u1.source === 'mercenary' && u1.scale === 'company' && u1.supplyState === 'supplied' &&
    Array.isArray(u1.calamities) && u1.loyalty === 0 && u1.moraleAdjustment === 0 && u1.stationedAt === null);
-ok('blankUnit home fields default null (lazy — old units read null)', u1.homeHexId === null && u1.homeDomainId === null);
+ok('blankUnit ownerDomainId defaults null; no home/location fields', u1.ownerDomainId === null && !('homeHexId' in u1) && !('stationedAtHexId' in u1));
 ok('explicit opts win over the catalog', ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', monthlyWage: 99 }).monthlyWage === 99);
 const gu = ACKS.blankGarrisonUnit({ unitTypeKey: 'light-infantry' });
 ok('blankGarrisonUnit delegates (superset shape + catalog defaults, not the old 0.034)',
@@ -413,99 +413,76 @@ section('createArmy / muster / disbandArmy (the Action + Admin verb engine)');
   ok('disbandArmy removes the army', camp.armies.length === before - 1 && !ACKS.findArmy(camp, army.id));
   ok('disbanded units RETURN to their auto-captured home garrison (mustered from dom-a → back to dom-a)', (() => {
     const u = camp.units.find(x => x.id === 'unit-1');
-    return !!u && u.homeDomainId === 'dom-a' && u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-a';
+    return !!u && u.ownerDomainId === 'dom-a' && u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-a';
   })());
 }
 
-section('call-up / rally-to-muster (the hard-constraint reinforcement — units march in, no teleport)');
+section('call-up via muster (the abstract mobilization — units muster in over a week, no march)');
 {
   const c = { currentTurn: 3, currentDayInMonth: 1, characters: [], journeys: [], armies: [], units: [],
-    domains: [{ id: 'dom-far', name: 'Far Hold', garrison: { units: [] } }],
+    domains: [{ id: 'dom-far', name: 'Far Hold' }],
     hexes: [{ id: 'hex-muster', domainId: null, coord: { q: 0, r: 0 }, terrain: 'grassland' },
             { id: 'hex-far', domainId: 'dom-far', coord: { q: 3, r: 0 }, terrain: 'grassland' }] };
   ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far', displayName: 'Far Bows', unitTypeKey: 'longbowman', count: 60, brPerSoldier: 0.02 }), { kind: 'domain-garrison', id: 'dom-far' });
-  ok('unitCurrentHexId resolves a garrison unit to its domain seat', ACKS.unitCurrentHexId(c, c.units[0]) === 'hex-far');
-  ok('unitMarchMilesPerDay reads the troop daily move (longbowman 18)', ACKS.unitMarchMilesPerDay(c.units[0]) === 18);
+  ok('a garrisoning unit has NO map coordinate (abstract — muster model)', ACKS.unitCurrentHexId(c, c.units[0]) === null);
+  ok('unitOwnerDomainId resolves the garrison station', ACKS.unitOwnerDomainId(c, c.units[0]) === 'dom-far');
 
   const army = ACKS.createArmy(c, { name: 'Muster Host', leaderCharacterId: 'chr-x', currentHexId: 'hex-muster' });
   const r = ACKS.callUpUnit(c, 'unit-far', army.id);
-  ok('callUpUnit on a DISTANT unit plots a rally march', r.action === 'marching' && !!r.journeyId);
-  ok('the called-up unit LEAVES its garrison (un-stationed — marched out)', c.units[0].stationedAt === null && c.domains[0].garrison.units.length === 0);
-  ok('it is NOT in the army\'s present strength yet', ACKS.armyUnits(c, army).length === 0);
-  ok('rallyingToArmyId marks it incoming', c.units[0].rallyingToArmyId === army.id && c.units[0].rallyJourneyId === r.journeyId);
+  ok('callUpUnit on a garrison unit MUSTERS it (no march)', r.action === 'mustering');
+  ok('the called-up unit LEAVES its garrison (un-stationed, no journey)', c.units[0].stationedAt === null && (c.journeys||[]).length === 0);
+  ok('it is NOT in the army present strength yet', ACKS.armyUnits(c, army).length === 0);
+  ok('the move-muster records the army destination + an arrival ord', c.units[0].musterState && c.units[0].musterState.destination.kind === 'army' && c.units[0].musterState.destination.id === army.id && c.units[0].musterState.arrivesAtOrd > 0);
   const inc = ACKS.armyIncomingUnits(c, army);
-  ok('armyIncomingUnits reports it with distance (3 hexes / 18 mi / 1 day)', inc.length === 1 && inc[0].hexesRemaining === 3 && inc[0].milesRemaining === 18 && inc[0].daysRemaining === 1 && inc[0].fromHexId === 'hex-far');
+  ok('armyIncomingUnits reports it with days remaining (a week)', inc.length === 1 && inc[0].daysRemaining === 7);
 
-  ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {}));
-  ok('on arrival the unit falls in (stationed to the army, markers cleared)', c.units[0].stationedAt && c.units[0].stationedAt.kind === 'army' && c.units[0].rallyingToArmyId == null && c.units[0].rallyJourneyId == null);
+  // advance the Day Clock a week — the muster completes + the unit takes up its post
+  let guard = 0;
+  while(c.units[0].musterState && guard++ < 14){ ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {})); }
+  ok('on arrival the unit falls in (stationed to the army, muster cleared)', c.units[0].stationedAt && c.units[0].stationedAt.kind === 'army' && !c.units[0].musterState && (c.units[0].musterPending||0) === 0);
   ok('it now counts in the army strength', ACKS.armyUnits(c, army).length === 1 && ACKS.armyIncomingUnits(c, army).length === 0);
 
-  // a CO-LOCATED unit joins at once (no march)
+  // a CO-LOCATED detachment (standing at the army hex) joins at once
   ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-here', displayName: 'Local Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'hex', id: 'hex-muster' });
   const r2 = ACKS.callUpUnit(c, 'unit-here', army.id);
-  ok('callUpUnit on a CO-LOCATED unit joins at once (no journey)', r2.action === 'joined' && c.units.find(u => u.id === 'unit-here').stationedAt.kind === 'army');
+  ok('callUpUnit on a CO-LOCATED unit joins at once', r2.action === 'joined' && c.units.find(u => u.id === 'unit-here').stationedAt.kind === 'army');
 
-  // createArmy with callUpUnitIds marches distant units in
+  // createArmy with callUpUnitIds musters distant units in
   ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far2', displayName: 'Far Horse', unitTypeKey: 'light-cavalry', count: 30 }), { kind: 'domain-garrison', id: 'dom-far' });
   const army2 = ACKS.createArmy(c, { name: 'Second Host', leaderCharacterId: 'chr-y', currentHexId: 'hex-muster', callUpUnitIds: ['unit-far2'] });
-  ok('createArmy callUpUnitIds marches distant units in (incoming, not present)', ACKS.armyIncomingUnits(c, army2).length === 1 && ACKS.armyUnits(c, army2).length === 0);
+  ok('createArmy callUpUnitIds musters distant units in (incoming, not present)', ACKS.armyIncomingUnits(c, army2).length === 1 && ACKS.armyUnits(c, army2).length === 0);
 }
 
-section('unit home garrison (2026-06-14) — default station + return-on-task-end');
+section('unit ownership + return-to-garrison on task end (2026-06-22 muster model)');
 {
   const c = { currentTurn: 5, currentDayInMonth: 1,
     characters: [{ schemaVersion: 2, id: 'chr-r', name: 'Roric', alive: true }],
-    domains: [{ id: 'dom-h', name: 'Hold', rulerCharacterId: 'chr-r', garrison: { units: [] } },
-              { id: 'dom-o', name: 'Other', garrison: { units: [] } }],
+    domains: [{ id: 'dom-h', name: 'Hold', rulerCharacterId: 'chr-r' }, { id: 'dom-o', name: 'Other' }],
     journeys: [], armies: [], units: [],
     hexes: [{ id: 'hex-seat', domainId: 'dom-h', coord: { q: 0, r: 0 }, terrain: 'grassland' },
-            { id: 'hex-keep', domainId: 'dom-h', coord: { q: 1, r: 0 }, terrain: 'hills' },
             { id: 'hex-free', domainId: null,   coord: { q: 5, r: 0 }, terrain: 'grassland' }] };
 
-  // setUnitHome — validation, set, clear
-  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-h', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-h' });
-  const sr = ACKS.setUnitHome(c, 'unit-h', 'hex-keep');
-  ok('setUnitHome accepts a hex inside a domain', sr.ok === true && u.homeHexId === 'hex-keep' && u.homeDomainId === 'dom-h');
-  ok('setUnitHome stamps a home-set history entry', u.history.some(h => h.type === 'home-set'));
-  ok('setUnitHome snaps the map hint to the home when not in the field', u.stationedAtHexId === 'hex-keep');
-  const bad = ACKS.setUnitHome(c, u, 'hex-free');
-  ok('setUnitHome rejects a hex NOT inside a domain', bad.ok === false && bad.reason === 'hex-not-in-domain');
-  ok('setUnitHome rejects an unknown hex', ACKS.setUnitHome(c, u, 'hex-nope').reason === 'no-hex');
-  ok('setUnitHome(null) clears the home', ACKS.setUnitHome(c, u, null).cleared === true && u.homeHexId === null);
+  // unitOwnerDomainId resolution: explicit ownerDomainId, else the garrison station, else null.
+  ok('unitOwnerDomainId reads ownerDomainId first', ACKS.unitOwnerDomainId(c, { ownerDomainId: 'dom-o' }) === 'dom-o');
+  ok('unitOwnerDomainId falls back to the garrison station', ACKS.unitOwnerDomainId(c, { stationedAt: { kind: 'domain-garrison', id: 'dom-h' } }) === 'dom-h');
+  ok('unitOwnerDomainId is null for an owner-less unit', ACKS.unitOwnerDomainId(c, { stationedAt: { kind: 'hex', id: 'hex-free' } }) === null);
 
-  // unitHomeDomainId resolution order
-  ok('unitHomeDomainId reads homeDomainId first', ACKS.unitHomeDomainId(c, { homeDomainId: 'dom-o' }) === 'dom-o');
-  ok('unitHomeDomainId falls back to the garrison station', ACKS.unitHomeDomainId(c, { stationedAt: { kind: 'domain-garrison', id: 'dom-h' } }) === 'dom-h');
-  ok('unitHomeDomainId derives from the home hex', ACKS.unitHomeDomainId(c, { homeHexId: 'hex-keep' }) === 'dom-h');
-  ok('unitHomeDomainId is null for a domain-less unit', ACKS.unitHomeDomainId(c, { stationedAt: { kind: 'hex', id: 'hex-free' } }) === null);
-
-  // auto-capture on leaving the garrison, then return on disband
+  // disband returns units to GARRISONING their owner domain — instantly, no march.
+  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-h', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60, ownerDomainId: 'dom-h' }), { kind: 'domain-garrison', id: 'dom-h' });
   const army = ACKS.createArmy(c, { name: 'Sortie', leaderCharacterId: 'chr-r', currentHexId: 'hex-seat', unitIds: ['unit-h'] });
-  ok('mustering auto-captures the garrison as home (homeHexId = the seat hex)', u.homeHexId === 'hex-seat' && u.homeDomainId === 'dom-h' && u.stationedAt.kind === 'army');
+  ok('a unit added to an army keeps its ownerDomainId', u.ownerDomainId === 'dom-h' && u.stationedAt.kind === 'army');
   ACKS.disbandArmy(c, army.id);
-  ok('disband AT home returns the unit to its garrison instantly (stationed + hint snapped)', u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-h' && u.stationedAtHexId === 'hex-seat');
+  ok('disband re-garrisons the unit to its owner domain (instant, no journey)',
+     u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-h' && (c.journeys||[]).length === 0);
   ok('disband stamps a returned-home history entry', u.history.some(h => h.type === 'returned-home'));
+  ok('a garrisoning unit has no map coordinate', ACKS.unitCurrentHexId(c, u) === null);
 
-  // return MARCH — disbanded AWAY from home, the unit marches back (not a teleport)
-  const exped = ACKS.createArmy(c, { name: 'Expedition', leaderCharacterId: 'chr-r', currentHexId: 'hex-free' });
-  const w = ACKS.blankUnit({ id: 'unit-w', displayName: 'Wardens', unitTypeKey: 'light-infantry', count: 50, homeHexId: 'hex-keep', homeDomainId: 'dom-h' });
-  ACKS.stationUnit(c, w, { kind: 'army', id: exped.id });           // campaigning with the expedition at hex-free; home is hex-keep
-  ACKS.disbandArmy(c, exped.id);
-  const wj = (c.journeys || []).find(j => j && j.unitId === 'unit-w' && j.unitReturnHome);
-  ok('disband AWAY from home plots a return MARCH (a unit journey home), not a teleport',
-     !!wj && wj.destinationHexId === 'hex-keep' && wj.status === 'in-transit' && w.stationedAt === null && w.returnJourneyId === wj.id);
-  ok('the unit stamps a marching-home history entry', w.history.some(h => h.type === 'marching-home'));
-  let guard = 0;
-  while(w.returnJourneyId && guard++ < 15){ ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {})); }
-  ok('on arrival the unit falls into its home garrison (it marched home, not teleported)',
-     w.stationedAt && w.stationedAt.kind === 'domain-garrison' && w.stationedAt.id === 'dom-h' && w.stationedAtHexId === 'hex-keep' && w.returnJourneyId === null);
-
-  // a unit mustered from no garrison keeps the prior homeless-on-disband behaviour
+  // a unit with NO owner domain disbands UNSTATIONED (a free band — backward compatible).
   const v = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-merc', displayName: 'Sellswords', unitTypeKey: 'light-infantry', count: 40 }), { kind: 'hex', id: 'hex-free' });
   const army2 = ACKS.createArmy(c, { name: 'Free Company', leaderCharacterId: 'chr-r', currentHexId: 'hex-free', unitIds: ['unit-merc'] });
-  ok('a unit mustered from no garrison captures no home', !v.homeHexId && !v.homeDomainId);
+  ok('an owner-less unit has no owner domain', !v.ownerDomainId && ACKS.unitOwnerDomainId(c, v) === null);
   ACKS.disbandArmy(c, army2.id);
-  ok('a home-less unit disbands UNSTATIONED (re-musterable, as before)', v.stationedAt === null);
+  ok('an owner-less unit disbands UNSTATIONED (re-musterable)', v.stationedAt === null);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -519,11 +496,11 @@ section('add / remove a unit from an army (the Garrison-table membership verbs, 
             { id: 'hex-away', domainId: 'dom-a', coord: { q: 4, r: 0 }, terrain: 'grassland' }] };
   const army = ACKS.createArmy(c, { name: 'Field Host', leaderCharacterId: 'chr-cmd', currentHexId: 'hex-seat' });
   ok('a fresh army (no roster) has no units + no divisions', ACKS.armyUnits(c, army).length === 0 && (army.divisions || []).length === 0);
-  const uFoot = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-foot', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-a' });
+  const uFoot = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-foot', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60, ownerDomainId: 'dom-a' }), { kind: 'hex', id: 'hex-seat' });   // a detachment standing at the army hex
 
   // armiesAtHex — the UI's co-located-army finder
   ok('armiesAtHex finds the army at the seat, none away', ACKS.armiesAtHex(c, 'hex-seat').length === 1 && ACKS.armiesAtHex(c, 'hex-away').length === 0);
-  ok('the garrison unit sits at the seat (co-located with the army)', ACKS.unitCurrentHexId(c, uFoot) === 'hex-seat');
+  ok('the detachment stands at the seat (co-located with the army)', ACKS.unitCurrentHexId(c, uFoot) === 'hex-seat');
 
   // addUnitToArmy — co-located join + division placement
   const ar = ACKS.addUnitToArmy(c, 'unit-foot', army.id);
@@ -537,6 +514,10 @@ section('add / remove a unit from an army (the Garrison-table membership verbs, 
   // not-co-located refusal (RR — no teleport; the army-card call-up marches distant troops in)
   const uFar = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far', displayName: 'Far Foot', unitTypeKey: 'light-infantry', count: 50 }), { kind: 'hex', id: 'hex-away' });
   ok('addUnitToArmy refuses a unit NOT at the army\'s hex', ACKS.addUnitToArmy(c, 'unit-far', army.id).reason === 'not-co-located' && uFar.stationedAt.kind === 'hex');
+  // a GARRISONING unit (abstract, no hex) can't co-locate either — it must MUSTER in
+  const uGarr = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-garr', displayName: 'Garrison Foot', unitTypeKey: 'light-infantry', count: 40, ownerDomainId: 'dom-a' }), { kind: 'domain-garrison', id: 'dom-a' });
+  ok('addUnitToArmy refuses a garrisoning unit (no coordinate — muster instead)', ACKS.addUnitToArmy(c, 'unit-garr', army.id).reason === 'not-co-located');
+  ok('callUpUnit musters the garrisoning unit in', ACKS.callUpUnit(c, 'unit-garr', army.id).action === 'mustering');
 
   // removeUnitFromArmy — LEFT WHERE THE ARMY STANDS (not marched home)
   const rr = ACKS.removeUnitFromArmy(c, 'unit-foot');
@@ -555,77 +536,49 @@ section('add / remove a unit from an army (the Garrison-table membership verbs, 
   ok('addUnitToArmy to a leaderless army stations it (fights) without forcing a division',
      ar2.ok === true && ACKS.armyUnits(c, free).length === 1 && (free.divisions || []).length === 0);
 
-  // marching-in (rallyingToArmyId) → remove CANCELS the call-up + falls home instantly
+  // mustering-in (move-muster to an army) → remove CANCELS the call-up + falls back to garrison
   const cc = { currentTurn: 2, currentDayInMonth: 1, characters: [{ schemaVersion: 2, id: 'chr-z', alive: true }],
-    domains: [{ id: 'dom-z', name: 'Z', garrison: { units: [] } }], journeys: [], armies: [], units: [],
+    domains: [{ id: 'dom-z', name: 'Z' }], journeys: [], armies: [], units: [],
     hexes: [{ id: 'hex-muster', domainId: null, coord: { q: 0, r: 0 }, terrain: 'grassland' },
             { id: 'hex-zseat', domainId: 'dom-z', coord: { q: 3, r: 0 }, terrain: 'grassland' }] };
-  ACKS.stationUnit(cc, ACKS.blankUnit({ id: 'unit-march', displayName: 'Marchers', unitTypeKey: 'longbowman', count: 60 }), { kind: 'domain-garrison', id: 'dom-z' });
+  ACKS.stationUnit(cc, ACKS.blankUnit({ id: 'unit-march', displayName: 'Marchers', unitTypeKey: 'longbowman', count: 60, ownerDomainId: 'dom-z' }), { kind: 'domain-garrison', id: 'dom-z' });
   const zarmy = ACKS.createArmy(cc, { name: 'Z Host', leaderCharacterId: 'chr-z', currentHexId: 'hex-muster' });
   const cu = ACKS.callUpUnit(cc, 'unit-march', zarmy.id);
-  ok('the unit is marching in (rallying, journey live)', cu.action === 'marching' && cc.units[0].rallyingToArmyId === zarmy.id);
+  ok('the unit is mustering in', cu.action === 'mustering' && cc.units[0].musterState && cc.units[0].musterState.destination.id === zarmy.id);
   const rrm = ACKS.removeUnitFromArmy(cc, 'unit-march');
-  ok('removeUnitFromArmy on a marching unit cancels the call-up', rrm.ok === true && rrm.cancelledRally === true && cc.units[0].rallyingToArmyId == null);
-  ok('… the rally journey is stopped (disbanded)', (cc.journeys || []).find(j => j && j.id === cu.journeyId).status === 'disbanded');
-  ok('… and the unit falls home to its garrison at once', cc.units[0].stationedAt && cc.units[0].stationedAt.kind === 'domain-garrison' && cc.units[0].stationedAt.id === 'dom-z');
+  ok('removeUnitFromArmy on a mustering unit cancels the call-up', rrm.ok === true && rrm.cancelledRally === true && !cc.units[0].musterState);
+  ok('… and the unit falls back to garrisoning its owner domain at once', cc.units[0].stationedAt && cc.units[0].stationedAt.kind === 'domain-garrison' && cc.units[0].stationedAt.id === 'dom-z');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('march a garrison unit (the Garrison-table "March" verb, 2026-06-17)');
+section('muster a garrison unit to a hex (the Garrison-table "Muster to…" verb, 2026-06-22)');
 {
   const c = { currentTurn: 4, currentDayInMonth: 1,
     characters: [{ schemaVersion: 2, id: 'chr-m', name: 'Mcmd', alive: true }],
-    domains: [{ id: 'dom-m', name: 'March Hold', rulerCharacterId: 'chr-m', garrison: { units: [] } }],
+    domains: [{ id: 'dom-m', name: 'March Hold', rulerCharacterId: 'chr-m' }],
     journeys: [], armies: [], units: [],
     hexes: [{ id: 'hex-m-seat', domainId: 'dom-m', coord: { q: 0, r: 0 }, terrain: 'grassland' },
-            { id: 'hex-m-near', domainId: 'dom-m', coord: { q: 1, r: 0 }, terrain: 'grassland' },
             { id: 'hex-m-far',  domainId: 'dom-m', coord: { q: 5, r: 0 }, terrain: 'grassland' }] };
-  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m', displayName: 'Marchers', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-m' });
-  ok('the unit starts in its garrison at the seat', ACKS.unitCurrentHexId(c, u) === 'hex-m-seat');
+  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m', displayName: 'Marchers', unitTypeKey: 'light-infantry', count: 60, ownerDomainId: 'dom-m' }), { kind: 'domain-garrison', id: 'dom-m' });
+  ok('the garrisoning unit has no coordinate', ACKS.unitCurrentHexId(c, u) === null);
 
-  // startUnitMarch — the free march (a Journey at unit scale)
-  const r = ACKS.startUnitMarch(c, 'unit-m', { destinationHexId: 'hex-m-far', pace: 'normal' });
-  ok('startUnitMarch: ok + a journey is created', r.ok === true && !!r.journey);
-  const jm = r.journey;
-  ok('the journey is a unit march (unitId + unitMarch), in transit', jm.unitId === 'unit-m' && jm.unitMarch === true && jm.status === 'in-transit');
-  ok('it runs from the unit\'s location to the chosen destination', jm.startHexId === 'hex-m-seat' && jm.destinationHexId === 'hex-m-far');
-  ok('the unit leaves its garrison (un-stationed — troops take the road) + marchJourneyId set', u.stationedAt == null && u.marchJourneyId === jm.id);
-  ok('home is captured for the return trip', u.homeDomainId === 'dom-m');
-  ok('startUnitMarch stamps unit history', u.history.some(h => h.type === 'march-started'));
-  ok('groupForJourney resolves the unit (Detail panel is unit-scale → "the unit\'s march pace", no supply)', ACKS.groupForJourney(c, jm) === u && ACKS.groupKindOf(u) === 'unit');
-  ok('the marching unit stays home-attributed to its domain (still in the Garrison list)', ACKS.unitHomeDomainId(c, u) === 'dom-m');
+  // musterUnitToDestination — muster to a bare hex (a sortie / relocation), no journey
+  ACKS.musterUnitToDestination(c, u, { kind: 'hex', id: 'hex-m-far' });
+  ok('the unit leaves its garrison (un-stationed, no journey)', u.stationedAt == null && (c.journeys||[]).length === 0);
+  ok('the move-muster records the hex destination', u.musterState && u.musterState.destination.kind === 'hex' && u.musterState.destination.id === 'hex-m-far' && u.musterState.arrivesAtOrd > 0);
+  ok('the unit stays owner-attributed to its domain', ACKS.unitOwnerDomainId(c, u) === 'dom-m');
+  ok('unitMusterDaysLeft reads a week', ACKS.unitMusterDaysLeft(c, u) === 7);
 
-  // guards
-  ok('startUnitMarch refuses a unit already marching', ACKS.startUnitMarch(c, 'unit-m', { destinationHexId: 'hex-m-near' }).reason === 'already-marching');
-  const und = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-mnd', displayName: 'Idle', unitTypeKey: 'light-infantry', count: 10 }), { kind: 'domain-garrison', id: 'dom-m' });
-  ok('startUnitMarch refuses with no destination', ACKS.startUnitMarch(c, 'unit-mnd', {}).reason === 'no-destination');
-
-  // already-there + in-army guards
-  const u2 = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m2', displayName: 'Stayers', unitTypeKey: 'light-infantry', count: 40 }), { kind: 'hex', id: 'hex-m-near' });
-  ok('startUnitMarch refuses marching to the unit\'s own hex', ACKS.startUnitMarch(c, 'unit-m2', { destinationHexId: 'hex-m-near' }).reason === 'already-there');
-  ACKS.createArmy(c, { name: 'Host', leaderCharacterId: 'chr-m', currentHexId: 'hex-m-near', unitIds: ['unit-m2'] });
-  ok('startUnitMarch refuses a unit in a field army (it moves with the army)', ACKS.startUnitMarch(c, 'unit-m2', { destinationHexId: 'hex-m-far' }).reason === 'in-army');
-
-  // stopUnitMarch — halt where it stands
-  const sr = ACKS.stopUnitMarch(c, 'unit-m');
-  ok('stopUnitMarch: ok + the unit halts at a hex + marchJourneyId cleared', sr.ok === true && u.stationedAt && u.stationedAt.kind === 'hex' && !u.marchJourneyId);
-  ok('… the march journey is aborted', (c.journeys || []).find(j => j && j.id === jm.id).status === 'aborted');
-  ok('stopUnitMarch refuses a unit that is not marching', ACKS.stopUnitMarch(c, 'unit-m2').reason === 'not-marching');
-
-  // arrival — drive a fresh 1-hex garrison march to its destination via the journey day-tick
-  const u3 = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m3', displayName: 'Movers', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-m' });
-  const r3 = ACKS.startUnitMarch(c, 'unit-m3', { destinationHexId: 'hex-m-near', pace: 'normal' });
+  // advance the Day Clock — the muster completes + stations the unit at the destination hex
   let guard = 0;
-  while(c.journeys.find(j => j.id === r3.journey.id).status === 'in-transit' && guard++ < 8){
-    const p = ACKS.proposeJourneyDay(c, { dayInMonth: 1, rng: () => 0.5 });
-    const rec = (p.pendingRecords || []).find(x => x.journeyId === r3.journey.id);
-    if(!rec) break;
-    ACKS.commitJourneyRecord(c, rec);
-  }
-  const u3now = c.units.find(x => x.id === 'unit-m3');
-  ok('a unit march ARRIVES + halts the unit at the destination hex (the free-march arrival branch)',
-     r3.journey.status === 'arrived' && u3now.stationedAt && u3now.stationedAt.kind === 'hex' && u3now.stationedAt.id === 'hex-m-near');
-  ok('marchJourneyId cleared on arrival', !u3now.marchJourneyId);
+  while(u.musterState && guard++ < 14){ ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {})); }
+  ok('on arrival the unit takes up its post at the destination hex', u.stationedAt && u.stationedAt.kind === 'hex' && u.stationedAt.id === 'hex-m-far' && !u.musterState);
+
+  // returnUnitHome cancels an in-flight muster + re-garrisons the unit
+  const u2 = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m2', displayName: 'Recallers', unitTypeKey: 'light-infantry', count: 40, ownerDomainId: 'dom-m' }), { kind: 'domain-garrison', id: 'dom-m' });
+  ACKS.musterUnitToDestination(c, u2, { kind: 'hex', id: 'hex-m-far' });
+  ACKS.returnUnitHome(c, u2);
+  ok('returnUnitHome cancels the muster + re-garrisons the unit', !u2.musterState && u2.stationedAt.kind === 'domain-garrison' && u2.stationedAt.id === 'dom-m');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -649,7 +602,7 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
     const n = (o.garrisonUnits != null) ? o.garrisonUnits : 1;
     for(let i = 0; i < n; i++){
       ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g' + i, displayName: 'Foot ' + i, unitTypeKey: 'light-infantry',
-        count: (o.garrisonCount != null) ? o.garrisonCount : 120, homeHexId: 'hex-seat', homeDomainId: 'dom-r' }),
+        count: (o.garrisonCount != null) ? o.garrisonCount : 120, ownerDomainId: 'dom-r' }),
         { kind: 'domain-garrison', id: 'dom-r' });
     }
     const band = ACKS.blankGroup({ id: 'grp-threat', name: 'Orc raiders',
@@ -811,7 +764,7 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
       domains: [{ id: 'dom-r', name: 'March', rulerCharacterId: 'chr-cap', garrison: { units: [] }, demographics: { peasantFamilies: 500, morale: 0 } }],
       journeys: [], armies: [], units: [], battles: [], groups: [],
       hexes: Array.from({ length: 6 }, (_, q) => ({ id: 'hx' + q, domainId: 'dom-r', coord: { q, r: 0 }, terrain: 'grassland' })) };
-    ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g0', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 120, homeHexId: 'hx0', homeDomainId: 'dom-r' }), { kind: 'domain-garrison', id: 'dom-r' });
+    ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g0', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 120, ownerDomainId: 'dom-r' }), { kind: 'domain-garrison', id: 'dom-r' });
     const band = ACKS.blankGroup({ id: 'grp-threat', name: 'Orc raiders',
       groupTemplate: { monsterCatalogKey: 'orc', creatureTypes: ['beastman', 'humanoid'], hitDice: '1' },
       count: (o.count != null) ? o.count : 8, currentHexId: o.bandHexId || 'hx5', currentDomainId: 'dom-r', lifecycleState: 'wild' });

@@ -338,7 +338,6 @@
       "count": 8,
       "monthlyWage": 6,
       "brPerSoldier": 0.034,
-      "stationedAtHexId": "hex-hawks-reach-core",
       "race": "man",
       "loadout": null,
       "veteran": false,

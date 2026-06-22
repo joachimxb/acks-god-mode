@@ -3426,22 +3426,19 @@ function unitMarchMilesPerDay(unit){
        : 24;
 }
 
-// Where a unit physically is, as a hex id (for plotting a rally march). A garrison unit
-// sits at its domain's seat (🔧 v1: the domain's first authored hex — the muster default's
-// twin); a company unit is with its patron; a hex/army station resolves directly. null
-// when unresolvable (no hexes authored / dangling station). Pure read.
+// Where a unit physically is, as a hex id. Only units in the FIELD have a coordinate: a unit in an
+// army reads the army's hex; a unit at a {kind:'hex'} station resolves directly; a unit stationed to
+// a character is with its patron. A GARRISONING unit (domain-garrison) is ABSTRACT and returns null
+// — it has no map position (2026-06-22 muster model). Pure read.
 function unitCurrentHexId(campaign, unit){
   const st = unit && unit.stationedAt;
   if(!campaign || !st) return null;
   if(st.kind === 'hex') return st.id;
   if(st.kind === 'army'){ const a = findArmy(campaign, st.id); return a ? (a.currentHexId || null) : null; }
   if(st.kind === 'character'){ const c = _findCharacterById(campaign, st.id); return c ? (c.currentHexId || null) : null; }
-  if(st.kind === 'domain-garrison'){
-    const d = (campaign.domains || []).find(x => x && x.id === st.id);
-    if(!d) return null;
-    const seat = (campaign.hexes || []).find(h => h && h.domainId === d.id);
-    return seat ? seat.id : null;
-  }
+  // domain-garrison / constructible: a garrisoning unit is ABSTRACT — it has NO map coordinate
+  // (2026-06-22 muster model). A unit has a hex only in an army on campaign (resolved above) or at a
+  // {kind:'hex'} station; everything else yields null.
   return null;
 }
 
@@ -3911,20 +3908,10 @@ function stationUnit(campaign, unitOrId, stationedAt){
   const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !unit) return null;
   if(!Array.isArray(campaign.units)) campaign.units = [];
-  // Home-on-leaving-garrison capture (2026-06-14): the first time a unit leaves its domain
-  // garrison for the field (mustered into an army, called up, sent to a hex), remember that
-  // garrison as its home so it knows where to return when its task ends. Only when no home is
-  // recorded yet; reads the unit's CURRENT (pre-move) station, so it must run before the move.
-  if(!unit.homeHexId){
-    const cur = unit.stationedAt;
-    const leavingGarrison = cur && cur.kind === 'domain-garrison' && cur.id
-      && !(stationedAt && stationedAt.kind === 'domain-garrison' && stationedAt.id === cur.id);
-    if(leavingGarrison){
-      if(!unit.homeDomainId) unit.homeDomainId = cur.id;
-      const hx = unitCurrentHexId(campaign, unit);   // the domain's seat hex (station is still the garrison)
-      if(hx) unit.homeHexId = hx;
-    }
-  }
+  // Owner capture (2026-06-22): the first time a unit leaves its domain garrison, remember that domain
+  // as its ownerDomainId — relational, so it still knows where to fall back to when its task ends. Reads
+  // the CURRENT (pre-move) station, so it must run before the move. No-op once an owner is recorded.
+  if(!unit.ownerDomainId){ const cur = unit.stationedAt; if(cur && cur.kind === 'domain-garrison' && cur.id) unit.ownerDomainId = cur.id; }
   const idx = campaign.units.findIndex(u => u && u.id === unit.id);
   if(idx < 0) campaign.units.push(unit);
   else if(campaign.units[idx] !== unit) campaign.units[idx] = unit;
@@ -3947,96 +3934,38 @@ function disbandUnit(campaign, unitOrId){
   return unit;
 }
 
-// ─── Unit home garrison (2026-06-14) ─────────────────────────────────────────
-// A unit's HOME is a hex inside its domain — its default garrison station and the place it
-// returns to when a task ends (an army disbands). homeDomainId names the owning domain. All
-// three read defensively (old units → null = no home set; the prior homeless behavior stands).
+// ─── Unit ownership (2026-06-22 muster model) ─────────────────────────────────────────
+// A unit's OWNER is the domain (and thereby realm) that raised it — a RELATION, not a location. It
+// survives un-stationing, so a unit in an army or mid-muster still knows where it belongs (for muster
+// timing, wages, the disband fall-back). A unit's LOCATION is unit.stationedAt (a garrisoning unit
+// has no map coordinate).
 
-// Resolve the domain a unit belongs to: its explicit homeDomainId, else the domain it is
-// garrison-stationed at, else the domain owning its home hex. null for a domain-less unit
-// (a free mercenary band). Used to scope the home-hex picker + drive the return.
-function unitHomeDomainId(campaign, unit){
+// Resolve the domain that OWNS a unit (raised it). Its explicit ownerDomainId, else the domain it is
+// garrison-stationed at. null for an owner-less unit (a free mercenary band). Relational, not
+// geographic — it survives un-stationing (a unit in an army or mid-muster still knows its owner).
+function unitOwnerDomainId(campaign, unit){
   if(!campaign || !unit) return null;
-  if(unit.homeDomainId) return unit.homeDomainId;
+  if(unit.ownerDomainId) return unit.ownerDomainId;
   const st = unit.stationedAt;
   if(st && st.kind === 'domain-garrison' && st.id) return st.id;
-  if(unit.homeHexId){
-    const h = (campaign.hexes || []).find(x => x && x.id === unit.homeHexId);
-    if(h && h.domainId) return h.domainId;
-  }
   return null;
 }
 
-// Set (hexId) or clear (hexId=null) a unit's home garrison hex. The hex MUST be inside a domain
-// ("a hex inside the Domain") — homeDomainId follows the hex's domain. When the unit is sitting
-// at home / unassigned (not in an army, not marching) the map hint (stationedAtHexId) snaps to
-// the home. Stamps a unit.history entry (the sibling-setter convention — levyConscripts /
-// trainLevyUnit stamp history, not a campaign event). Returns {ok, reason, unit}.
-function setUnitHome(campaign, unitOrId, hexId){
-  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
-  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
-  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  unit.history = unit.history || [];
-  if(!hexId){
-    unit.homeHexId = null;
-    unit.history.push({ turn, type: 'home-cleared', text: 'Home garrison cleared' });
-    return { ok: true, unit, cleared: true };
-  }
-  const hex = (campaign.hexes || []).find(h => h && h.id === hexId);
-  if(!hex) return { ok: false, reason: 'no-hex' };
-  if(!hex.domainId) return { ok: false, reason: 'hex-not-in-domain' };   // must be inside a domain
-  unit.homeHexId = hexId;
-  unit.homeDomainId = hex.domainId;
-  const st = unit.stationedAt;
-  const active = unit.rallyingToArmyId || (st && st.kind === 'army');
-  if(!active) unit.stationedAtHexId = hexId;
-  const d = (campaign.domains || []).find(x => x && x.id === hex.domainId);
-  const hexLabel = (global.ACKS && typeof global.ACKS.hexName === 'function') ? global.ACKS.hexName(hex, campaign) : hexId;
-  unit.history.push({ turn, type: 'home-set', text: 'Home garrison set to ' + hexLabel + (d ? (' (' + (d.name || d.id) + ')') : '') });
-  return { ok: true, unit };
-}
-
-// Send a unit back to its home garrison — the "task ends" return (disbandArmy + the W2
-// incursion sally + any future mission-end hook). The symmetric counterpart of callUpUnit:
-// when the unit is AWAY from home and a route is plottable, it MARCHES home (a journey with
-// unitReturnHome — the same unit-pace march machinery the call-up uses; on arrival
-// commitJourneyRecord falls it back into the garrison). When it is already at home, has no
-// home hex, or no current hex (can't plot a march), it falls in INSTANTLY. With NO home domain
-// at all it is left unstationed (the prior homeless behaviour — backward compatible). Pass
-// opts.instant to force the instant return (skip the march). Returns the unit.
-function returnUnitHome(campaign, unitOrId, opts){
-  opts = opts || {};
+// Return a unit to its garrison — the "task ends" fall-back (disbandArmy + the W2 incursion sally +
+// any mission-end hook). The 2026-06-22 muster model: the unit falls straight back to GARRISONING its
+// owner domain — no return march, no muster (the muster is paid going OUT; RAW charges nothing to send
+// troops home). Any in-flight move-muster is cancelled. With no owner domain at all the unit is left
+// unstationed (a free band — backward compatible). Returns the unit.
+function returnUnitHome(campaign, unitOrId){
   const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !unit) return null;
-  unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
-  const homeDomainId = unitHomeDomainId(campaign, unit);
-  const hasDomain = homeDomainId && (campaign.domains || []).some(d => d && d.id === homeDomainId);
+  if(unit.musterState && unit.musterState.destination){ unit.musterState = null; unit.musterPending = 0; }  // cancel a move-muster
+  const ownerDomainId = unitOwnerDomainId(campaign, unit);
+  const hasDomain = ownerDomainId && (campaign.domains || []).some(d => d && d.id === ownerDomainId);
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  if(!hasDomain){ unit.stationedAt = null; unit.returnJourneyId = null; return unit; }   // no home → homeless
-  const homeHexId = unit.homeHexId || (((campaign.hexes || []).find(h => h && h.domainId === homeDomainId)) || {}).id || null;
-  const currentHexId = unitCurrentHexId(campaign, unit);
-  const A = global.ACKS;
-  if(!opts.instant && homeHexId && currentHexId && currentHexId !== homeHexId
-     && A && typeof A.blankJourney === 'function'){
-    // March home — un-station (the troops take the road) and plot a unit journey to the home hex.
-    stationUnit(campaign, unit, null);
-    const dName = ((campaign.domains || []).find(d => d && d.id === homeDomainId) || {}).name || 'home';
-    const journey = A.blankJourney({ unitId: unit.id, unitReturnHome: true,
-      name: (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + dName,
-      startHexId: currentHexId, destinationHexId: homeHexId, participantCharacterIds: [] });
-    if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
-    campaign.journeys.push(journey);
-    if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
-    else journey.status = 'in-transit';
-    unit.returnJourneyId = journey.id;
-    (unit.history = unit.history || []).push({ turn, type: 'marching-home', text: 'Marching home to its garrison' });
-    return unit;
-  }
-  // Already home / no route / instant → fall in at once.
-  stationUnit(campaign, unit, { kind: 'domain-garrison', id: homeDomainId });
-  if(unit.homeHexId) unit.stationedAtHexId = unit.homeHexId;
-  unit.returnJourneyId = null;
-  (unit.history = unit.history || []).push({ turn, type: 'returned-home', text: 'Returned to its home garrison' });
+  if(!hasDomain){ stationUnit(campaign, unit, null); (unit.history = unit.history || []).push({ turn, type: 'disbanded', text: 'Disbanded — no garrison to return to' }); return unit; }
+  stationUnit(campaign, unit, { kind: 'domain-garrison', id: ownerDomainId });
+  (unit.history = unit.history || []).push({ turn, type: 'returned-home', text: 'Returned to its garrison' });
   return unit;
 }
 
@@ -4111,55 +4040,68 @@ function disbandArmy(campaign, armyOrId){
   return army;
 }
 
-// Call up a unit to an army's muster point (the hard-constraint alternative to teleporting
-// troops in). If the unit is already AT the army's hex (or the army/unit has no resolvable
-// hex), it joins immediately. Otherwise the unit LEAVES its garrison (un-stationed — the
-// troops have marched out) and a rally journey is plotted from its hex to the muster point;
-// `unit.rallyingToArmyId` marks it incoming. It is NOT counted in the army's present strength
-// until the journey arrives (commitJourneyRecord stations it then). Returns
-// {action:'joined'|'marching'|'error', unitId, journeyId?, journey?}.
+// ─── Unit muster (2026-06-22) — the abstract mobilization that replaced unit marching ──────────────
+// RR p.434: when a unit is called to an army / sortie / any destination, it does NOT march hex-by-hex;
+// it MUSTERS. Distance is abstracted into a realm TIME PERIOD (a week within the unit's own realm). The
+// unit un-stations (assembles + moves out — no map coordinate in transit; ownerDomainId keeps the owner
+// link); musterState.destination records where it lands; the slot-46 muster day-consumer stations it
+// there when the period elapses. This is the MOVE muster (an existing whole unit relocating); the levy/
+// recruit path is the RAISE muster (soldiers arriving ½/¼/remainder).
+
+// The muster time period in days for mobilizing an existing unit (RR p.434). 🔧 v1: a week flat — the
+// "within its own realm" case the spec named; scaling to a destination realm's tier (month/season) is a
+// reserved follow-on.
+function _unitMusterPeriodDays(campaign, unit, destination){ return 7; }
+
+// Resolve a muster destination ({kind:'army'|'hex'}) to a hex id (for the arrival narrative). null else.
+function _musterDestinationHexId(campaign, destination){
+  if(!destination) return null;
+  if(destination.kind === 'hex') return destination.id;
+  if(destination.kind === 'army'){ const a = findArmy(campaign, destination.id); return a ? (a.currentHexId || null) : null; }
+  return null;
+}
+
+// Muster an existing unit to a destination ({kind:'army'|'hex', id}) over one realm time period. Un-
+// stations the unit (it leaves its garrison; ownerDomainId keeps the owner link) and sets a MOVE muster;
+// the slot-46 consumer stations it at the destination when the period elapses. Returns the unit.
+function musterUnitToDestination(campaign, unit, destination){
+  if(!campaign || !unit || !destination) return unit;
+  const now = _levyDayOrd(campaign);
+  const periodDays = _unitMusterPeriodDays(campaign, unit, destination);
+  stationUnit(campaign, unit, null);                     // troops assemble + take the field (no coordinate in transit)
+  unit.musterState = { destination: { kind: destination.kind, id: destination.id }, startedAtOrd: now, arrivesAtOrd: now + periodDays };
+  unit.musterPending = 0;                                // a MOVE muster relocates the whole (already-raised) unit; no soldiers pending
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  (unit.history = unit.history || []).push({ turn, type: 'mustering', text: 'Mustering to its post — arriving in ' + periodDays + ' days (RR p.434)' });
+  return unit;
+}
+
+// Call up a unit to an army — the muster mobilization. A co-located detachment (already standing at the
+// army's hex) joins at once; otherwise it MUSTERS to the army. It is NOT counted in the army's strength
+// until the muster completes. Returns {action:'joined'|'mustering'|'error', unitId}.
 function callUpUnit(campaign, unitOrId, armyOrId){
   const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
   if(!campaign || !unit || !army) return { action: 'error', reason: 'missing' };
   const dest = army.currentHexId || null;
   const origin = unitCurrentHexId(campaign, unit);
-  if(!dest || !origin || origin === dest){
+  if(dest && origin && origin === dest){                 // genuinely co-located (a detachment at the army's hex)
     stationUnit(campaign, unit, { kind: 'army', id: army.id });
-    unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+    unit.musterState = null; unit.musterPending = 0;
     return { action: 'joined', unitId: unit.id };
   }
-  const A = global.ACKS;
-  stationUnit(campaign, unit, null);   // the troops leave their garrison and take the road
-  const name = (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + (army.name || 'the army');
-  const journey = A.blankJourney({ unitId: unit.id, name, startHexId: origin, destinationHexId: dest, participantCharacterIds: [] });
-  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
-  campaign.journeys.push(journey);
-  if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
-  else journey.status = 'in-transit';
-  unit.rallyingToArmyId = army.id; unit.rallyJourneyId = journey.id;
-  return { action: 'marching', unitId: unit.id, journeyId: journey.id, journey };
+  musterUnitToDestination(campaign, unit, { kind: 'army', id: army.id });
+  return { action: 'mustering', unitId: unit.id };
 }
 
-// The units MARCHING IN to an army (rallyingToArmyId === army.id) — each with its rally
-// journey + the distance still to cover (miles / hexes / days at the unit's own pace). The
-// army card's "reinforcements marching in" readout. Pure derived read.
+// The units mustering IN to an army (move-muster destination = this army) — each with the days left
+// before it completes its muster. The army card's "reinforcements mustering in" readout. Pure read.
 function armyIncomingUnits(campaign, army){
   if(!campaign || !army || !Array.isArray(campaign.units)) return [];
   const A = global.ACKS;
-  const milesPerHex = (A && A.JOURNEY_MILES_PER_HEX) || 6;
-  return campaign.units.filter(u => u && u.rallyingToArmyId === army.id).map(u => {
-    const j = u.rallyJourneyId ? (campaign.journeys || []).find(x => x && x.id === u.rallyJourneyId) : null;
-    let hexes = null, miles = null, days = null;
-    if(j && A && typeof A.computeJourneyDistance === 'function'){
-      const d = A.computeJourneyDistance(campaign, j);
-      hexes = Math.max(0, (d.total || 0) - (d.covered || 0));
-      miles = hexes * milesPerHex;
-      const spd = unitMarchMilesPerDay(u);
-      days = (spd > 0) ? Math.ceil(miles / spd) : null;
-    }
-    return { unit: u, journey: j, hexesRemaining: hexes, milesRemaining: miles, daysRemaining: days, fromHexId: j ? j.startHexId : null };
-  });
+  return campaign.units.filter(u => u && u.musterState && u.musterState.destination
+      && u.musterState.destination.kind === 'army' && u.musterState.destination.id === army.id)
+    .map(u => ({ unit: u, daysRemaining: (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(campaign, u) : null }));
 }
 
 // ─── Add / remove a unit from a field army (the Garrison-table membership verbs, 2026-06-17) ──
@@ -4182,9 +4124,11 @@ function addUnitToArmy(campaign, unitOrId, armyOrId){
   if(unit.stationedAt && unit.stationedAt.kind === 'army' && unit.stationedAt.id === army.id) return { ok: false, reason: 'already-in-army' };
   const unitHex = unitCurrentHexId(campaign, unit);
   const armyHex = army.currentHexId || null;
-  if(armyHex && unitHex && unitHex !== armyHex) return { ok: false, reason: 'not-co-located' };
-  stationUnit(campaign, unit, { kind: 'army', id: army.id });   // mirror bookkeeping + home capture
-  unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+  // The army on a hex requires the unit to stand there too. A garrisoning unit is abstract (no hex) and
+  // CANNOT co-locate — it must MUSTER in (callUpUnit), not quick-join. (A staging army with no hex yet allows it.)
+  if(armyHex && (!unitHex || unitHex !== armyHex)) return { ok: false, reason: 'not-co-located' };
+  stationUnit(campaign, unit, { kind: 'army', id: army.id });   // mirror bookkeeping + owner capture
+  unit.musterState = null; unit.musterPending = 0;
   if(!Array.isArray(army.divisions)) army.divisions = [];
   let div = army.divisions.find(d => d && d.role === 'main') || army.divisions[0] || null;
   if(!div && army.leaderCharacterId){
@@ -4206,8 +4150,8 @@ function addUnitToArmy(campaign, unitOrId, armyOrId){
 // (2026-06-17) the unit is LEFT WHERE THE ARMY STANDS: detached at the army's current hex as a
 // free-standing unit (stationedAt {kind:'hex'}), NOT marched home (the army-card Recall is the
 // march-home path); it is pulled from the army's division org chart too. A unit only MARCHING IN
-// (rallyingToArmyId, not yet arrived) has its call-up cancelled instead — the rally journey is
-// stopped and it returns to its home garrison at once (it never reached the army, so "where the
+// (mustering in, not yet arrived) has its call-up cancelled instead — the rally journey is
+// cancelled and it returns to its garrison at once (it never reached the army, so "where the
 // army stands" doesn't apply). "Remove anywhere": no co-location constraint. Stamps history.
 // Returns {ok, reason?, unit, army?, leftAtHexId?, cancelledRally?}.
 function removeUnitFromArmy(campaign, unitOrId){
@@ -4215,15 +4159,10 @@ function removeUnitFromArmy(campaign, unitOrId){
   if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
   const uname = unit.displayName || unit.unitTypeKey || 'a unit';
-  if(unit.rallyingToArmyId){   // marching in, not yet arrived → cancel the call-up + fall home
-    const army = findArmy(campaign, unit.rallyingToArmyId);
-    if(unit.rallyJourneyId && Array.isArray(campaign.journeys)){
-      const j = campaign.journeys.find(x => x && x.id === unit.rallyJourneyId);
-      if(j) j.status = 'disbanded';
-    }
-    unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
-    returnUnitHome(campaign, unit, { instant: true });
-    (unit.history = unit.history || []).push({ turn, type: 'call-up-cancelled', text: 'Call-up cancelled — returned home' });
+  if(unit.musterState && unit.musterState.destination && unit.musterState.destination.kind === 'army'){   // mustering in -> cancel
+    const army = findArmy(campaign, unit.musterState.destination.id);
+    returnUnitHome(campaign, unit);   // clears the move-muster + stations it back in its owner garrison
+    (unit.history = unit.history || []).push({ turn, type: 'call-up-cancelled', text: 'Call-up cancelled — returned to garrison' });
     if(army) (army.history = army.history || []).push({ turn, type: 'unit-removed', text: uname + ' was recalled before it mustered' });
     return { ok: true, unit, army, cancelledRally: true };
   }
@@ -4243,75 +4182,6 @@ function removeUnitFromArmy(campaign, unitOrId){
   (unit.history = unit.history || []).push({ turn, type: 'left-army', text: 'Left ' + ((army && army.name) || 'the army') });
   if(army) (army.history = army.history || []).push({ turn, type: 'unit-removed', text: uname + ' left the army' });
   return { ok: true, unit, army, leftAtHexId };
-}
-
-// Send a lone unit on a free march — the Garrison-table "March" verb (2026-06-17). Like setting
-// up a Journey from the unit's current location to any destination hex, but at unit scale: no
-// participants (it's a formation, not a party) and no supply line (supply is army-only — a lone
-// unit just carries what it carries). It rides the SHARED journey engine (journey.unitId), so the
-// Journey Detail panel renders it group-aware (journeyGroupKind → 'unit' → "the unit's march
-// pace", no party rations / no army supplies) and the GM can re-route it on the map exactly like
-// any journey. The troops leave their garrison (un-stationed — the home is captured by stationUnit
-// for the return trip); on arrival commitJourneyRecord halts the unit at the destination hex (the
-// free-march arrival branch). Distinct from callUpUnit (marches to an ARMY's muster) and
-// returnUnitHome (marches to the HOME garrison) — this marches to a GM-chosen hex. opts:
-// {destinationHexId (required), waypointHexIds?, pace?}. Returns {ok, reason?, journey?}.
-function startUnitMarch(campaign, unitOrId, opts){
-  opts = opts || {};
-  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
-  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
-  if(unit.stationedAt && unit.stationedAt.kind === 'army') return { ok: false, reason: 'in-army' };  // moves with the army
-  if(unit.rallyingToArmyId) return { ok: false, reason: 'already-marching' };                         // called up to a muster
-  const liveMarch = unit.marchJourneyId && (campaign.journeys || []).some(j => j && j.id === unit.marchJourneyId && j.status === 'in-transit');
-  if(liveMarch) return { ok: false, reason: 'already-marching' };
-  const dest = opts.destinationHexId || null;
-  if(!dest) return { ok: false, reason: 'no-destination' };
-  const origin = unitCurrentHexId(campaign, unit);
-  if(!origin) return { ok: false, reason: 'no-position' };
-  if(origin === dest) return { ok: false, reason: 'already-there' };
-  const A = global.ACKS;
-  if(!A || typeof A.blankJourney !== 'function') return { ok: false, reason: 'no-engine' };
-  stationUnit(campaign, unit, null);   // the troops take the road (home captured for the return)
-  const destName = ((campaign.hexes || []).find(h => h && h.id === dest) || {});
-  const destLabel = (A.hexName ? A.hexName(destName.id ? destName : { id: dest }, campaign) : dest);
-  const journey = A.blankJourney({
-    unitId: unit.id, unitMarch: true,
-    name: (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + destLabel,
-    startHexId: origin, destinationHexId: dest,
-    waypoints: (opts.waypointHexIds || []).filter(Boolean).map(hid => ({ hexId: hid, label: '', plannedPurpose: null })),
-    pace: opts.pace || 'normal', purpose: 'military-campaign', participantCharacterIds: []
-  });
-  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
-  campaign.journeys.push(journey);
-  if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
-  else journey.status = 'in-transit';
-  unit.marchJourneyId = journey.id;
-  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  (unit.history = unit.history || []).push({ turn, type: 'march-started', text: 'Set out on the march toward ' + destLabel });
-  return { ok: true, journey };
-}
-
-// Halt a unit's free march where it stands — the Garrison-table "Stop march" verb. Aborts the
-// march journey (the unit holds at the hex the journey has reached) and stations it there. No-op
-// for a unit that isn't free-marching (a rally / return / army move is managed elsewhere).
-function stopUnitMarch(campaign, unitOrId){
-  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
-  if(!campaign || !unit || !unit.marchJourneyId) return { ok: false, reason: 'not-marching' };
-  const j = (campaign.journeys || []).find(x => x && x.id === unit.marchJourneyId);
-  const A = global.ACKS;
-  let haltHexId = null;
-  if(j){
-    haltHexId = j.currentHexId || (j.days && j.days.length ? j.days[j.days.length - 1].newCurrentHexId : null) || j.startHexId || null;
-    if(j.status === 'in-transit'){
-      if(A && typeof A.abortJourney === 'function') A.abortJourney(campaign, j, 'unit halted');
-      else j.status = 'aborted';
-    }
-  }
-  stationUnit(campaign, unit, haltHexId ? { kind: 'hex', id: haltHexId } : null);
-  unit.marchJourneyId = null;
-  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  (unit.history = unit.history || []).push({ turn, type: 'march-halted', text: 'Halted the march' });
-  return { ok: true, unit, haltHexId };
 }
 
 // ─── Garrison reaction — deploy a force to meet a domain threat (2026-06-14) ──────────────
@@ -4482,7 +4352,7 @@ function recallReactionForce(campaign, armyOrId){
 // =============================================================================
 // === Military W7 (burst4) — Conscripts, militia, training & the F&D call-to-arms /
 //     Troops-favor materialization (RR pp.430–434 + p.341 + #230). Levies are Units
-//     (the W1 sibling kind) carrying lazy fields (homeDomainId / calledUp / wageWaived)
+//     (the W1 sibling kind) carrying lazy fields (ownerDomainId / calledUp / wageWaived)
 //     set on the instance — entities.js's blankUnit is untouched (CL-1 owns it), so old
 //     units read undefined → the defensive defaults below. No new prefix/entity/rule.
 // =============================================================================
@@ -4497,11 +4367,11 @@ function conscriptLevyMax(d){ return Math.floor((((d && d.demographics) || {}).p
 // RR p.432 — ≤2 additional militia per 10 peasant families.
 function militiaLevyMax(d){ return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10) * 2; }
 
-// Levy units raised from a domain (homeDomainId match), optionally filtered by source.
+// Levy units raised from a domain (ownerDomainId match), optionally filtered by source.
 function domainLevyUnits(campaign, domainOrId, source){
   const id = (typeof domainOrId === 'string') ? domainOrId : (domainOrId && domainOrId.id);
   if(!campaign || !id || !Array.isArray(campaign.units)) return [];
-  return campaign.units.filter(u => u && u.homeDomainId === id && (!source || u.source === source));
+  return campaign.units.filter(u => u && u.ownerDomainId === id && (!source || u.source === source));
 }
 function _levyActiveCount(campaign, domainOrId, source, pred){
   return domainLevyUnits(campaign, domainOrId, source)
@@ -4650,7 +4520,7 @@ function _createLevyUnit(campaign, d, source, count, opts){
   const u = A.blankUnit({ unitTypeKey: 'untrained-levy', race, count: staged ? 0 : n, source,
     displayName: (d.name ? d.name + ' ' : '') + (source === 'militia' ? 'Militia' : 'Conscripts') });
   // lazy instance fields (blankUnit doesn't emit them — additive, no migration)
-  u.homeDomainId = d.id;
+  u.ownerDomainId = d.id;
   u.calledUp = true;                                             // freshly levied = called up (in the garrison)
   const adj = levyMoraleAdjustmentForDomain(d);
   u.moraleAdjustment = (u.moraleAdjustment || 0) + adj;
@@ -4750,7 +4620,7 @@ function recruitRealmTroops(campaign, domainOrId, opts){
     displayName: (d.name ? d.name + ' ' : '') + label });
   const w = A.mercWage(typeKey, race);                            // RR p.429 mercenary wage (canonical)
   if(typeof w === 'number') u.monthlyWage = w;
-  u.homeDomainId = d.id;
+  u.ownerDomainId = d.id;
   u.calledUp = true;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
   const periodWord = (periodDays === 7) ? 'weeks' : (periodDays === 30) ? 'months' : (periodDays === 90) ? 'seasons' : 'years';
@@ -4883,11 +4753,11 @@ function _splitLevyRemainder(campaign, u, keepLiving){
   const nu = A.blankUnit({ displayName: u.displayName, unitTypeKey: 'untrained-levy', race: u.race,
     source: u.source, count: remRaw, monthlyWage: u.monthlyWage });
   nu.casualties = remCas;
-  nu.homeDomainId = u.homeDomainId; nu.calledUp = u.calledUp;
+  nu.ownerDomainId = u.ownerDomainId; nu.calledUp = u.calledUp;
   nu.moraleAdjustment = u.moraleAdjustment; nu.loyalty = u.loyalty;
   u.count = (u.count || 0) - remRaw; u.casualties = cas - remCas;   // u now keeps exactly keepLiving living
   if(u.calledUp === false) stationUnit(campaign, nu, null);
-  else stationUnit(campaign, nu, { kind: 'domain-garrison', id: u.homeDomainId });
+  else stationUnit(campaign, nu, { kind: 'domain-garrison', id: u.ownerDomainId });
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
   nu.history.push({ turn, type: 'split', text: 'Split off as an untrained levy — the recruits who could not qualify for training' });
   return nu;
@@ -4934,7 +4804,9 @@ function unitTrainingDaysLeft(campaign, unit){
 // when not mustering, ≥0 otherwise (0 the day the last batch is due).
 function unitMusterDaysLeft(campaign, unit){
   const ms = unit && unit.musterState;
-  if(!ms || (unit.musterPending || 0) <= 0) return null;
+  if(!ms) return null;
+  if(ms.destination) return Math.max(0, (ms.arrivesAtOrd || 0) - _levyDayOrd(campaign));   // MOVE muster
+  if((unit.musterPending || 0) <= 0) return null;
   const last = (ms.schedule || []).reduce((m, b) => Math.max(m, b.atOrd), ms.startedAtOrd || 0);
   return Math.max(0, last - _levyDayOrd(campaign));
 }
@@ -4948,7 +4820,7 @@ function _completeTraining(campaign, u){
   const A = global.ACKS;
   const target = ts.targetTroopType, race = u.race || 'man';
   const row = A.findTroopType(target, { race });
-  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  const d = u.ownerDomainId ? _resolveDomain(campaign, u.ownerDomainId) : null;
   const n = unitActiveCount(u);
   u.unitTypeKey = target;
   u.monthlyWage = A.trainedTroopWage(target, race);
@@ -4990,7 +4862,7 @@ function trainLevyUnit(campaign, unitOrId, opts){
   // domain's total conscripts/militia only floor(pool × QN / 120) can ever be this type, and the number
   // already trained as it counts against that. So the allowance is computed pool-wide (splitting a levy
   // before training can't dodge or shrink the cap), then capped to the soldiers in THIS unit.
-  const remaining = conscriptQualifyingRemaining(campaign, u.homeDomainId, u.source, target, race);
+  const remaining = conscriptQualifyingRemaining(campaign, u.ownerDomainId, u.source, target, race);
   const qualMax = Math.min(active, remaining);                        // most of THIS unit trainable as the type now
   if(qualMax <= 0) return { ok: false, reason: 'too-few-qualify' };   // pool exhausted, or e.g. a 5-conscript pool → 0 heavy cavalry
   let trainN = (opts.count != null) ? Math.floor(Number(opts.count)) : qualMax;
@@ -4999,7 +4871,7 @@ function trainLevyUnit(campaign, unitOrId, opts){
   const remainder = (trainN < active) ? _splitLevyRemainder(campaign, u, trainN) : null;
   const n = unitActiveCount(u);                                   // == trainN after the split
   const cost = costRow.perTroopGp * n;                            // RR p.431 — per-troop cost × number trained
-  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  const d = u.ownerDomainId ? _resolveDomain(campaign, u.ownerDomainId) : null;
   if(d && cost > 0) _applyDomainTreasuryDelta(campaign, d, -cost, { reason: 'troop-training', label: 'train ' + n + ' as ' + target });
   // Enter training — the troops drill until the 'levy-training' day-consumer completes them after the
   // type's training months (RR p.431). The unit stays an untrained levy meanwhile (so it can't fight or
@@ -5034,7 +4906,7 @@ function sendMilitiaHome(campaign, domainOrId){
   for(const u of domainLevyUnits(campaign, d, 'militia').slice()){
     if(u.calledUp === false) continue;                          // already standing down
     stationUnit(campaign, u, null);                             // leaves the garrison; stays in campaign.units
-    u.calledUp = false; u.homeDomainId = d.id;                  // at home — no wages; trained+equipped credit garrison (RR p.341)
+    u.calledUp = false; u.ownerDomainId = d.id;                  // at home — no wages; trained+equipped credit garrison (RR p.341)
     sentHome++;
   }
   return { sentHome, disbanded: 0 };
@@ -5049,9 +4921,9 @@ function sendMilitiaHome(campaign, domainOrId){
 function sendMilitiaUnitHome(campaign, unitOrId){
   const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !u || u.source !== 'militia') return { sentHome: 0, disbanded: 0 };
-  const homeId = u.homeDomainId;
+  const homeId = u.ownerDomainId;
   stationUnit(campaign, u, null);                               // stands down — leaves the garrison, stays in campaign.units
-  u.calledUp = false; u.homeDomainId = homeId;                  // at home: no wages (RR p.432); trained+equipped credit the garrison (RR p.341)
+  u.calledUp = false; u.ownerDomainId = homeId;                  // at home: no wages (RR p.432); trained+equipped credit the garrison (RR p.341)
   return { sentHome: 1, disbanded: 0 };
 }
 // RR p.432 — call an at-home (trained) militia unit back up: re-station it to its home domain's
@@ -5059,7 +4931,7 @@ function sendMilitiaUnitHome(campaign, unitOrId){
 function callUpMilitia(campaign, unitOrId){
   const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !u || u.source !== 'militia') return null;
-  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  const d = u.ownerDomainId ? _resolveDomain(campaign, u.ownerDomainId) : null;
   if(d) stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
   u.calledUp = true;
   return u;
@@ -5150,7 +5022,7 @@ function _favorDutyMaterializeTroops(campaign, obligation, ctx){
     const army = _findOrCreateFavorDutyArmy(campaign, ctx.liegeId, hexId, liegeRuler && liegeRuler.name);
     const u = A.blankUnit({ unitTypeKey: 'light-infantry', race, count, source: 'vassal',
       displayName: vassalName + ' Levy' });
-    u.homeDomainId = vassalDomain ? vassalDomain.id : null;
+    u.ownerDomainId = vassalDomain ? vassalDomain.id : null;
     stationUnit(campaign, u, { kind: 'army', id: army.id });
     // keep the army's division roster honest (append to Main Body, or create it)
     if(!Array.isArray(army.divisions) || !army.divisions.length){
@@ -5165,7 +5037,7 @@ function _favorDutyMaterializeTroops(campaign, obligation, ctx){
     if(!vassalDomain) return;
     const u = A.blankUnit({ unitTypeKey: 'light-infantry', race, count, source: 'vassal',
       displayName: 'Liege Garrison' });
-    u.homeDomainId = vassalDomain.id;
+    u.ownerDomainId = vassalDomain.id;
     u.wageWaived = true;                                         // RR p.348 — "the vassal pays no wages"
     stationUnit(campaign, u, { kind: 'domain-garrison', id: vassalDomain.id });
     obligation.materializedUnitIds.push(u.id);
@@ -5301,8 +5173,7 @@ function groupJourney(campaign, g){
   const kind = groupKindOf(g);
   const jid = (kind === 'party') ? g.activeJourneyId
             : (kind === 'army')  ? g.journeyId
-            : (kind === 'unit')  ? g.rallyJourneyId
-            : null;
+            : null;   // units no longer ride journeys (2026-06-22 muster model — they muster, not march)
   return jid ? (campaign.journeys.find(j => j && j.id === jid) || null) : null;
 }
 
@@ -5359,7 +5230,7 @@ function groupLifecycleState(campaign, g){
   const kind = groupKindOf(g);
   if(kind === 'party') return g.status || 'active';
   if(kind === 'band')  return g.lifecycleState || 'wild';
-  if(kind === 'unit')  return g.rallyingToArmyId ? 'rallying' : ((g.stationedAt && g.stationedAt.kind) || 'loose');
+  if(kind === 'unit')  return (g.musterState && g.musterState.destination) ? 'mustering' : ((g.stationedAt && g.stationedAt.kind) || 'loose');
   if(kind === 'army')  return g.journeyId ? 'marching' : 'mustered';
   return 'active';
 }
@@ -5485,11 +5356,22 @@ function _lazyDefaultUnitFields(u){
   if(u.moraleAdjustment == null) u.moraleAdjustment = 0;
   if(!Array.isArray(u.calamities)) u.calamities = [];
   if(u.supplyState == null) u.supplyState = 'supplied';
-  // rallyingToArmyId / rallyJourneyId are transient runtime state (set only while a unit is
-  // marching to rally — callUpUnit). NOT backfilled on load: a unit without them reads as
-  // present (every consumer tests `=== army.id`), so templates stay migrate-no-ops.
+  // musterState / musterPending are transient runtime state (set only while a unit is mustering — a
+  // levy raising, or callUpUnit / musterUnitToDestination moving it). NOT backfilled on load: a unit
+  // without them reads as present + garrisoning, so templates stay migrate-no-ops.
   if(!Array.isArray(u.history)) u.history = [];
   if(u.notes == null) u.notes = '';
+  // ── 2026-06-22 garrison muster model — migrate the old home/location fields (idempotent) ──
+  // Geographic home + the idle map-hint are gone; the domain link is the relational ownerDomainId.
+  // The rally/return/march journey markers are gone (units muster, not march). All drops are no-ops
+  // once a unit is already clean, so regenerated templates stay migrate-no-ops.
+  if(u.homeDomainId !== undefined){ if(u.ownerDomainId == null) u.ownerDomainId = u.homeDomainId; delete u.homeDomainId; }
+  if(u.homeHexId !== undefined) delete u.homeHexId;
+  if(u.stationedAtHexId !== undefined) delete u.stationedAtHexId;
+  if(u.rallyingToArmyId !== undefined) delete u.rallyingToArmyId;
+  if(u.rallyJourneyId !== undefined) delete u.rallyJourneyId;
+  if(u.returnJourneyId !== undefined) delete u.returnJourneyId;
+  if(u.marchJourneyId !== undefined) delete u.marchJourneyId;
   return u;
 }
 
@@ -7167,13 +7049,13 @@ function realmStandingArmyCapacity(campaign, domainOrId){
   // The realm's domain set: this domain + every sub-vassal domain (the realmFamiliesForDomain basis).
   const realmDomainIds = new Set([d.id]);
   for(const { domain:v } of A.vassalChainUnder(campaign, d.id)) if(v && v.id) realmDomainIds.add(v.id);
-  // Current realm military force: every Unit homed in a realm domain (garrisoned or afield). Home
-  // is resolved via the canonical unitHomeDomainId accessor (the reference-unified garrison mirror —
-  // demo/legacy garrison units carry no raw homeDomainId field), falling back to the raw field.
+  // Current realm military force: every Unit OWNED by a realm domain (garrisoned or afield). Ownership
+  // is resolved via the canonical unitOwnerDomainId accessor (explicit ownerDomainId, else the garrison
+  // station), falling back to the raw field.
   let troops = 0, wages = 0;
   for(const u of (campaign.units || [])){
     if(!u) continue;
-    const home = (A.unitHomeDomainId ? A.unitHomeDomainId(campaign, u) : null) || u.homeDomainId || null;
+    const home = (A.unitOwnerDomainId ? A.unitOwnerDomainId(campaign, u) : null) || u.ownerDomainId || null;
     if(home && realmDomainIds.has(home)){
       troops += unitActiveCount(u);
       wages  += unitWageMonthly(campaign, u);
@@ -11223,16 +11105,29 @@ function proposeLevyMusterDay(campaign, ctx){
   const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
   for(const u of campaign.units){
     const ms = u && u.musterState;
-    if(!ms || (u.musterPending || 0) <= 0) continue;
+    if(!ms) continue;
+    if(ms.destination){
+      // MOVE muster (mobilizing an existing unit) — the whole unit arrives at its destination.
+      if((ms.arrivesAtOrd || 0) > dayOrd) continue;
+      out.pendingRecords.push({ kind: 'levy-muster', move: true, unitId: u.id });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'unit-muster', transient: true, primaryHexId: _musterDestinationHexId(campaign, ms.destination),
+        label: (u.displayName || 'A unit') + ' completes its muster and takes up its post.', payload: { unitId: u.id } });
+      continue;
+    }
+    if((u.musterPending || 0) <= 0) continue;
+    // RAISE muster (levy / realm recruitment) — soldiers arrive in ½/¼/remainder batches.
     let target = 0;
     for(const b of (ms.schedule || [])){ if(b.atOrd <= dayOrd) target += b.count; }
     const arriving = target - (ms.arrivedSoFar || 0);
     if(arriving <= 0) continue;
     const complete = (target >= ms.total);
     const noun = _levyMusterNoun(u.source);
+    const isLevy = (u.source === 'militia' || u.source === 'conscript');
+    const doneWord = isLevy ? 'levy complete' : 'muster complete';
+    const stillVerb = isLevy ? 'still levying' : 'still mustering';
     out.pendingRecords.push({ kind: 'levy-muster', unitId: u.id, arriving });
-    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-muster', transient: true, primaryHexId: u.homeHexId || null,
-      label: (u.displayName || 'A levy') + ': ' + arriving + ' ' + noun + ' arrive' + (complete ? ' — muster complete (' + ms.total + ')' : ' (' + (ms.total - target) + ' still mustering)'),
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-muster', transient: true, primaryHexId: null,
+      label: (u.displayName || 'A levy') + ': ' + arriving + ' ' + noun + ' arrive' + (complete ? ' — ' + doneWord + ' (' + ms.total + ')' : ' (' + (ms.total - target) + ' ' + stillVerb + ')'),
       payload: { unitId: u.id } });
   }
   return out;
@@ -11242,16 +11137,38 @@ function commitLevyMusterRecord(campaign, record){
   const u = findUnit(campaign, record.unitId);
   const ms = u && u.musterState;
   if(!ms) return;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  if(record.move || ms.destination){
+    // MOVE muster — station the whole unit at its destination, clear the muster.
+    const dest = ms.destination;
+    stationUnit(campaign, u, dest ? { kind: dest.kind, id: dest.id } : null);
+    u.musterState = null; u.musterPending = 0;
+    if(dest && dest.kind === 'army'){
+      const army = findArmy(campaign, dest.id);
+      if(army){
+        if(!Array.isArray(army.divisions)) army.divisions = [];
+        let div = army.divisions.find(d => d && d.role === 'main') || army.divisions[0] || null;
+        if(!div && army.leaderCharacterId){
+          div = { name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: [], role: 'main' };
+          army.divisions.push(div);
+        }
+        if(div){ if(!Array.isArray(div.unitIds)) div.unitIds = []; if(!div.unitIds.includes(u.id)) div.unitIds.push(u.id); }
+        (army.history = army.history || []).push({ turn, type: 'reinforcement-arrived', narrative: (u.displayName || u.unitTypeKey || 'A unit') + ' completed its muster and joined ' + (army.name || 'the army') + '.' });
+      }
+    }
+    (u.history = u.history || []).push({ turn, type: 'mustered', text: 'Muster complete — took up its post.' });
+    return;
+  }
+  // RAISE muster — top up arrived soldiers.
   const arriving = Math.max(0, record.arriving || 0);
   u.count = (u.count || 0) + arriving;
   u.musterPending = Math.max(0, (u.musterPending || 0) - arriving);
   ms.arrivedSoFar = (ms.arrivedSoFar || 0) + arriving;
   if((u.musterPending || 0) <= 0 || ms.arrivedSoFar >= ms.total){
-    // Fully mustered → a normal untrained levy (now trainable / marchable / mergeable).
     u.musterPending = 0;
     u.musterState = null;
-    const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-    u.history.push({ turn, type: 'mustered', text: 'Muster complete — ' + unitActiveCount(u) + ' ' + _levyMusterNoun(u.source) + ' assembled' });
+    const isLevy = (u.source === 'militia' || u.source === 'conscript');
+    u.history.push({ turn, type: isLevy ? 'levied' : 'mustered', text: (isLevy ? 'Levy complete — ' : 'Muster complete — ') + unitActiveCount(u) + ' ' + _levyMusterNoun(u.source) + ' assembled' });
   }
 }
 registerDayConsumer('levy-muster', {
@@ -11279,7 +11196,7 @@ function proposeLevyTrainingDay(campaign, ctx){
     const row = (A && A.findTroopType) ? A.findTroopType(ts.targetTroopType, { race: u.race || 'man' }) : null;
     const label = (row && row.label) || ts.targetTroopType;
     out.pendingRecords.push({ kind: 'levy-training', unitId: u.id, targetTroopType: ts.targetTroopType, count: ts.count, label });
-    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-training', transient: true, primaryHexId: u.homeHexId || null,
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-training', transient: true, primaryHexId: null,
       label: (u.displayName || 'A levy') + ': training complete — now ' + unitActiveCount(u) + ' ' + label,
       payload: { unitId: u.id } });
   }
@@ -12091,7 +12008,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, disbandUnit, setUnitHome, returnUnitHome, unitHomeDomainId, createArmy, disbandArmy, callUpUnit, addUnitToArmy, removeUnitFromArmy, startUnitMarch, stopUnitMarch, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, returnUnitHome, unitOwnerDomainId, musterUnitToDestination, createArmy, disbandArmy, callUpUnit, addUnitToArmy, removeUnitFromArmy, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
   domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization

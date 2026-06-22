@@ -249,9 +249,7 @@
           { name: 'kind', type: 'enum', enumValues: ['domain-garrison','character','army','hex','constructible'] },
           { name: 'id',   type: 'string', description: 'The station entity id (kind-dependent)' }
         ] },
-        { name: 'stationedAtHexId', type: 'id', idKind: 'hex', group: 'Stationing', description: 'Geographic hint (legacy field; the map reads it)' },
-        { name: 'homeHexId',     type: 'id', idKind: 'hex',    group: 'Stationing', description: 'Home garrison — the default station hex (inside the unit\'s domain); where it returns when a mission ends (2026-06-14)' },
-        { name: 'homeDomainId',  type: 'id', idKind: 'domain', group: 'Stationing', description: 'Owning domain (set from the home hex; W7 levies set it directly)' },
+        { name: 'ownerDomainId', type: 'id', idKind: 'domain', group: 'Stationing', description: 'The domain (and realm) that raised + owns this unit — relational; survives un-stationing (2026-06-22 muster model). A unit garrisons abstractly (no hex); it has a coordinate only in a field army or at a {kind:hex} station.' },
         { name: 'commanderCharacterId',  type: 'id', idKind: 'character', group: 'Stationing' },
         { name: 'lieutenantCharacterId', type: 'id', idKind: 'character', group: 'Stationing', description: 'Unit lieutenant (RR p.435; his morale modifier applies in battle)' },
         { name: 'loyalty',       type: 'number', group: 'Condition', description: 'Unit loyalty score (RR p.429 — officers −2 base; ± employer CHA)' },

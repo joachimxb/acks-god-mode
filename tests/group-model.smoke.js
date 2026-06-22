@@ -114,7 +114,7 @@ ok('party hex', ACKS.groupPosition(camp, party) === 'hex-a');
 ok('army hex', ACKS.groupPosition(camp, army) === 'hex-b');
 ok('band hex', ACKS.groupPosition(camp, band) === 'hex-c');
 ok('merc unit → its patron’s hex', ACKS.groupPosition(camp, unitMerc) === 'hex-a');
-ok('garrison unit → the domain seat hex', ACKS.groupPosition(camp, unitGar) === 'hex-gar');
+ok('garrison unit → abstract, no map position (muster model)', ACKS.groupPosition(camp, unitGar) === null);
 ok('army-stationed unit → the army’s hex', ACKS.groupPosition(camp, unitArmy) === 'hex-b');
 
 section('containment governs visibility (§12.5)');

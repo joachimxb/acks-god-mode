@@ -2575,8 +2575,8 @@ document.addEventListener('alpine:init', () => {
 <!-- 🚶 March a garrison unit (2026-06-17) — a Journey at unit scale (destination + 🗺 map-pick + pace), no supply -->
 <div x-show="marchModal.open" @keydown.escape.window="if(marchModal.open){ marchModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="marchModal.open=false">
   <div class="vellum border border-ink rounded shadow-lg p-4 mt-16 w-full max-w-md" @click.stop>
-    <h3 class="font-bold text-lg mb-1">🚶 March a unit</h3>
-    <p class="text-xs opacity-70 mb-3" x-text="(marchModalUnit() ? (marchModalUnit().displayName || 'The unit') : 'The unit') + ' marches from ' + hexLabelById(marchModal.originHexId) + '. A journey at unit scale — no participants, no supply line.'"></p>
+    <h3 class="font-bold text-lg mb-1">🚶 Muster a unit</h3>
+    <p class="text-xs opacity-70 mb-3" x-text="(marchModalUnit() ? (marchModalUnit().displayName || 'The unit') : 'The unit') + ' musters to a destination hex — an abstract mobilization over ~1 week (RR p.434). No coordinate in transit; it takes up its post when the muster completes.'"></p>
     <div class="space-y-2 text-sm">
       <div class="flex flex-wrap items-baseline gap-2">
         <label class="font-semibold w-24">Destination</label>
@@ -2586,20 +2586,10 @@ document.addEventListener('alpine:init', () => {
         </select>
         <button @click="marchPickDest()" class="text-xs underline" title="Pick the destination on the map">🗺 choose from map</button>
       </div>
-      <div class="flex flex-wrap items-baseline gap-2">
-        <label class="font-semibold w-24">Pace</label>
-        <select x-model="marchModal.pace" class="border border-ink rounded px-2 py-0.5">
-          <option value="normal">Normal</option>
-          <option value="forced-march">Forced march (+50%, fatigues)</option>
-          <option value="half-speed">Half speed</option>
-        </select>
-      </div>
-      <p class="text-xs opacity-70" x-show="marchModal.destHexId && marchModal.destHexId !== marchModal.originHexId" x-text="(() => { const m = marchModalMiles(); return m ? (m.totalMiles.toLocaleString() + ' mi · ' + m.totalHexes + ' hex' + (m.totalHexes===1?'':'es') + ' · ≈ ' + Math.max(1, Math.ceil(m.totalHexes/4)) + ' day' + (Math.ceil(m.totalHexes/4)===1?'':'s') + ' at Normal pace') : '—'; })()"></p>
-      <p class="text-xs italic accent-red" x-show="marchModal.destHexId && marchModal.destHexId === marchModal.originHexId">The unit is already at that hex.</p>
     </div>
     <div class="mt-3 flex justify-between items-center">
       <button @click="marchModal.open=false" class="px-3 py-1 border border-ink rounded text-sm">Cancel</button>
-      <button @click="submitUnitMarch()" :disabled="!marchModal.destHexId || marchModal.destHexId === marchModal.originHexId" :class="(marchModal.destHexId && marchModal.destHexId !== marchModal.originHexId) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🚶 Start march</button>
+      <button @click="submitUnitMarch()" :disabled="!marchModal.destHexId" :class="marchModal.destHexId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🚶 Muster</button>
     </div>
   </div>
 </div>
@@ -2618,12 +2608,6 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center gap-2 flex-wrap">Number to levy:
             <input type="number" min="1" :max="levyModalAvailable()" x-model.number="levyModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
             <span class="text-xs opacity-60" x-text="'(available ' + levyModalAvailable() + ' / cap ' + domainLevyCap(levyModalDomain(), levyModal.source) + ')'"></span>
-          </label>
-          <label class="flex items-center gap-2 flex-wrap">Home (garrison hex):
-            <select x-model="levyModal.homeHexId" class="border border-ink rounded px-1 py-0.5 text-sm">
-              <option value="">— no home —</option>
-              <template x-for="h in domainHomeHexOptions(levyModalDomain())" :key="'lvh-'+h.id"><option :value="h.id" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
-            </select>
           </label>
           <span x-show="!domainCanLevy(levyModalDomain())" class="text-xs accent-red block">The realm is too unhappy to levy (RR p.432).</span>
         </div>
@@ -3123,15 +3107,7 @@ document.addEventListener('alpine:init', () => {
             <template x-if="u.unitTypeKey !== 'untrained-levy'"><p class="text-xs"><span class="opacity-70">Training:</span> trained as <span x-text="unitTypeLabelFor(u)"></span></p></template>
           </div>
           <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
-          <p class="text-xs flex items-center gap-1 flex-wrap"><span class="opacity-70">🏠 Home:</span>
-            <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where it returns when its task ends">
-              <option value="" :selected="!u.homeHexId">— no home —</option>
-              <template x-for="h in unitSheetHexOptions()" :key="'ush-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
-            </select>
-            <span class="opacity-50 italic" x-show="unitSheetHexOptions().length === 0">no domain hexes</span>
-          </p>
-          <p class="text-xs" x-show="u.rallyingToArmyId"><span class="text-sky-700 font-semibold">🚶 Marching to its muster point</span></p>
-          <p class="text-xs" x-show="u.returnJourneyId"><span class="text-emerald-700 font-semibold">🚶 Marching home to its garrison</span></p>
+          <p class="text-xs" x-show="u.musterState && u.musterState.destination"><span class="text-sky-700 font-semibold">🚶 Mustering to its post</span></p>
           <p class="text-xs" x-show="u.commanderCharacterId || u.lieutenantCharacterId"><span class="opacity-70">Officer:</span> <button @click="closeUnitSheet(); openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="underline">view ›</button></p>
           <div x-show="(u.calamities||[]).length" class="text-xs">
             <span class="opacity-70">Calamities (RR p.430):</span>
@@ -6461,8 +6437,7 @@ document.addEventListener('alpine:init', () => {
                 <th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th>
                 <th title="Battle rating per soldier">BR/sol</th><th>Total BR</th>
                 <th title="Unit morale score (RR p.429)">Morale</th>
-                <th title="Default garrison hex — where this unit returns when a mission ends (a hex in this domain)">Home</th>
-                <th title="Where the unit is deployed — its garrison post, away with a field army (and where), marching to muster, or (militia) at home">Deployment</th>
+                <th title="Where the unit is — garrisoning its domain (abstract), away with a field army (and where), mustering to a destination, levying in, or (militia) stood down">Deployment</th>
                 <th></th>
               </tr></thead>
 
@@ -6493,21 +6468,15 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
-                    <td>
-                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
-                        <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
-                      </select>
-                    </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                       <button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 underline" title="Split N soldiers into a new unit">Split</button>
                       <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
                       <button @click="removeGarrisonUnit(selectedDomain, u)" class="accent-red px-1" title="Remove this unit">×</button>
                       <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
-                      <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
-                      <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
+                      <template x-if="unitInArmy(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
+                      <template x-if="!unitIsMustering(u) && !unitInArmy(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Muster this unit to a hex — a sortie / relocation over ~1 week (RR p.434)">🚶 Muster to…</button></template>
+                      <template x-if="unitMoveMustering(u)"><button @click="cancelUnitMusterUi(u)" class="px-1 underline accent-red" title="Cancel the muster — the unit returns to its garrison">✖ Cancel muster</button></template>
                     </td>
                   </tr>
                 </template>
@@ -6534,12 +6503,6 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
-                    <td>
-                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
-                        <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
-                      </select>
-                    </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u) && !unitIsMustering(u)">
@@ -6549,9 +6512,9 @@ document.addEventListener('alpine:init', () => {
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.430 (trained → mercenaries/brigands, untrained → farms)">Release</button>
                         <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
-                        <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
-                      <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
+                        <template x-if="unitInArmy(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
+                      <template x-if="!unitIsMustering(u) && !unitInArmy(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Muster this unit to a hex — a sortie / relocation over ~1 week (RR p.434)">🚶 Muster to…</button></template>
+                      <template x-if="unitMoveMustering(u)"><button @click="cancelUnitMusterUi(u)" class="px-1 underline accent-red" title="Cancel the muster — the unit returns to its garrison">✖ Cancel muster</button></template>
                     </td>
                   </tr>
                 </template>
@@ -6583,12 +6546,6 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
-                    <td>
-                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
-                        <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option></template>
-                      </select>
-                    </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u) && !unitIsMustering(u)">
@@ -6600,9 +6557,9 @@ document.addEventListener('alpine:init', () => {
                         <template x-if="u.calledUp === false"><button @click="domainCallUpMilitia(u)" class="px-1 underline" title="Call this militia back up (RR p.432) — resumes the revenue/morale penalty">Call up</button></template>
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — disband and return to the population, freeing the levy slot (RR p.432)">Release</button>
                         <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
-                        <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
-                      <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
+                        <template x-if="unitInArmy(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
+                      <template x-if="!unitIsMustering(u) && !unitInArmy(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Muster this unit to a hex — a sortie / relocation over ~1 week (RR p.434)">🚶 Muster to…</button></template>
+                      <template x-if="unitMoveMustering(u)"><button @click="cancelUnitMusterUi(u)" class="px-1 underline accent-red" title="Cancel the muster — the unit returns to its garrison">✖ Cancel muster</button></template>
                     </td>
                   </tr>
                 </template>
@@ -10561,7 +10518,7 @@ document.addEventListener('alpine:init', () => {
                   <td class="text-xs" x-text="r.entity.unitTypeKey || '—'"></td>
                   <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
                   <td class="text-xs" x-text="unitStationLabel(r.entity)"></td>
-                  <td><span x-show="r.entity.rallyingToArmyId" class="text-xs text-sky-700" title="Marching to a muster point">🚶 marching</span></td>
+                  <td><span x-show="r.entity.musterState && r.entity.musterState.destination" class="text-xs text-sky-700" title="Mustering to its post">🚶 mustering</span></td>
                 </tr>
               </template>
             </tbody>
@@ -11062,18 +11019,7 @@ document.addEventListener('alpine:init', () => {
               <button x-show="u.commanderCharacterId || u.lieutenantCharacterId" @click="openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="text-xs underline">officer ›</button>
             </div>
             <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
-            <p class="text-xs flex items-center gap-1 flex-wrap"><span class="opacity-70">🏠 Home:</span>
-              <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when its mission ends (a hex inside its domain)">
-                <option value="" :selected="!u.homeHexId">— no home —</option>
-                <template x-for="h in unitHomeHexOptions(u)" :key="h.id">
-                  <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? hexLabelFor(h) : h.id)"></option>
-                </template>
-              </select>
-              <span class="opacity-60" x-show="u.homeHexId">— returns here when its task ends</span>
-              <span class="opacity-50 italic" x-show="!u.homeHexId && unitHomeHexOptions(u).length === 0">no domain hexes — station it to a domain first</span>
-            </p>
-            <p class="text-xs" x-show="u.rallyingToArmyId"><span class="text-sky-700 font-semibold">🚶 Marching to its muster point</span> — <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the march</button></p>
-            <p class="text-xs" x-show="u.returnJourneyId"><span class="text-emerald-700 font-semibold">🚶 Marching home to its garrison</span> — <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the march</button></p>
+            <p class="text-xs" x-show="u.musterState && u.musterState.destination"><span class="text-sky-700 font-semibold">🚶 Mustering to its post</span></p>
             <p class="text-xs mt-1"><span class="opacity-70">Wage:</span> <span class="font-mono" x-text="(window.ACKS.unitWageMonthly ? Math.round(window.ACKS.unitWageMonthly(currentCampaign, u)).toLocaleString() : (u.monthlyWage||0)) + ' gp/mo'"></span>
               · <span class="opacity-70">BR:</span> <span class="font-mono" x-text="window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(currentCampaign, u) : '—'"></span>
               · <span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></p>
@@ -19574,7 +19520,7 @@ function buildDomainFromTemplate(tpl){
   d.garrison = { units:(tpl.garrison||[]).map(u => ({
     schemaVersion:2, id:window.ACKS.newId(window.ACKS.ID_PREFIXES.garrisonUnit),
     displayName:u.name||'Unit', unitTypeKey:window.ACKS.slugify(u.name||'unit'),
-    count:u.count||0, monthlyWage:u.monthlyWage||0, brPerSoldier:u.brPerSoldier||0, stationedAtHexId:null
+    count:u.count||0, monthlyWage:u.monthlyWage||0, brPerSoldier:u.brPerSoldier||0
   })) };
   if(tpl.stronghold)d.stronghold=Object.assign(d.stronghold,tpl.stronghold);
   if(tpl.specialists)d.specialists=tpl.specialists.map(s => ({
@@ -24371,7 +24317,7 @@ return {
   // each summed by living count (count - casualties) so the foot row equals the sum of the rows above.
   garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
   // The domain that owns the sheet's unit (for the garrison-context Split/Merge/Release ops).
-  unitSheetDomain(){ const u = this.unitSheetUnit(); if(!u) return null; const id = u.homeDomainId || ((u.stationedAt && u.stationedAt.kind === 'domain-garrison') ? u.stationedAt.id : null); return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  unitSheetDomain(){ const u = this.unitSheetUnit(); if(!u) return null; const id = u.ownerDomainId || ((u.stationedAt && u.stationedAt.kind === 'domain-garrison') ? u.stationedAt.id : null); return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
   closeUnitSheet(){ this.unitSheetUnitId = null; },
   unitSheetUnit(){
@@ -24382,9 +24328,8 @@ return {
     return (A && A.findUnit) ? A.findUnit(c, id) : null;
   },
   unitSheetList(){ const u = this.unitSheetUnit(); return u ? [u] : []; },
-  unitSheetHexOptions(){ const u = this.unitSheetUnit(); return u ? this.unitHomeHexOptions(u) : []; },
   // Levy modal — count + home hex (RR pp.430–433). Materializes the levy, then sets its home.
-  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1, homeHexId: '' }; },
+  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1 }; },
   closeLevyModal(){ this.levyModal.open = false; },
   levyModalDomain(){ const id = this.levyModal && this.levyModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   levyModalAvailable(){ const d = this.levyModalDomain(); return d ? this.domainLevyAvailable(d, this.levyModal.source) : 0; },
@@ -24394,7 +24339,6 @@ return {
     const n = Math.floor(Number(this.levyModal.count) || 0); const src = this.levyModal.source; const A = window.ACKS;
     const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n }) : A.levyConscripts(this.currentCampaign, d.id, { count: n });
     if(!u){ this.showToast && this.showToast('No room to levy more ' + src + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
-    if(this.levyModal.homeHexId) this.setUnitHomeUi(u, this.levyModal.homeHexId);
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(u.musterState
       ? 'Began levying ' + u.musterState.total + ' ' + src + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
@@ -24507,7 +24451,7 @@ return {
         targetTurn: (this.currentCampaign && this.currentCampaign.currentTurn) || 1,
         payload: {
           target: { kind: 'garrison-unit', id: u.id },
-          mutation: { fieldPath: 'stationedAtHexId', newValue: u.stationedAtHexId },
+          mutation: { fieldPath: 'ownerDomainId', newValue: domain.id },
           reason: 'GM administrative add — new garrison unit in ' + (domain.name || 'domain')
         },
         gmNotes: 'GM-added new garrison unit (' + u.displayName + ', id=' + u.id + ')'
@@ -24556,7 +24500,7 @@ return {
       count: n,
       monthlyWage: unit.monthlyWage,
       brPerSoldier: unit.brPerSoldier,
-      stationedAtHexId: unit.stationedAtHexId
+      ownerDomainId: unit.ownerDomainId
     });
     unit.count = cur - n;
     window.ACKS.stationUnit(this.currentCampaign, newUnit, { kind: 'domain-garrison', id: domain.id });
@@ -24623,12 +24567,12 @@ return {
   // the talent pool the per-type Qualifying Numbers divide; training draws from the raw recruits), the realm
   // TREASURY (the gp the per-troop cost is paid from), and the LEVY capacity still un-raised (cap − ever-raised).
   trainModalBudget(){
-    const u = this.trainModalUnit(); if(!u || !u.homeDomainId) return null;
+    const u = this.trainModalUnit(); if(!u || !u.ownerDomainId) return null;
     const A = window.ACKS; const src = u.source;
-    const d = (this.domains || []).find(x => x && x.id === u.homeDomainId) || null;
-    const pool = A.domainLevyPoolCount(this.currentCampaign, u.homeDomainId, src);
+    const d = (this.domains || []).find(x => x && x.id === u.ownerDomainId) || null;
+    const pool = A.domainLevyPoolCount(this.currentCampaign, u.ownerDomainId, src);
     let untrained = 0;
-    for(const x of (A.domainLevyUnits(this.currentCampaign, u.homeDomainId, src) || [])){ if(x && x.unitTypeKey === 'untrained-levy') untrained += A.unitActiveCount(x); }
+    for(const x of (A.domainLevyUnits(this.currentCampaign, u.ownerDomainId, src) || [])){ if(x && x.unitTypeKey === 'untrained-levy') untrained += A.unitActiveCount(x); }
     return { source: src, sourceLabel: src === 'militia' ? 'militia' : 'conscripts',
       domainName: (d && d.name) || 'the realm',
       pool, untrained, trained: Math.max(0, pool - untrained),
@@ -24641,13 +24585,13 @@ return {
   trainModalTypeRows(){
     const u = this.trainModalUnit(); if(!u) return [];
     const A = window.ACKS; const race = u.race || 'man'; const active = A.unitActiveCount(u);
-    const pool = A.domainLevyPoolCount(this.currentCampaign, u.homeDomainId, u.source);   // RR p.431 — the cap is pool-wide
+    const pool = A.domainLevyPoolCount(this.currentCampaign, u.ownerDomainId, u.source);   // RR p.431 — the cap is pool-wide
     return (A.trainableTroopTypes(race) || []).map(key => {
       const q = A.conscriptQualifyingNumber(key, race);
       const cost = A.trainingCostFor(key, race) || { months: 0, perTroopGp: 0 };
       const row = A.findTroopType(key, { race });
       const allowance = A.conscriptQualifyingMax(pool, key, race);                         // of the WHOLE pool, not this unit
-      const already = A.domainLevyTrainedOfType(this.currentCampaign, u.homeDomainId, u.source, key);
+      const already = A.domainLevyTrainedOfType(this.currentCampaign, u.ownerDomainId, u.source, key);
       const remaining = Math.max(0, allowance - already);                                  // pool-wide allowance still left
       return { key, label: (row && row.label) || key, qualNum: q, pctText: Math.round(q / 120 * 100) + '%',
         max: Math.min(active, remaining), poolTotal: pool, poolAllowance: allowance, already, remaining, source: u.source,
@@ -24659,7 +24603,7 @@ return {
   trainModalOnTypeChange(){ const c = this.trainModalChosen(); this.trainModal.count = c ? c.max : null; },
   trainModalCount(){ const c = this.trainModalChosen(); if(!c) return 0; let n = Math.floor(Number(this.trainModal.count) || 0); if(n < 1) n = c.max; return Math.max(1, Math.min(n, c.max)); },
   trainModalCost(){ const c = this.trainModalChosen(); return c ? this.trainModalCount() * c.perTroopGp : 0; },
-  trainModalTreasury(){ const u = this.trainModalUnit(); if(!u || !u.homeDomainId) return 0; const d = (this.domains || []).find(x => x && x.id === u.homeDomainId); return d ? Math.round((d.treasury && d.treasury.gp) || 0) : 0; },
+  trainModalTreasury(){ const u = this.trainModalUnit(); if(!u || !u.ownerDomainId) return 0; const d = (this.domains || []).find(x => x && x.id === u.ownerDomainId); return d ? Math.round((d.treasury && d.treasury.gp) || 0) : 0; },
   trainModalCanSubmit(){ const c = this.trainModalChosen(); return !!c && c.max >= 1 && this.trainModalCount() >= 1; },
   submitTrain(){
     const u = this.trainModalUnit(); const c = this.trainModalChosen();
@@ -24713,7 +24657,7 @@ return {
     if(!Number.isFinite(n) || n < 1 || n >= cur){ alert('Invalid split count.'); return; }
     const A = window.ACKS;
     const nu = A.blankUnit({ displayName: unit.displayName, unitTypeKey: unit.unitTypeKey, race: unit.race, loadout: unit.loadout, veteran: unit.veteran, source: unit.source, count: n, monthlyWage: unit.monthlyWage, brPerSoldier: unit.brPerSoldier });
-    nu.homeDomainId = unit.homeDomainId; nu.calledUp = unit.calledUp; nu.moraleAdjustment = unit.moraleAdjustment; nu.loyalty = unit.loyalty;
+    nu.ownerDomainId = unit.ownerDomainId; nu.calledUp = unit.calledUp; nu.moraleAdjustment = unit.moraleAdjustment; nu.loyalty = unit.loyalty;
     const cas = Number(unit.casualties || 0); const splitCas = Math.round(cas * n / cur);
     nu.casualties = splitCas; unit.casualties = cas - splitCas; unit.count = cur - n;
     if(unit.calledUp === false) A.stationUnit(this.currentCampaign, nu, null);
@@ -24751,8 +24695,8 @@ return {
   garrisonStandingUnits(domain){
     const camp = this.currentCampaign; if(!domain) return [];
     const A = window.ACKS; const byId = new Map();
-    if(camp && Array.isArray(camp.units) && A && A.unitHomeDomainId){
-      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitHomeDomainId(camp, u) === domain.id) byId.set(u.id, u); }
+    if(camp && Array.isArray(camp.units) && A && A.unitOwnerDomainId){
+      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitOwnerDomainId(camp, u) === domain.id) byId.set(u.id, u); }
     }
     for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
     return [...byId.values()];
@@ -25082,7 +25026,7 @@ return {
     const camp = this.currentCampaign; if(!camp) return [];
     const rally = this.garrisonDeployForm.rallyHexId || null;
     return ((camp.units) || []).filter(u => u && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0
-        && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+        && !(u.stationedAt && u.stationedAt.kind === 'army') && !(u.musterState && u.musterState.destination))
       .map(u => {
         const origin = window.ACKS.unitCurrentHexId ? window.ACKS.unitCurrentHexId(camp, u) : null;
         const atRally = !origin || !rally || origin === rally;
@@ -25239,7 +25183,7 @@ return {
   musterAvailableUnits(){
     const camp = this.currentCampaign; if(!camp) return [];
     return ((camp.units) || [])
-      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !(u.musterState && u.musterState.destination))
       .map(u => { const eta = this._musterUnitEta(u); return { unit: u, home: this._unitHomeLabel(u), atMuster: eta.atMuster, eta }; });
   },
   _unitHomeLabel(u){
@@ -25299,7 +25243,7 @@ return {
   musterUnitSourceTag(u){
     if(!u) return '';
     if(u.source === 'conscript') return ' · ⚒ conscript' + (u.unitTypeKey === 'untrained-levy' ? ' (untrained)' : '');
-    if(u.source === 'militia') return ' · 🛡 militia' + (u.unitTypeKey === 'untrained-levy' ? ' (untrained)' : '') + (u.calledUp === false ? ' · at home' : '');
+    if(u.source === 'militia') return ' · 🛡 militia' + (u.unitTypeKey === 'untrained-levy' ? ' (untrained)' : '') + (u.calledUp === false ? ' · stood down' : '');
     return '';
   },
   musterArmySubmit(){
@@ -25347,7 +25291,7 @@ return {
     const A = window.ACKS; const dest = a.currentHexId || null;
     const milesPerHex = (A.JOURNEY_MILES_PER_HEX || 6);
     return ((camp.units) || [])
-      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !(u.musterState && u.musterState.destination))
       .map(u => {
         const origin = A.unitCurrentHexId ? A.unitCurrentHexId(camp, u) : null;
         let atMuster = (!origin || !dest || origin === dest), days = 0, hexes = 0;
@@ -25405,7 +25349,7 @@ return {
     });
   },
   // Active field armies of THIS domain (Domains ▸ Military) — armies in the field that draw on it:
-  // a unit home-stationed here (unitHomeDomainId), the ruler commanding in person, or a reaction
+  // a unit owned by this domain (unitOwnerDomainId), the ruler commanding in person, or a reaction
   // force defending one of the domain's incursion bands. Reuses armiesRows() so the columns match
   // the Characters ▸ Parties Armies table; filtered to genuinely-fielded forces (husks hidden).
   domainFieldArmyRows(domain){
@@ -25418,7 +25362,7 @@ return {
       if(rulerId && a.leaderCharacterId === rulerId) return true;
       if(a.reactionTargetGroupId && bandIds.has(a.reactionTargetGroupId)) return true;
       const units = (A.armyUnits ? A.armyUnits(camp, a) : []);
-      return units.some(u => u && A.unitHomeDomainId && A.unitHomeDomainId(camp, u) === domain.id);
+      return units.some(u => u && A.unitOwnerDomainId && A.unitOwnerDomainId(camp, u) === domain.id);
     };
     return this.armiesRows().filter(r => belongs(r.army) && (r.troops > 0 || r.army.journeyId || r.army.reactionTargetGroupId));
   },
@@ -25452,51 +25396,50 @@ return {
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
     return h ? (window.ACKS.hexName ? hexLabelFor(h) : h.id) : (hexId || '—');
   },
-  // The unit's DEPLOYMENT — the read-only column (Domains ▸ Military). When NOT in a field army it
-  // reads its garrison post (its home hex within the domain, else the domain seat); when IN an army
-  // it names the army AND where the army is; rallying reads the muster it marches to; a militia sent
-  // home reads "at home". (2026-06-16: was unitLocationLabel; the army branch gained the location.)
+  // The unit's DEPLOYMENT — the read-only column (Domains ▸ Military). A garrisoning unit is ABSTRACT
+  // (🛡 Garrisoning · <domain>, no hex); a unit in a field army names the army + where it stands; a
+  // move-muster reads 'mustering to <dest>'; a raise reads 'Levying' (levy) or 'Mustering' (mercenary
+  // crop); a stood-down militia reads 'Stood down'. (2026-06-22 muster model.)
   unitDeploymentLabel(unit){
     const camp = this.currentCampaign; if(!camp || !unit) return '—';
-    if(unit.rallyingToArmyId){
-      const a = (camp.armies || []).find(x => x && x.id === unit.rallyingToArmyId);
-      return '🚶 to ' + (a ? (a.name || 'muster') : 'muster');
-    }
-    if(unit.marchJourneyId){   // a free march (Garrison ▸ March) — where it's headed
-      const j = (camp.journeys || []).find(x => x && x.id === unit.marchJourneyId);
-      if(j && j.status === 'in-transit') return '🚶 marching to ' + this.hexLabelById(j.destinationHexId);
-    }
-    if(unit.musterState && (unit.musterPending || 0) > 0){   // W7 — levied troops arriving over 3 weeks (RR p.430)
-      const A = window.ACKS;
+    const A = window.ACKS;
+    const ms = unit.musterState;
+    if(ms && ms.destination){   // MOVE muster — mustering to an army / sortie / hex
       const left = (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(camp, unit) : null;
-      const total = unit.musterState.total || 0;
-      const here = Math.max(0, (unit.count || 0) - (unit.casualties || 0));
-      return '⏳ mustering — ' + here + ' of ' + total + ' arrived' + (left != null ? ' (' + left + 'd left)' : '');
+      let where = '';
+      if(ms.destination.kind === 'army'){ const a = (camp.armies||[]).find(x => x && x.id === ms.destination.id); where = a ? (a.name || 'an army') : 'an army'; if(a && a.currentHexId) where += ' (' + this.hexLabelById(a.currentHexId) + ')'; }
+      else { where = this.hexLabelById(ms.destination.id); }
+      return '🚶 mustering to ' + where + (left != null ? ' (' + left + 'd left)' : '');
     }
-    if(unit.trainingState && unit.trainingState.targetTroopType){   // W7 — drilling until the type's months elapse (RR p.431)
-      const A = window.ACKS;
+    if(ms && (unit.musterPending || 0) > 0){   // RAISE muster — a levy ('Levying') or a mercenary crop ('Mustering')
+      const left = (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(camp, unit) : null;
+      const total = ms.total || 0;
+      const here = Math.max(0, (unit.count || 0) - (unit.casualties || 0));
+      const isLevy = (unit.source === 'militia' || unit.source === 'conscript');
+      return (isLevy ? '⏳ Levying — ' : '⏳ Mustering — ') + here + ' of ' + total + ' arrived' + (left != null ? ' (' + left + 'd left)' : '');
+    }
+    if(unit.trainingState && unit.trainingState.targetTroopType){
       const left = (A && A.unitTrainingDaysLeft) ? A.unitTrainingDaysLeft(camp, unit) : null;
       const row = (A && A.findTroopType) ? A.findTroopType(unit.trainingState.targetTroopType, { race: unit.race || 'man' }) : null;
       return '🎓 training as ' + ((row && row.label) || unit.trainingState.targetTroopType) + (left != null ? ' (' + left + 'd left)' : '');
     }
-    if(unit.source === 'militia' && unit.calledUp === false){
-      return '🏠 at home' + (unit.homeHexId ? (' (' + this.hexLabelById(unit.homeHexId) + ')') : '');
-    }
+    if(unit.source === 'militia' && unit.calledUp === false){ return '🏠 Stood down'; }
     const st = unit.stationedAt || null;
     if(st && st.kind === 'army'){
       const a = (camp.armies || []).find(x => x && x.id === st.id);
       const where = (a && a.currentHexId) ? (' (' + this.hexLabelById(a.currentHexId) + ')') : '';
       return '🎖 ' + (a ? (a.name || 'an army') : 'an army') + where;
     }
-    const hexId = (st && st.kind === 'domain-garrison' && unit.homeHexId)
-      ? unit.homeHexId
-      : (window.ACKS.unitCurrentHexId ? window.ACKS.unitCurrentHexId(camp, unit) : null);
+    if(st && st.kind === 'domain-garrison'){ const d = (camp.domains || []).find(x => x && x.id === st.id); return '🛡 Garrisoning' + (d ? (' · ' + (d.name || d.id)) : ''); }
+    if(st && st.kind === 'hex'){ return this.hexLabelById(st.id); }
+    if(st && st.kind === 'character'){ const c = (camp.characters||[]).find(x => x && x.id === st.id); return 'company · ' + (c ? (c.name || c.id) : st.id); }
+    const hexId = (A && A.unitCurrentHexId) ? A.unitCurrentHexId(camp, unit) : null;
     return hexId ? this.hexLabelById(hexId) : '—';
   },
   // A unit is "deployed" (away from its domain garrison) when it sits in a field army or is marching
   // to muster — managed through its army (Characters ▸ Parties), not the garrison table; its Split /
   // Merge / × actions are guarded so they can't dangle an army division's unit reference.
-  unitIsDeployed(unit){ return !!(unit && (unit.rallyingToArmyId || (unit.stationedAt && unit.stationedAt.kind === 'army'))); },
+  unitIsDeployed(unit){ return !!(unit && ((unit.musterState && unit.musterState.destination) || (unit.stationedAt && unit.stationedAt.kind === 'army'))); },
   // A levy is "in training" until the 'levy-training' day-consumer completes it (RR p.431; W7 timer). While
   // training it can't be re-trained, marched, or merged — its 🎓 Train / 🚶 March / Merge actions are gated.
   unitIsTraining(unit){ return !!(unit && unit.trainingState && unit.trainingState.targetTroopType); },
@@ -25511,13 +25454,15 @@ return {
   // A levy is "mustering" until the 'levy-muster' day-consumer finishes assembling it (RR p.430; W7
   // levy-arrival staging). While mustering it can't be trained, marched, or merged — its 🎓 Train /
   // 🚶 March / Merge actions are gated, like an in-training unit.
-  unitIsMustering(unit){ return !!(unit && (unit.musterPending || 0) > 0); },
+  unitIsMustering(unit){ return !!(unit && ((unit.musterPending || 0) > 0 || (unit.musterState && unit.musterState.destination))); },
   // "12 of 48 arrived — 13 days left" (RR p.430; W7). '' when not mustering.
   unitMusterText(unit){
     if(!this.unitIsMustering(unit)) return '';
     const A = window.ACKS;
     const left = (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(this.currentCampaign, unit) : null;
-    const total = (unit.musterState && unit.musterState.total) || 0;
+    const ms = unit.musterState;
+    if(ms && ms.destination){ return 'mustering to its post' + (left != null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : ''); }
+    const total = (ms && ms.total) || 0;
     const here = Math.max(0, (unit.count || 0) - (unit.casualties || 0));
     return here + ' of ' + total + ' arrived' + (left != null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '');
   },
@@ -25575,66 +25520,43 @@ return {
       this.showToast && this.showToast(msg, 3500);
     } else { this.showToast && this.showToast('Could not remove from army' + (r && r.reason ? ' (' + r.reason + ')' : '') + '.', 3000); }
   },
-  // ── March a garrison unit (the Garrison-table "March" verb, 2026-06-17) ──
-  // A lone unit is "marching" when it carries a live free-march journey (startUnitMarch). While
-  // marching it stays in the Garrison table (its home is still recorded) reading "🚶 marching to …".
-  unitIsMarching(u){
-    const camp = this.currentCampaign;
-    if(!camp || !u || !u.marchJourneyId) return false;
-    const j = (camp.journeys || []).find(x => x && x.id === u.marchJourneyId);
-    return !!(j && j.status === 'in-transit');
-  },
-  // "🚶 March": open the March modal seeded with the unit + its current location. Like Start-a-Journey
-  // at unit scale (destination + 🗺 map-pick + pace + distance preview), but no participants + no supply.
+  // ── Muster a garrison unit to a hex (the Garrison-table "Muster to…" verb, 2026-06-22) ──
+  // The two "away" states the action buttons branch on: standing in a field army vs mustering to a
+  // destination ({army|hex}). A garrisoning unit is abstract (no hex); it MUSTERS to move (RR p.434).
+  unitInArmy(u){ return !!(u && u.stationedAt && u.stationedAt.kind === 'army'); },
+  unitMoveMustering(u){ return !!(u && u.musterState && u.musterState.destination); },
+  // "🚶 Muster to…": open the modal to pick a destination hex. The muster is abstract (~1 week) — no
+  // origin / pace / distance; the unit takes up its post when the muster completes.
   openMarchModal(u){
-    const A = window.ACKS, camp = this.currentCampaign;
-    if(!A || !camp || !u) return;
-    const origin = A.unitCurrentHexId ? A.unitCurrentHexId(camp, u) : null;
-    if(!origin){ this.showToast && this.showToast('This unit has no location to march from (set its home hex or station it).', 4000); return; }
-    this.marchModal = { open: true, unitId: u.id, originHexId: origin, destHexId: '', pace: 'normal' };
+    if(!u) return;
+    this.marchModal = { open: true, unitId: u.id, destHexId: '' };
   },
   marchModalUnit(){
     const camp = this.currentCampaign, m = this.marchModal;
     if(!camp || !m || !m.unitId) return null;
     return (window.ACKS && window.ACKS.findUnit) ? window.ACKS.findUnit(camp, m.unitId) : ((camp.units || []).find(u => u && u.id === m.unitId) || null);
   },
-  // Distance preview for the modal (mirrors journeyWizardMiles): mi / hexes / ≈ days at Normal pace.
-  marchModalMiles(){
-    const m = this.marchModal;
-    if(!m || !m.originHexId || !m.destHexId || m.originHexId === m.destHexId) return null;
-    try {
-      const tj = { startHexId: m.originHexId, destinationHexId: m.destHexId, days: [] };
-      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, tj));
-      const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
-      const hexes = dist.total || 0;
-      return { totalHexes: hexes, totalMiles: hexes * mph };
-    } catch(e){ return null; }
-  },
   // 🗺 choose-from-map: hide the modal, pick a hex on the map, reopen with the destination set.
   marchPickDest(){
     if(!this.marchModal || !this.marchModal.unitId) return;
     this.marchModal.open = false;
-    this.mapBeginSelect(hexId => { this.marchModal.destHexId = hexId || ''; this.marchModal.open = true; }, 'Click the destination hex for the march, then ✓ confirm.');
+    this.mapBeginSelect(hexId => { this.marchModal.destHexId = hexId || ''; this.marchModal.open = true; }, 'Click the destination hex for the muster, then ✓ confirm.');
   },
   submitUnitMarch(){
     const A = window.ACKS, m = this.marchModal;
-    if(!A || !A.startUnitMarch || !m || !m.unitId || !m.destHexId) return;
+    if(!A || !A.musterUnitToDestination || !m || !m.unitId || !m.destHexId) return;
     const u = this.marchModalUnit();
-    const r = A.startUnitMarch(this.currentCampaign, m.unitId, { destinationHexId: m.destHexId, pace: m.pace });
-    if(r && r.ok){
-      this.marchModal = { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' };
-      this.markDirty(); this.schedulePersist();
-      this.showToast && this.showToast('🚶 ' + ((u && u.displayName) || 'Unit') + ' sets out — the Day Clock marches it (+1 day).', 3500);
-    } else {
-      const why = { 'in-army': 'it is in a field army (it moves with the army)', 'already-marching': 'it is already on the march', 'no-destination': 'pick a destination', 'no-position': 'the unit has no location', 'already-there': 'it is already at that hex' }[r && r.reason] || (r && r.reason) || 'unknown';
-      this.showToast && this.showToast('Cannot march — ' + why + '.', 3500);
-    }
+    A.musterUnitToDestination(this.currentCampaign, u, { kind: 'hex', id: m.destHexId });
+    this.marchModal = { open: false, unitId: null, destHexId: '' };
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('🚶 ' + ((u && u.displayName) || 'Unit') + ' musters to its post — it arrives in ~1 week (advance the Day Clock).', 4000);
   },
-  stopUnitMarchUi(u){
-    const A = window.ACKS; if(!A || !A.stopUnitMarch) return;
-    const r = A.stopUnitMarch(this.currentCampaign, u);
-    if(r && r.ok){ this.markDirty(); this.schedulePersist(); this.showToast && this.showToast('🛑 ' + ((u && u.displayName) || 'Unit') + ' halts' + (r.haltHexId ? ' at ' + this.hexLabelById(r.haltHexId) : '') + '.', 3500); }
-    else { this.showToast && this.showToast('Could not stop the march' + (r && r.reason ? ' (' + r.reason + ')' : '') + '.', 3000); }
+  // "✖ Cancel muster": recall a unit mid-muster back to its garrison (returnUnitHome).
+  cancelUnitMusterUi(u){
+    const A = window.ACKS; if(!A || !A.returnUnitHome || !u) return;
+    A.returnUnitHome(this.currentCampaign, u);
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('✖ Muster cancelled — ' + ((u.displayName) || 'the unit') + ' returns to its garrison.', 3500);
   },
   armyMarchGo(){
     const a = this.armySelected(); if(!a || !this.armyMarchDest) return;
@@ -29382,37 +29304,14 @@ return {
   // A loose unit's station label: marching to an army, a domain garrison, a company, a hex.
   unitStationLabel(u){
     if(!u) return '—';
-    if(u.returnJourneyId){ const d = window.ACKS.unitHomeDomainId ? (this.currentCampaign?.domains||[]).find(x => x && x.id === window.ACKS.unitHomeDomainId(this.currentCampaign, u)) : null; return '🚶 marching home' + (d ? (' to ' + (d.name || d.id)) : ''); }
-    if(u.rallyingToArmyId){ const a = window.ACKS.findArmy(this.currentCampaign, u.rallyingToArmyId); return '🚶 marching to ' + (a ? (a.name || 'an army') : 'an army'); }
+    if(u.musterState && u.musterState.destination){ const dest = u.musterState.destination; if(dest.kind === 'army'){ const a = window.ACKS.findArmy(this.currentCampaign, dest.id); return '🚶 mustering to ' + (a ? (a.name || 'an army') : 'an army'); } return '🚶 mustering to ' + this.journeyHexLabel(dest.id); }
     const st = u.stationedAt;
     if(!st) return 'unassigned';
-    if(st.kind === 'domain-garrison'){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === st.id); return 'garrison · ' + (d ? (d.name || d.id) : st.id); }
+    if(st.kind === 'domain-garrison'){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === st.id); return 'garrisoning · ' + (d ? (d.name || d.id) : st.id); }
     if(st.kind === 'character'){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === st.id); return 'company · ' + (c ? (c.name || c.id) : st.id); }
     if(st.kind === 'hex') return 'at ' + this.journeyHexLabel(st.id);
     if(st.kind === 'army') return 'in an army';
     return st.kind;
-  },
-  // ── Unit home garrison (2026-06-14) — the hex a unit defaults to + returns to on task-end ──
-  // The hexes of a given domain (the garrison-table picker — home must be a hex in THIS domain).
-  domainHomeHexOptions(domain){
-    if(!domain || !this.currentCampaign) return [];
-    return (this.currentCampaign.hexes || []).filter(h => h && h.domainId === domain.id);
-  },
-  // The hexes a unit may call home: its own domain's hexes (homeDomainId / current garrison),
-  // or — for a domain-less unit — any domain hex (picking one assigns the home domain).
-  unitHomeHexOptions(unit){
-    const camp = this.currentCampaign; if(!camp || !unit) return [];
-    const homeDomId = window.ACKS.unitHomeDomainId ? window.ACKS.unitHomeDomainId(camp, unit) : null;
-    const inDomain = (camp.hexes || []).filter(h => h && h.domainId);
-    return homeDomId ? inDomain.filter(h => h.domainId === homeDomId) : inDomain;
-  },
-  // Set/clear a unit's home garrison (routes through the engine setter — validates the hex is
-  // inside a domain, syncs homeDomainId, stamps unit.history). Mirrors the W7 levy handlers.
-  setUnitHomeUi(unit, hexId){
-    const r = window.ACKS.setUnitHome(this.currentCampaign, unit, hexId || null);
-    if(!r || !r.ok){ if(this.showToast) this.showToast('Could not set home: ' + ((r && r.reason) || 'unknown'), 4000); return; }
-    this.markDirty(); this.schedulePersist();
-    if(this.showToast) this.showToast(hexId ? 'Home garrison set.' : 'Home garrison cleared.');
   },
   // An army's individuated members (officers) — reuses the engine accessor so an army
   // shows its people exactly like a party shows its members.
@@ -30996,14 +30895,14 @@ return {
   // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
   lairDetailId: null,            // open lair in the detail modal (null = closed)
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
-  levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
+  levyModal: { open: false, domainId: null, source: 'conscript', count: 1 },  // ⚒/🛡 Levy modal
   recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
   recruitSpecialistModal: { open: false, domainId: null, typeKey: '', detailLevel: 'lightweight' },  // 🎖 Recruit-officer/specialist (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   constructionWizard: { open: false, kind: 'stronghold-component', structureKey: '', componentType: '', name: '', totalCost: 0, ownerKind: 'domain', ownerDomainId: '', ownerCharacterId: '', siteHexId: '', laborers: 0, masons: 0, carpenters: 0, smiths: 0, supervisorIds: [], repairTargetId: '' },  // 🏗 Construction Wizard (Domain ▸ Stronghold + Inspector; repairTargetId set = Wave-F repair mode)
   followerArrival: { open: false, domainId: '', proposal: null },  // 🎺 Follower Arrival modal (Domain ▸ Stronghold — RR p.334)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
-  marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit
+  marchModal: { open: false, unitId: null, destHexId: '' },  // 🚶 Muster a garrison unit to a hex
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
   arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
   dungeonBuild: { open: false, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 },  // AD-C — the 🏗 Build a dungeon modal
