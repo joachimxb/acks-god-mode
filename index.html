@@ -9024,6 +9024,7 @@ document.addEventListener('alpine:init', () => {
                 <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
                 <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                 <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
+                <th class="font-normal py-0.5 pr-4" title="The traveller's mount — breed · load-adjusted travel speed · feeding (RR p.161/276)">Mount</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
             </thead>
@@ -9050,6 +9051,12 @@ document.addEventListener('alpine:init', () => {
                   </td>
                   <td class="py-1 pr-4" x-show="encumbranceShown()">
                     <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
+                  </td>
+                  <td class="py-1 pr-4" x-data="{ get mr(){ return journeyMemberMountRow(journeyDetail(), ch); } }">
+                    <template x-if="mr">
+                      <span class="text-xs whitespace-nowrap" :title="'Rides a '+mr.breed+' ('+mr.training+') — load '+mr.load+'/'+mr.norm+' st ('+mr.band+'); '+mr.mi+' mi/day; feeding: '+mr.feeding">🐴 <span x-text="mr.breed"></span> <span class="font-mono" :style="'color:'+mr.bandColor" x-text="'· '+mr.mi+' mi/d'"></span><span x-show="mr.feeding!=='healthy'" :style="'color:'+mr.feedColor" x-text="' · '+mr.feeding"></span></span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!mr">on foot</span>
                   </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
@@ -9110,6 +9117,9 @@ document.addEventListener('alpine:init', () => {
             <span title="Total drinking-water days carried by the party">💧 Water: <span class="font-semibold" x-text="journeyTotalWaterDays(journeyDetail())"></span> day(s)</span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
             <span x-show="!journeyProvisioningInfo(journeyDetail()).onLifestyle" :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
+            <template x-if="journeyAnimalFeedSummary(journeyDetail())">
+              <span x-data="{ get a(){ return journeyAnimalFeedSummary(journeyDetail()); } }" title="Mounts/pack animals on the journey + the animal-feed/water store they draw daily (food = load÷10 st, water = load÷5 st; RR p.276)">🐴 <span class="font-semibold" x-text="a.count"></span> mount(s) · feed <span class="font-mono" :class="a.feed<=0 ? 'text-orange-700 font-semibold' : ''" x-text="a.feed+' st'"></span> · water <span class="font-mono" :class="a.water<=0 ? 'text-sky-700 font-semibold' : ''" x-text="a.water+' st'"></span><span class="opacity-70" x-show="a.days!==null" x-text="' · ≈'+a.days+'d feed'"></span></span>
+            </template>
           </div>
           <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
           <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
@@ -35126,6 +35136,18 @@ return {
     camp.mounts=(camp.mounts||[]).filter(x=>x && x.id!==m.id);
     (camp.journeys||[]).forEach(j=>{ if(Array.isArray(j.packAnimalIds)) j.packAnimalIds=j.packAnimalIds.filter(id=>id!==m.id); });
     this.markDirty(); this.schedulePersist(); this.showToast('Mount removed.');
+  },
+  // -- Journey-panel mount readouts (MO-4) — surface mounts per traveller + the herd's feed in the Journey Detail --
+  journeyMounts(j){ const A=window.ACKS; return (j && A.mountsForJourney) ? A.mountsForJourney(this.currentCampaign, j) : []; },
+  journeyMemberMount(j, ch){ if(!ch) return null; return this.journeyMounts(j).find(m => m && m.role==='mount' && m.riderCharacterId===ch.id) || null; },
+  journeyMemberMountRow(j, ch){ const m=this.journeyMemberMount(j, ch); return m ? this.mountRow(m) : null; },
+  journeyPackAnimals(j){ const ids=(j && j.participantCharacterIds)||[]; return this.journeyMounts(j).filter(m => !(m.role==='mount' && m.riderCharacterId && ids.indexOf(m.riderCharacterId)>=0)); },
+  journeyAnimalFeedSummary(j){
+    const A=window.ACKS; const mounts=this.journeyMounts(j); if(!mounts.length) return null;
+    const sup=(j && j.supplies)||{};
+    const needF=mounts.reduce((s,m)=> s + (A.mountIsGrazer(m)?0:(A.mountDailyFoodSt(m)||0)), 0);
+    const feed=Number(sup.animalFeed)||0, water=Number(sup.animalWater)||0;
+    return { count:mounts.length, feed, water, days: needF>0 ? Math.floor(feed/needF) : null };
   },
 
   // ============================ Voyages V6 (2026-06-17) — the Vessel/voyage UI ============================
