@@ -306,6 +306,9 @@ document.addEventListener('alpine:init', () => {
   .border-ink { border-color: #6b4f24; }
   .accent-red { color: #7a1f1f; }
   .accent-green { color: #2f5a2f; }
+  /* On a selected (brown .tab-active) row the dark accent text would be illegible on brown —
+     let it take the row's light color, so a selected row stays fully readable like the Domains table. */
+  .tab-active .accent-red, .tab-active .accent-green { color: inherit; }
   details > summary { cursor: pointer; }
   .tab-active { background: #6b4f24; color: #f7f1e2; }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -10246,7 +10249,8 @@ document.addEventListener('alpine:init', () => {
           </tr></thead>
           <tbody>
             <template x-for="c in filteredCharacters()" :key="c.id">
-              <tr :class="{'opacity-50': c.alive === false, 'bg-yellow-50': selectedCharacterId === c.id}" class="cursor-pointer hover:bg-yellow-50/60" @click="selectCharacter(c)">
+              <tr @click="selectCharacter(c)" class="cursor-pointer"
+                  :class="{ 'opacity-50': c.alive === false, 'tab-active': selectedCharacterId === c.id, 'font-semibold': selectedCharacterId === c.id, 'hover:bg-yellow-100': selectedCharacterId !== c.id }">
                 <td style="text-align:left">
                   <button @click.stop="selectCharacter(c)" class="font-semibold underline" title="Select — show this character in the action box above" x-text="c.name || '(unnamed)'"></button>
                   <template x-if="c.alive === false">
