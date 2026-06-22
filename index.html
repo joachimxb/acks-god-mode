@@ -537,9 +537,11 @@ document.addEventListener('alpine:init', () => {
             <span x-text="(b.kind === 'battle' ? '🎌 ' : '⚔ ') + b.label"></span>
             <div class="flex items-center gap-2 shrink-0">
               <!-- Quick-dismiss (encounters only) — resolve as 'dismissed' so the clock frees without
-                   walking the full RR panel; battles keep just the jump link (their aftermath is heavier). -->
-              <button x-show="b.kind !== 'battle'" @click="dismissEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock. Open the Encounters tab to resolve it in full instead.">✕ dismiss</button>
-              <button @click="reviewSubView = (b.kind === 'battle' ? 'battles' : 'encounters')" class="underline font-semibold" x-text="b.kind === 'battle' ? 'to Battles →' : 'to Encounters →'"></button>
+                   walking the full RR panel; battles can't be dismissed (heavier aftermath), only opened. -->
+              <button x-show="b.kind !== 'battle'" @click="dismissEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+              <!-- Resolve — open THIS blocker's resolution panel directly (the encounter modal / battle
+                   panel), not just the list view (replaces the old 'to Encounters →' nav link). -->
+              <button @click="b.kind === 'battle' ? openBattlePanel(b.id) : openEncounterModal(b.id)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" :title="b.kind === 'battle' ? 'Open this battle’s panel to resolve it' : 'Open this encounter’s resolution panel (the full RR pre-combat procedure)'" x-text="b.kind === 'battle' ? '🎌 resolve' : '⚔ resolve'"></button>
             </div>
           </div>
         </template>
