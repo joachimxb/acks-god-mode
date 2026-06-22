@@ -5371,7 +5371,7 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
-                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th><th title="Demand modifiers per RR p.371">📊 Market</th><th title="JJ Step 3 demographic roster (pp.214–217)">📋 Roster</th></tr></thead>
+                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th></tr></thead>
                 <tbody>
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
@@ -5395,14 +5395,6 @@ document.addEventListener('alpine:init', () => {
                           <template x-if="editing"><span class="ed-stat"><input type="number" min="0" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                         </span>
                       </td>
-                      <td>
-                        <button @click="openDemandModifiersModal(entry.settlement)" class="text-sm underline" :title="'Set demand modifiers for ' + (entry.settlement.name||'this settlement')">
-                          <span x-text="settlementNonZeroDMCount(entry.settlement)"></span> DMs · edit
-                        </button>
-                      </td>
-                      <td>
-                        <button @click="demoSettlementId = (demoSettlementId===entry.settlement.id ? null : entry.settlement.id)" class="text-sm underline" :title="'Step 3 demographic roster for ' + (entry.settlement.name||'this settlement')" x-text="demoSettlementId===entry.settlement.id ? 'hide' : 'view'"></button>
-                      </td>
                     </tr>
                   </template>
                   <tr class="total">
@@ -5410,276 +5402,9 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="totalUrbanFamiliesFromHexes(selectedDomain).toLocaleString()"></td>
                     <td colspan="2"></td>
                     <td x-text="totalUrbanInvestmentFromHexes(selectedDomain).toLocaleString()+' gp'"></td>
-                    <td></td>
-                    <td></td>
                   </tr>
                 </tbody>
               </table>
-            </template>
-
-            <!-- Settlement Demographics SD-1 — the derived JJ Step-3 census roster read (expected · residents · open · exceptional).
-                 Pure RAW tooling (always-on); set an NPC's home on its character sheet to fill the realized side. -->
-            <template x-if="demoSettlementId && demographicRoster()">
-              <div class="mt-3 vellum border border-ink rounded p-3" style="background:#f4ecd2">
-                <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-                  <h3 class="font-bold">📋 Demographics — <span x-text="(demoSettlement()&&demoSettlement().name) || '(settlement)'"></span></h3>
-                  <button @click="demoSettlementId=null" class="text-sm underline">close</button>
-                </div>
-                <p class="text-sm opacity-70 mb-2">
-                  JJ Step 3 (pp.214–217) — Class <span x-text="demographicRoster().expected.marketClass"></span>,
-                  <span x-text="(demographicRoster().expected.families||0).toLocaleString()"></span> families
-                  (×<span x-text="Math.round(demographicRoster().expected.scale*100)/100"></span> the reference table).
-                  Each cell shows <em>residents / expected</em>.
-                </p>
-                <div class="overflow-x-auto">
-                  <table class="bookkeeping text-sm">
-                    <thead><tr><th>Level</th>
-                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
-                    </tr></thead>
-                    <tbody>
-                      <template x-for="r in demoRosterRows()" :key="r.level">
-                        <tr>
-                          <td class="font-semibold" x-text="'L'+r.level"></td>
-                          <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
-                            <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
-                                :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+')').join(', ') : ''">
-                              <template x-if="r[b].realized>0 || r[b].expected>=0.5">
-                                <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
-                              </template>
-                              <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
-                              <template x-if="demoAutoGenOn() && r[b].open>0">
-                                <button class="ml-1 text-xs underline opacity-50 hover:opacity-100" @click="demoFillSlot(b, r.level)" :title="'✨ Generate a '+b+' L'+r.level+' (fills this open slot)'">✨</button>
-                              </template>
-                            </td>
-                          </template>
-                        </tr>
-                      </template>
-                      <tr class="total">
-                        <td>Totals</td>
-                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
-                          <td><span x-text="demographicRoster().realized.totals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(demographicRoster().expected.totals[b])"></span></span></td>
-                        </template>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <p class="text-sm mt-2">
-                  <span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered residents
-                  (of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected) ·
-                  <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots
-                  <span class="accent-red" x-show="demographicRoster().exceptionalTotal>0"> · <span x-text="demographicRoster().exceptionalTotal"></span> exceptional</span>
-                </p>
-                <template x-if="demographicRoster().realized.otherCount>0">
-                  <p class="text-sm opacity-70" x-text="demographicRoster().realized.otherCount + ' unclassed resident(s): ' + demographicRoster().realized.other.map(o=>o.name).join(', ')"></p>
-                </template>
-                <template x-if="demographicRoster().expected.overrides">
-                  <p class="text-sm opacity-70">⚙ GM demographic override active (RR p.214) — applied to the expectation above.</p>
-                </template>
-
-                <!-- SD-2 reconciliation workspace — the residents homed here (name → sheet, bucket,
-                     civic placement, un-home) + an assign-an-unplaced-NPC control. -->
-                <div class="mt-3 pt-2 border-t border-ink/30">
-                  <h4 class="font-semibold text-sm mb-1">Residents <span class="opacity-60 font-normal" x-text="'(' + demoResidents().length + ')'"></span></h4>
-                  <template x-if="demoResidents().length===0">
-                    <p class="text-sm opacity-60 italic">No NPC is rostered here yet — assign one below, or set a home on a character sheet.</p>
-                  </template>
-                  <template x-if="demoResidents().length>0">
-                    <div class="overflow-x-auto">
-                      <table class="bookkeeping text-sm">
-                        <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Civic placement</th><th></th></tr></thead>
-                        <tbody>
-                          <template x-for="c in demoResidents()" :key="c.id">
-                            <tr>
-                              <td><button class="underline" @click="openCharacterEditor(c)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
-                              <td x-text="c.class||'—'"></td>
-                              <td class="capitalize" x-text="demoBucketLabel(c)"></td>
-                              <td>
-                                <select class="ed-input text-sm" style="width:14rem"
-                                        @change="commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'placementRole', label:'Civic placement', oldValue:(c.placementRole||null), newValue:($event.target.value||null)})">
-                                  <option :value="null" :selected="!c.placementRole" x-text="'auto — ' + window.ACKS.placementRoleLabel(window.ACKS.suggestedPlacementRole(currentCampaign, c))"></option>
-                                  <template x-for="role in window.ACKS.PLACEMENT_ROLES" :key="role">
-                                    <option :value="role" :selected="c.placementRole===role" x-text="window.ACKS.placementRoleLabel(role)"></option>
-                                  </template>
-                                </select>
-                              </td>
-                              <td><button class="text-sm underline accent-red" @click="demoRemoveResident(c)" title="Remove this NPC's home (un-roster it)">× un-home</button></td>
-                            </tr>
-                          </template>
-                        </tbody>
-                      </table>
-                    </div>
-                  </template>
-                  <div class="flex items-center gap-2 mt-2 flex-wrap">
-                    <span class="text-sm font-semibold">Assign a resident:</span>
-                    <select class="ed-input text-sm" style="width:16rem" x-model="demoAssignPick">
-                      <option value="">— pick an unplaced NPC —</option>
-                      <template x-for="c in demoUnhomedCandidates()" :key="c.id">
-                        <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
-                      </template>
-                    </select>
-                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!demoAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!demoAssignPick" @click="demoAssignResident()">🏠 Home here</button>
-                  </div>
-                  <!-- SD-2b — opt-in auto-generation: mint the notable open slots from the NPC generator
-                       (gated on living-census + demographics-auto-generate). The rank-and-file stay counts. -->
-                  <template x-if="demoAutoGenOn()">
-                    <div class="flex items-center gap-2 mt-2 flex-wrap">
-                      <span class="text-sm font-semibold">✨ Auto-fill notables:</span>
-                      <label class="text-sm">L≥ <input type="number" min="1" max="14" class="ed-input text-sm" style="width:4rem" x-model.number="demoFillMinLevel"></label>
-                      <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="demoAutoFill()">✨ Generate notable residents</button>
-                      <span class="text-sm opacity-60" x-text="demoOpenNotableCount() + ' open notable slot(s)'"></span>
-                    </div>
-                  </template>
-                  <p class="text-sm opacity-60 italic mt-1">Recruited hirelings auto-home to the market they're hired in. Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint the notable open slots; or click a cell's ✨ to fill one chosen slot.</p>
-                </div>
-
-                <!-- SD-5a — the emergent reads: service legibility + the world-people query (plan §8). -->
-                <div class="mt-3 pt-2 border-t border-ink/30">
-                  <h4 class="font-semibold text-sm mb-1">🛠 Services &amp; notable residents</h4>
-                  <template x-if="demoMostNotable()">
-                    <p class="text-sm mb-1">Most notable in <span x-text="(selectedDomain&&selectedDomain.name)||'the realm'"></span>:
-                      <button class="underline font-semibold" @click="demoOpenResident(demoMostNotable().id)" x-text="demoMostNotable().name + ' · ' + (demoMostNotable().class||'?') + ' L' + demoMostNotable().level"></button>
-                      <span class="opacity-60" x-text="'(at ' + (demoMostNotable().settlementName||'—') + ')'"></span>
-                    </p>
-                  </template>
-                  <div class="overflow-x-auto">
-                    <table class="bookkeeping text-sm">
-                      <thead><tr><th>Bucket</th><th>Top resident</th><th>Affords</th></tr></thead>
-                      <tbody>
-                        <template x-for="row in (demoServices() ? demoServices().rows : [])" :key="row.bucket">
-                          <tr>
-                            <td class="capitalize" x-text="row.bucket"></td>
-                            <td>
-                              <template x-if="row.topResident"><button class="underline" @click="demoOpenResident(row.topResident.id)" x-text="row.topResident.name + ' · L' + row.topResident.level"></button></template>
-                              <template x-if="!row.topResident"><span class="opacity-50">—</span></template>
-                            </td>
-                            <td>
-                              <template x-if="row.topResident"><span x-text="row.service + ' · trains to L' + row.trainsUpToLevel"></span></template>
-                              <template x-if="!row.topResident"><span class="opacity-50 italic">no one here</span></template>
-                            </td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <!-- Find people — the queryable index (this settlement / this domain / within N hexes). -->
-                  <div class="mt-2 pt-2 border-t border-ink/20">
-                    <div class="flex items-center gap-2 flex-wrap text-sm">
-                      <span class="font-semibold">🔎 Find people:</span>
-                      <select class="ed-input text-sm" x-model="demoFindBucket">
-                        <option value="">any class</option>
-                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><option :value="b" x-text="b"></option></template>
-                      </select>
-                      <label>L≥ <input type="number" min="1" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindMinLevel"></label>
-                      <select class="ed-input text-sm" x-model="demoFindScope">
-                        <option value="settlement">in this settlement</option>
-                        <option value="domain">in this domain</option>
-                        <option value="near">within N hexes</option>
-                      </select>
-                      <label x-show="demoFindScope==='near'">N= <input type="number" min="0" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindWithin"></label>
-                      <span class="opacity-60" x-text="'(' + demoFindResults().length + ' found)'"></span>
-                    </div>
-                    <template x-if="demoFindResults().length>0">
-                      <div class="overflow-x-auto mt-1">
-                        <table class="bookkeeping text-sm">
-                          <thead><tr><th>Name</th><th>Class · Level</th><th>Settlement</th><th x-show="demoFindScope==='near'">Dist</th></tr></thead>
-                          <tbody>
-                            <template x-for="r in demoFindResults()" :key="r.id">
-                              <tr>
-                                <td><button class="underline" @click="demoOpenResident(r.id)" x-text="r.name"></button></td>
-                                <td x-text="(r.class||'?') + ' · L' + r.level"></td>
-                                <td x-text="r.settlementName||'—'"></td>
-                                <td x-show="demoFindScope==='near'" x-text="r.distance!=null ? r.distance : '—'"></td>
-                              </tr>
-                            </template>
-                          </tbody>
-                        </table>
-                      </div>
-                    </template>
-                    <template x-if="demoFindResults().length===0">
-                      <p class="text-sm opacity-60 italic mt-1">No one matches — widen the level or scope.</p>
-                    </template>
-                  </div>
-
-                  <!-- @b12-census (SD-6) — the magic-item census: expected market AVAILABILITY (TT p.27,
-                       by item type, per Class) vs the REALIZED on-hand stock (placed NotableItems + loose
-                       magical caches). The resource analog of the class roster. Always-on RAW tooling. -->
-                  <template x-if="magicCensus()">
-                    <div class="mt-2 pt-2 border-t border-ink/20">
-                      <h4 class="font-semibold text-sm mb-1">🪄 Magic-item census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + magicCensus().marketClass + ' market'"></span></h4>
-                      <p class="text-xs opacity-70 mb-1">Available per month at this market class (TT p.27) vs what's actually placed here. A <span class="font-mono">%</span> = the chance of even one that month (smaller markets). Per-party availability ≈ ÷10.</p>
-                      <div class="overflow-x-auto">
-                        <table class="bookkeeping text-sm">
-                          <thead><tr><th>Item type</th><th title="buyable per month at this market (TT Availability by Type)">Avail/mo</th><th>Placed</th><th title="availability not yet placed as NotableItems">Unplaced</th></tr></thead>
-                          <tbody>
-                            <template x-for="row in magicCensusTypeRows()" :key="row.type">
-                              <tr>
-                                <td x-text="row.label"></td>
-                                <td class="font-mono" x-text="_availCellText(row.availablePerMarket, row.chancePct)"></td>
-                                <td :class="row.placed>0 ? 'text-green-800 font-semibold' : ''"
-                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name).join(', ') : ''" x-text="row.placed||0"></td>
-                                <td class="opacity-70" x-text="row.unplaced>0 ? row.unplaced : '—'"></td>
-                              </tr>
-                            </template>
-                          </tbody>
-                        </table>
-                      </div>
-                      <p class="text-sm mt-1">
-                        <span class="font-semibold" x-text="magicCensus().realized.totalCount"></span> magic item(s) here
-                        (<span x-text="magicCensus().realized.onShelf"></span> on the shelf · <span x-text="magicCensus().realized.heldByResidents"></span> held by residents)
-                        · ~<span x-text="(magicCensus().realized.totalValueGp||0).toLocaleString()"></span> gp
-                        <span x-show="magicCensus().realized.looseMagicalLines>0" class="opacity-60" x-text="'· ' + magicCensus().realized.looseMagicalLines + ' loose magical cache line(s)'"></span>
-                      </p>
-                      <p class="text-xs opacity-70 mt-1">Sell cap/mo by rarity:
-                        <template x-for="rr in magicCensusRarityRows()" :key="rr.rarity"><span x-text="rr.label + ' ' + _availCellText(rr.sellableCapPerMarket, rr.chancePct) + '  '"></span></template>
-                      </p>
-                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 curve — a leveled NPC's magic-item value follows wealth; GM-overridable">
-                        Per-NPC magic-item value (by level): L1 ~<span x-text="(expectedNpcMagicItemValue(1)).toLocaleString()"></span>gp ·
-                        L5 ~<span x-text="(expectedNpcMagicItemValue(5)).toLocaleString()"></span>gp ·
-                        L9 ~<span x-text="(expectedNpcMagicItemValue(9)).toLocaleString()"></span>gp.
-                      </p>
-                    </div>
-                  </template>
-
-                  <!-- SD-7a — the wealth census: the gold this town's LEVELED NPCs are expected to hold
-                       (the per-level wealth curve, Econometrics §7) vs what its homed residents actually
-                       carry (coin purse + owned caches). The wealth analog of the roster + magic-item
-                       census. Always-on RAW tooling. -->
-                  <template x-if="wealthCensus()">
-                    <div class="mt-2 pt-2 border-t border-ink/20">
-                      <h4 class="font-semibold text-sm mb-1">💰 Wealth census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + wealthCensus().marketClass + ' market'"></span></h4>
-                      <p class="text-xs opacity-70 mb-1">The gold this town's notable (leveled) NPCs are expected to hold (🔧 IP-light Econometrics §7 curve, GM-overridable) vs what its homed residents actually carry (purse + owned caches). The 0th-level commoner masses are the domain economy, not this per-NPC census.</p>
-                      <div class="overflow-x-auto">
-                        <table class="bookkeeping text-sm">
-                          <thead><tr><th>Level</th><th title="expected leveled NPCs at this level">NPCs</th><th title="expected wealth per NPC (Econometrics §7 curve)">gp/NPC</th><th title="expected total wealth at this level">Expected</th><th title="homed residents at this level">Here</th><th title="wealth actually held by those residents (purse + owned caches)">Realized</th></tr></thead>
-                          <tbody>
-                            <template x-for="row in wealthCensusRows()" :key="row.level">
-                              <tr x-show="row.expectedNpcs >= 0.5 || row.realizedResidents > 0">
-                                <td x-text="'L' + row.level"></td>
-                                <td class="opacity-70" x-text="row.expectedNpcs >= 0.05 ? (Math.round(row.expectedNpcs*10)/10) : '—'"></td>
-                                <td class="font-mono opacity-70" x-text="row.perNpcGp.toLocaleString()"></td>
-                                <td x-text="Math.round(row.expectedGp).toLocaleString()"></td>
-                                <td :class="row.realizedResidents>0 ? 'text-green-800 font-semibold' : ''"
-                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name+' ('+Math.round(n.gp).toLocaleString()+'gp)').join(', ') : ''" x-text="row.realizedResidents||'—'"></td>
-                                <td :class="row.realizedGp>0 ? 'text-green-800' : 'opacity-50'" x-text="row.realizedGp>0 ? Math.round(row.realizedGp).toLocaleString() : '—'"></td>
-                              </tr>
-                            </template>
-                          </tbody>
-                        </table>
-                      </div>
-                      <p class="text-sm mt-1">
-                        Expected ~<span class="font-semibold" x-text="Math.round(wealthCensus().expectedGp).toLocaleString()"></span> gp across <span x-text="Math.round(wealthCensus().expected.totalNpcs)"></span> leveled NPC(s)
-                        · realized <span class="font-semibold" x-text="Math.round(wealthCensus().realizedGp).toLocaleString()"></span> gp held by <span x-text="wealthCensus().realized.residents"></span> homed resident(s).
-                      </p>
-                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 fitted curve — wealth follows the demographic pyramid; GM-overridable">
-                        Per-NPC wealth (by level): L1 ~<span x-text="expectedNpcWealth(1).toLocaleString()"></span>gp ·
-                        L7 ~<span x-text="expectedNpcWealth(7).toLocaleString()"></span>gp ·
-                        L14 ~<span x-text="expectedNpcWealth(14).toLocaleString()"></span>gp.
-                      </p>
-                    </div>
-                  </template>
-                </div>
-              </div>
             </template>
           </div>
 
@@ -11188,25 +10913,383 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
      style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSettlementSheet()">
   <template x-if="settlementSheetId && settlementSheet()">
-  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-5xl my-8" style="background:#f7f1e2">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🏘 <span x-text="settlementSheet().name || '(unnamed settlement)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· ' + settlementType(settlementSheet())"></span></h2>
       <button @click="closeSettlementSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
-    <div class="p-4 space-y-3">
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Families</div><div class="font-semibold" x-text="(settlementSheet().families||0).toLocaleString()"></div></div>
-        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Market class</div><div class="font-semibold" x-text="'Class ' + settlementMarketClass(settlementSheet())"></div></div>
-        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold" x-text="settlementCapacity(settlementSheet()).toLocaleString()"></div></div>
-        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold" x-text="(settlementSheet().investment||0).toLocaleString()"></div></div>
-      </div>
-      <template x-if="demographicRoster()">
-        <div class="border border-ink/30 rounded p-2 text-sm">
-          <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
-          <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots</p>
+    <!-- Settlement-sheet tab strip (2026-06-22 — Demographics + Demand moved here from Domain ▸ Demographics) -->
+    <div class="flex flex-wrap gap-1 px-3 pt-2 text-sm border-b border-ink/30">
+      <button @click="settlementSheetTab='overview'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='overview' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📋 Overview</button>
+      <button @click="settlementSheetTab='demographics'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demographics' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">👥 Demographics</button>
+      <button @click="settlementSheetTab='demand'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demand' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📊 Demand</button>
+      <button @click="settlementSheetTab='market'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='market' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">🛒 Market</button>
+    </div>
+    <div class="p-4">
+      <!-- OVERVIEW -->
+      <div x-show="settlementSheetTab==='overview'" class="space-y-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Families</div><div class="font-semibold" x-text="(settlementSheet().families||0).toLocaleString()"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Market class</div><div class="font-semibold" x-text="'Class ' + settlementMarketClass(settlementSheet())"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold" x-text="settlementCapacity(settlementSheet()).toLocaleString()"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold" x-text="(settlementSheet().investment||0).toLocaleString()"></div></div>
         </div>
-      </template>
-      <p class="text-sm opacity-70 italic">The full per-class demographic roster + resident reconciliation live in the home domain's Demographics tab.</p>
+      </div>
+      <!-- DEMOGRAPHICS (moved from Domain ▸ Demographics, 2026-06-22; keyed on demoSettlementId set by openSettlementSheet) -->
+      <div x-show="settlementSheetTab==='demographics'">
+        <template x-if="demographicRoster()">
+          <div>
+            <div class="border border-ink/30 rounded p-2 text-sm mb-3">
+              <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
+              <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots</p>
+            </div>
+            <div class="mt-1 border border-ink/30 rounded p-3">
+                <p class="text-sm opacity-70 mb-2">
+                  JJ Step 3 (pp.214–217) — Class <span x-text="demographicRoster().expected.marketClass"></span>,
+                  <span x-text="(demographicRoster().expected.families||0).toLocaleString()"></span> families
+                  (×<span x-text="Math.round(demographicRoster().expected.scale*100)/100"></span> the reference table).
+                  Each cell shows <em>residents / expected</em>.
+                </p>
+                <div class="overflow-x-auto">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Level</th>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                    </tr></thead>
+                    <tbody>
+                      <template x-for="r in demoRosterRows()" :key="r.level">
+                        <tr>
+                          <td class="font-semibold" x-text="'L'+r.level"></td>
+                          <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                            <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                                :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+')').join(', ') : ''">
+                              <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                                <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                              </template>
+                              <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                              <template x-if="demoAutoGenOn() && r[b].open>0">
+                                <button class="ml-1 text-xs underline opacity-50 hover:opacity-100" @click="demoFillSlot(b, r.level)" :title="'✨ Generate a '+b+' L'+r.level+' (fills this open slot)'">✨</button>
+                              </template>
+                            </td>
+                          </template>
+                        </tr>
+                      </template>
+                      <tr class="total">
+                        <td>Totals</td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td><span x-text="demographicRoster().realized.totals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(demographicRoster().expected.totals[b])"></span></span></td>
+                        </template>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-sm mt-2">
+                  <span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered residents
+                  (of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected) ·
+                  <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots
+                  <span class="accent-red" x-show="demographicRoster().exceptionalTotal>0"> · <span x-text="demographicRoster().exceptionalTotal"></span> exceptional</span>
+                </p>
+                <template x-if="demographicRoster().realized.otherCount>0">
+                  <p class="text-sm opacity-70" x-text="demographicRoster().realized.otherCount + ' unclassed resident(s): ' + demographicRoster().realized.other.map(o=>o.name).join(', ')"></p>
+                </template>
+                <template x-if="demographicRoster().expected.overrides">
+                  <p class="text-sm opacity-70">⚙ GM demographic override active (RR p.214) — applied to the expectation above.</p>
+                </template>
+
+                <!-- SD-2 reconciliation workspace — the residents homed here (name → sheet, bucket,
+                     civic placement, un-home) + an assign-an-unplaced-NPC control. -->
+                <div class="mt-3 pt-2 border-t border-ink/30">
+                  <h4 class="font-semibold text-sm mb-1">Residents <span class="opacity-60 font-normal" x-text="'(' + demoResidents().length + ')'"></span></h4>
+                  <template x-if="demoResidents().length===0">
+                    <p class="text-sm opacity-60 italic">No NPC is rostered here yet — assign one below, or set a home on a character sheet.</p>
+                  </template>
+                  <template x-if="demoResidents().length>0">
+                    <div class="overflow-x-auto">
+                      <table class="bookkeeping text-sm">
+                        <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Civic placement</th><th></th></tr></thead>
+                        <tbody>
+                          <template x-for="c in demoResidents()" :key="c.id">
+                            <tr>
+                              <td><button class="underline" @click="openCharacterEditor(c)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
+                              <td x-text="c.class||'—'"></td>
+                              <td class="capitalize" x-text="demoBucketLabel(c)"></td>
+                              <td>
+                                <select class="ed-input text-sm" style="width:14rem"
+                                        @change="commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'placementRole', label:'Civic placement', oldValue:(c.placementRole||null), newValue:($event.target.value||null)})">
+                                  <option :value="null" :selected="!c.placementRole" x-text="'auto — ' + window.ACKS.placementRoleLabel(window.ACKS.suggestedPlacementRole(currentCampaign, c))"></option>
+                                  <template x-for="role in window.ACKS.PLACEMENT_ROLES" :key="role">
+                                    <option :value="role" :selected="c.placementRole===role" x-text="window.ACKS.placementRoleLabel(role)"></option>
+                                  </template>
+                                </select>
+                              </td>
+                              <td><button class="text-sm underline accent-red" @click="demoRemoveResident(c)" title="Remove this NPC's home (un-roster it)">× un-home</button></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </template>
+                  <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    <span class="text-sm font-semibold">Assign a resident:</span>
+                    <select class="ed-input text-sm" style="width:16rem" x-model="demoAssignPick">
+                      <option value="">— pick an unplaced NPC —</option>
+                      <template x-for="c in demoUnhomedCandidates()" :key="c.id">
+                        <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                      </template>
+                    </select>
+                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!demoAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!demoAssignPick" @click="demoAssignResident()">🏠 Home here</button>
+                  </div>
+                  <!-- SD-2b — opt-in auto-generation: mint the notable open slots from the NPC generator
+                       (gated on living-census + demographics-auto-generate). The rank-and-file stay counts. -->
+                  <template x-if="demoAutoGenOn()">
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                      <span class="text-sm font-semibold">✨ Auto-fill notables:</span>
+                      <label class="text-sm">L≥ <input type="number" min="1" max="14" class="ed-input text-sm" style="width:4rem" x-model.number="demoFillMinLevel"></label>
+                      <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="demoAutoFill()">✨ Generate notable residents</button>
+                      <span class="text-sm opacity-60" x-text="demoOpenNotableCount() + ' open notable slot(s)'"></span>
+                    </div>
+                  </template>
+                  <p class="text-sm opacity-60 italic mt-1">Recruited hirelings auto-home to the market they're hired in. Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint the notable open slots; or click a cell's ✨ to fill one chosen slot.</p>
+                </div>
+
+                <!-- SD-5a — the emergent reads: service legibility + the world-people query (plan §8). -->
+                <div class="mt-3 pt-2 border-t border-ink/30">
+                  <h4 class="font-semibold text-sm mb-1">🛠 Services &amp; notable residents</h4>
+                  <template x-if="demoMostNotable()">
+                    <p class="text-sm mb-1">Most notable in <span x-text="(selectedDomain&&selectedDomain.name)||'the realm'"></span>:
+                      <button class="underline font-semibold" @click="demoOpenResident(demoMostNotable().id)" x-text="demoMostNotable().name + ' · ' + (demoMostNotable().class||'?') + ' L' + demoMostNotable().level"></button>
+                      <span class="opacity-60" x-text="'(at ' + (demoMostNotable().settlementName||'—') + ')'"></span>
+                    </p>
+                  </template>
+                  <div class="overflow-x-auto">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Bucket</th><th>Top resident</th><th>Affords</th></tr></thead>
+                      <tbody>
+                        <template x-for="row in (demoServices() ? demoServices().rows : [])" :key="row.bucket">
+                          <tr>
+                            <td class="capitalize" x-text="row.bucket"></td>
+                            <td>
+                              <template x-if="row.topResident"><button class="underline" @click="demoOpenResident(row.topResident.id)" x-text="row.topResident.name + ' · L' + row.topResident.level"></button></template>
+                              <template x-if="!row.topResident"><span class="opacity-50">—</span></template>
+                            </td>
+                            <td>
+                              <template x-if="row.topResident"><span x-text="row.service + ' · trains to L' + row.trainsUpToLevel"></span></template>
+                              <template x-if="!row.topResident"><span class="opacity-50 italic">no one here</span></template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Find people — the queryable index (this settlement / this domain / within N hexes). -->
+                  <div class="mt-2 pt-2 border-t border-ink/20">
+                    <div class="flex items-center gap-2 flex-wrap text-sm">
+                      <span class="font-semibold">🔎 Find people:</span>
+                      <select class="ed-input text-sm" x-model="demoFindBucket">
+                        <option value="">any class</option>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><option :value="b" x-text="b"></option></template>
+                      </select>
+                      <label>L≥ <input type="number" min="1" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindMinLevel"></label>
+                      <select class="ed-input text-sm" x-model="demoFindScope">
+                        <option value="settlement">in this settlement</option>
+                        <option value="domain">in this domain</option>
+                        <option value="near">within N hexes</option>
+                      </select>
+                      <label x-show="demoFindScope==='near'">N= <input type="number" min="0" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindWithin"></label>
+                      <span class="opacity-60" x-text="'(' + demoFindResults().length + ' found)'"></span>
+                    </div>
+                    <template x-if="demoFindResults().length>0">
+                      <div class="overflow-x-auto mt-1">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Name</th><th>Class · Level</th><th>Settlement</th><th x-show="demoFindScope==='near'">Dist</th></tr></thead>
+                          <tbody>
+                            <template x-for="r in demoFindResults()" :key="r.id">
+                              <tr>
+                                <td><button class="underline" @click="demoOpenResident(r.id)" x-text="r.name"></button></td>
+                                <td x-text="(r.class||'?') + ' · L' + r.level"></td>
+                                <td x-text="r.settlementName||'—'"></td>
+                                <td x-show="demoFindScope==='near'" x-text="r.distance!=null ? r.distance : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </template>
+                    <template x-if="demoFindResults().length===0">
+                      <p class="text-sm opacity-60 italic mt-1">No one matches — widen the level or scope.</p>
+                    </template>
+                  </div>
+
+                  <!-- @b12-census (SD-6) — the magic-item census: expected market AVAILABILITY (TT p.27,
+                       by item type, per Class) vs the REALIZED on-hand stock (placed NotableItems + loose
+                       magical caches). The resource analog of the class roster. Always-on RAW tooling. -->
+                  <template x-if="magicCensus()">
+                    <div class="mt-2 pt-2 border-t border-ink/20">
+                      <h4 class="font-semibold text-sm mb-1">🪄 Magic-item census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + magicCensus().marketClass + ' market'"></span></h4>
+                      <p class="text-xs opacity-70 mb-1">Available per month at this market class (TT p.27) vs what's actually placed here. A <span class="font-mono">%</span> = the chance of even one that month (smaller markets). Per-party availability ≈ ÷10.</p>
+                      <div class="overflow-x-auto">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Item type</th><th title="buyable per month at this market (TT Availability by Type)">Avail/mo</th><th>Placed</th><th title="availability not yet placed as NotableItems">Unplaced</th></tr></thead>
+                          <tbody>
+                            <template x-for="row in magicCensusTypeRows()" :key="row.type">
+                              <tr>
+                                <td x-text="row.label"></td>
+                                <td class="font-mono" x-text="_availCellText(row.availablePerMarket, row.chancePct)"></td>
+                                <td :class="row.placed>0 ? 'text-green-800 font-semibold' : ''"
+                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name).join(', ') : ''" x-text="row.placed||0"></td>
+                                <td class="opacity-70" x-text="row.unplaced>0 ? row.unplaced : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-sm mt-1">
+                        <span class="font-semibold" x-text="magicCensus().realized.totalCount"></span> magic item(s) here
+                        (<span x-text="magicCensus().realized.onShelf"></span> on the shelf · <span x-text="magicCensus().realized.heldByResidents"></span> held by residents)
+                        · ~<span x-text="(magicCensus().realized.totalValueGp||0).toLocaleString()"></span> gp
+                        <span x-show="magicCensus().realized.looseMagicalLines>0" class="opacity-60" x-text="'· ' + magicCensus().realized.looseMagicalLines + ' loose magical cache line(s)'"></span>
+                      </p>
+                      <p class="text-xs opacity-70 mt-1">Sell cap/mo by rarity:
+                        <template x-for="rr in magicCensusRarityRows()" :key="rr.rarity"><span x-text="rr.label + ' ' + _availCellText(rr.sellableCapPerMarket, rr.chancePct) + '  '"></span></template>
+                      </p>
+                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 curve — a leveled NPC's magic-item value follows wealth; GM-overridable">
+                        Per-NPC magic-item value (by level): L1 ~<span x-text="(expectedNpcMagicItemValue(1)).toLocaleString()"></span>gp ·
+                        L5 ~<span x-text="(expectedNpcMagicItemValue(5)).toLocaleString()"></span>gp ·
+                        L9 ~<span x-text="(expectedNpcMagicItemValue(9)).toLocaleString()"></span>gp.
+                      </p>
+                    </div>
+                  </template>
+
+                  <!-- SD-7a — the wealth census: the gold this town's LEVELED NPCs are expected to hold
+                       (the per-level wealth curve, Econometrics §7) vs what its homed residents actually
+                       carry (coin purse + owned caches). The wealth analog of the roster + magic-item
+                       census. Always-on RAW tooling. -->
+                  <template x-if="wealthCensus()">
+                    <div class="mt-2 pt-2 border-t border-ink/20">
+                      <h4 class="font-semibold text-sm mb-1">💰 Wealth census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + wealthCensus().marketClass + ' market'"></span></h4>
+                      <p class="text-xs opacity-70 mb-1">The gold this town's notable (leveled) NPCs are expected to hold (🔧 IP-light Econometrics §7 curve, GM-overridable) vs what its homed residents actually carry (purse + owned caches). The 0th-level commoner masses are the domain economy, not this per-NPC census.</p>
+                      <div class="overflow-x-auto">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Level</th><th title="expected leveled NPCs at this level">NPCs</th><th title="expected wealth per NPC (Econometrics §7 curve)">gp/NPC</th><th title="expected total wealth at this level">Expected</th><th title="homed residents at this level">Here</th><th title="wealth actually held by those residents (purse + owned caches)">Realized</th></tr></thead>
+                          <tbody>
+                            <template x-for="row in wealthCensusRows()" :key="row.level">
+                              <tr x-show="row.expectedNpcs >= 0.5 || row.realizedResidents > 0">
+                                <td x-text="'L' + row.level"></td>
+                                <td class="opacity-70" x-text="row.expectedNpcs >= 0.05 ? (Math.round(row.expectedNpcs*10)/10) : '—'"></td>
+                                <td class="font-mono opacity-70" x-text="row.perNpcGp.toLocaleString()"></td>
+                                <td x-text="Math.round(row.expectedGp).toLocaleString()"></td>
+                                <td :class="row.realizedResidents>0 ? 'text-green-800 font-semibold' : ''"
+                                    :title="(row.names && row.names.length) ? row.names.map(n=>n.name+' ('+Math.round(n.gp).toLocaleString()+'gp)').join(', ') : ''" x-text="row.realizedResidents||'—'"></td>
+                                <td :class="row.realizedGp>0 ? 'text-green-800' : 'opacity-50'" x-text="row.realizedGp>0 ? Math.round(row.realizedGp).toLocaleString() : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-sm mt-1">
+                        Expected ~<span class="font-semibold" x-text="Math.round(wealthCensus().expectedGp).toLocaleString()"></span> gp across <span x-text="Math.round(wealthCensus().expected.totalNpcs)"></span> leveled NPC(s)
+                        · realized <span class="font-semibold" x-text="Math.round(wealthCensus().realizedGp).toLocaleString()"></span> gp held by <span x-text="wealthCensus().realized.residents"></span> homed resident(s).
+                      </p>
+                      <p class="text-xs opacity-60 mt-1" title="🔧 IP-light Econometrics §7 fitted curve — wealth follows the demographic pyramid; GM-overridable">
+                        Per-NPC wealth (by level): L1 ~<span x-text="expectedNpcWealth(1).toLocaleString()"></span>gp ·
+                        L7 ~<span x-text="expectedNpcWealth(7).toLocaleString()"></span>gp ·
+                        L14 ~<span x-text="expectedNpcWealth(14).toLocaleString()"></span>gp.
+                      </p>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+            </template>
+        <template x-if="!demographicRoster()"><p class="text-sm italic opacity-70">No demographic data for this settlement yet.</p></template>
+      </div>
+      <!-- DEMAND modifiers (moved from the standalone modal, 2026-06-22; edits settlementSheet() directly) -->
+      <div x-show="settlementSheetTab==='demand'" class="text-sm">
+        <p class="text-sm mb-3">A positive demand modifier means the market is an <strong>importer</strong> (merchandise scarce and expensive). A negative modifier means an <strong>exporter</strong> or local producer (merchandise abundant and cheap). Each ±1 shifts the merchandise's price by one priceStep. Typical RAW range is −4 to +4. <span class="opacity-70">Per RR p.371 / JJ p.201.</span></p>
+        <div class="flex gap-2 mb-3 items-center text-sm flex-wrap">
+          <span class="opacity-70" x-text="settlementNonZeroDMCount(settlementSheet()) + ' modifier(s) set'"></span>
+          <button @click="rollRandomDMs(settlementSheet())" x-show="isHouseRuleEnabled('random-merchandise-rolling')" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Roll 1d3−1d3 per merchandise type (JJ Step A). The full RAW machinery (environmental + age + biome + land-revenue + racial + trade-route adjustments) is queued as task #95.">🎲 Roll random (Step A only)</button>
+          <button @click="clearAllDMs(settlementSheet())" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">↻ Clear all to 0</button>
+          <span class="text-sm opacity-70" x-show="!isHouseRuleEnabled('random-merchandise-rolling')" title="Enable the random-merchandise-rolling house rule to unlock auto-rolling.">(Enable <em>random-merchandise-rolling</em> house rule for auto-roll)</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h3 class="font-semibold text-sm mb-2">Common merchandise <span class="opacity-60 text-sm">(19)</span></h3>
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th class="text-left">Merchandise</th><th>Base</th><th>DM</th><th>Effective</th></tr></thead>
+              <tbody>
+                <template x-for="m in MERCHANDISE_CATALOG.filter(x => x.category === 'common')" :key="m.id">
+                  <tr>
+                    <td x-text="m.name"></td>
+                    <td class="text-right font-mono opacity-80" x-text="m.basePrice + 'gp'"></td>
+                    <td class="text-center">
+                      <button @click="adjustDM(settlementSheet(), m.id, -1)" class="px-1 hover:bg-yellow-100 rounded" title="−1">−</button>
+                      <input type="number" :value="settlementSheet().demandModifiers?.[m.id] || 0" @input="setDM(settlementSheet(), m.id, parseInt($event.target.value)||0)" class="w-12 text-center font-mono" min="-10" max="10" step="1">
+                      <button @click="adjustDM(settlementSheet(), m.id, 1)" class="px-1 hover:bg-yellow-100 rounded" title="+1">+</button>
+                    </td>
+                    <td class="text-right font-mono" :class="(settlementSheet().demandModifiers?.[m.id]||0) > 0 ? 'accent-red' : ((settlementSheet().demandModifiers?.[m.id]||0) < 0 ? 'accent-green' : '')" x-text="dmEffectivePrice(m, settlementSheet().demandModifiers?.[m.id] || 0).toFixed(2) + 'gp'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h3 class="font-semibold text-sm mb-2">Precious merchandise <span class="opacity-60 text-sm">(10)</span></h3>
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th class="text-left">Merchandise</th><th>Base</th><th>DM</th><th>Effective</th></tr></thead>
+              <tbody>
+                <template x-for="m in MERCHANDISE_CATALOG.filter(x => x.category === 'precious')" :key="m.id">
+                  <tr>
+                    <td x-text="m.name"></td>
+                    <td class="text-right font-mono opacity-80" x-text="m.basePrice + 'gp'"></td>
+                    <td class="text-center">
+                      <button @click="adjustDM(settlementSheet(), m.id, -1)" class="px-1 hover:bg-yellow-100 rounded" title="−1">−</button>
+                      <input type="number" :value="settlementSheet().demandModifiers?.[m.id] || 0" @input="setDM(settlementSheet(), m.id, parseInt($event.target.value)||0)" class="w-12 text-center font-mono" min="-10" max="10" step="1">
+                      <button @click="adjustDM(settlementSheet(), m.id, 1)" class="px-1 hover:bg-yellow-100 rounded" title="+1">+</button>
+                    </td>
+                    <td class="text-right font-mono" :class="(settlementSheet().demandModifiers?.[m.id]||0) > 0 ? 'accent-red' : ((settlementSheet().demandModifiers?.[m.id]||0) < 0 ? 'accent-green' : '')" x-text="dmEffectivePrice(m, settlementSheet().demandModifiers?.[m.id] || 0).toFixed(2) + 'gp'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="text-sm opacity-70 mt-3 italic">Effective prices shown here are <code>basePrice + (priceStep × DM)</code>, floored at one priceStep to keep them positive. The full market price calculation (RR p.375) also adds a 4d4−10 random roll, a ±1 market-class shift, and seasonal/situational adjustments — those apply at venture-time in Phase 2b.4, not here. <span x-show="isHouseRuleEnabled('random-merchandise-rolling')">For full RAW DM generation (environmental + biome + age + land revenue + racial + trade routes), see queued task #95.</span></p>
+      </div>
+      <!-- MARKET availability (moved from Activities ▸ Market, 2026-06-22; per-settlement, reuses the trade engine) -->
+      <div x-show="settlementSheetTab==='market'" class="text-sm">
+        <template x-if="settlementMarketClass(settlementSheet())==='VI*'">
+          <p class="text-sm italic opacity-70">This settlement is too small for a market — a market needs 75+ families (Class V or better). Items can still be bought from a larger market or an army camp via the Trade wizard.</p>
+        </template>
+        <template x-if="settlementMarketClass(settlementSheet())!=='VI*'">
+          <div class="space-y-3">
+            <div class="flex flex-wrap gap-2 items-center text-sm">
+              <span class="opacity-70" x-text="'Class ' + settlementMarketClass(settlementSheet()) + ' market'"></span>
+              <input type="text" x-model="marketSheetSearch" placeholder="Search item…" class="w-48">
+              <select x-model="marketSheetCategory" class="text-sm">
+                <template x-for="c in marketCategoryOptions()" :key="c"><option :value="c" x-text="c==='all' ? 'All categories' : c"></option></template>
+              </select>
+              <span class="opacity-60" x-text="marketSheetItems().length + ' item(s)'"></span>
+            </div>
+            <div class="overflow-y-auto" style="max-height:55vh">
+              <table class="bookkeeping text-sm w-full">
+                <thead><tr><th>Item</th><th class="text-right">Price (gp)</th><th class="text-right">Stone</th><th class="text-right">Availability</th></tr></thead>
+                <tbody>
+                  <template x-for="item in marketSheetItems()" :key="item.id">
+                    <tr>
+                      <td x-text="item.name"></td>
+                      <td class="text-right" x-text="(item.listPriceGp||0).toLocaleString()"></td>
+                      <td class="text-right opacity-70" x-text="item.stone != null ? item.stone : ''"></td>
+                      <td class="text-right text-xs" x-text="marketAvailLabelFor(settlementMarketClass(settlementSheet()), item.listPriceGp)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-sm opacity-70 italic">Availability follows the RR p.124 Equipment Availability table for this settlement's market class. To actually buy or sell, open the Trade wizard from a settlement or army camp.</p>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
   </template>
@@ -11291,73 +11374,6 @@ document.addEventListener('alpine:init', () => {
       </table>
     </template>
   </div>
-</div>
-
-<!-- ═══════════ Activities ▸ MARKET (UI overhaul 2026-06-22) — all markets + per-market availability sheet ═══════════ -->
-<div x-show="currentView === 'activities' && activitiesSubView === 'market'" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
-      <h3 class="font-bold text-lg">🛒 Markets <span class="text-sm opacity-70 font-normal" x-text="'· ' + marketRows().length + ' market(s)'"></span></h3>
-      <span class="text-sm opacity-60">Click a market for current item availability (RR p.124).</span>
-    </div>
-    <template x-if="marketRows().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No markets yet. A settlement with 75+ families (Class V or better) holds a market.</p>
-    </template>
-    <template x-if="marketRows().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Market</th><th>Domain</th><th>Market class</th><th class="text-right">Families</th></tr></thead>
-        <tbody>
-          <template x-for="row in marketRows()" :key="row.settlement.id">
-            <tr class="hover:bg-yellow-50/60">
-              <td><button @click="openMarketSheet(row.settlement.id)" class="underline font-semibold text-left" x-text="row.settlement.name || '(unnamed)'"></button></td>
-              <td x-text="row.domainName || '(wilderness)'"></td>
-              <td x-text="'Class ' + row.marketClass"></td>
-              <td class="text-right" x-text="(row.settlement.families||0).toLocaleString()"></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-  </div>
-</div>
-
-<!-- Market sheet modal — item availability at the chosen market (reuses the trade engine; read-only). -->
-<div x-show="marketSheetId" @keydown.escape.window="if(marketSheetId){ closeMarketSheet(); }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
-     style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeMarketSheet()">
-  <template x-if="marketSheetId && marketSheetRow()">
-  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
-    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🛒 <span x-text="marketSheetRow().settlement.name || '(market)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· Class ' + marketSheetRow().marketClass + ' market'"></span></h2>
-      <button @click="closeMarketSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
-    </div>
-    <div class="p-4 space-y-3">
-      <div class="flex flex-wrap gap-2 items-center text-sm">
-        <input type="text" x-model="marketSheetSearch" placeholder="Search item…" class="w-48">
-        <select x-model="marketSheetCategory" class="text-sm">
-          <template x-for="c in marketCategoryOptions()" :key="c"><option :value="c" x-text="c==='all' ? 'All categories' : c"></option></template>
-        </select>
-        <span class="opacity-60" x-text="marketSheetItems().length + ' item(s)'"></span>
-      </div>
-      <div class="overflow-y-auto" style="max-height:55vh">
-        <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th class="text-right">Price (gp)</th><th class="text-right">Stone</th><th class="text-right">Availability</th></tr></thead>
-          <tbody>
-            <template x-for="item in marketSheetItems()" :key="item.id">
-              <tr>
-                <td x-text="item.name"></td>
-                <td class="text-right" x-text="(item.listPriceGp||0).toLocaleString()"></td>
-                <td class="text-right opacity-70" x-text="item.stone != null ? item.stone : ''"></td>
-                <td class="text-right text-xs" x-text="marketAvailLabelFor(marketSheetRow().marketClass, item.listPriceGp)"></td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-sm opacity-70 italic">Availability follows the RR p.124 Equipment Availability table for this market's class. To actually buy or sell, open the Trade wizard from a settlement or army camp.</p>
-    </div>
-  </div>
-  </template>
 </div>
 
 <!-- ───── Activities ▸ RECRUIT (moved here from the Characters tab, 2026-06-06) ───── -->
@@ -14531,68 +14547,6 @@ document.addEventListener('alpine:init', () => {
       <div class="flex justify-end gap-2 pt-2 border-t border-ink/20">
         <button @click="closeHexDetail()" class="px-4 py-2 border border-ink rounded hover:bg-yellow-100">Close</button>
       </div>
-    </div>
-  </div>
-  </template>
-</div>
-
-<div class="modal-backdrop" x-show="showDemandModifiersModal" x-cloak @keydown.escape.window="showDemandModifiersModal=false" @click.self="showDemandModifiersModal=false">
-  <template x-if="dmEditingSettlement">
-  <div class="modal-panel" role="dialog" aria-modal="true">
-    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">📊 Demand modifiers — <span x-text="dmEditingSettlement?.name || '(settlement)'"></span> <span class="text-sm opacity-70 font-normal" x-show="dmEditingSettlement" x-text="'· Class ' + settlementMarketClass(dmEditingSettlement) + ' · ' + (dmEditingSettlement?.families||0).toLocaleString() + ' families'"></span></h2>
-      <button @click="showDemandModifiersModal=false" class="text-xl px-2">×</button>
-    </div>
-    <div class="p-4" x-show="dmEditingSettlement">
-      <p class="text-sm mb-3">A positive demand modifier means the market is an <strong>importer</strong> (merchandise scarce and expensive). A negative modifier means an <strong>exporter</strong> or local producer (merchandise abundant and cheap). Each ±1 shifts the merchandise's price by one priceStep. Typical RAW range is −4 to +4. <span class="opacity-70">Per RR p.371 / JJ p.201.</span></p>
-      <div class="flex gap-2 mb-3 items-center text-sm">
-        <button @click="rollRandomDMs(dmEditingSettlement)" x-show="isHouseRuleEnabled('random-merchandise-rolling')" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Roll 1d3−1d3 per merchandise type (JJ Step A). The full RAW machinery (environmental + age + biome + land-revenue + racial + trade-route adjustments) is queued as task #95.">🎲 Roll random (Step A only)</button>
-        <button @click="clearAllDMs(dmEditingSettlement)" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">↻ Clear all to 0</button>
-        <span class="text-sm opacity-70" x-show="!isHouseRuleEnabled('random-merchandise-rolling')" title="Enable the random-merchandise-rolling house rule to unlock auto-rolling.">(Enable <em>random-merchandise-rolling</em> house rule for auto-roll)</span>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h3 class="font-semibold text-sm mb-2">Common merchandise <span class="opacity-60 text-sm">(19)</span></h3>
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th class="text-left">Merchandise</th><th>Base</th><th>DM</th><th>Effective</th></tr></thead>
-            <tbody>
-              <template x-for="m in MERCHANDISE_CATALOG.filter(x => x.category === 'common')" :key="m.id">
-                <tr>
-                  <td x-text="m.name"></td>
-                  <td class="text-right font-mono opacity-80" x-text="m.basePrice + 'gp'"></td>
-                  <td class="text-center">
-                    <button @click="adjustDM(dmEditingSettlement, m.id, -1)" class="px-1 hover:bg-yellow-100 rounded" title="−1">−</button>
-                    <input type="number" :value="dmEditingSettlement.demandModifiers?.[m.id] || 0" @input="setDM(dmEditingSettlement, m.id, parseInt($event.target.value)||0)" class="w-12 text-center font-mono" min="-10" max="10" step="1">
-                    <button @click="adjustDM(dmEditingSettlement, m.id, 1)" class="px-1 hover:bg-yellow-100 rounded" title="+1">+</button>
-                  </td>
-                  <td class="text-right font-mono" :class="(dmEditingSettlement.demandModifiers?.[m.id]||0) > 0 ? 'accent-red' : ((dmEditingSettlement.demandModifiers?.[m.id]||0) < 0 ? 'accent-green' : '')" x-text="dmEffectivePrice(m, dmEditingSettlement.demandModifiers?.[m.id] || 0).toFixed(2) + 'gp'"></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <h3 class="font-semibold text-sm mb-2">Precious merchandise <span class="opacity-60 text-sm">(10)</span></h3>
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th class="text-left">Merchandise</th><th>Base</th><th>DM</th><th>Effective</th></tr></thead>
-            <tbody>
-              <template x-for="m in MERCHANDISE_CATALOG.filter(x => x.category === 'precious')" :key="m.id">
-                <tr>
-                  <td x-text="m.name"></td>
-                  <td class="text-right font-mono opacity-80" x-text="m.basePrice + 'gp'"></td>
-                  <td class="text-center">
-                    <button @click="adjustDM(dmEditingSettlement, m.id, -1)" class="px-1 hover:bg-yellow-100 rounded" title="−1">−</button>
-                    <input type="number" :value="dmEditingSettlement.demandModifiers?.[m.id] || 0" @input="setDM(dmEditingSettlement, m.id, parseInt($event.target.value)||0)" class="w-12 text-center font-mono" min="-10" max="10" step="1">
-                    <button @click="adjustDM(dmEditingSettlement, m.id, 1)" class="px-1 hover:bg-yellow-100 rounded" title="+1">+</button>
-                  </td>
-                  <td class="text-right font-mono" :class="(dmEditingSettlement.demandModifiers?.[m.id]||0) > 0 ? 'accent-red' : ((dmEditingSettlement.demandModifiers?.[m.id]||0) < 0 ? 'accent-green' : '')" x-text="dmEffectivePrice(m, dmEditingSettlement.demandModifiers?.[m.id] || 0).toFixed(2) + 'gp'"></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <p class="text-sm opacity-70 mt-3 italic">Effective prices shown here are <code>basePrice + (priceStep × DM)</code>, floored at one priceStep to keep them positive. The full market price calculation (RR p.375) also adds a 4d4−10 random roll, a ±1 market-class shift, and seasonal/situational adjustments — those apply at venture-time in Phase 2b.4, not here. <span x-show="isHouseRuleEnabled('random-merchandise-rolling')">For full RAW DM generation (environmental + biome + age + land revenue + racial + trade routes), see queued task #95.</span></p>
     </div>
   </div>
   </template>
@@ -20609,6 +20563,8 @@ return {
         if(this.currentView==='events'){ this.currentView='review'; this.reviewSubView='event-log'; }
         // Domain Review promoted out of Review into its own Domain Turn tab.
         if(this.currentView==='review' && this.reviewSubView==='domain-review'){ this.currentView='domain-turn'; }
+        // 🛒 Market re-homed from Activities to the Settlement sheet (2026-06-22) — fall back to the dashboard.
+        if(this.currentView==='activities' && this.activitiesSubView==='market') this.activitiesSubView='activities';
         // Final safety net — land on the default if currentView is still unknown.
         if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='domains';
         // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
@@ -26657,7 +26613,8 @@ return {
   bestiarySearch: '', bestiaryTypeFilter: 'all',
   // Roster ▸ Settlements sheet (B2) + Activities ▸ Market sheet (B5) modal selection.
   settlementSheetId: null,
-  marketSheetId: null, marketSheetSearch: '', marketSheetCategory: 'all',
+  settlementSheetTab: 'overview',   // Overview | Demographics | Demand (UI overhaul 2026-06-22)
+  marketSheetSearch: '', marketSheetCategory: 'all',
   // §12 Group model — the merged "Parties" view selection (one detail open at a time).
   groupSelKind: null,        // null | 'party' | 'army' | 'unit'
   partySelectedId: null,
@@ -26676,7 +26633,6 @@ return {
     const tabs = [
       { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
-      { id:'market',         label:'🛒 Market',        ready: true,  count: null, placeholderNote: '' },
       { id:'banking',        label:'🏦 Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
       { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
@@ -26721,16 +26677,12 @@ return {
   bestiaryRows(){ let l=(window.ACKS&&window.ACKS.MONSTER_CATALOG)||[]; if(this.bestiaryTypeFilter!=='all') l=l.filter(m=>(m.creatureTypes||[]).includes(this.bestiaryTypeFilter)); const q=(this.bestiarySearch||'').trim().toLowerCase(); if(q) l=l.filter(m=>(((m.name||'')+' '+(m.key||'')).toLowerCase().includes(q))); return l; },
   bestiaryTypeOptions(){ const s=new Set(); ((window.ACKS&&window.ACKS.MONSTER_CATALOG)||[]).forEach(m=>(m.creatureTypes||[]).forEach(t=>s.add(t))); return ['all',...[...s].sort()]; },
   // B2 — Roster ▸ Settlements sheet. Reuses the demographic-roster body by driving demoSettlementId.
-  openSettlementSheet(id){ this.settlementSheetId=id; this.demoSettlementId=id; },
+  openSettlementSheet(id){ this.settlementSheetId=id; this.demoSettlementId=id; this.settlementSheetTab='overview'; },
   closeSettlementSheet(){ this.settlementSheetId=null; this.demoSettlementId=null; },
   settlementSheet(){ const id=this.settlementSheetId; if(!id) return null; return (this.currentCampaign?.settlements||[]).find(s=>s&&s.id===id)||null; },
   // B4 — Roster ▸ Ships location label (hexLabelFor is a global helper).
   vesselHexLabel(v){ if(!v||!v.hexId) return '—'; const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===v.hexId); return h ? hexLabelFor(h) : '—'; },
-  // B5 — Activities ▸ Market: market-bearing settlements + per-market item availability (reuses the trade engine).
-  marketRows(){ const rows=(typeof this.allSettlements==='function')?this.allSettlements():[]; return rows.filter(r=>r&&r.marketClass&&r.marketClass!=='VI*'); },
-  openMarketSheet(id){ this.marketSheetId=id; },
-  closeMarketSheet(){ this.marketSheetId=null; },
-  marketSheetRow(){ const id=this.marketSheetId; if(!id) return null; return this.marketRows().find(r=>r.settlement&&r.settlement.id===id)||null; },
+  // B5 — Settlement sheet ▸ Market tab: per-settlement item availability (reuses the trade engine).
   _marketClassIdx(mc){ if(typeof mc!=='string') return 5; const k=mc.replace('*',''); return ({I:0,II:1,III:2,IV:3,V:4,VI:5})[k] ?? 5; },
   marketAvailLabelFor(mc, priceGp){ try { const a=window.ACKS.equipmentAvailability(priceGp, this._marketClassIdx(mc), {visitedBefore:false,partyOf12Dedicated:false}); return this.tradeAvailLabel(a); } catch(e){ return '—'; } },
   marketSheetItems(){ let l=(window.ACKS&&window.ACKS.EQUIPMENT_CATALOG)||[]; if(this.marketSheetCategory!=='all') l=l.filter(e=>e&&e.category===this.marketSheetCategory); const q=(this.marketSheetSearch||'').trim().toLowerCase(); if(q) l=l.filter(e=>(e.name||'').toLowerCase().includes(q)); return l; },
@@ -30207,16 +30159,7 @@ return {
       investmentId: inv.id, narrativeSummary: delSummary
     }, { submittedBy: 'gm', result: { domainsChanged: [], hexesChanged: [], charactersChanged: [], treasuryDelta: 0, narrativeSummary: delSummary } });
   },
-  // Phase 2b.3 — Demand modifier editor state
-  showDemandModifiersModal:false,
-  dmEditingSettlement:null, // reference to the settlement object being edited
-
-  openDemandModifiersModal(settlement){
-    if(!settlement)return;
-    if(!settlement.demandModifiers)settlement.demandModifiers={};
-    this.dmEditingSettlement = settlement;
-    this.showDemandModifiersModal = true;
-  },
+  // Phase 2b.3 — Demand modifier helpers (the editor UI lives in the Settlement sheet ▸ Demand tab).
   setDM(settlement, merchandiseId, value){
     if(!settlement)return;
     if(!settlement.demandModifiers)settlement.demandModifiers={};
@@ -33471,7 +33414,7 @@ return {
   // SD-5a — the emergent reads (service legibility + the world-people query, plan §8).
   demoServices(){ const id=this.demoSettlementId; return id ? window.ACKS.settlementServices(this.currentCampaign, id) : null; },
   demoMostNotable(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.mostNotableResident(this.currentCampaign, {domainId:d.id}) : null; },
-  demoFindBucket: '', demoFindMinLevel: 1, demoFindScope: 'domain', demoFindWithin: 3,
+  demoFindBucket: '', demoFindMinLevel: 1, demoFindScope: 'settlement', demoFindWithin: 3,
   demoFindResults(){
     const C=this.currentCampaign; if(!C) return [];
     const q={ minLevel: Math.max(1, Number(this.demoFindMinLevel)||1) };
