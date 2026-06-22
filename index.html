@@ -10139,15 +10139,41 @@ document.addEventListener('alpine:init', () => {
             </div>
             <div class="border border-ink/40 rounded p-2">
               <div class="text-xs font-semibold opacity-70 mb-1">Done today</div>
-              <template x-for="(a, i) in row.done" :key="(a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
-                <span class="inline-block px-1.5 py-0.5 rounded text-xs mr-1 mb-1"
-                      :class="a.cost === 'ancillary' ? 'border border-ink' : (a.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
-                      :style="a.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
-                      :title="a.cost + (a.strenuous ? ' · strenuous' : '')">
-                  <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+              <!-- Dedicated (the one dedicated task) -->
+              <div class="flex items-baseline gap-1.5 mb-1">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Dedicated</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.dedicated || [])" :key="'d:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs" style="background:#2a1f12;color:#f4ecd8" :title="'dedicated' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="(row.budget.dedicated || []).length === 0" class="text-xs opacity-40 italic">—</span>
                 </span>
-              </template>
-              <span x-show="row.done.length === 0" class="opacity-40 italic text-sm">nothing yet today</span>
+              </div>
+              <!-- Ancillary (the ~1-hour errands) -->
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Ancillary</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.ancillary || [])" :key="'a:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs border border-ink" :title="'ancillary' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="(row.budget.ancillary || []).length === 0" class="text-xs opacity-40 italic">—</span>
+                </span>
+              </div>
+              <!-- Incidental (free actions — only when present) -->
+              <div class="flex items-baseline gap-1.5 mt-1" x-show="(row.budget.incidental || []).length > 0">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Incidental</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.incidental || [])" :key="'i:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs opacity-60 border border-ink/40" :title="'incidental' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                </span>
+              </div>
             </div>
           </div>
 
