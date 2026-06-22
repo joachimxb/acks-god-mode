@@ -23780,13 +23780,14 @@ return {
   // so it leaves the queue and the world clock frees, without walking the full RR pre-combat panel.
   // Same engine path as the modal's encModalResolve above (recordEncounterResolved → the
   // encounter-resolved event + entity flip). Encounters only (the banner hides it for battles).
+  // One-click by design — NO confirm (Joachim 2026-06-22): it's recoverable (the encounter lands in
+  // Past Encounters) and the toast names what was dismissed. Don't re-add a confirm() here.
   dismissEncounter(id, label){
     if(!this.currentCampaign) return;
-    if(!confirm('Dismiss “' + (label || 'this encounter') + '”?\n\nIt resolves as “dismissed” — nothing came of it — and the world clock frees (if nothing else holds it). To walk the full RR procedure instead, open it in the ⚔ Encounters panel.')) return;
     const r = window.ACKS.recordEncounterResolved(this.currentCampaign, id, 'dismissed', {});
     if(!r || !r.ok){ this.showToast('Could not dismiss: ' + ((r && r.error) || '?'), 3500); return; }
     this.markDirty(); this.schedulePersist();
-    this.showToast('Encounter dismissed — the clock is free if nothing else holds it.', 4000);
+    this.showToast('Dismissed “' + (label || 'encounter') + '” — clock free if nothing else holds it.', 4000);
   },
   // ── E3a — settle-as-lair (the linger-or-migrate proposal panel; JJ p.69 + p.103).
   // The verb rolls a PROPOSAL (transient encModal.settle — nothing written); ⟳ re-rolls;
