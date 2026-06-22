@@ -33,7 +33,7 @@ const EXPECTED = {
   settlement:'set', settlementVisit:'svt', siege:'sie', specialist:'spe', specialistContract:'spc',
   stash:'stash', stashItem:'si', strongholdStructure:'str', syndicate:'syn',
   tributaryAgreement:'trb', unit:'unit', vassalage:'vas', venture:'vnt', vessel:'vsl',
-  confinement:'cnf', dynasty:'dyn', kinship:'kin'
+  confinement:'cnf', dynasty:'dyn', kinship:'kin', mount:'mnt'
 };
 
 // =============================================================================
@@ -41,7 +41,7 @@ section('the seeded prefix map is byte-identical to the pre-refactor frozen lite
 const live = ACKS.ID_PREFIXES;
 const expKeys = Object.keys(EXPECTED).sort();
 const liveKeys = Object.keys(live).sort();
-ok('exactly 68 prefixes seeded', liveKeys.length === 68, 'live ' + liveKeys.length);
+ok('exactly 69 prefixes seeded', liveKeys.length === 69, 'live ' + liveKeys.length);
 ok('same kind set as before', JSON.stringify(liveKeys) === JSON.stringify(expKeys),
   'missing [' + expKeys.filter(k => !(k in live)).join(',') + '] / extra [' + liveKeys.filter(k => !(k in EXPECTED)).join(',') + ']');
 const valueMismatch = expKeys.filter(k => live[k] !== EXPECTED[k]);
@@ -116,14 +116,14 @@ const EXP_IMPORTABLE = [
   'encounters','hijinks','syndicates','units','armies','battles','sieges','vessels','delves','senates','factions',
   'senatorships','bouts','gladiatorSchools','games','customClasses','customRaces','researchProjects',
   'apprenticeships','loans','bankAccounts','lettersOfCredit','lore','knowledge','sageCommissions',
-  'dynasties','kinships','confinements'
+  'dynasties','kinships','confinements','mounts'
 ];
 
 section('the collection registry reproduces the pre-refactor three-site truth table');
-ok('exactly 61 collections registered', ACKS.registeredCollections().length === 61, 'got ' + ACKS.registeredCollections().length);
+ok('exactly 62 collections registered', ACKS.registeredCollections().length === 62, 'got ' + ACKS.registeredCollections().length);
 ok('seededCollections() === the seed set (46)', sortedEq(ACKS.seededCollections(), EXP_SEEDED), 'got ' + ACKS.seededCollections().length);
 ok('lazyDefaultCollections() === the migrate-injected set (19)', sortedEq(ACKS.lazyDefaultCollections(), EXP_LAZY), 'got ' + ACKS.lazyDefaultCollections().length);
-ok('importableCollections() === the pre-refactor SIMPLE_ID_COLLECTIONS membership + burst12 (58)', sortedEq(ACKS.importableCollections(), EXP_IMPORTABLE), 'got ' + ACKS.importableCollections().length);
+ok('importableCollections() === the pre-refactor SIMPLE_ID_COLLECTIONS membership + burst12 + mounts (59)', sortedEq(ACKS.importableCollections(), EXP_IMPORTABLE), 'got ' + ACKS.importableCollections().length);
 ok('lazyDefault ⟹ importable (a load-injected collection always travels on import)',
   ACKS.lazyDefaultCollections().every(n => ACKS.importableCollections().includes(n)));
 ok('domains/hexes/banks are NOT importable (special-cased / legacy-reserved)',
@@ -340,7 +340,7 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
 // schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
-const EV_KINDS_COUNT = 187, EV_SCHEMAS_COUNT = 187, EV_OPTOUT_COUNT = 161;
+const EV_KINDS_COUNT = 189, EV_SCHEMAS_COUNT = 189, EV_OPTOUT_COUNT = 163;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',
@@ -422,7 +422,7 @@ ok('registerEventKind() with no args is a safe no-op', (function(){ try { const 
 // entity-kind count + the global schema⊆factory invariant in tests/smoke.js. Here we pin the COUNTS +
 // the structural invariants (no dups, 1:1 list↔index, schema-keys ⊆ entity-kinds) + representatives,
 // and exercise both registrars end-to-end.
-const ENTITY_KINDS_COUNT = 58, FIELD_SCHEMAS_COUNT = 42;
+const ENTITY_KINDS_COUNT = 59, FIELD_SCHEMAS_COUNT = 43;
 const ENTITY_REPRESENTATIVES = ['character','party','group','hex','domain','unit','army','lair','encounter',
   'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore','dynasty','confinement'];
 const SCHEMA_REPRESENTATIVES = ['outpost','stash','magistracy','unit','army','journey','group','dungeon',

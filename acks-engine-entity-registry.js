@@ -368,6 +368,16 @@
       find: (c, id) => ((c && c.vessels) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.catalogKey || obj.id)) || '' },
 
+    // === Mounts (Phase 2.5 MO-1 — 2026-06-21) — Mount (RR p.161 Domesticated Animals;
+    // acks-engine-mounts.js). campaign.mounts[] (read defensively — no migrateCampaign
+    // injector, so templates stay migrate-no-ops). displayName reads only blankMount keys
+    // (the registry⊆factory invariant). ===
+    { kind: 'mount', label: 'Mount', pluralLabel: 'Mounts', icon: '🐴',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.mounts) || [],
+      find: (c, id) => ((c && c.mounts) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.catalogKey || obj.id)) || '' },
+
     // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer (RR pp.355–360;
     // acks-engine-politics.js). Read defensively (campaign.senates/factions/senatorships) — no
     // migrateCampaign injector, so the templates stay migrate-no-ops. displayName reads only the

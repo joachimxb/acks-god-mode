@@ -230,7 +230,11 @@ Object.entries({
   // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission research-commission
   // (campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on
   // the slot-64 day-tick + resolved on the shipped Proficiency-Throws die. Resolved by acks-engine-sages.js. ===
-  sageCommission:       'sag'
+  sageCommission:       'sag',
+  // === Mounts (Phase 2.5 MO-1, 2026-06-21) — the Mount entity (campaign.mounts[]; RR
+  // p.161 Domesticated Animals; resolved by acks-engine-mounts.js). Catalog+instance,
+  // owned by a character, surfaced in the Inventory tab, assigned to journeys. ===
+  mount:                'mnt'
 }).forEach(function(pair){ registerPrefix(pair[0], pair[1]); });
 
 // =============================================================================
@@ -354,7 +358,8 @@ function importableCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c)
   ['gladiatorSchools',     { seedInBlank:false, lazyDefault:false, importable:true  }],
   ['games',                { seedInBlank:false, lazyDefault:false, importable:true  }],
   ['customClasses',        { seedInBlank:false, lazyDefault:false, importable:true  }],  // Custom Classes W1
-  ['customRaces',          { seedInBlank:false, lazyDefault:false, importable:true  }]
+  ['customRaces',          { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['mounts',               { seedInBlank:false, lazyDefault:false, importable:true  }]   // Mounts MO-1 (defensive-read; migrate-no-op)
 ].forEach(function(pair){ registerCollection(pair[0], pair[1]); });
 
 // =============================================================================

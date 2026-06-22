@@ -4683,6 +4683,223 @@
         "id"
       ]
     },
+    "mount": {
+      "title": "Mount",
+      "description": "\"mount\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "catalogKey": {
+          "enum": [
+            "camel",
+            "donkey",
+            "horse-heavy",
+            "horse-light",
+            "horse-medium",
+            "horse-steppe",
+            "mule",
+            "ox",
+            "elephant",
+            "dog-hunting",
+            "dog-war",
+            null
+          ]
+        },
+        "training": {
+          "enum": [
+            "draft",
+            "riding",
+            "war",
+            "hunting",
+            null
+          ]
+        },
+        "role": {
+          "enum": [
+            "mount",
+            "pack",
+            "draft",
+            null
+          ]
+        },
+        "ownerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "riderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "cargo": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "qty": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "encumbranceSt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "bardingKey": {
+          "enum": [
+            "leather",
+            "scale",
+            "chain",
+            "lamellar",
+            "plate",
+            null
+          ]
+        },
+        "bardingLoadSt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "bardingHalf": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "bardingSpiked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "condition": {
+          "enum": [
+            "healthy",
+            "wounded",
+            "dead",
+            null
+          ]
+        },
+        "foodDeficitDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "waterDeficitDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "conditionFlags": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "hungry": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "underfed": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "starving": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "dehydrated": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "senate": {
       "title": "Senate",
       "description": "\"senate\" entity",
@@ -6795,6 +7012,8 @@
                 "succession-resolved",
                 "child-educated",
                 "heir-delegated",
+                "mount-acquired",
+                "mount-died",
                 "apotheosis",
                 "captive-ransomed",
                 "captive-released",
@@ -6892,10 +7111,11 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 58,
-    "typedKinds": 42,
-    "eventKinds": 187,
+    "entityKinds": 59,
+    "typedKinds": 43,
+    "eventKinds": 189,
     "nestedSubEntityKinds": [
+      "mount",
       "bout",
       "gladiator-school",
       "game",
