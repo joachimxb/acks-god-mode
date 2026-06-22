@@ -10341,34 +10341,6 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
 
-      <!-- ── UNITS (loose — not absorbed into an army; §12.5) ────────────────── -->
-      <div class="vellum border border-ink rounded p-4 mb-3">
-        <div class="flex justify-between items-baseline mb-2">
-          <h3 class="font-bold text-lg">🪖 Units <span class="text-sm opacity-70 font-normal" x-text="'· ' + unitRows().length + ' free'"></span></h3>
-          <span class="text-xs opacity-60">garrisons · mercenary companies · troops marching to muster</span>
-        </div>
-        <template x-if="unitRows().length === 0">
-          <p class="text-sm italic opacity-60 py-4 text-center">No free units. A unit in an army shows under that army; recruit or station troops to see them here.</p>
-        </template>
-        <template x-if="unitRows().length > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th></th><th>Unit</th><th>Type</th><th>Soldiers</th><th>Stationed</th><th></th></tr></thead>
-            <tbody>
-              <template x-for="r in unitRows()" :key="r.id">
-                <tr :class="(groupSelKind==='unit' && unitSelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('unit', r.id)">
-                  <td x-text="r.icon"></td>
-                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
-                  <td class="text-xs" x-text="r.entity.unitTypeKey || '—'"></td>
-                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
-                  <td class="text-xs" x-text="unitStationLabel(r.entity)"></td>
-                  <td><span x-show="r.entity.rallyingToArmyId" class="text-xs text-sky-700" title="Marching to a muster point">🚶 marching</span></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
-
       <!-- ── DETAIL panel — the clicked group ───────────────────────────────── -->
       <div id="group-detail">
         <!-- PARTY detail (the full party card, now driven by the selection) -->
