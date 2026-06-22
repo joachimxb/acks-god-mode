@@ -535,7 +535,12 @@ document.addEventListener('alpine:init', () => {
         <template x-for="b in advanceBlockers()" :key="b.kind + '-' + b.id">
           <div class="flex items-center justify-between gap-2 border-b border-dashed border-red-300 py-0.5">
             <span x-text="(b.kind === 'battle' ? '🎌 ' : '⚔ ') + b.label"></span>
-            <button @click="reviewSubView = (b.kind === 'battle' ? 'battles' : 'encounters')" class="underline font-semibold shrink-0" x-text="b.kind === 'battle' ? 'to Battles →' : 'to Encounters →'"></button>
+            <div class="flex items-center gap-2 shrink-0">
+              <!-- Quick-dismiss (encounters only) — resolve as 'dismissed' so the clock frees without
+                   walking the full RR panel; battles keep just the jump link (their aftermath is heavier). -->
+              <button x-show="b.kind !== 'battle'" @click="dismissBlockerEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock. Open the Encounters tab to resolve it in full instead.">✕ dismiss</button>
+              <button @click="reviewSubView = (b.kind === 'battle' ? 'battles' : 'encounters')" class="underline font-semibold" x-text="b.kind === 'battle' ? 'to Battles →' : 'to Encounters →'"></button>
+            </div>
           </div>
         </template>
       </div>
@@ -23764,6 +23769,19 @@ return {
     if(!r || !r.ok){ this.showToast('Could not resolve: ' + ((r && r.error) || '?'), 3500); return; }
     this.markDirty(); this.schedulePersist();
     if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
+  },
+  // Quick-dismiss a clock-holding encounter straight from the ⏸ banner (📜 Events ▸ Daily Events)
+  // — resolve it as 'dismissed' (nothing came of it) so the world clock frees, without walking the
+  // full RR pre-combat panel. Same engine path as the modal's encModalResolve above
+  // (recordEncounterResolved → the encounter-resolved event + entity flip). Encounters only; the
+  // banner hides this for battles (their aftermath is heavier — they keep the jump link).
+  dismissBlockerEncounter(id, label){
+    if(!this.currentCampaign) return;
+    if(!confirm('Dismiss “' + (label || 'this encounter') + '”?\n\nIt resolves as “dismissed” — nothing came of it — and the world clock frees (if nothing else holds it). To walk the full RR procedure instead, open it from the ⚔ Encounters tab.')) return;
+    const r = window.ACKS.recordEncounterResolved(this.currentCampaign, id, 'dismissed', {});
+    if(!r || !r.ok){ this.showToast('Could not dismiss: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Encounter dismissed — the clock is free if nothing else holds it.', 4000);
   },
   // ── E3a — settle-as-lair (the linger-or-migrate proposal panel; JJ p.69 + p.103).
   // The verb rolls a PROPOSAL (transient encModal.settle — nothing written); ⟳ re-rolls;
