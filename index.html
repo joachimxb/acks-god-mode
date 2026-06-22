@@ -1091,8 +1091,28 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- ───── World sub-tab: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
-<div x-show="currentView === 'world' && worldSubView === 'stashes'" class="p-4" x-cloak>
+<!-- ═══════════ World ▸ Points of Interest (UI overhaul 2026-06-22) — Lairs/Dungeons/Stashes toggled by
+     checkboxes + a claimed/unclaimed scope filter. The three tables below share the worldSubView==='poi'
+     gate; each is also gated on its poiShow.* flag and its rows filtered by poiScopeFilter. ═══════════ -->
+<div x-show="currentView === 'world' && worldSubView === 'poi'" class="px-4 pt-4" x-cloak>
+  <div class="vellum border border-ink rounded p-3 flex flex-wrap items-center gap-x-5 gap-y-2 mb-1">
+    <span class="font-bold">📍 Points of Interest</span>
+    <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="checkbox" x-model="poiShow.lairs"> 🐉 Lairs <span class="opacity-60" x-text="'(' + poiLairs().length + ')'"></span></label>
+    <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="checkbox" x-model="poiShow.dungeons"> 🕳️ Dungeons <span class="opacity-60" x-text="'(' + poiDungeons().length + ')'"></span></label>
+    <label class="text-sm flex items-center gap-1 cursor-pointer"><input type="checkbox" x-model="poiShow.stashes"> 🪙 Stashes <span class="opacity-60" x-text="'(' + poiStashes().length + ')'"></span></label>
+    <span class="flex-grow"></span>
+    <label class="text-sm flex items-center gap-1">Scope:
+      <select x-model="poiScopeFilter" class="text-sm border border-ink rounded px-1 py-0.5">
+        <option value="all">All hexes</option>
+        <option value="domains">In a domain (claimed)</option>
+        <option value="unclaimed">Unclaimed (wilderness)</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<!-- ───── POI table: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
+<div x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.stashes" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🪙 Stashes <span class="text-sm opacity-70 font-normal" x-text="'· ' + allStashes().length + ' located'"></span></h3>
@@ -1106,7 +1126,8 @@ document.addEventListener('alpine:init', () => {
           <option value="cache">Caches</option>
           <option value="hidden">Hidden only</option>
         </select>
-        <span class="text-sm opacity-70" x-text="filteredStashes().length + ' shown'"></span>
+        <span class="text-sm opacity-70" x-text="poiStashes().length + ' shown'"></span>
+        <button @click="openTreasureWizard()" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache stash">💰 Generate treasure</button>
       </div>
     </div>
     <template x-if="allStashes().length === 0">
@@ -1119,7 +1140,7 @@ document.addEventListener('alpine:init', () => {
           <th class="text-right">Total</th><th class="text-right">Items</th><th class="text-right">Weight</th><th>Hidden</th><th class="text-right">Actions</th>
         </tr></thead>
         <tbody>
-          <template x-for="row in filteredStashes()" :key="row.stash.id">
+          <template x-for="row in poiStashes()" :key="row.stash.id">
             <tr>
               <td><button @click="openStashDetail(row.stash.id)" class="underline font-semibold" x-text="row.stash.name || '(unnamed)'"></button></td>
               <td x-text="stashKindLabel(row.stash)"></td>
@@ -1144,13 +1165,13 @@ document.addEventListener('alpine:init', () => {
      + an author button. The 🔍 Inspector (Browse/Inspect/Create) is the full editor; the abstract-
      foray resolution + the Foray Wizard land in D3. Lifecycle overlays Attuned/Owned (derived) onto
      the stored status; Encounters-left = the authored count, or the living-lair count if stocked. === -->
-<div x-show="currentView === 'world' && worldSubView === 'dungeons'" class="p-4" x-cloak>
+<div x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.dungeons" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🕳️ Dungeons <span class="text-sm opacity-70 font-normal" x-text="'· ' + worldDungeons().length + ' recorded'"></span></h3>
       <div class="flex gap-2 items-center text-sm flex-wrap">
         <input type="text" x-model="dungeonsSearch" placeholder="Search name, hex…" class="w-56">
-        <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
+        <span class="text-sm opacity-70" x-text="poiDungeons().length + ' shown'"></span>
         <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
         <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon INSTANTLY (RR p.386) — the admin shortcut: completes now, mints a Dungeon entity + auto-attunes an arcane L9+ owner. For a labor-paid build over time, use 🏗 Build over time.">🏗 Build a dungeon</button>
         <button @click="openConstructionWizard({ kind:'dungeon', totalCost:30000 })" class="px-2 py-0.5 border border-ink rounded bg-purple-50 hover:bg-purple-100" title="Build a dungeon over time (RR p.386 / p.174) — the RAW-timed Construction Wizard: pay labor, advance the Day Clock, and it mints the Dungeon on completion (auto-attuning an arcane L9+ owner).">🏗 Build over time</button>
@@ -1167,7 +1188,7 @@ document.addEventListener('alpine:init', () => {
           <th class="text-right">Encounters left</th><th>Known</th><th class="text-right">Actions</th>
         </tr></thead>
         <tbody>
-          <template x-for="d in filteredDungeons()" :key="d.id">
+          <template x-for="d in poiDungeons()" :key="d.id">
             <tr>
               <td><button @click="inspectorOpen('dungeon', d.id)" class="underline font-semibold text-left" x-text="d.name || '(unnamed)'"></button></td>
               <td x-text="dungeonLifecycle(d)"></td>
@@ -1448,7 +1469,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
+<div x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.lairs" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🏚 Lairs <span class="text-sm opacity-70 font-normal" x-text="'· ' + allLairs().length + ' recorded'"></span></h3>
@@ -1478,7 +1499,7 @@ document.addEventListener('alpine:init', () => {
           <th class="text-right">Inhabitants</th><th>Treasure</th><th class="text-right">Actions</th>
         </tr></thead>
         <tbody>
-          <template x-for="l in filteredLairs()" :key="l.id">
+          <template x-for="l in poiLairs()" :key="l.id">
             <tr>
               <td x-text="lairStatusIcon(l)" :title="lairStatusLabel(l)"></td>
               <td><button @click="openLairDetail(l.id)" class="underline font-semibold text-left" x-text="l.name || '(unnamed)'"></button></td>
@@ -15485,10 +15506,9 @@ document.addEventListener('alpine:init', () => {
      spine (a `cache` Stash of facet lines + promoted notableItems[] for magic + captive Characters).
      openTreasureWizard(opts={treasureType,targetGp,hexId,lairId}) — so the Inspector-Create / a
      lair-detail / a hex-card launch are each a one-liner (deferred to a follow-up — see the SUMMARY).
-     The FAB below is the lane-owned launch. z-index:78 (the generative-wizard family, like the lair detail). -->
-<button x-show="currentCampaign" @click="openTreasureWizard()" x-cloak
-        class="fixed bottom-4 right-4 px-3 py-2 border-2 border-ink rounded-full shadow-lg bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold opacity-80 hover:opacity-100 no-print"
-        style="z-index:40" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache">💰 Treasure</button>
+     UI overhaul 2026-06-22 — the floating Treasure FAB was removed; the launch now lives in
+     World ▸ Points of Interest ▸ Stashes (the "💰 Generate treasure" button in the stash header),
+     since a generated hoard lands as a cache stash. The modal itself is unchanged below. -->
 <div x-show="treasureWizard.open" @keydown.escape.window="if(treasureWizard.open && !$event.defaultPrevented){ closeTreasureWizard(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeTreasureWizard()">
   <template x-if="treasureWizard.open">
@@ -18118,7 +18138,7 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
 <!-- A floating launcher on the World ▸ 🕳️ Dungeons sub-view (the lane extends that view via this marker
      region; it adds no top-level tab). Opens the off-screen Settlement-Visit panel (JJ ch.3). -->
-<button x-show="currentView === 'world' && worldSubView === 'dungeons'" x-cloak
+<button x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.dungeons" x-cloak
         @click="openSettlementVisits()"
         class="fixed bottom-4 right-4 z-40 px-3 py-2 border border-ink rounded-full bg-amber-100 hover:bg-amber-200 shadow-lg text-sm font-semibold"
         title="Settlement Visits (JJ ch.3) — hole up in town while the wounded recover / the mage researches; roll urban incidents">🏙 Settlement Visits<span class="ml-1 opacity-70" x-text="'· ' + svtVisits().length"></span></button>
@@ -26381,6 +26401,14 @@ return {
   // parties→groups) + Domains sub-view. The Characters view is now Roster ▸ Characters.
   rosterSubView:'characters', // 'characters' | 'monsters' | 'groups' | 'settlements' | 'ships' | 'npc-generators' | 'knowledge'
   domainsSubView:'domains',   // 'domains' | 'governance'
+  // World ▸ Points of Interest (B1) — which POI tables to show + the claimed/unclaimed scope filter.
+  poiShow: { lairs:true, dungeons:true, stashes:true },
+  poiScopeFilter: 'all',      // 'all' | 'domains' (claimed) | 'unclaimed' (wilderness)
+  // Roster ▸ Monsters bestiary (B3) filter state.
+  bestiarySearch: '', bestiaryTypeFilter: 'all',
+  // Roster ▸ Settlements sheet (B2) + Activities ▸ Market sheet (B5) modal selection.
+  settlementSheetId: null,
+  marketSheetId: null, marketSheetSearch: '', marketSheetCategory: 'all',
   // §12 Group model — the merged "Parties" view selection (one detail open at a time).
   groupSelKind: null,        // null | 'party' | 'army' | 'unit'
   partySelectedId: null,
@@ -26432,6 +26460,41 @@ return {
     if(this.campaignHasSenate() || this.governanceTabAvailable())
       tabs.push({ id:'governance', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null });
     return tabs;
+  },
+  // ════════ UI overhaul 2026-06-22 — helpers for the new Roster/World/Activities/Events surfaces ════════
+  // B1 — World ▸ Points of Interest scope filter (claimed vs unclaimed hexes).
+  _poiHexClaimed(hexId){ if(!hexId) return false; const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===hexId); return !!(h && h.domainId); },
+  _poiScopeOk(hexId){ if(this.poiScopeFilter==='all') return true; if(!hexId) return false; const claimed=this._poiHexClaimed(hexId); return this.poiScopeFilter==='domains' ? claimed : !claimed; },
+  poiStashes(){ return this.filteredStashes().filter(r => this._poiScopeOk(r && r.stash && r.stash.hexId)); },
+  poiDungeons(){ return this.filteredDungeons().filter(d => this._poiScopeOk(d && d.hexId)); },
+  poiLairs(){ return this.filteredLairs().filter(l => this._poiScopeOk(l && l.hexId)); },
+  // B3 — Roster ▸ Monsters bestiary (the MONSTER_CATALOG reference table).
+  bestiaryRows(){ let l=(window.ACKS&&window.ACKS.MONSTER_CATALOG)||[]; if(this.bestiaryTypeFilter!=='all') l=l.filter(m=>(m.creatureTypes||[]).includes(this.bestiaryTypeFilter)); const q=(this.bestiarySearch||'').trim().toLowerCase(); if(q) l=l.filter(m=>(((m.name||'')+' '+(m.key||'')).toLowerCase().includes(q))); return l; },
+  bestiaryTypeOptions(){ const s=new Set(); ((window.ACKS&&window.ACKS.MONSTER_CATALOG)||[]).forEach(m=>(m.creatureTypes||[]).forEach(t=>s.add(t))); return ['all',...[...s].sort()]; },
+  // B2 — Roster ▸ Settlements sheet. Reuses the demographic-roster body by driving demoSettlementId.
+  openSettlementSheet(id){ this.settlementSheetId=id; this.demoSettlementId=id; },
+  closeSettlementSheet(){ this.settlementSheetId=null; this.demoSettlementId=null; },
+  settlementSheet(){ const id=this.settlementSheetId; if(!id) return null; return (this.currentCampaign?.settlements||[]).find(s=>s&&s.id===id)||null; },
+  // B4 — Roster ▸ Ships location label (hexLabelFor is a global helper).
+  vesselHexLabel(v){ if(!v||!v.hexId) return '—'; const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===v.hexId); return h ? hexLabelFor(h) : '—'; },
+  // B5 — Activities ▸ Market: market-bearing settlements + per-market item availability (reuses the trade engine).
+  marketRows(){ const rows=(typeof this.allSettlements==='function')?this.allSettlements():[]; return rows.filter(r=>r&&r.marketClass&&r.marketClass!=='VI*'); },
+  openMarketSheet(id){ this.marketSheetId=id; },
+  closeMarketSheet(){ this.marketSheetId=null; },
+  marketSheetRow(){ const id=this.marketSheetId; if(!id) return null; return this.marketRows().find(r=>r.settlement&&r.settlement.id===id)||null; },
+  _marketClassIdx(mc){ if(typeof mc!=='string') return 5; const k=mc.replace('*',''); return ({I:0,II:1,III:2,IV:3,V:4,VI:5})[k] ?? 5; },
+  marketAvailLabelFor(mc, priceGp){ try { const a=window.ACKS.equipmentAvailability(priceGp, this._marketClassIdx(mc), {visitedBefore:false,partyOf12Dedicated:false}); return this.tradeAvailLabel(a); } catch(e){ return '—'; } },
+  marketSheetItems(){ let l=(window.ACKS&&window.ACKS.EQUIPMENT_CATALOG)||[]; if(this.marketSheetCategory!=='all') l=l.filter(e=>e&&e.category===this.marketSheetCategory); const q=(this.marketSheetSearch||'').trim().toLowerCase(); if(q) l=l.filter(e=>(e.name||'').toLowerCase().includes(q)); return l; },
+  marketCategoryOptions(){ const s=new Set(); ((window.ACKS&&window.ACKS.EQUIPMENT_CATALOG)||[]).forEach(e=>{ if(e&&e.category) s.add(e.category); }); return ['all',...[...s].sort()]; },
+  // B6 — Events ▸ Construction: every domain's in-progress projects joined to its domain.
+  allConstructionProjects(){
+    const camp=this.currentCampaign; if(!camp) return [];
+    const list=Array.isArray(camp.projects)?camp.projects:[];
+    return list
+      .filter(p=>p && p.lifecycleState==='under-construction' && p.constructibleKind!=='agricultural-improvement')
+      .map(p=>{ const dom=p.ownerDomainId?(this.domains||[]).find(d=>d.id===p.ownerDomainId):null;
+        let forecast=null; try{ forecast=this.domainProjectForecast(p); }catch(e){}
+        return { project:p, domainName: dom?(dom.name||dom.id):'—', forecast }; });
   },
   // Legacy: anything that sets currentView='ventures' now redirects through Activities > Ventures sub-tab.
   redirectLegacyVenturesNav(){
