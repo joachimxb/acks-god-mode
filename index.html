@@ -491,10 +491,10 @@ document.addEventListener('alpine:init', () => {
 <nav class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
      style="margin-top: 0.75rem; padding-top:0.5rem; padding-bottom:0.5rem;">
   <template x-for="v in topViews" :key="v.id">
-    <!-- alignRight (📋 Review, 2026-06-13): the work-queue tab is qualitatively different from
-         the world-content tabs, so it sits flush right (ml-auto in the flex row). -->
+    <!-- All tabs left-aligned in document order; the turn-running tabs (Events / Domain Turn /
+         House Rules) lead so they sit under the advance-day clock at the left (topViews getter). -->
     <button @click="currentView = v.id"
-            :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '')"
+            :class="currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100'"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
       <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
@@ -20681,32 +20681,30 @@ return {
     const enabledRules = (this.HOUSERULES||[]).filter(r => this.isHouseRuleEnabled(r.id)).length;
     const aliveChars = (this.currentCampaign?.characters||[]).filter(c=>c.alive!==false).length;
     const hexCount = (this.currentCampaign?.hexes||[]).filter(h=>h && h.domainId).length;
-    const pendingEv = (this.currentCampaign?.pendingEvents||[]).filter(e => e.status === 'pending').length;
-    const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
-    // 📋 Review badge (2026-06-13) — the "needs the GM" count: clock-holding blockers
-    // (active encounters / battles in motion) + due pending events + staged reviews.
-    let reviewCount = 0;
-    try {
-      const c = this.currentCampaign;
-      reviewCount = (window.ACKS.dailyAdvanceBlockers(c) || []).length
-        + (c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0)
-        + (this.dayTickProposal ? 1 : 0);   // turnProposal badge now lives on the Domain Turn tab (de-dup)
-    } catch(e){ reviewCount = 0; }
-    // UI overhaul 2026-06-22 — the 8 stable top-level tabs. Map/Domains are pulled out of World;
-    // the former conditional top-level tabs (religion, senate, banking, magic-items, knowledge,
-    // generators, gladiators) are now SUB-views of World/Domains/Roster/Activities (see the *SubTabs
-    // getters). 'review' keeps its internal id but is relabelled "📜 Events" (the old standalone
-    // 'events' chronicle/log view folds in as its Event-Log sub-tab). Domain Turn is the promoted
-    // old review/domain-review. All left-aligned, document order (no alignRight float).
+    // 📜 Events badge (2026-06-22) — the count of clock-holders that BLOCK the daily advance:
+    // active encounters + battles in motion (engine dailyAdvanceBlockers — exactly what greys the
+    // +1 day / Next month buttons and what the "⏸ The clock is held" banner on this tab lists).
+    // 0 → no badge, so it lights up only when something actually needs resolving before you advance.
+    let blockerCount = 0;
+    try { blockerCount = (window.ACKS.dailyAdvanceBlockers(this.currentCampaign) || []).length; } catch(e){ blockerCount = 0; }
+    // UI overhaul 2026-06-22 — the 8 stable top-level tabs. The three turn-running tabs
+    // (Events / Domain Turn / House Rules) lead, so they sit at the LEFT of the bar — directly
+    // under the advance-day clock (which wraps to the top-left of the header on a narrow window);
+    // the world-content tabs follow. Map/Domains are pulled out of World; the former conditional
+    // top-level tabs (religion, senate, banking, magic-items, knowledge, generators, gladiators)
+    // are now SUB-views of World/Domains/Roster/Activities (see the *SubTabs getters). 'review'
+    // keeps its internal id but is relabelled "📜 Events" (the old standalone 'events' chronicle/
+    // log view folds in as its Event-Log sub-tab). Domain Turn is the promoted old review/
+    // domain-review. All left-aligned, document order (no alignRight float).
     return [
+      { id:'review',       label:'📜 Events',       count: blockerCount || null },
+      { id:'domain-turn',  label:'🏰 Domain Turn',  count: this.turnProposal ? 1 : null },
+      { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null },
       { id:'world',        label:'🌍 World',        count: hexCount || null },
       { id:'domains',      label:'🏰 Domains',      count: (this.domains||[]).length || null },
       { id:'roster',       label:'👥 Roster',       count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
-      { id:'inspector',    label:'🔍 Inspector' },
-      { id:'review',       label:'📜 Events',       count: (pendingEv + loggedEv) || null },
-      { id:'domain-turn',  label:'🏰 Domain Turn',  count: this.turnProposal ? 1 : null },
-      { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
+      { id:'inspector',    label:'🔍 Inspector' }
     ];
   },
 
