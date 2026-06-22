@@ -1540,49 +1540,6 @@ document.addEventListener('alpine:init', () => {
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
   </div>
-
-  <!-- #476 E4h (Joachim 2026-06-11) — the world's LOOSE monster bands, beneath the lairs:
-       migrants (living Groups not settled in a living lair — an abandoned lair's survivors, a
-       free-authored population) and pursuers (E3c chases in flight, incl. the undecided offer —
-       the state lives on the Encounter, D8). Settled populations show through their lair's row
-       above; fragments are transient (no Group is minted) and never appear. Derived per render
-       via monsterLooseBandRows() — nothing is stored here. -->
-  <div class="vellum border border-ink rounded p-4 mt-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
-      <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
-    </div>
-    <template x-if="monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
-    </template>
-    <template x-if="monsterLooseBandRows().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr>
-          <th></th><th>Band</th><th>Monster</th><th class="text-right">Count</th><th>Where</th><th>Status</th><th class="text-right">Actions</th>
-        </tr></thead>
-        <tbody>
-          <template x-for="row in monsterLooseBandRows()" :key="row.key">
-            <tr>
-              <td x-text="row.icon" :title="row.statusLabel"></td>
-              <td class="font-semibold" x-text="row.band"></td>
-              <td x-text="row.monster"></td>
-              <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
-              <td>
-                <template x-if="row.hexId"><button @click="openHexDetailById(row.hexId)" class="underline" x-text="row.where"></button></template>
-                <template x-if="!row.hexId"><span class="opacity-60 italic" x-text="row.where"></span></template>
-              </td>
-              <td x-text="row.statusText"></td>
-              <td class="text-right whitespace-nowrap">
-                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
-                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase; 🏴 banditry bands are a low-morale domain's own men (RR pp.350–351 — ⚙ Domain banditry; raised and disbanded by the monthly turn, raiding within their domain). Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
-  </div>
 </div>
 
 <!-- ═══════════ WORLD ▸ ENCOUNTERS (#476 E2) — the active-encounter work queue ═══════════
@@ -5413,184 +5370,6 @@ document.addEventListener('alpine:init', () => {
             </template>
           </div>
 
-          <!-- Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex").
-               Domain-scoped: the leveled NPCs across the domain's rural hexes, expected (the scaled
-               "A Typical Hex" countryside roster) vs realized (homeHexId residents). Gated on the
-               living-census house rule (the deep tier, like SD-3). Reconciled by ACKS.domainRuralDemographics. -->
-          <template x-if="ruralCensusOn() && ruralCensus() && ruralCensus().hexCount>0">
-            <div class="vellum border border-ink p-3 rounded md:col-span-2" style="background:#f4ecd2">
-              <h3 class="font-bold mb-1">🌾 Countryside census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
-              <p class="text-sm opacity-70 mb-2">
-                “A Typical Hex” (JJ countryside roster) across
-                <span class="font-semibold" x-text="ruralCensus().hexCount"></span> rural hex(es) ·
-                <span x-text="Math.round(ruralCensus().ruralFamilies||0).toLocaleString()"></span> rural families
-                (<span x-text="ruralCensus().populationSource==='per-hex' ? 'per-hex' : 'domain-distributed'"></span>).
-                Each cell shows <em>residents / expected</em>. Set an NPC’s <strong>Home hex</strong> on its sheet to fill the realized side.
-              </p>
-              <div class="overflow-x-auto">
-                <table class="bookkeeping text-sm">
-                  <thead><tr><th>Level</th>
-                    <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
-                  </tr></thead>
-                  <tbody>
-                    <template x-for="r in ruralRosterRows()" :key="r.level">
-                      <tr>
-                        <td class="font-semibold" x-text="'L'+r.level"></td>
-                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
-                          <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
-                              :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+' @ '+(n.hexName||'?')+')').join(', ') : ''">
-                            <template x-if="r[b].realized>0 || r[b].expected>=0.5">
-                              <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
-                            </template>
-                            <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
-                          </td>
-                        </template>
-                      </tr>
-                    </template>
-                    <tr class="total">
-                      <td>Totals</td>
-                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
-                        <td><span x-text="ruralCensus().realizedTotals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(ruralCensus().totals[b])"></span></span></td>
-                      </template>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p class="text-sm mt-2">
-                <span class="font-semibold" x-text="ruralCensus().realizedTotals.all"></span> rural residents
-                (of ~<span x-text="Math.round(ruralCensus().totals.all).toLocaleString()"></span> expected) ·
-                <span x-text="ruralCensus().openTotal.toLocaleString()"></span> open slots
-                <span class="accent-red" x-show="ruralCensus().exceptionalTotal>0"> · <span x-text="ruralCensus().exceptionalTotal"></span> exceptional</span>
-              </p>
-
-              <!-- per-hex breakdown -->
-              <details class="mt-2">
-                <summary class="text-sm cursor-pointer opacity-80">Per rural hex (<span x-text="ruralCensus().hexes.length"></span>)</summary>
-                <div class="overflow-x-auto mt-1">
-                  <table class="bookkeeping text-sm">
-                    <thead><tr><th>Hex</th><th>Rural families</th><th>~Expected</th><th>Residents</th><th>Open</th></tr></thead>
-                    <tbody>
-                      <template x-for="h in ruralCensus().hexes" :key="h.hexId">
-                        <tr>
-                          <td x-text="h.hexName"></td>
-                          <td x-text="Math.round(h.ruralFamilies)"></td>
-                          <td x-text="Math.round(h.expectedAll)"></td>
-                          <td :class="h.exceptionalTotal>0 ? 'accent-red font-semibold' : ''" x-text="h.realizedResidents + (h.exceptionalTotal>0 ? ' ⚠' : '')"></td>
-                          <td x-text="h.openTotal"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-
-              <!-- reconciliation workspace — the rural residents + settle-a-resident -->
-              <div class="mt-3 pt-2 border-t border-ink/30">
-                <h4 class="font-semibold text-sm mb-1">Rural residents <span class="opacity-60 font-normal" x-text="'(' + ruralResidentsList().length + ')'"></span></h4>
-                <template x-if="ruralResidentsList().length===0">
-                  <p class="text-sm opacity-60 italic">No NPC is rostered in the countryside yet — settle one below, or set a <strong>Home hex</strong> on a character sheet.</p>
-                </template>
-                <template x-if="ruralResidentsList().length>0">
-                  <div class="overflow-x-auto">
-                    <table class="bookkeeping text-sm">
-                      <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Hex</th><th></th></tr></thead>
-                      <tbody>
-                        <template x-for="c in ruralResidentsList()" :key="c.id">
-                          <tr>
-                            <td><button class="underline" @click="demoOpenResident(c.id)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
-                            <td x-text="c.class||'—'"></td>
-                            <td class="capitalize" x-text="c.bucket||'—'"></td>
-                            <td x-text="c.hexName"></td>
-                            <td><button class="text-sm underline accent-red" @click="ruralRemoveResident(c.id)" title="Remove this NPC's rural home (un-roster it)">× un-home</button></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-                </template>
-                <div class="flex items-center gap-2 mt-2 flex-wrap">
-                  <span class="text-sm font-semibold">Settle a resident:</span>
-                  <select class="ed-input text-sm" style="width:14rem" x-model="ruralAssignPick">
-                    <option value="">— pick an unplaced NPC —</option>
-                    <template x-for="c in ruralUnhomedCandidates()" :key="c.id">
-                      <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
-                    </template>
-                  </select>
-                  <span class="text-sm">in</span>
-                  <select class="ed-input text-sm" style="width:12rem" x-model="ruralAssignHex">
-                    <option value="">— rural hex —</option>
-                    <template x-for="h in ruralHexOptions()" :key="h.id">
-                      <option :value="h.id" x-text="hexLabelFor(h)"></option>
-                    </template>
-                  </select>
-                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
-                </div>
-                <!-- SD-2b — opt-in auto-generation: mint the open countryside notable slots (homed to the
-                     domain's rural hexes, round-robin). The rank-and-file stay counts. -->
-                <template x-if="demoAutoGenOn()">
-                  <div class="flex items-center gap-2 mt-2 flex-wrap">
-                    <span class="text-sm font-semibold">✨ Auto-fill countryside:</span>
-                    <label class="text-sm">L≥ <input type="number" min="1" max="4" class="ed-input text-sm" style="width:4rem" x-model.number="ruralFillMinLevel"></label>
-                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="ruralAutoFill()">✨ Generate countryside residents</button>
-                  </div>
-                </template>
-                <p class="text-sm opacity-60 italic mt-1">Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint hedge wizards / friars / retired veterans into the open rural slots; or place NPCs by hand with a <strong>Home hex</strong>.</p>
-              </div>
-            </div>
-          </template>
-
-          <!-- Settlement Demographics SD-7b — the placement taxonomy (the Econometrics 7-category
-               accounting: where this realm's classed NPCs sit — ruler / domain-NPC / countryside /
-               mercenary / henchman / retired / available; the recruitment + lifecycle + encounter
-               seams as one accounting). Domain-scoped; gated on living-census (the deep tier, OQ-8).
-               Pure derived read — ACKS.placementCensus. -->
-          <template x-if="placementCensusOn() && placementCensus() && placementCensus().total>0">
-            <div class="vellum border border-ink p-3 rounded md:col-span-2" style="background:#f4ecd2">
-              <h3 class="font-bold mb-1">📋 Placement census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
-              <p class="text-sm opacity-70 mb-2">
-                The RAW 7-category accounting (Econometrics §4) — where this realm's
-                <span class="font-semibold" x-text="placementCensus().total"></span> accounted NPC(s) sit.
-                It ties the census to <em>recruitment</em> (mercenary / henchman), <em>lifecycle</em> (retired),
-                and <em>encounters</em> (available) as one accounting.
-              </p>
-              <div class="overflow-x-auto">
-                <table class="bookkeeping text-sm">
-                  <thead><tr><th>Where they sit</th><th>Count</th><th>Notable examples</th></tr></thead>
-                  <tbody>
-                    <template x-for="row in placementCensus().byCategory" :key="row.category">
-                      <tr :class="row.count===0 ? 'opacity-40' : ''">
-                        <td class="font-semibold" x-text="row.label"></td>
-                        <td x-text="row.count"></td>
-                        <td>
-                          <template x-if="row.names.length===0"><span class="opacity-40">—</span></template>
-                          <template x-for="(n,ni) in row.names" :key="n.id">
-                            <span class="mr-1"><button class="underline" @click="demoOpenResident(n.id)" x-text="n.name + ' · L' + n.level"></button><span x-show="ni < row.names.length-1">,</span></span>
-                          </template>
-                        </td>
-                      </tr>
-                    </template>
-                    <tr class="total"><td>Total</td><td x-text="placementCensus().total"></td><td></td></tr>
-                  </tbody>
-                </table>
-              </div>
-              <details class="mt-2">
-                <summary class="text-sm cursor-pointer opacity-80">By class bucket</summary>
-                <div class="overflow-x-auto mt-1">
-                  <table class="bookkeeping text-sm">
-                    <thead><tr><th>Bucket</th>
-                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
-                      <th>other</th></tr></thead>
-                    <tbody><tr>
-                      <td class="font-semibold">Count</td>
-                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><td x-text="placementCensus().byBucket[b]"></td></template>
-                      <td x-text="placementCensus().byBucket.other"></td>
-                    </tr></tbody>
-                  </table>
-                </div>
-              </details>
-              <p class="text-sm opacity-60 italic mt-1">A character is accounted by the most definitive fact, in order: retired → ruler → henchman → mercenary → homed-in-a-town → homed-in-the-wilds → available. Deceased NPCs are excluded; “retired” populates when a retirement gains a first-class state (today retirees soft-delete and leave the active world).</p>
-            </div>
-          </template>
           </div>
         </div>
 
@@ -6193,6 +5972,191 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <p class="text-xs opacity-60 italic mt-2">Spatial conditions are derived from the hex map (roads + settlement sizes); a GM override wins. Advancement (RR p.340) is permanent and fires automatically at each monthly turn — DC-2.</p>
+          </div>
+        </div>
+
+        <!-- Settlement Demographics — Placement (SD-7b) + Countryside (SD-4) censuses, relocated to the
+             bottom of the Demographics view (below the Hexes + Agricultural sections); Placement first,
+             then Countryside; plain vellum like the other boxes (2026-06-22 UI tweak). -->
+        <div x-show="activeTab==='demographics'" class="mt-4">
+          <div class="grid md:grid-cols-2 gap-4">
+          <!-- Settlement Demographics SD-7b — the placement taxonomy (the Econometrics 7-category
+               accounting: where this realm's classed NPCs sit — ruler / domain-NPC / countryside /
+               mercenary / henchman / retired / available; the recruitment + lifecycle + encounter
+               seams as one accounting). Domain-scoped; gated on living-census (the deep tier, OQ-8).
+               Pure derived read — ACKS.placementCensus. -->
+          <template x-if="placementCensusOn() && placementCensus() && placementCensus().total>0">
+            <div class="vellum border border-ink p-3 rounded md:col-span-2">
+              <h3 class="font-bold mb-1">📋 Placement census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                The RAW 7-category accounting (Econometrics §4) — where this realm's
+                <span class="font-semibold" x-text="placementCensus().total"></span> accounted NPC(s) sit.
+                It ties the census to <em>recruitment</em> (mercenary / henchman), <em>lifecycle</em> (retired),
+                and <em>encounters</em> (available) as one accounting.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Where they sit</th><th>Count</th><th>Notable examples</th></tr></thead>
+                  <tbody>
+                    <template x-for="row in placementCensus().byCategory" :key="row.category">
+                      <tr :class="row.count===0 ? 'opacity-40' : ''">
+                        <td class="font-semibold" x-text="row.label"></td>
+                        <td x-text="row.count"></td>
+                        <td>
+                          <template x-if="row.names.length===0"><span class="opacity-40">—</span></template>
+                          <template x-for="(n,ni) in row.names" :key="n.id">
+                            <span class="mr-1"><button class="underline" @click="demoOpenResident(n.id)" x-text="n.name + ' · L' + n.level"></button><span x-show="ni < row.names.length-1">,</span></span>
+                          </template>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr class="total"><td>Total</td><td x-text="placementCensus().total"></td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <details class="mt-2">
+                <summary class="text-sm cursor-pointer opacity-80">By class bucket</summary>
+                <div class="overflow-x-auto mt-1">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Bucket</th>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                      <th>other</th></tr></thead>
+                    <tbody><tr>
+                      <td class="font-semibold">Count</td>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><td x-text="placementCensus().byBucket[b]"></td></template>
+                      <td x-text="placementCensus().byBucket.other"></td>
+                    </tr></tbody>
+                  </table>
+                </div>
+              </details>
+              <p class="text-sm opacity-60 italic mt-1">A character is accounted by the most definitive fact, in order: retired → ruler → henchman → mercenary → homed-in-a-town → homed-in-the-wilds → available. Deceased NPCs are excluded; “retired” populates when a retirement gains a first-class state (today retirees soft-delete and leave the active world).</p>
+            </div>
+          </template>
+          <!-- Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex").
+               Domain-scoped: the leveled NPCs across the domain's rural hexes, expected (the scaled
+               "A Typical Hex" countryside roster) vs realized (homeHexId residents). Gated on the
+               living-census house rule (the deep tier, like SD-3). Reconciled by ACKS.domainRuralDemographics. -->
+          <template x-if="ruralCensusOn() && ruralCensus() && ruralCensus().hexCount>0">
+            <div class="vellum border border-ink p-3 rounded md:col-span-2">
+              <h3 class="font-bold mb-1">🌾 Countryside census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                “A Typical Hex” (JJ countryside roster) across
+                <span class="font-semibold" x-text="ruralCensus().hexCount"></span> rural hex(es) ·
+                <span x-text="Math.round(ruralCensus().ruralFamilies||0).toLocaleString()"></span> rural families
+                (<span x-text="ruralCensus().populationSource==='per-hex' ? 'per-hex' : 'domain-distributed'"></span>).
+                Each cell shows <em>residents / expected</em>. Set an NPC’s <strong>Home hex</strong> on its sheet to fill the realized side.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Level</th>
+                    <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="r in ruralRosterRows()" :key="r.level">
+                      <tr>
+                        <td class="font-semibold" x-text="'L'+r.level"></td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                              :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+' @ '+(n.hexName||'?')+')').join(', ') : ''">
+                            <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                              <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                            </template>
+                            <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                    <tr class="total">
+                      <td>Totals</td>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                        <td><span x-text="ruralCensus().realizedTotals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(ruralCensus().totals[b])"></span></span></td>
+                      </template>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-sm mt-2">
+                <span class="font-semibold" x-text="ruralCensus().realizedTotals.all"></span> rural residents
+                (of ~<span x-text="Math.round(ruralCensus().totals.all).toLocaleString()"></span> expected) ·
+                <span x-text="ruralCensus().openTotal.toLocaleString()"></span> open slots
+                <span class="accent-red" x-show="ruralCensus().exceptionalTotal>0"> · <span x-text="ruralCensus().exceptionalTotal"></span> exceptional</span>
+              </p>
+
+              <!-- per-hex breakdown -->
+              <details class="mt-2">
+                <summary class="text-sm cursor-pointer opacity-80">Per rural hex (<span x-text="ruralCensus().hexes.length"></span>)</summary>
+                <div class="overflow-x-auto mt-1">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Hex</th><th>Rural families</th><th>~Expected</th><th>Residents</th><th>Open</th></tr></thead>
+                    <tbody>
+                      <template x-for="h in ruralCensus().hexes" :key="h.hexId">
+                        <tr>
+                          <td x-text="h.hexName"></td>
+                          <td x-text="Math.round(h.ruralFamilies)"></td>
+                          <td x-text="Math.round(h.expectedAll)"></td>
+                          <td :class="h.exceptionalTotal>0 ? 'accent-red font-semibold' : ''" x-text="h.realizedResidents + (h.exceptionalTotal>0 ? ' ⚠' : '')"></td>
+                          <td x-text="h.openTotal"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+
+              <!-- reconciliation workspace — the rural residents + settle-a-resident -->
+              <div class="mt-3 pt-2 border-t border-ink/30">
+                <h4 class="font-semibold text-sm mb-1">Rural residents <span class="opacity-60 font-normal" x-text="'(' + ruralResidentsList().length + ')'"></span></h4>
+                <template x-if="ruralResidentsList().length===0">
+                  <p class="text-sm opacity-60 italic">No NPC is rostered in the countryside yet — settle one below, or set a <strong>Home hex</strong> on a character sheet.</p>
+                </template>
+                <template x-if="ruralResidentsList().length>0">
+                  <div class="overflow-x-auto">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Hex</th><th></th></tr></thead>
+                      <tbody>
+                        <template x-for="c in ruralResidentsList()" :key="c.id">
+                          <tr>
+                            <td><button class="underline" @click="demoOpenResident(c.id)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
+                            <td x-text="c.class||'—'"></td>
+                            <td class="capitalize" x-text="c.bucket||'—'"></td>
+                            <td x-text="c.hexName"></td>
+                            <td><button class="text-sm underline accent-red" @click="ruralRemoveResident(c.id)" title="Remove this NPC's rural home (un-roster it)">× un-home</button></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <span class="text-sm font-semibold">Settle a resident:</span>
+                  <select class="ed-input text-sm" style="width:14rem" x-model="ruralAssignPick">
+                    <option value="">— pick an unplaced NPC —</option>
+                    <template x-for="c in ruralUnhomedCandidates()" :key="c.id">
+                      <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                    </template>
+                  </select>
+                  <span class="text-sm">in</span>
+                  <select class="ed-input text-sm" style="width:12rem" x-model="ruralAssignHex">
+                    <option value="">— rural hex —</option>
+                    <template x-for="h in ruralHexOptions()" :key="h.id">
+                      <option :value="h.id" x-text="hexLabelFor(h)"></option>
+                    </template>
+                  </select>
+                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
+                </div>
+                <!-- SD-2b — opt-in auto-generation: mint the open countryside notable slots (homed to the
+                     domain's rural hexes, round-robin). The rank-and-file stay counts. -->
+                <template x-if="demoAutoGenOn()">
+                  <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    <span class="text-sm font-semibold">✨ Auto-fill countryside:</span>
+                    <label class="text-sm">L≥ <input type="number" min="1" max="4" class="ed-input text-sm" style="width:4rem" x-model.number="ruralFillMinLevel"></label>
+                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" @click="ruralAutoFill()">✨ Generate countryside residents</button>
+                  </div>
+                </template>
+                <p class="text-sm opacity-60 italic mt-1">Enable <strong>Living census</strong> + <strong>Auto-generate residents</strong> (⚙ House Rules) to mint hedge wizards / friars / retired veterans into the open rural slots; or place NPCs by hand with a <strong>Home hex</strong>.</p>
+              </div>
+            </div>
+          </template>
           </div>
         </div>
 
@@ -10047,6 +10011,34 @@ document.addEventListener('alpine:init', () => {
                   <span class="ml-1 text-xs px-1.5 py-0.5 rounded border border-ink/60" x-text="'🏘 ' + (characterAtSettlement(row.c).name || 'settlement')"></span>
                 </template>
               </div>
+              <!-- Henchman/retainer status + party membership — relocated here from the
+                   table's Role column, surfaced when a character is clicked. -->
+              <div class="text-sm mt-1 flex flex-wrap items-center gap-x-3 gap-y-1"
+                   x-show="ACKS.isHenchman(row.c) || ACKS.isSpecialist(row.c) || ACKS.isFollower(row.c) || ACKS.isHireling(row.c) || characterHenchmenInfo(row.c).count > 0 || characterPartyOf(row.c)">
+                <!-- Served side: this character is someone's retainer (names the patron). -->
+                <template x-if="ACKS.isHenchman(row.c)">
+                  <span class="opacity-80" x-text="'⚔ henchman of ' + (characterPatronName(row.c) || '(no patron set)')"></span>
+                </template>
+                <template x-if="ACKS.isSpecialist(row.c)">
+                  <span class="opacity-80" x-text="'🛠 specialist of ' + (characterPatronName(row.c) || '(no patron set)')"></span>
+                </template>
+                <template x-if="ACKS.isFollower(row.c)">
+                  <span class="opacity-80" x-text="'🛡 follower of ' + (characterPatronName(row.c) || '(no patron set)')"></span>
+                </template>
+                <template x-if="ACKS.isHireling(row.c)">
+                  <span class="opacity-80" x-text="'🤝 hired by ' + (characterPatronName(row.c) || '(no patron set)')"></span>
+                </template>
+                <!-- Command side: this character commands henchmen of their own (RR p.170 cap). -->
+                <template x-if="characterHenchmenInfo(row.c).count > 0">
+                  <span :class="characterHenchmenInfo(row.c).overCap ? 'accent-red font-semibold' : 'opacity-80'"
+                        :title="'Active henchmen of this character, against the henchman cap (RR p.170)' + (characterHenchmenInfo(row.c).overCap ? ' — over cap' : '')"
+                        x-text="'⚔ ' + characterHenchmenInfo(row.c).count + ' / ' + characterHenchmenInfo(row.c).cap + ' henchmen'"></span>
+                </template>
+                <!-- Party membership, with a link to it in 👥 Roster ▸ Parties. -->
+                <template x-if="characterPartyOf(row.c)">
+                  <button @click="openPartyForCharacter(row.c)" class="underline" title="Open this character's party in Roster ▸ Parties">🧭 in party <span class="font-semibold" x-text="characterPartyOf(row.c).name || '(unnamed party)'"></span> →</button>
+                </template>
+              </div>
             </div>
             <div class="flex items-center gap-1.5 whitespace-nowrap">
               <button @click="openCharacterEditor(row.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Open the full character sheet">✎ Edit sheet</button>
@@ -10200,8 +10192,7 @@ document.addEventListener('alpine:init', () => {
             <th style="text-align:center">Lvl</th>
             <th style="text-align:center">Alignment</th>
             <th style="text-align:center">Title</th>
-            <th style="text-align:left">Roles</th>
-            <th style="text-align:left">Activity</th>
+            <th style="text-align:left">Role</th>
             <th style="text-align:left">Location</th>
             <th style="text-align:center" title="XP earned this month from all roles, after threshold.">XP / mo</th>
             <th style="text-align:center" title="XP remaining to next level (xpToNextLevel − xp).">To next</th>
@@ -10239,37 +10230,18 @@ document.addEventListener('alpine:init', () => {
                   </template>
                 </td>
                 <td class="text-sm" style="text-align:left">
-                  <!-- Structural roles: ruler (with vassal prefix when liege exists) + magistrate slots. -->
-                  <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
-                    <div>
-                      <button @click.stop="selectedDomainId = r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
-                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
-                    </div>
-                  </template>
-                  <!-- Secondary tags. Retainer rows name the patron. Active-venture
-                       and Venturer-class tags removed (covered by Location + Class). -->
-                  <template x-if="ACKS.isHenchman(c)">
-                    <div class="opacity-70" x-text="'⚔ henchman of ' + (characterPatronName(c) || '(no patron set)')"></div>
-                  </template>
-                  <template x-if="ACKS.isSpecialist(c)">
-                    <div class="opacity-70" x-text="'🛠 specialist of ' + (characterPatronName(c) || '(no patron set)')"></div>
-                  </template>
-                  <template x-if="ACKS.isFollower(c)">
-                    <div class="opacity-70" x-text="'🛡 follower of ' + (characterPatronName(c) || '(no patron set)')"></div>
-                  </template>
-                  <template x-if="ACKS.isHireling(c)">
-                    <div class="opacity-70" x-text="'🤝 hired by ' + (characterPatronName(c) || '(no patron set)')"></div>
-                  </template>
-                </td>
-                <!-- Activity column (Architecture.md §3.11): multi-source derived
-                     view of what this character is doing right now. -->
-                <td class="text-sm" style="text-align:left">
-                  <template x-for="act in characterActivities(c)" :key="act.kind">
-                    <div class="opacity-80" x-text="act.icon + ' ' + act.label"></div>
-                  </template>
-                  <template x-if="characterActivities(c).length === 0">
+                  <!-- Structural roles (ruler + magistrate) on one line. The retainer
+                       relationship (henchman/specialist/follower/hireling of …) and party
+                       membership moved to the selected-character box above (clicked view). -->
+                  <template x-if="characterAllRoles(c).length === 0">
                     <span class="opacity-40 italic">—</span>
                   </template>
+                  <span class="inline-flex flex-wrap items-center gap-x-2">
+                    <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + (r.domainId || r.view || '') + ':' + r.label">
+                      <button @click.stop="if(r.view){ currentView='activities'; activitiesSubView=r.view; } else { selectedDomainId=r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor(); }"
+                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : (r.kind === 'gladiator' ? '🏟 ' : '🏰 ')) + r.label + ' →'"></button>
+                    </template>
+                  </span>
                 </td>
                 <td class="text-sm" style="text-align:left" x-text="characterLocationLabel(c)"></td>
                 <td class="font-mono text-sm" style="text-align:center" :class="characterXpThisMonth(c) > 0 ? 'accent-green' : 'opacity-60'" x-text="characterXpThisMonth(c).toLocaleString() + ' XP'"></td>
@@ -10369,34 +10341,6 @@ document.addEventListener('alpine:init', () => {
                   <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
                   <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
                   <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
-
-      <!-- ── UNITS (loose — not absorbed into an army; §12.5) ────────────────── -->
-      <div class="vellum border border-ink rounded p-4 mb-3">
-        <div class="flex justify-between items-baseline mb-2">
-          <h3 class="font-bold text-lg">🪖 Units <span class="text-sm opacity-70 font-normal" x-text="'· ' + unitRows().length + ' free'"></span></h3>
-          <span class="text-xs opacity-60">garrisons · mercenary companies · troops marching to muster</span>
-        </div>
-        <template x-if="unitRows().length === 0">
-          <p class="text-sm italic opacity-60 py-4 text-center">No free units. A unit in an army shows under that army; recruit or station troops to see them here.</p>
-        </template>
-        <template x-if="unitRows().length > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th></th><th>Unit</th><th>Type</th><th>Soldiers</th><th>Stationed</th><th></th></tr></thead>
-            <tbody>
-              <template x-for="r in unitRows()" :key="r.id">
-                <tr :class="(groupSelKind==='unit' && unitSelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('unit', r.id)">
-                  <td x-text="r.icon"></td>
-                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
-                  <td class="text-xs" x-text="r.entity.unitTypeKey || '—'"></td>
-                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
-                  <td class="text-xs" x-text="unitStationLabel(r.entity)"></td>
-                  <td><span x-show="r.entity.rallyingToArmyId" class="text-xs text-sky-700" title="Marching to a muster point">🚶 marching</span></td>
                 </tr>
               </template>
             </tbody>
@@ -11409,53 +11353,102 @@ document.addEventListener('alpine:init', () => {
 
 <!-- ═══════════ Roster ▸ MONSTERS (UI overhaul 2026-06-22) — bestiary catalog + placed/roving monsters ═══════════ -->
 <div x-show="currentView === 'roster' && rosterSubView === 'monsters'" class="p-4 space-y-4" x-cloak>
+  <!-- UI overhaul follow-up (2026-06-22) — Joachim: the Monsters view shows the campaign's
+       lairs + roving bands. The 🏚 Lairs card below is a copy of the World ▸ Points of Interest
+       ▸ Lairs table (it shares lairsSearch / lairsStatusFilter — only one view renders at a
+       time); the 🐾 Groups card was moved here from POI; the bestiary catalog was retired. -->
   <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
-      <h3 class="font-bold text-lg">🐉 Bestiary <span class="text-sm opacity-70 font-normal" x-text="'· ' + bestiaryRows().length + ' of ' + ((window.ACKS&&window.ACKS.MONSTER_CATALOG||[]).length) + ' creatures (Monstrous Manual)'"></span></h3>
-      <div class="flex gap-2 items-center text-sm">
-        <input type="text" x-model="bestiarySearch" placeholder="Search name…" class="w-56">
-        <select x-model="bestiaryTypeFilter" class="text-sm">
-          <template x-for="t in bestiaryTypeOptions()" :key="t"><option :value="t" x-text="t==='all' ? 'All types' : t"></option></template>
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🏚 Lairs <span class="text-sm opacity-70 font-normal" x-text="'· ' + allLairs().length + ' recorded'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <input type="text" x-model="lairsSearch" placeholder="Search name, monster, hex…" class="w-56">
+        <select x-model="lairsStatusFilter" class="text-sm">
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="unknown">Unauthored (seeded)</option>
+          <option value="dynamic">Dynamic pool</option>
+          <option value="cleared">Cleared</option>
+          <option value="abandoned">Abandoned</option>
+          <option value="destroyed">Destroyed</option>
         </select>
+        <span class="text-sm opacity-70" x-text="filteredLairs().length + ' shown'"></span>
+        <button @click="openLairWizard('author')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a lair (place on a hex, or hold in the dynamic pool)">＋ Author a lair</button>
+        <button @click="openLairWizard('seed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Roll the RAW Lairs-per-Hex count for an unsettled wilderness hex (JJ p.69)">🌱 Seed a hex</button>
       </div>
     </div>
-    <div class="overflow-y-auto" style="max-height:60vh">
+    <template x-if="allLairs().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
+    </template>
+    <template x-if="allLairs().length > 0">
       <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Monster</th><th>Type(s)</th><th class="text-right">HD</th><th class="text-right">AC</th><th class="text-right">XP</th><th class="text-right">Lair %</th><th class="text-right"># App. (lair)</th><th>Treasure</th><th class="text-right">MM p.</th></tr></thead>
+        <thead><tr>
+          <th></th><th>Name</th><th>Monster</th><th>Hex</th><th>Status</th><th>Known</th>
+          <th class="text-right">Inhabitants</th><th>Treasure</th><th class="text-right">Actions</th>
+        </tr></thead>
         <tbody>
-          <template x-for="m in bestiaryRows()" :key="m.key">
-            <tr class="hover:bg-yellow-50/60">
-              <td class="font-semibold" x-text="m.name"></td>
-              <td class="text-xs" x-text="(m.creatureTypes||[]).join(', ')"></td>
-              <td class="text-right" x-text="m.hd"></td>
-              <td class="text-right" x-text="m.ac"></td>
-              <td class="text-right" x-text="(m.xp||0).toLocaleString()"></td>
-              <td class="text-right" x-text="(m.lairPct!=null ? m.lairPct + '%' : '—')"></td>
-              <td class="text-right text-xs" x-text="(m.numberAppearing && m.numberAppearing.lair != null) ? m.numberAppearing.lair : '—'"></td>
-              <td class="text-xs" x-text="m.treasureType || '—'"></td>
-              <td class="text-right opacity-60 text-xs" x-text="m.page || ''"></td>
+          <template x-for="l in poiLairs()" :key="l.id">
+            <tr>
+              <td x-text="lairStatusIcon(l)" :title="lairStatusLabel(l)"></td>
+              <td><button @click="openLairDetail(l.id)" class="underline font-semibold text-left" x-text="l.name || '(unnamed)'"></button></td>
+              <td x-text="lairMonsterLabel(l)"></td>
+              <td>
+                <template x-if="l.hexId"><button @click="openHexDetailById(l.hexId)" class="underline" x-text="lairHexLabel(l)"></button></template>
+                <template x-if="!l.hexId"><span class="opacity-60 italic" x-text="lairHexLabel(l)"></span></template>
+              </td>
+              <td x-text="lairStatusLabel(l)"></td>
+              <td x-text="l.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="l.knownToPlayers ? '' : 'opacity-60'"></td>
+              <td class="text-right font-mono" x-text="lairInhabitants(l) || '—'"></td>
+              <td x-text="l.treasureType || '—'"></td>
+              <td class="text-right"><button @click="openLairDetail(l.id)" class="underline">open</button></td>
             </tr>
           </template>
         </tbody>
       </table>
-    </div>
-  </div>
-  <div class="vellum border border-ink rounded p-4">
-    <h3 class="font-bold text-lg mb-2">📍 In this campaign <span class="text-sm opacity-70 font-normal" x-text="'· ' + ((currentCampaign?.lairs?.length)||0) + ' lair(s) · ' + monsterLooseBandRows().length + ' roving band(s)'"></span></h3>
-    <template x-if="((currentCampaign?.lairs?.length)||0) === 0 && monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60">No lairs or roving bands placed yet. Add them in World ▸ Points of Interest ▸ Lairs.</p>
     </template>
-    <template x-if="((currentCampaign?.lairs?.length)||0) > 0">
-      <table class="bookkeeping text-sm w-full mb-2">
-        <thead><tr><th>Lair</th><th>Monster</th><th>Status</th></tr></thead>
+    <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
+  </div>
+
+  <!-- #476 E4h (Joachim 2026-06-11) — the world's LOOSE monster bands, beneath the lairs:
+       migrants (living Groups not settled in a living lair — an abandoned lair's survivors, a
+       free-authored population) and pursuers (E3c chases in flight, incl. the undecided offer —
+       the state lives on the Encounter, D8). Settled populations show through their lair's row
+       above; fragments are transient (no Group is minted) and never appear. Derived per render
+       via monsterLooseBandRows() — nothing is stored here. -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
+      <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
+    </div>
+    <template x-if="monsterLooseBandRows().length === 0">
+      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
+    </template>
+    <template x-if="monsterLooseBandRows().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th></th><th>Band</th><th>Monster</th><th class="text-right">Count</th><th>Where</th><th>Status</th><th class="text-right">Actions</th>
+        </tr></thead>
         <tbody>
-          <template x-for="l in (currentCampaign?.lairs||[])" :key="l.id">
-            <tr class="hover:bg-yellow-50/60"><td><button @click="openLairDetail(l.id)" class="underline text-left" x-text="l.name || '(lair)'"></button></td><td x-text="lairMonsterLabel(l)"></td><td class="text-xs opacity-70" x-text="l.status || ''"></td></tr>
+          <template x-for="row in monsterLooseBandRows()" :key="row.key">
+            <tr>
+              <td x-text="row.icon" :title="row.statusLabel"></td>
+              <td class="font-semibold" x-text="row.band"></td>
+              <td x-text="row.monster"></td>
+              <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
+              <td>
+                <template x-if="row.hexId"><button @click="openHexDetailById(row.hexId)" class="underline" x-text="row.where"></button></template>
+                <template x-if="!row.hexId"><span class="opacity-60 italic" x-text="row.where"></span></template>
+              </td>
+              <td x-text="row.statusText"></td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
+                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
+              </td>
+            </tr>
           </template>
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 italic">Manage placed monsters on the map in <button @click="currentView='world'; worldSubView='poi'; poiShow.lairs=true" class="underline">World ▸ Points of Interest</button>.</p>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase; 🏴 banditry bands are a low-morale domain's own men (RR pp.350–351 — ⚙ Domain banditry; raised and disbanded by the monthly turn, raiding within their domain). Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
   </div>
 </div>
 
@@ -26926,6 +26919,17 @@ return {
     const patron = (this.currentCampaign?.characters||[]).find(p => p.id === c.liegeCharacterId);
     return patron?.name || null;
   },
+  // Henchman command status for the selected-character box: how many active henchmen
+  // this character commands, against the RR p.170 henchman cap. Mirrors the inline
+  // count used by the Retainers tab + the domain Military card.
+  characterHenchmenInfo(c){
+    if(!c) return { count:0, cap:0, overCap:false };
+    const A = window.ACKS;
+    const count = (this.currentCampaign?.characters||[]).filter(x =>
+      x && x.liegeCharacterId === c.id && A.isHenchman(x) && A.isActive(x)).length;
+    const cap = c.henchmanCap || 4;
+    return { count, cap, overCap: count > cap };
+  },
 
   // Dismiss a magistrate from a domain post. Routes through:
   //  - Wave A endMagistracy (closes the relation with an 'ended' history entry)
@@ -28161,6 +28165,18 @@ return {
         }
       });
     });
+    // Gladiator of a school — a standing membership role (Gladiators G1). Unlike
+    // training or a scheduled bout (transient activities), being contracted to a
+    // school is a constant role; it deep-links to the ⚔ Gladiators view, not a domain.
+    if(c.socialTier === 'gladiator' && c.alive !== false && c.lifecycleState !== 'deceased'){
+      const sch = c.contractSchoolId ? (this.currentCampaign?.gladiatorSchools||[]).find(s => s && s.id === c.contractSchoolId) : null;
+      out.push({
+        kind: 'gladiator',
+        label: 'Gladiator' + (sch ? ' of ' + (sch.name || 'the school') : ''),
+        view: 'gladiators',
+        income: 0,
+      });
+    }
     return out;
   },
   // Sum of all role incomes — RR p.425 "domain income" for the character.
