@@ -1540,49 +1540,6 @@ document.addEventListener('alpine:init', () => {
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
   </div>
-
-  <!-- #476 E4h (Joachim 2026-06-11) — the world's LOOSE monster bands, beneath the lairs:
-       migrants (living Groups not settled in a living lair — an abandoned lair's survivors, a
-       free-authored population) and pursuers (E3c chases in flight, incl. the undecided offer —
-       the state lives on the Encounter, D8). Settled populations show through their lair's row
-       above; fragments are transient (no Group is minted) and never appear. Derived per render
-       via monsterLooseBandRows() — nothing is stored here. -->
-  <div class="vellum border border-ink rounded p-4 mt-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
-      <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
-    </div>
-    <template x-if="monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
-    </template>
-    <template x-if="monsterLooseBandRows().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr>
-          <th></th><th>Band</th><th>Monster</th><th class="text-right">Count</th><th>Where</th><th>Status</th><th class="text-right">Actions</th>
-        </tr></thead>
-        <tbody>
-          <template x-for="row in monsterLooseBandRows()" :key="row.key">
-            <tr>
-              <td x-text="row.icon" :title="row.statusLabel"></td>
-              <td class="font-semibold" x-text="row.band"></td>
-              <td x-text="row.monster"></td>
-              <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
-              <td>
-                <template x-if="row.hexId"><button @click="openHexDetailById(row.hexId)" class="underline" x-text="row.where"></button></template>
-                <template x-if="!row.hexId"><span class="opacity-60 italic" x-text="row.where"></span></template>
-              </td>
-              <td x-text="row.statusText"></td>
-              <td class="text-right whitespace-nowrap">
-                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
-                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase; 🏴 banditry bands are a low-morale domain's own men (RR pp.350–351 — ⚙ Domain banditry; raised and disbanded by the monthly turn, raiding within their domain). Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
-  </div>
 </div>
 
 <!-- ═══════════ WORLD ▸ ENCOUNTERS (#476 E2) — the active-encounter work queue ═══════════
@@ -11417,53 +11374,102 @@ document.addEventListener('alpine:init', () => {
 
 <!-- ═══════════ Roster ▸ MONSTERS (UI overhaul 2026-06-22) — bestiary catalog + placed/roving monsters ═══════════ -->
 <div x-show="currentView === 'roster' && rosterSubView === 'monsters'" class="p-4 space-y-4" x-cloak>
+  <!-- UI overhaul follow-up (2026-06-22) — Joachim: the Monsters view shows the campaign's
+       lairs + roving bands. The 🏚 Lairs card below is a copy of the World ▸ Points of Interest
+       ▸ Lairs table (it shares lairsSearch / lairsStatusFilter — only one view renders at a
+       time); the 🐾 Groups card was moved here from POI; the bestiary catalog was retired. -->
   <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
-      <h3 class="font-bold text-lg">🐉 Bestiary <span class="text-sm opacity-70 font-normal" x-text="'· ' + bestiaryRows().length + ' of ' + ((window.ACKS&&window.ACKS.MONSTER_CATALOG||[]).length) + ' creatures (Monstrous Manual)'"></span></h3>
-      <div class="flex gap-2 items-center text-sm">
-        <input type="text" x-model="bestiarySearch" placeholder="Search name…" class="w-56">
-        <select x-model="bestiaryTypeFilter" class="text-sm">
-          <template x-for="t in bestiaryTypeOptions()" :key="t"><option :value="t" x-text="t==='all' ? 'All types' : t"></option></template>
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🏚 Lairs <span class="text-sm opacity-70 font-normal" x-text="'· ' + allLairs().length + ' recorded'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <input type="text" x-model="lairsSearch" placeholder="Search name, monster, hex…" class="w-56">
+        <select x-model="lairsStatusFilter" class="text-sm">
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="unknown">Unauthored (seeded)</option>
+          <option value="dynamic">Dynamic pool</option>
+          <option value="cleared">Cleared</option>
+          <option value="abandoned">Abandoned</option>
+          <option value="destroyed">Destroyed</option>
         </select>
+        <span class="text-sm opacity-70" x-text="filteredLairs().length + ' shown'"></span>
+        <button @click="openLairWizard('author')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a lair (place on a hex, or hold in the dynamic pool)">＋ Author a lair</button>
+        <button @click="openLairWizard('seed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Roll the RAW Lairs-per-Hex count for an unsettled wilderness hex (JJ p.69)">🌱 Seed a hex</button>
       </div>
     </div>
-    <div class="overflow-y-auto" style="max-height:60vh">
+    <template x-if="allLairs().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
+    </template>
+    <template x-if="allLairs().length > 0">
       <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Monster</th><th>Type(s)</th><th class="text-right">HD</th><th class="text-right">AC</th><th class="text-right">XP</th><th class="text-right">Lair %</th><th class="text-right"># App. (lair)</th><th>Treasure</th><th class="text-right">MM p.</th></tr></thead>
+        <thead><tr>
+          <th></th><th>Name</th><th>Monster</th><th>Hex</th><th>Status</th><th>Known</th>
+          <th class="text-right">Inhabitants</th><th>Treasure</th><th class="text-right">Actions</th>
+        </tr></thead>
         <tbody>
-          <template x-for="m in bestiaryRows()" :key="m.key">
-            <tr class="hover:bg-yellow-50/60">
-              <td class="font-semibold" x-text="m.name"></td>
-              <td class="text-xs" x-text="(m.creatureTypes||[]).join(', ')"></td>
-              <td class="text-right" x-text="m.hd"></td>
-              <td class="text-right" x-text="m.ac"></td>
-              <td class="text-right" x-text="(m.xp||0).toLocaleString()"></td>
-              <td class="text-right" x-text="(m.lairPct!=null ? m.lairPct + '%' : '—')"></td>
-              <td class="text-right text-xs" x-text="(m.numberAppearing && m.numberAppearing.lair != null) ? m.numberAppearing.lair : '—'"></td>
-              <td class="text-xs" x-text="m.treasureType || '—'"></td>
-              <td class="text-right opacity-60 text-xs" x-text="m.page || ''"></td>
+          <template x-for="l in poiLairs()" :key="l.id">
+            <tr>
+              <td x-text="lairStatusIcon(l)" :title="lairStatusLabel(l)"></td>
+              <td><button @click="openLairDetail(l.id)" class="underline font-semibold text-left" x-text="l.name || '(unnamed)'"></button></td>
+              <td x-text="lairMonsterLabel(l)"></td>
+              <td>
+                <template x-if="l.hexId"><button @click="openHexDetailById(l.hexId)" class="underline" x-text="lairHexLabel(l)"></button></template>
+                <template x-if="!l.hexId"><span class="opacity-60 italic" x-text="lairHexLabel(l)"></span></template>
+              </td>
+              <td x-text="lairStatusLabel(l)"></td>
+              <td x-text="l.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="l.knownToPlayers ? '' : 'opacity-60'"></td>
+              <td class="text-right font-mono" x-text="lairInhabitants(l) || '—'"></td>
+              <td x-text="l.treasureType || '—'"></td>
+              <td class="text-right"><button @click="openLairDetail(l.id)" class="underline">open</button></td>
             </tr>
           </template>
         </tbody>
       </table>
-    </div>
-  </div>
-  <div class="vellum border border-ink rounded p-4">
-    <h3 class="font-bold text-lg mb-2">📍 In this campaign <span class="text-sm opacity-70 font-normal" x-text="'· ' + ((currentCampaign?.lairs?.length)||0) + ' lair(s) · ' + monsterLooseBandRows().length + ' roving band(s)'"></span></h3>
-    <template x-if="((currentCampaign?.lairs?.length)||0) === 0 && monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60">No lairs or roving bands placed yet. Add them in World ▸ Points of Interest ▸ Lairs.</p>
     </template>
-    <template x-if="((currentCampaign?.lairs?.length)||0) > 0">
-      <table class="bookkeeping text-sm w-full mb-2">
-        <thead><tr><th>Lair</th><th>Monster</th><th>Status</th></tr></thead>
+    <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
+  </div>
+
+  <!-- #476 E4h (Joachim 2026-06-11) — the world's LOOSE monster bands, beneath the lairs:
+       migrants (living Groups not settled in a living lair — an abandoned lair's survivors, a
+       free-authored population) and pursuers (E3c chases in flight, incl. the undecided offer —
+       the state lives on the Encounter, D8). Settled populations show through their lair's row
+       above; fragments are transient (no Group is minted) and never appear. Derived per render
+       via monsterLooseBandRows() — nothing is stored here. -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
+      <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
+    </div>
+    <template x-if="monsterLooseBandRows().length === 0">
+      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
+    </template>
+    <template x-if="monsterLooseBandRows().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th></th><th>Band</th><th>Monster</th><th class="text-right">Count</th><th>Where</th><th>Status</th><th class="text-right">Actions</th>
+        </tr></thead>
         <tbody>
-          <template x-for="l in (currentCampaign?.lairs||[])" :key="l.id">
-            <tr class="hover:bg-yellow-50/60"><td><button @click="openLairDetail(l.id)" class="underline text-left" x-text="l.name || '(lair)'"></button></td><td x-text="lairMonsterLabel(l)"></td><td class="text-xs opacity-70" x-text="l.status || ''"></td></tr>
+          <template x-for="row in monsterLooseBandRows()" :key="row.key">
+            <tr>
+              <td x-text="row.icon" :title="row.statusLabel"></td>
+              <td class="font-semibold" x-text="row.band"></td>
+              <td x-text="row.monster"></td>
+              <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
+              <td>
+                <template x-if="row.hexId"><button @click="openHexDetailById(row.hexId)" class="underline" x-text="row.where"></button></template>
+                <template x-if="!row.hexId"><span class="opacity-60 italic" x-text="row.where"></span></template>
+              </td>
+              <td x-text="row.statusText"></td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
+                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
+              </td>
+            </tr>
           </template>
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 italic">Manage placed monsters on the map in <button @click="currentView='world'; worldSubView='poi'; poiShow.lairs=true" class="underline">World ▸ Points of Interest</button>.</p>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase; 🏴 banditry bands are a low-morale domain's own men (RR pp.350–351 — ⚙ Domain banditry; raised and disbanded by the monthly turn, raiding within their domain). Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
   </div>
 </div>
 
