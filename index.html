@@ -77,6 +77,8 @@
 <script src="acks-engine-voyages.js?v=2026-06-21-burst12-voyages"></script>
 <!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
 <script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
+<!-- Mounts MO-1 (RR p.161 Domesticated Animals): the Mount entity + load/speed/feed accessors; loads after subsystems (journeys) — the journey consumer late-binds A.mount*, this module late-binds carryTotalEncumbrance/itemEncumbranceSt -->
+<script src="acks-engine-mounts.js?v=2026-06-21-mounts-mo1"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-21-burst12-delves"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
@@ -9022,6 +9024,7 @@ document.addEventListener('alpine:init', () => {
                 <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
                 <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                 <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
+                <th class="font-normal py-0.5 pr-4" title="The traveller's mount — breed · load-adjusted travel speed · feeding (RR p.161/276)">Mount</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
             </thead>
@@ -9048,6 +9051,12 @@ document.addEventListener('alpine:init', () => {
                   </td>
                   <td class="py-1 pr-4" x-show="encumbranceShown()">
                     <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
+                  </td>
+                  <td class="py-1 pr-4" x-data="{ get mr(){ return journeyMemberMountRow(journeyDetail(), ch); } }">
+                    <template x-if="mr">
+                      <span class="text-xs whitespace-nowrap" :title="'Rides a '+mr.breed+' ('+mr.training+') — load '+mr.load+'/'+mr.norm+' st ('+mr.band+'); '+mr.mi+' mi/day; feeding: '+mr.feeding">🐴 <span x-text="mr.breed"></span> <span class="font-mono" :style="'color:'+mr.bandColor" x-text="'· '+mr.mi+' mi/d'"></span><span x-show="mr.feeding!=='healthy'" :style="'color:'+mr.feedColor" x-text="' · '+mr.feeding"></span></span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!mr">on foot</span>
                   </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
@@ -9108,6 +9117,9 @@ document.addEventListener('alpine:init', () => {
             <span title="Total drinking-water days carried by the party">💧 Water: <span class="font-semibold" x-text="journeyTotalWaterDays(journeyDetail())"></span> day(s)</span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
             <span x-show="!journeyProvisioningInfo(journeyDetail()).onLifestyle" :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
+            <template x-if="journeyAnimalFeedSummary(journeyDetail())">
+              <span x-data="{ get a(){ return journeyAnimalFeedSummary(journeyDetail()); } }" title="Mounts/pack animals on the journey + the animal-feed/water store they draw daily (food = load÷10 st, water = load÷5 st; RR p.276)">🐴 <span class="font-semibold" x-text="a.count"></span> mount(s) · feed <span class="font-mono" :class="a.feed<=0 ? 'text-orange-700 font-semibold' : ''" x-text="a.feed+' st'"></span> · water <span class="font-mono" :class="a.water<=0 ? 'text-sky-700 font-semibold' : ''" x-text="a.water+' st'"></span><span class="opacity-70" x-show="a.days!==null" x-text="' · ≈'+a.days+'d feed'"></span></span>
+            </template>
           </div>
           <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
           <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
@@ -12592,6 +12604,54 @@ document.addEventListener('alpine:init', () => {
               <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span><button @click="openStashDetail(s.id)" class="underline text-xs">open</button></span>
             </div>
           </template>
+        </div>
+
+        <!-- Mounts card (MO-4) — the character's mounts/pack animals (RR p.130 Domesticated Animals). A mount
+             lets the rider carry more + move faster (RR p.161) and must be fed on a journey (RR p.276). Owned
+             via ownerCharacterId; assign to the rider's active journey to set the pace + draw the daily feed. -->
+        <div class="mt-3 border border-ink/30 rounded p-3" x-data="{ get mounts(){ return characterMounts(characterEditing); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <h4 class="font-semibold text-sm">🐴 Mounts <span class="opacity-60 font-normal text-xs">· RR p.130 · carry more, move faster</span></h4>
+          </div>
+          <!-- Acquire control -->
+          <div class="flex flex-wrap items-end gap-2 mb-2">
+            <label class="text-xs opacity-70">Breed
+              <select x-model="mountNew.catalogKey" @change="mountNew.training=''" class="block border border-ink rounded px-1 py-0.5 text-sm">
+                <option value="">— pick a breed —</option>
+                <template x-for="o in mountCatalogOptions()" :key="o.key"><option :value="o.key" x-text="o.label"></option></template>
+              </select>
+            </label>
+            <label class="text-xs opacity-70" x-show="mountNew.catalogKey">Training
+              <select x-model="mountNew.training" class="block border border-ink rounded px-1 py-0.5 text-sm">
+                <template x-for="t in mountTrainingOptions(mountNew.catalogKey)" :key="t"><option :value="t" x-text="t"></option></template>
+              </select>
+            </label>
+            <button @click="mountAcquireSubmit(characterEditing)" :disabled="!mountNew.catalogKey" :class="mountNew.catalogKey ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">+ Acquire</button>
+          </div>
+          <template x-if="mounts.length === 0">
+            <p class="text-xs italic opacity-60">No mounts. Acquire a riding horse to move faster and carry your gear on its back, or a pack animal (mule/donkey/ox) to haul cargo.</p>
+          </template>
+          <template x-for="m in mounts" :key="m.id">
+            <div class="border-b border-ink/10 px-1 py-1" x-data="{ get r(){ return mountRow(m); } }">
+              <div class="flex justify-between items-center gap-2">
+                <div class="min-w-0">
+                  <span class="font-semibold text-sm" x-text="r.name"></span>
+                  <span class="text-xs opacity-70" x-text="'· ' + r.breed + ' · ' + r.training + (r.role!=='mount' ? (' · '+r.role) : '')"></span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button @click="mountToggleJourney(m, characterEditing)" :class="mountOnActiveJourney(m, characterEditing) ? 'bg-green-200 border-green-700/50' : 'hover:bg-yellow-100'" class="text-xs px-1.5 py-0.5 border border-ink rounded" :title="mountActiveJourney(characterEditing) ? 'Toggle this mount on the active journey (sets pace + feeding)' : 'Start a journey first to assign a mount'" x-text="mountOnActiveJourney(m, characterEditing) ? '✓ on journey' : '+ journey'"></button>
+                  <button @click="inspectorOpenInspect('mount', m.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Edit every field (barding, cargo, rider, role) via the Inspector">🔍</button>
+                  <button @click="mountRemove(m)" class="text-xs px-1.5 py-0.5 border border-ink/30 rounded accent-red hover:bg-red-50" title="Remove">×</button>
+                </div>
+              </div>
+              <div class="text-xs mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                <span>Load <span class="font-mono" :style="'color:'+r.bandColor" x-text="r.load+' / '+r.norm+' st'"></span> <span class="opacity-60" x-text="'(max '+r.max+', '+r.band+')'"></span></span>
+                <span>Speed <span class="font-mono" :style="'color:'+r.bandColor" x-text="r.mi+' mi/day'"></span></span>
+                <span>Feed <span :style="'color:'+r.feedColor" x-text="r.feeding"></span></span>
+              </div>
+            </div>
+          </template>
+          <p class="text-[11px] opacity-50 mt-1">A ridden mount carries the rider’s 15 st + gear (RR p.161): full speed up to its normal load, half above it, none past its max. On a journey it sets the party pace and needs food (load÷10 st) + water (load÷5 st) per day (RR p.276) — drawn from the journey’s animal-feed store; grazers and camels fend for themselves.</p>
         </div>
       </div>
 
@@ -35013,6 +35073,81 @@ return {
     const klass = cls ? cls.label : (v.catalogKey || '—');
     const shp = (v.shp != null ? v.shp : (cls ? cls.shp : '?')) + (cls ? '/' + cls.shp : '');
     return name + ' · ' + klass + ' · SHP ' + shp + ' · ' + (v.condition || 'seaworthy');
+  },
+
+  // ============================ Mounts (Phase 2.5 MO-4, 2026-06-22) — the Inventory-tab UI ============================
+  // The 🐴 Mounts card in a character's Inventory tab: acquire from MOUNT_CATALOG, list each mount with its
+  // load band + load-adjusted expedition speed + feeding status, toggle it onto the rider's active journey,
+  // open it in the Inspector for full editing (barding / cargo / role / rider), and remove it. Pure UI over
+  // the MO-1..MO-3 engine (mountsOwnedBy / mountLoadBand / mountExpeditionMi / mountFeedingStatus / createMount).
+  mountNew: { catalogKey:'', training:'' },
+  characterMounts(ch){ const A=window.ACKS; return (ch && A.mountsOwnedBy) ? A.mountsOwnedBy(this.currentCampaign, ch.id) : []; },
+  mountCatalogOptions(){ const A=window.ACKS; return (A && A.mountCatalogList) ? A.mountCatalogList().map(c=>({ key:c.key, label:c.label })) : []; },
+  mountTrainingOptions(catalogKey){ const A=window.ACKS; const c = (A && A.findMountClass) ? A.findMountClass(catalogKey) : null; return (c && Array.isArray(c.trainings)) ? c.trainings.slice() : ['draft']; },
+  mountRow(m){
+    const A=window.ACKS; const c=this.currentCampaign; const cls=(m && A.mountClass)?A.mountClass(m):null;
+    const band=(A.mountLoadBand)?A.mountLoadBand(c,m):'full';
+    const feeding=(A.mountFeedingStatus)?A.mountFeedingStatus(m):'healthy';
+    return {
+      name:(m && m.name) || (cls?cls.label:((m&&m.catalogKey)||'mount')),
+      breed: cls?cls.label:((m&&m.catalogKey)||'—'),
+      training:(m&&m.training)||'', role:(m&&m.role)||'mount',
+      band, mi:(A.mountExpeditionMi)?A.mountExpeditionMi(c,m):(cls?cls.expeditionMi:0),
+      load:(A.mountCurrentLoadSt)?Math.round(A.mountCurrentLoadSt(c,m)*10)/10:0,
+      norm:(A.mountNormalLoadSt)?A.mountNormalLoadSt(m):(cls?cls.normalLoadSt:0),
+      max:(A.mountMaxLoadSt)?A.mountMaxLoadSt(m):(cls?cls.maxLoadSt:0),
+      feeding,
+      bandColor: band==='overloaded'?'#b91c1c':(band==='half'?'#b45309':'#15803d'),
+      feedColor: feeding==='healthy'?'#15803d':(feeding==='hungry'?'#b45309':'#b91c1c')
+    };
+  },
+  mountAcquireSubmit(ch){
+    if(!this.currentCampaign){ alert('Open a campaign first.'); return; }
+    if(!ch || !this.mountNew.catalogKey) return;
+    const A=window.ACKS; const camp=this.currentCampaign; const cls=A.findMountClass(this.mountNew.catalogKey);
+    const training=this.mountNew.training || this.mountTrainingOptions(this.mountNew.catalogKey)[0];
+    const rideable=!!(cls && cls.rideable);
+    const m=A.createMount(camp, { catalogKey:this.mountNew.catalogKey, training, role: rideable?'mount':'pack',
+      ownerCharacterId:ch.id, riderCharacterId: rideable?ch.id:null, currentHexId:ch.currentHexId||null, createdAtTurn:camp.currentTurn||null });
+    // record-only audit (mount-acquired) — the canonical apply+log path
+    try {
+      const ev=A.newEvent('mount-acquired', { payload:{ mountId:m.id, catalogKey:m.catalogKey, ownerCharacterId:ch.id, training, narrative:(ch.name||'Someone')+' acquired a '+(cls?cls.label:'mount')+(training?(' ('+training+')'):'') }, submittedBy:'gm', targetTurn:camp.currentTurn||1, status:'applied' });
+      const out=A.applyEvent(camp, ev); ev.appliedAtTurn=camp.currentTurn||1; ev.result=out.result;
+      (camp.eventLog=camp.eventLog||[]).push({ event:ev, result:out.result, appliedAtTurn:ev.appliedAtTurn, appliedAt:new Date().toISOString() });
+    } catch(e){ /* audit is best-effort; the mount is already created */ }
+    this.mountNew={ catalogKey:'', training:'' };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🐴 '+(cls?cls.label:'Mount')+' acquired.');
+  },
+  mountActiveJourney(ch){ const A=window.ACKS; if(!ch || !ch.currentJourneyId || !A.findJourney) return null; const j=A.findJourney(this.currentCampaign, ch.currentJourneyId); return (j && j.status==='in-transit') ? j : null; },
+  mountOnActiveJourney(m, ch){ const j=this.mountActiveJourney(ch); return !!(j && Array.isArray(j.packAnimalIds) && j.packAnimalIds.indexOf(m.id)>=0); },
+  mountToggleJourney(m, ch){
+    const j=this.mountActiveJourney(ch); if(!j){ this.showToast('No active journey — start one for '+(ch.name||'this character')+' first.'); return; }
+    j.packAnimalIds=Array.isArray(j.packAnimalIds)?j.packAnimalIds:[];
+    const i=j.packAnimalIds.indexOf(m.id);
+    if(i>=0){ j.packAnimalIds.splice(i,1); this.showToast('Mount removed from the journey.'); }
+    else { j.packAnimalIds.push(m.id); this.showToast('🐴 Mount added to the journey — it now sets the pace + needs feeding.'); }
+    this.markDirty(); this.schedulePersist();
+  },
+  mountRemove(m){
+    if(!m || !this.currentCampaign) return;
+    if(!confirm('Remove '+((m.name)||'this mount')+'? (Its cargo is discarded.)')) return;
+    const camp=this.currentCampaign;
+    camp.mounts=(camp.mounts||[]).filter(x=>x && x.id!==m.id);
+    (camp.journeys||[]).forEach(j=>{ if(Array.isArray(j.packAnimalIds)) j.packAnimalIds=j.packAnimalIds.filter(id=>id!==m.id); });
+    this.markDirty(); this.schedulePersist(); this.showToast('Mount removed.');
+  },
+  // -- Journey-panel mount readouts (MO-4) — surface mounts per traveller + the herd's feed in the Journey Detail --
+  journeyMounts(j){ const A=window.ACKS; return (j && A.mountsForJourney) ? A.mountsForJourney(this.currentCampaign, j) : []; },
+  journeyMemberMount(j, ch){ if(!ch) return null; return this.journeyMounts(j).find(m => m && m.role==='mount' && m.riderCharacterId===ch.id) || null; },
+  journeyMemberMountRow(j, ch){ const m=this.journeyMemberMount(j, ch); return m ? this.mountRow(m) : null; },
+  journeyPackAnimals(j){ const ids=(j && j.participantCharacterIds)||[]; return this.journeyMounts(j).filter(m => !(m.role==='mount' && m.riderCharacterId && ids.indexOf(m.riderCharacterId)>=0)); },
+  journeyAnimalFeedSummary(j){
+    const A=window.ACKS; const mounts=this.journeyMounts(j); if(!mounts.length) return null;
+    const sup=(j && j.supplies)||{};
+    const needF=mounts.reduce((s,m)=> s + (A.mountIsGrazer(m)?0:(A.mountDailyFoodSt(m)||0)), 0);
+    const feed=Number(sup.animalFeed)||0, water=Number(sup.animalWater)||0;
+    return { count:mounts.length, feed, water, days: needF>0 ? Math.floor(feed/needF) : null };
   },
 
   // ============================ Voyages V6 (2026-06-17) — the Vessel/voyage UI ============================

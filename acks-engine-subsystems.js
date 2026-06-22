@@ -2462,10 +2462,26 @@ function journeyBaseSpeedMilesPerDay(campaign, journey){
   }
   const ids = (journey && journey.participantCharacterIds) || [];
   if(!ids.length || !campaign || !Array.isArray(campaign.characters)) return A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+  // Mounts (Phase 2.5 MO-2): a mounted participant travels at his mount's load-adjusted
+  // expedition speed (RR p.161 — his 15 st + gear loads the mount), NOT his foot band; that
+  // is the "move faster + carry more". Pack/draft animals on the journey (journey.packAnimalIds[])
+  // also set the pace floor — an overloaded mule (mountExpeditionMi 0) halts the column. The
+  // mount accessors late-bind (empty when the module is absent ⇒ the old foot-only behaviour).
+  const mounts = (typeof A.mountsForJourney === 'function') ? A.mountsForJourney(campaign, journey) : [];
+  const riddenBy = {};
+  for(const m of mounts){ if(m && m.role === 'mount' && m.riderCharacterId && A.mountClass(m)) riddenBy[m.riderCharacterId] = m; }
   let slowest = Infinity;
   for(const c of campaign.characters){
     if(!c || ids.indexOf(c.id) === -1) continue;
-    const mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(c).band.milesPerDay : A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+    let mpd;
+    if(riddenBy[c.id]) mpd = A.mountExpeditionMi(campaign, riddenBy[c.id]);          // rides — the mount governs
+    else mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(c).band.milesPerDay : A.JOURNEY_BASE_SPEED_MILES_PER_DAY;  // walks
+    if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
+  }
+  for(const m of mounts){                                                            // unridden pack/draft animals cap the pace too
+    if(!m || !A.mountClass(m)) continue;
+    if(m.role === 'mount' && m.riderCharacterId && ids.indexOf(m.riderCharacterId) !== -1) continue;  // already counted as a ridden participant
+    const mpd = A.mountExpeditionMi(campaign, m);
     if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
   }
   return (slowest === Infinity) ? A.JOURNEY_BASE_SPEED_MILES_PER_DAY : slowest;
@@ -2978,6 +2994,29 @@ function tickJourneyDay(campaign, journey, ctx){
   const rationsConsumed = _survMembers.filter(m => m.fedFood).length;
   const waterConsumed = _survMembers.filter(m => m.fedWater).length;
 
+  // ── Mounts MO-3 — per-day animal feeding (RR p.276): each pack/riding animal on the journey
+  // needs food = normalLoad/10 st + water = normalLoad/5 st, drawn from journey.supplies.animalFeed/
+  // animalWater. Grazers (donkey/steppe/ox) self-feed off-march outside barrens/desert; camels need
+  // no water; a fresh-water hex waters the herd free. Shortfalls walk the Hungry→Underfed→Starving /
+  // Dehydrated ladder. LAND journeys only (a voyage runs its own crew provisioning); gated by
+  // ignore-rations + skipSurvival/standDown; the per-mount absolutes ride on the record (commit replays). ──
+  const _mountFeeding = (!isVoyage && !(ctx && ctx.skipSurvival) && !standDown
+      && !A.isHouseRuleEnabled(campaign, 'ignore-rations')
+      && typeof A.resolveMountFeedingDay === 'function'
+      && (journey.packAnimalIds || []).length)
+    ? A.resolveMountFeedingDay(campaign, journey, { forcedMarch: pace === 'forced-march', hasFreshWater: hasFreshSource(campaign, curHex), terrain: (curHex && curHex.terrain) || null })
+    : null;
+  if(_mountFeeding && _mountFeeding.tracked && _mountFeeding.anyShort){
+    notableEvents.push({
+      kind: 'journey-day-tick',
+      type: _mountFeeding.anyStarving ? 'animal-starvation' : 'animal-supplies-low',
+      label: _mountFeeding.anyStarving ? 'Pack animals are starving' : 'Pack animals went without food or water',
+      pauseTrigger: 'supplies-low',
+      primaryHexId: (curHex && curHex.id) || null,
+      payload: { journeyId: journey.id, dayIndex: journey.currentDayIndex || 0 }
+    });
+  }
+
   // ── fatigue accrual / reset (RR p.279 "Rest and Recuperation") ──
   // Armies skip the party streak — commitJourneyRecord stamps marchedOrds and the
   // RR p.448 3-of-7 rule derives fatigue from the window (armyFatigued).
@@ -3151,9 +3190,15 @@ function tickJourneyDay(campaign, journey, ctx){
     navigationThrow: navRecord,
     strayHeading: isLost ? strayHeading : null,              // §27 — hex face strayed toward this day (null ⇒ not lost)
     fording: fordingRecord,                                  // §24 river-crossing record (null on a dry day)
-    rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: 0, animalWater: 0, shipStores: 0 },
+    rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: _mountFeeding ? _mountFeeding.foodConsumed : 0, animalWater: _mountFeeding ? _mountFeeding.waterConsumed : 0, shipStores: 0 },
     waterForage: (survival && survival.waterForage) || null, // Provisioning — the day's water-Foraging throw (null = none attempted), for the day log + its reroll
     memberSurvival,                                          // Provisioning — compact per-member post-day survival (for the members-table proposed-day preview)
+    mountFeeding: (_mountFeeding && _mountFeeding.tracked) ? {  // Mounts MO-3 — compact per-mount feeding (for the day log)
+      foodConsumed: _mountFeeding.foodConsumed, waterConsumed: _mountFeeding.waterConsumed,
+      anyShort: _mountFeeding.anyShort, anyStarving: _mountFeeding.anyStarving, anyDehydrated: _mountFeeding.anyDehydrated,
+      mounts: _mountFeeding.mounts.map(m => ({ mountId: m.mountId, name: m.name, fedFood: m.fedFood, fedWater: m.fedWater, grazed: m.grazed,
+        status: m.flags.starving ? 'starving' : (m.flags.dehydrated ? 'dehydrated' : (m.flags.underfed ? 'underfed' : (m.flags.hungry ? 'hungry' : 'fed'))) }))
+    } : null,
     fatigueAccumulated,
     armyId: journey.armyId || null,                          // W4 — an army's march day (null = a party's)
     armyContact: armyContactRecord,                          // W4 — {opposingArmyId, hexId} when the march halted on an opposing army
@@ -3235,6 +3280,7 @@ function tickJourneyDay(campaign, journey, ctx){
     newRations: rations, newWaterRations: waterRations,
     newHungerDays: hungerDays, newDehydrationDays: dehydrationDays,
     survival: survival.ignored ? null : survival,   // Provisioning V2/V3 — per-member absolutes (commit replays via applyJourneyDaySurvival)
+    mountFeeding: (_mountFeeding && _mountFeeding.tracked) ? _mountFeeding : null,  // Mounts MO-3 — per-mount feeding absolutes (commit replays via applyMountFeedingDay; reroll reverts from _preDay.mounts)
     voyageState: _voyageState,                       // Voyages V3b — vessel-state absolutes (shp/condition/grounded); commit applies via applyVoyageDayState (null on a non-hazard/non-gale day)
     newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
@@ -3403,6 +3449,17 @@ function commitJourneyRecord(campaign, record){
                                   shipStores: _vv.shipStores, provisionDeficitDays: _vv.provisionDeficitDays,
                                   daysAtSeaWithoutFreshFood: _vv.daysAtSeaWithoutFreshFood, scurvy: _vv.scurvy };
   }
+  // Mounts MO-3 — per-mount feeding pre-snapshot (the journey animal-feed/water stores + each mount's
+  // deficit-day counters + condition flags), captured pre-apply so a reroll reverts the herd too.
+  if(record.mountFeeding && record.mountFeeding.tracked && global.ACKS && typeof global.ACKS.findMount === 'function'){
+    const _pm = {};
+    for(const r of (record.mountFeeding.mounts || [])){
+      const _m = global.ACKS.findMount(campaign, r.mountId);
+      if(_m) _pm[_m.id] = { foodDeficitDays: Number(_m.foodDeficitDays) || 0, waterDeficitDays: Number(_m.waterDeficitDays) || 0,
+                            conditionFlags: JSON.parse(JSON.stringify(_m.conditionFlags || {})) };
+    }
+    dr._preDay.mounts = { animalFeed: (j.supplies && j.supplies.animalFeed) || 0, animalWater: (j.supplies && j.supplies.animalWater) || 0, perMount: _pm };
+  }
   // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
   // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
   // month moves the world past, the leg is history and locks). The day-tick tags the record
@@ -3467,6 +3524,9 @@ function commitJourneyRecord(campaign, record){
   // Voyages V3b — apply the day's vessel-state absolutes (SHP / condition / grounded). PURE-absolute
   // (the tick already rolled), the applyDaySurvival precedent; a reroll reverts from _preDay.voyage.
   if(record.voyageState && global.ACKS && typeof global.ACKS.applyVoyageDayState === 'function') global.ACKS.applyVoyageDayState(campaign, j, record.voyageState);
+  // Mounts MO-3 — apply the day's per-mount feeding absolutes (animal-feed/water stores + each mount's
+  // deficit days + condition flags). Idempotent SETs; a reroll reverts the herd from _preDay.mounts.
+  if(record.mountFeeding && global.ACKS && typeof global.ACKS.applyMountFeedingDay === 'function') global.ACKS.applyMountFeedingDay(campaign, j, record.mountFeeding);
   // mirror fatigue + advance positions (survival persists across journeys — §10.4)
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){
@@ -3664,6 +3724,20 @@ function rerollJourneyDay(campaign, journey, ctx){
       if('provisionDeficitDays' in pre.voyage) _vv.provisionDeficitDays = pre.voyage.provisionDeficitDays;
       if('daysAtSeaWithoutFreshFood' in pre.voyage) _vv.daysAtSeaWithoutFreshFood = pre.voyage.daysAtSeaWithoutFreshFood;
       if('scurvy' in pre.voyage) _vv.scurvy = pre.voyage.scurvy;
+    }
+  }
+  // Mounts MO-3 — revert the herd from the pre-day snapshot (journey feed/water stores + each mount's
+  // deficit counters + flags), so a re-rolled day re-draws from the restored stores (no double-count).
+  if(pre.mounts && typeof A.findMount === 'function'){
+    j.supplies = j.supplies || {};
+    if('animalFeed' in pre.mounts) j.supplies.animalFeed = pre.mounts.animalFeed;
+    if('animalWater' in pre.mounts) j.supplies.animalWater = pre.mounts.animalWater;
+    for(const mid of Object.keys(pre.mounts.perMount || {})){
+      const _m = A.findMount(campaign, mid);
+      if(!_m) continue;
+      const ps = pre.mounts.perMount[mid];
+      _m.foodDeficitDays = ps.foodDeficitDays; _m.waterDeficitDays = ps.waterDeficitDays;
+      _m.conditionFlags = JSON.parse(JSON.stringify(ps.conditionFlags || {}));
     }
   }
   // revert the party to its pre-day hex too (commitJourneyRecord now moves it every day); an arrival

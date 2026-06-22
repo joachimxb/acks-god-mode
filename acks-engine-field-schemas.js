@@ -637,6 +637,50 @@
       ]
     },
 
+    // === Mounts (Phase 2.5 MO-1 — 2026-06-21) — Mount (RR p.161 Domesticated Animals;
+    // acks-engine-mounts.js). The Admin verb (Inspector ▸ Create ▸ Mount → schemaForm).
+    // catalogKey is the picker populated from the 12 RR MOUNT_CATALOG breeds. Every field
+    // is a blankMount key (the global schema⊆factory invariant); schemaVersion is factory-only. ===
+    'mount': {
+      factory: 'blankMount',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Breed', 'Load', 'Barding', 'Feeding', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', group: 'Identity', description: 'Optional name, e.g. "Athorian"' },
+        { name: 'catalogKey',       type: 'enum', group: 'Breed', description: 'The RR p.161 Domesticated Animals breed (immutable speed/load/feed stats)',
+          enumValues: ['camel','donkey','horse-heavy','horse-light','horse-medium','horse-steppe','mule','ox','elephant','dog-hunting','dog-war'] },
+        { name: 'training',         type: 'enum', enumValues: ['draft','riding','war','hunting'], group: 'Breed', description: 'RR p.130 — must be a training the breed allows (donkeys never war; only war-trained may be barded)' },
+        { name: 'role',             type: 'enum', enumValues: ['mount','pack','draft'], group: 'Breed', default: 'mount', description: 'mount = ridden (rider weight loads it) · pack = hauls cargo · draft = pulls a vehicle' },
+        { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'Owner — surfaces in their Inventory tab' },
+        { name: 'riderCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'Who is seated (role:mount) — the rider whose 15 st + gear loads the mount' },
+        { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Identity' },
+        { name: 'cargo',            type: 'array', group: 'Load', description: 'Items it carries (the Items-I1 line shape) — feed, loot, gear; edited via the Transfer UI', itemSchema: { fields: [
+          { name: 'name',         type: 'string' },
+          { name: 'qty',          type: 'number', min: 0 },
+          { name: 'encumbranceSt',type: 'number', min: 0 },
+          { name: 'notes',        type: 'string' }
+        ] } },
+        { name: 'bardingKey',       type: 'enum', enumValues: ['leather','scale','chain','lamellar','plate'], group: 'Barding', description: 'RR p.128 barding (war-trained only) — AC bonus' },
+        { name: 'bardingLoadSt',    type: 'number', min: 0, group: 'Barding', description: 'Barding weight in stone (RR p.128 — "Varies" by size; GM-set; counts against load)' },
+        { name: 'bardingHalf',      type: 'boolean', group: 'Barding', description: 'Half-barding — front only (RR p.128)' },
+        { name: 'bardingSpiked',    type: 'boolean', group: 'Barding', description: 'Spiked barding (combat reference)' },
+        { name: 'hp',               type: 'number', group: 'Feeding', description: 'Combat reference (mounted combat deferred) — current HP, or blank' },
+        { name: 'condition',        type: 'enum', enumValues: ['healthy','wounded','dead'], group: 'Feeding', default: 'healthy' },
+        { name: 'foodDeficitDays',  type: 'number', min: 0, readonly: true, group: 'Feeding', description: 'Days short of full food (RR p.276 ladder — driven by the journey day-tick)' },
+        { name: 'waterDeficitDays', type: 'number', min: 0, readonly: true, group: 'Feeding', description: 'Days short of full water (RR p.276 ladder)' },
+        { name: 'conditionFlags',   type: 'object', group: 'Feeding', description: 'Provisioning condition (RR p.276)', fields: [
+          { name: 'hungry',     type: 'boolean' },
+          { name: 'underfed',   type: 'boolean' },
+          { name: 'starving',   type: 'boolean' },
+          { name: 'dehydrated', type: 'boolean' }
+        ] },
+        { name: 'createdAtTurn',    type: 'number', readonly: true, group: 'History' },
+        { name: 'notes',            type: 'string', group: 'History' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
     // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lair, the first-class placed
     // monster-home entity (RAW core; survey §5, §16.3). Inspector-creatable as the no-frills
     // admin path (the generative Lair Wizard, plan §12.5, lands later). Population is composition:
