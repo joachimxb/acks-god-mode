@@ -306,6 +306,9 @@ document.addEventListener('alpine:init', () => {
   .border-ink { border-color: #6b4f24; }
   .accent-red { color: #7a1f1f; }
   .accent-green { color: #2f5a2f; }
+  /* On a selected (brown .tab-active) row the dark accent text would be illegible on brown —
+     let it take the row's light color, so a selected row stays fully readable like the Domains table. */
+  .tab-active .accent-red, .tab-active .accent-green { color: inherit; }
   details > summary { cursor: pointer; }
   .tab-active { background: #6b4f24; color: #f7f1e2; }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -7627,9 +7630,9 @@ document.addEventListener('alpine:init', () => {
               x-text="dayClockLabel() + ' · ' + activityDashboardBusyCount() + ' of ' + activityDashboardRows().length + ' acting today'"></span>
       </div>
       <p class="text-sm opacity-80">
-        Each character's day-activity budget — what's already spoken for and what's still free — following the
-        campaign-activity rules (JJ pp.99–100, RR p.272). The budget refreshes when you advance the
-        <strong>Day Clock</strong>. Ventures are launched from the Ventures sub-tab (their setup is multi-step).
+        Activities under way today — each can be <strong>rejected</strong> to roll it back (untick a domain administration,
+        refund a market trade, or open a journey to stop it). A character's full day-activity budget and the actions
+        they can take now live in <strong>Roster ▸ Characters</strong> — select a character there.
       </p>
     </div>
 
@@ -7643,75 +7646,8 @@ document.addEventListener('alpine:init', () => {
       <div class="vellum border border-ink rounded p-6 text-center opacity-70">No active characters yet. Add characters from the <button @click="currentView='roster'; rosterSubView='characters'" class="underline">Roster</button>.</div>
     </template>
 
-    <!-- Dashboard table -->
-    <template x-if="currentCampaign && activityDashboardRows().length > 0">
-      <div class="vellum border border-ink rounded p-3 overflow-x-auto">
-        <table class="bookkeeping text-sm w-full">
-          <thead><tr>
-            <th style="text-align:left">Character</th>
-            <th style="text-align:left">Location</th>
-            <th style="text-align:left" title="What's still free in this character's day-activity budget (JJ pp.99–100, RR p.272).">Available today</th>
-            <th style="text-align:left">Done today</th>
-            <th style="text-align:right">Actions</th>
-          </tr></thead>
-          <tbody>
-            <template x-for="r in activityDashboardRows()" :key="r.c.id">
-              <tr>
-                <!-- Character -->
-                <td style="text-align:left">
-                  <button @click="openCharacterEditor(r.c)" class="font-semibold underline" x-text="r.c.name || '(unnamed)'"></button>
-                  <div class="text-xs opacity-70" x-text="(ACKS.isPlayerControlled(r.c) ? 'PC' : 'NPC') + ' · ' + (r.c.class || '—') + ' L' + (r.c.level || 1) + ' · ' + ACKS.displayKind(r.c)"></div>
-                </td>
-                <!-- Location -->
-                <td class="text-sm" style="text-align:left" :class="r.c.currentHexId ? '' : 'opacity-50 italic'" x-text="characterLocationLabel(r.c)"></td>
-                <!-- Available today: dedicated pip + ancillary count, free/over/fatigue flags -->
-                <td class="text-sm" style="text-align:left">
-                  <div class="flex items-center gap-2 whitespace-nowrap">
-                    <span :title="'Dedicated task — ' + r.budget.dedicatedUsed + ' of 1 used'"><span x-text="r.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
-                    <span class="opacity-40">·</span>
-                    <span title="Ancillary (~1-hour) errands"><span class="font-mono" x-text="r.budget.ancillaryUsed + '/' + r.ancCap"></span> anc</span>
-                  </div>
-                  <div class="text-xs mt-0.5">
-                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) > 0" class="accent-green" x-text="r.dedLeft + ' ded + ' + r.ancLeft + ' anc free'"></span>
-                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) === 0" class="opacity-60">day full</span>
-                    <span x-show="r.budget.overBudget" class="accent-red font-semibold" :title="r.budget.overReason || ''">⚠ over budget</span>
-                  </div>
-                  <div x-show="r.budget.fatigued" class="text-xs accent-red" :title="r.budget.strenuousDays + ' strenuous days — RR p.279 six-day cycle'">😴 needs rest</div>
-                </td>
-                <!-- Done today: budget-consuming activities as chips -->
-                <td class="text-sm" style="text-align:left">
-                  <template x-for="(a, i) in r.done" :key="(a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
-                    <span class="inline-block px-1.5 py-0.5 rounded text-xs mr-1 mb-1"
-                          :class="a.cost === 'ancillary' ? 'border border-ink' : (a.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
-                          :style="a.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
-                          :title="a.cost + (a.strenuous ? ' · strenuous' : '')">
-                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
-                    </span>
-                  </template>
-                  <span x-show="r.done.length === 0" class="opacity-40 italic">nothing yet today</span>
-                </td>
-                <!-- Actions: the typical campaign activities (Ventures excluded — its own sub-tab) -->
-                <td class="text-right whitespace-nowrap">
-                  <button @click="openTrade({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
-                          :title="characterAtSettlement(r.c) ? ('Buy or sell at ' + (characterAtSettlement(r.c).name || 'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Market</button>
-                  <button @click="recruitDeepLink({ patronId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
-                          title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
-                  <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
-                          :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
-                  <button @click="openForage({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
-                          title="Forage (firewood / water / food) or hunt — live off the land (RR p.278)">🌿 Forage</button>
-                  <!-- #476 M4 — hex search needs a hex to stand on: disabled (with the reason) for a placeless character. -->
-                  <button @click="openSearchHex({ actorCharacterId: r.c.id, hexId: r.c.currentHexId })" :disabled="!r.c.currentHexId"
-                          :class="r.c.currentHexId ? 'hover:bg-yellow-100' : 'opacity-40 cursor-not-allowed'"
-                          class="text-xs px-2 py-0.5 border border-ink rounded"
-                          :title="r.c.currentHexId ? 'Search this character\'s hex for lairs & points of interest (RR pp.276–277) — one ancillary hour per throw' : 'No hex — set the character\'s location first (Location tab)'">🔍 Search</button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </template>
+    <!-- Dashboard table removed 2026-06-22 — the per-character budget + actions now live in Roster ▸
+         Characters (the selected-character action box). The Current Activities reject surface below stays. -->
 
     <!-- Current Activities — the activity-centric companion table (Joachim 2026-06-05). One row per
          (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK the activity:
@@ -10087,6 +10023,113 @@ document.addEventListener('alpine:init', () => {
     </div>
 
 
+    <!-- ───── Roster ▸ Characters: SELECTED-CHARACTER ACTION BOX (top of the view) ─────
+         Click a row in the table below to populate it. Duplicates — and will ultimately replace —
+         the Activities ▸ Activities per-character dashboard: location, day-activity budget
+         (available/done), and the full action set, greyed where the current location doesn't allow it. -->
+    <div x-show="rosterSubView==='characters'" class="vellum border border-ink rounded p-4" x-cloak>
+      <template x-if="selectedCharacterActivityRows().length === 0">
+        <p class="text-sm italic opacity-60 py-1">👇 Click a character in the table below to see where it is, its day-activity budget, and the actions it can take where it stands.</p>
+      </template>
+      <template x-for="row in selectedCharacterActivityRows()" :key="row.c.id">
+        <div>
+          <!-- Header: name + identity + location -->
+          <div class="flex flex-wrap justify-between items-start gap-2 mb-3">
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="font-bold text-lg" x-text="row.c.name || '(unnamed)'"></h3>
+                <span class="text-xs opacity-70" x-text="(ACKS.isPlayerControlled(row.c) ? 'PC' : 'NPC') + ' · ' + (row.c.class || '—') + ' L' + (row.c.level || 1) + ' · ' + ACKS.displayKind(row.c)"></span>
+              </div>
+              <div class="text-sm mt-1">
+                <span class="opacity-70">📍</span>
+                <span :class="row.c.currentHexId ? '' : 'opacity-50 italic'" x-text="characterLocationLabel(row.c)"></span>
+                <template x-if="characterAtSettlement(row.c)">
+                  <span class="ml-1 text-xs px-1.5 py-0.5 rounded border border-ink/60" x-text="'🏘 ' + (characterAtSettlement(row.c).name || 'settlement')"></span>
+                </template>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 whitespace-nowrap">
+              <button @click="openCharacterEditor(row.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Open the full character sheet">✎ Edit sheet</button>
+              <button @click="selectedCharacterId=null" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-gray-100" title="Deselect — clear the box">✕</button>
+            </div>
+          </div>
+
+          <!-- Activities: available today + done today (the #346 day-budget read surface) -->
+          <div class="grid md:grid-cols-2 gap-3 mb-3">
+            <div class="border border-ink/40 rounded p-2">
+              <div class="text-xs font-semibold opacity-70 mb-1">Available today <span class="font-normal opacity-70" x-text="'· ' + dayClockLabel()"></span></div>
+              <div class="flex items-center gap-2 text-sm whitespace-nowrap">
+                <span :title="'Dedicated task — ' + row.budget.dedicatedUsed + ' of 1 used'"><span x-text="row.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
+                <span class="opacity-40">·</span>
+                <span title="Ancillary (~1-hour) errands"><span class="font-mono" x-text="row.budget.ancillaryUsed + '/' + row.ancCap"></span> anc</span>
+              </div>
+              <div class="text-xs mt-0.5">
+                <span x-show="!row.budget.overBudget && (row.dedLeft + row.ancLeft) > 0" class="accent-green" x-text="row.dedLeft + ' ded + ' + row.ancLeft + ' anc free'"></span>
+                <span x-show="!row.budget.overBudget && (row.dedLeft + row.ancLeft) === 0" class="opacity-60">day full</span>
+                <span x-show="row.budget.overBudget" class="accent-red font-semibold" :title="row.budget.overReason || ''">⚠ over budget</span>
+              </div>
+              <div x-show="row.budget.fatigued" class="text-xs accent-red mt-0.5" :title="row.budget.strenuousDays + ' strenuous days — RR p.279 six-day cycle'">😴 needs rest</div>
+            </div>
+            <div class="border border-ink/40 rounded p-2">
+              <div class="text-xs font-semibold opacity-70 mb-1">Done today</div>
+              <!-- Dedicated (the one dedicated task) -->
+              <div class="flex items-baseline gap-1.5 mb-1">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Dedicated</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.dedicated || [])" :key="'d:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs" style="background:#2a1f12;color:#f4ecd8" :title="'dedicated' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="(row.budget.dedicated || []).length === 0" class="text-xs opacity-40 italic">—</span>
+                </span>
+              </div>
+              <!-- Ancillary (the ~1-hour errands) -->
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Ancillary</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.ancillary || [])" :key="'a:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs border border-ink" :title="'ancillary' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="(row.budget.ancillary || []).length === 0" class="text-xs opacity-40 italic">—</span>
+                </span>
+              </div>
+              <!-- Incidental (free actions — only when present) -->
+              <div class="flex items-baseline gap-1.5 mt-1" x-show="(row.budget.incidental || []).length > 0">
+                <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Incidental</span>
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="(a, i) in (row.budget.incidental || [])" :key="'i:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs opacity-60 border border-ink/40" :title="'incidental' + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions: the full character-verb set, greyed where the current location doesn't allow it -->
+          <div>
+            <div class="text-xs font-semibold opacity-70 mb-1">Actions <span class="font-normal opacity-60">· greyed actions can't be done where this character stands</span></div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="act in characterActionMenu(row.c)" :key="act.key">
+                <button @click="(act.active || act.enabled) && runCharacterAction(act, row.c)"
+                        :disabled="!act.active && !act.enabled"
+                        :class="act.active ? 'cursor-pointer' : (act.enabled ? 'hover:bg-yellow-100 cursor-pointer' : 'opacity-40 cursor-not-allowed')"
+                        :style="act.active ? 'background:#2a1f12;color:#f4ecd8;border-color:#2a1f12' : ''"
+                        class="text-sm px-2 py-1 border border-ink rounded"
+                        :title="act.title">
+                  <span x-text="act.icon + ' ' + act.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
     <!-- ───── Sub-tab: CHARACTERS (roster) ───── -->
     <div x-show="rosterSubView==='characters'" class="vellum border border-ink rounded p-4">
       <div class="flex flex-wrap justify-between items-baseline gap-3 mb-3">
@@ -10166,9 +10209,10 @@ document.addEventListener('alpine:init', () => {
           </tr></thead>
           <tbody>
             <template x-for="c in filteredCharacters()" :key="c.id">
-              <tr :class="{'opacity-50': c.alive === false}">
+              <tr @click="selectCharacter(c)" class="cursor-pointer"
+                  :class="{ 'opacity-50': c.alive === false, 'tab-active': selectedCharacterId === c.id, 'font-semibold': selectedCharacterId === c.id, 'hover:bg-yellow-100': selectedCharacterId !== c.id }">
                 <td style="text-align:left">
-                  <button @click="openCharacterEditor(c)" class="font-semibold underline" x-text="c.name || '(unnamed)'"></button>
+                  <button @click.stop="selectCharacter(c)" class="font-semibold underline" title="Select — show this character in the action box above" x-text="c.name || '(unnamed)'"></button>
                   <template x-if="c.alive === false">
                     <span class="text-sm opacity-60 italic"> · deceased Turn <span x-text="c.deceasedTurn||'?'"></span></span>
                   </template>
@@ -10198,7 +10242,7 @@ document.addEventListener('alpine:init', () => {
                   <!-- Structural roles: ruler (with vassal prefix when liege exists) + magistrate slots. -->
                   <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
                     <div>
-                      <button @click="selectedDomainId = r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
+                      <button @click.stop="selectedDomainId = r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
                               class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
                     </div>
                   </template>
@@ -10231,12 +10275,12 @@ document.addEventListener('alpine:init', () => {
                 <td class="font-mono text-sm" style="text-align:center" :class="characterXpThisMonth(c) > 0 ? 'accent-green' : 'opacity-60'" x-text="characterXpThisMonth(c).toLocaleString() + ' XP'"></td>
                 <td class="font-mono text-sm opacity-80" style="text-align:center" x-text="Math.max(0, xpToNextLevel(c) - (c.xp||0)).toLocaleString() + ' XP'"></td>
                 <td class="text-right text-sm">
-                  <button @click="openCharacterEditor(c)" class="underline mr-2">edit</button>
+                  <button @click.stop="openCharacterEditor(c)" class="underline mr-2">edit</button>
                   <template x-if="c.alive !== false">
-                    <button @click="softDeleteCharacter(c)" class="underline accent-red" title="Mark deceased/retired — soft delete preserves history">die</button>
+                    <button @click.stop="softDeleteCharacter(c)" class="underline accent-red" title="Mark deceased/retired — soft delete preserves history">die</button>
                   </template>
                   <template x-if="c.alive === false">
-                    <button @click="restoreCharacter(c)" class="underline accent-green" title="Restore — set alive=true">restore</button>
+                    <button @click.stop="restoreCharacter(c)" class="underline accent-green" title="Restore — set alive=true">restore</button>
                   </template>
                 </td>
               </tr>
@@ -26780,6 +26824,9 @@ return {
     creatureType:   'all'   // 'all' | one of the MM categories (single-tag intersect; multi-select v2)
   },
   charactersSearch:'',
+  // Roster ▸ Characters — the row the GM has clicked to populate the selected-character action box
+  // above the table (transient UI selection; not persisted). null ⇒ the box shows its pick-one hint.
+  selectedCharacterId: null,
   showCharacterEditorModal:false,
   characterEditorTab:'identity', // 'identity' | 'stats' | 'skills' | 'inventory' | 'background' | 'location' | 'history'
   characterEditing:null,         // the character being edited (direct reference, edits apply live)
@@ -27263,19 +27310,105 @@ return {
     const isActive = A.isActive || (c => (c && (c.lifecycleState || 'active') === 'active' && c.alive !== false));
     // The budget reads campaign.domains directly (single home) to gate domain-admin on the
     // administers-this-month lever (domain.magistrates[*].administersThisMonth).
-    const rows = camp.characters.filter(c => c && isActive(c)).map(c => {
-      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
-      const dedCap = 1;
-      const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
-      const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
-      const ancLeft = Math.max(0, ancCap - budget.ancillaryUsed);
-      const done = [].concat(budget.dedicated || [], budget.ancillary || [], budget.incidental || []);
-      return { c, budget, dedCap, ancCap, dedLeft, ancLeft, done };
-    });
+    const rows = camp.characters.filter(c => c && isActive(c)).map(c => this._characterActivityRow(c));
     // Players first, then alphabetical — the GM's own actors lead the list.
     const isPC = A.isPlayerControlled || (c => c && c.controlledBy === 'player');
     rows.sort((a, b) => (isPC(a.c) ? 0 : 1) - (isPC(b.c) ? 0 : 1) || (a.c.name || '').localeCompare(b.c.name || ''));
     return rows;
+  },
+  // The per-character day-budget projection — the shared shape used by BOTH the Activities ▸ Activities
+  // dashboard (one per active character) and the Roster ▸ Characters action box (one for the selection).
+  _characterActivityRow(c){
+    const A = window.ACKS || {};
+    const budget = A.characterActivityBudget ? A.characterActivityBudget(this.currentCampaign, c.id) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
+    const dedCap = 1;
+    const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
+    const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
+    const ancLeft = Math.max(0, ancCap - budget.ancillaryUsed);
+    const done = [].concat(budget.dedicated || [], budget.ancillary || [], budget.incidental || []);
+    return { c, budget, dedCap, ancCap, dedLeft, ancLeft, done };
+  },
+
+  // ─── Roster ▸ Characters: the selected-character action box (duplicates — and will ultimately
+  //     replace — the Activities ▸ Activities per-character dashboard). Click a table row to select. ───
+  selectedCharacter(){ const id = this.selectedCharacterId; if(!id || !this.currentCampaign) return null; return (this.currentCampaign.characters || []).find(c => c && c.id === id) || null; },
+  selectCharacter(c){ this.selectedCharacterId = (c && c.id) || null; },
+  // [] or a single-element [row] so the box markup can x-for and bind `row` in scope (mirrors the dashboard).
+  selectedCharacterActivityRows(){ const c = this.selectedCharacter(); return c ? [ this._characterActivityRow(c) ] : []; },
+  // The full character-verb set, each gated COARSELY by current location (hex / settlement / rule).
+  // enabled=false greys the button out with `title` saying why; runCharacterAction dispatches the enabled ones.
+  characterActionMenu(c){
+    if(!c) return [];
+    const camp = this.currentCampaign || {};
+    const A = window.ACKS || {};
+    const set = this.characterAtSettlement(c);
+    const atHex = !!c.currentHexId, atSet = !!set;
+    const setName = set ? (set.name || 'the local market') : '';
+    const hexReason = 'Place this character on a hex first (its Location tab).';
+    const setReason = 'Move this character to a settlement to do this.';
+    // In-flight engagements → the action renders "active" (dark) and NAVIGATES to the thing in progress
+    // instead of starting a new one. (A character already on a journey can't begin another, etc.)
+    const onJourney = !!this.characterJourneyOf(c);
+    const onVenture = !!this.characterActiveVenture(c);
+    const recruiting = (c.recruitmentDrives || []).some(d => d && d.status === 'active');
+    const hijinking = (camp.hijinks || []).some(h => h && h.perpetratorCharacterId === c.id && !['complete','failed','caught'].includes(h.status));
+    let gladiating = false;
+    if(c.socialTier === 'gladiator'){
+      const tInfo = A.gladiatorTrainingInfo ? A.gladiatorTrainingInfo(camp, c) : { inTraining:false };
+      const inBout = (camp.bouts || []).some(b => b && b.status === 'scheduled' && [].concat(b.sideA?.combatantIds||[], b.sideB?.combatantIds||[]).includes(c.id));
+      gladiating = !!(tInfo.inTraining || inBout);
+    }
+    const T = (ok, okText, reason) => ok ? okText : reason;
+    return [
+      { key:'market',         icon:'🛒', label:'Market',        active:false,     enabled:atSet, title:T(atSet, 'Buy or sell at ' + setName, setReason) },
+      { key:'recruit',        icon:'⚔', label:'Recruit',        active:recruiting, enabled:atSet, title: recruiting ? 'Recruiting now — go to the hiring drive →' : T(atSet, 'Recruit hirelings, henchmen or specialists here', setReason) },
+      { key:'travel',         icon:'🧭', label:'Travel',         active:onJourney,  enabled:atHex && !onVenture, title: onJourney ? 'On a journey — go to it →' : (onVenture ? "Away on a venture — can't travel until it resolves." : T(atHex, (this.characterPartyOf(c) ? "Start a journey for this character's party" : 'Start a journey'), hexReason)) },
+      { key:'forage',         icon:'🌿', label:'Forage / Hunt',  active:false,     enabled:atHex, title:T(atHex, 'Forage or hunt — live off the land (RR p.278)', hexReason) },
+      { key:'search',         icon:'🔍', label:'Search hex',     active:false,     enabled:atHex, title:T(atHex, 'Search this hex for lairs & points of interest (RR pp.276–277)', hexReason) },
+      { key:'hijinks',        icon:'🗡', label:'Hijinks',        active:hijinking,  enabled:atSet, title: hijinking ? 'A hijink is under way — go to it →' : T(atSet, 'Attempt an urban hijink here (RR pp.358–370)', setReason) },
+      { key:'ventures',       icon:'⚖', label:'Ventures',       active:onVenture,  enabled:atSet, title: onVenture ? 'On a venture — go to it →' : T(atSet, 'Launch or manage a mercantile venture', setReason) },
+      { key:'banking',        icon:'🏦', label:'Banking',        active:false,     enabled:atSet, title:T(atSet, 'Banking & loans (RR p.42)', setReason) },
+      { key:'magic-items',    icon:'🪄', label:'Magic Items',    active:false,     enabled:atSet, title:T(atSet, 'Identify, buy, sell or commission magic items', setReason) },
+      { key:'gladiators',     icon:'🏟', label:'Gladiators',     active:gladiating, enabled:this.gladiatorsTabVisible(), title: gladiating ? 'In the arena — go to the Gladiators view →' : T(this.gladiatorsTabVisible(), 'Arena games & gladiator schools', 'Enable the Gladiators house rule first.') },
+      { key:'spell-research', icon:'📜', label:'Spell Research', active:false,     enabled:false, title:'Coming soon (Phase 4.6).' }
+    ];
+  },
+  runCharacterAction(act, c){
+    if(!act || !c) return;
+    const key = act.key;
+    // Active (in-progress) → navigate to the thing already under way rather than start a new one.
+    if(act.active){
+      switch(key){
+        case 'travel':     this.openJourneyForCharacter(c); return;
+        case 'recruit':    this.recruitDeepLink({ patronId: c.id }); return;   // recruitStart adopts the in-flight drive
+        case 'ventures':   this.openVenturesForCharacter(c); return;
+        case 'hijinks':    this.currentView = 'activities'; this.activitiesSubView = 'hijinks'; return;
+        case 'gladiators': this.currentView = 'activities'; this.activitiesSubView = 'gladiators'; return;
+        default: break;
+      }
+    }
+    switch(key){
+      case 'market':      this.openTrade({ actorCharacterId: c.id }); break;
+      case 'recruit':     this.recruitDeepLink({ patronId: c.id }); break;
+      case 'travel':      this.startJourneyForCharacter(c); break;
+      case 'forage':      this.openForage({ actorCharacterId: c.id }); break;
+      case 'search':      this.openSearchHex({ actorCharacterId: c.id, hexId: c.currentHexId }); break;
+      case 'hijinks':     this.openHijinkForCharacter(c); break;
+      case 'ventures':    this.currentView = 'activities'; this.activitiesSubView = 'ventures'; break;
+      case 'banking':     this.currentView = 'activities'; this.activitiesSubView = 'banking'; break;
+      case 'magic-items': this.currentView = 'activities'; this.activitiesSubView = 'magic-items'; break;
+      case 'gladiators':  this.currentView = 'activities'; this.activitiesSubView = 'gladiators'; break;
+      default: break;
+    }
+  },
+  // Prefill the Hijinks launcher with this character as perpetrator (+ their settlement) and jump to it.
+  openHijinkForCharacter(c){
+    if(!c) return;
+    this.hijinkLaunch.perpetratorCharacterId = c.id;
+    const s = this.characterAtSettlement(c);
+    if(s) this.hijinkLaunch.settlementId = s.id;
+    this.currentView = 'activities';
+    this.activitiesSubView = 'hijinks';
   },
   // Count of active characters who have consumed any budget this game day (the tab badge).
   activityDashboardBusyCount(){ return this.activityDashboardRows().filter(r => r.done.length > 0).length; },
@@ -29843,6 +29976,10 @@ return {
   // party (prefills its members + start hex); otherwise just this character.
   startJourneyForCharacter(ch){
     if(!ch) return;
+    // A character already committed to travel can't begin another journey — open what they're on instead.
+    const j = this.characterJourneyOf(ch);
+    if(j){ this.openJourneyForCharacter(ch); this.showToast('Already on a journey — opening it.'); return; }
+    if(this.characterActiveVenture(ch)){ this.openVenturesForCharacter(ch); this.showToast("Away on a venture — can't start a journey until it resolves."); return; }
     const pt = this.characterPartyOf(ch);
     this.closeCharacterEditor();
     if(pt) this.startJourneyDeepLink({ partyId: pt.id });
