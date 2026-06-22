@@ -538,7 +538,7 @@ document.addEventListener('alpine:init', () => {
             <div class="flex items-center gap-2 shrink-0">
               <!-- Quick-dismiss (encounters only) — resolve as 'dismissed' so the clock frees without
                    walking the full RR panel; battles keep just the jump link (their aftermath is heavier). -->
-              <button x-show="b.kind !== 'battle'" @click="dismissBlockerEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock. Open the Encounters tab to resolve it in full instead.">✕ dismiss</button>
+              <button x-show="b.kind !== 'battle'" @click="dismissEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock. Open the Encounters tab to resolve it in full instead.">✕ dismiss</button>
               <button @click="reviewSubView = (b.kind === 'battle' ? 'battles' : 'encounters')" class="underline font-semibold" x-text="b.kind === 'battle' ? 'to Battles →' : 'to Encounters →'"></button>
             </div>
           </div>
@@ -1618,7 +1618,10 @@ document.addEventListener('alpine:init', () => {
                   </td>
                   <td class="font-mono" x-text="'t' + (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) + (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : '')"></td>
                   <td class="capitalize text-red-700 font-semibold" x-text="e.phase"></td>
-                  <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline text-red-800 font-semibold">⚔ resolve</button></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button @click="openEncounterModal(e.id)" class="underline text-red-800 font-semibold">⚔ resolve</button>
+                    <button @click="dismissEncounter(e.id, encounterLabel(e))" class="underline opacity-70 hover:opacity-100 hover:text-red-800 ml-3" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and clear it from the queue — without walking the full panel">✕ dismiss</button>
+                  </td>
                 </tr>
               </template>
             </tbody>
@@ -23770,14 +23773,14 @@ return {
     this.markDirty(); this.schedulePersist();
     if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
   },
-  // Quick-dismiss a clock-holding encounter straight from the ⏸ banner (📜 Events ▸ Daily Events)
-  // — resolve it as 'dismissed' (nothing came of it) so the world clock frees, without walking the
-  // full RR pre-combat panel. Same engine path as the modal's encModalResolve above
-  // (recordEncounterResolved → the encounter-resolved event + entity flip). Encounters only; the
-  // banner hides this for battles (their aftermath is heavier — they keep the jump link).
-  dismissBlockerEncounter(id, label){
+  // Quick-dismiss an active encounter — from the ⏸ clock-held banner (📜 Events ▸ Daily Events) or
+  // the ⚔ Encounters work-queue's Actions column — resolving it as 'dismissed' (nothing came of it)
+  // so it leaves the queue and the world clock frees, without walking the full RR pre-combat panel.
+  // Same engine path as the modal's encModalResolve above (recordEncounterResolved → the
+  // encounter-resolved event + entity flip). Encounters only (the banner hides it for battles).
+  dismissEncounter(id, label){
     if(!this.currentCampaign) return;
-    if(!confirm('Dismiss “' + (label || 'this encounter') + '”?\n\nIt resolves as “dismissed” — nothing came of it — and the world clock frees (if nothing else holds it). To walk the full RR procedure instead, open it from the ⚔ Encounters tab.')) return;
+    if(!confirm('Dismiss “' + (label || 'this encounter') + '”?\n\nIt resolves as “dismissed” — nothing came of it — and the world clock frees (if nothing else holds it). To walk the full RR procedure instead, open it in the ⚔ Encounters panel.')) return;
     const r = window.ACKS.recordEncounterResolved(this.currentCampaign, id, 'dismissed', {});
     if(!r || !r.ok){ this.showToast('Could not dismiss: ' + ((r && r.error) || '?'), 3500); return; }
     this.markDirty(); this.schedulePersist();
