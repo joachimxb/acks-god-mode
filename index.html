@@ -770,6 +770,14 @@ document.addEventListener('alpine:init', () => {
         </table>
       </template>
     </div>
+  </div>
+</div>
+
+<!-- ═══════════ Events ▸ MONTHLY EVENTS (UI overhaul 2026-06-22 — split out of the old Pending/Daily Events view).
+     The Daily view above keeps the clock-held banner + day-tick proposal + staged-turn pointer + the daily table;
+     this view holds the month-targeted event queue. The original block-end </div></div> closes this view. ═══════════ -->
+<div x-show="currentView === 'review' && reviewSubView === 'monthly-events'" class="p-4" x-cloak>
+  <div class="max-w-screen-lg space-y-4">
 
     <!-- ───── Monthly Events — the pending queue + the month's applied record ───── -->
     <div class="vellum border border-ink rounded p-4">
@@ -5367,7 +5375,7 @@ document.addEventListener('alpine:init', () => {
                 <tbody>
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
-                      <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
+                      <td class="font-semibold"><button @click="openSettlementSheet(entry.settlement.id)" class="underline text-left" title="Open settlement sheet" x-text="entry.settlement.name || '(unnamed)'"></button></td>
                       <td class="font-mono text-sm" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r)"></td>
                       <td x-text="settlementType(entry.settlement)"></td>
                       <td>
@@ -11146,6 +11154,212 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- ═══════════ Roster ▸ SETTLEMENTS (UI overhaul 2026-06-22) — campaign-wide settlement table + sheet ═══════════ -->
+<div x-show="currentView === 'roster' && rosterSubView === 'settlements'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+      <h3 class="font-bold text-lg">🏘 Settlements <span class="text-sm opacity-70 font-normal" x-text="'· ' + allSettlements().length + ' across the campaign'"></span></h3>
+    </div>
+    <template x-if="allSettlements().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No settlements yet. Settlements are created per-domain on a hex (Domain ▸ Demographics) or via the Inspector.</p>
+    </template>
+    <template x-if="allSettlements().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Settlement</th><th>Domain</th><th>Type</th><th class="text-right">Families</th><th>Market</th></tr></thead>
+        <tbody>
+          <template x-for="row in allSettlements()" :key="row.settlement.id">
+            <tr class="hover:bg-yellow-50/60">
+              <td><button @click="openSettlementSheet(row.settlement.id)" class="underline font-semibold text-left" x-text="row.settlement.name || '(unnamed)'"></button></td>
+              <td x-text="row.domainName || '(wilderness)'"></td>
+              <td x-text="settlementType(row.settlement)"></td>
+              <td class="text-right" x-text="(row.settlement.families||0).toLocaleString()"></td>
+              <td x-text="'Class ' + (row.marketClass || settlementMarketClass(row.settlement))"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+</div>
+
+<!-- Settlement sheet modal — opened from Roster ▸ Settlements + the Demographics settlement rows. Reuses
+     demographicRoster() (JJ Step 3) via demoSettlementId (set by openSettlementSheet). -->
+<div x-show="settlementSheetId" @keydown.escape.window="if(settlementSheetId){ closeSettlementSheet(); }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
+     style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSettlementSheet()">
+  <template x-if="settlementSheetId && settlementSheet()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🏘 <span x-text="settlementSheet().name || '(unnamed settlement)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· ' + settlementType(settlementSheet())"></span></h2>
+      <button @click="closeSettlementSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Families</div><div class="font-semibold" x-text="(settlementSheet().families||0).toLocaleString()"></div></div>
+        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Market class</div><div class="font-semibold" x-text="'Class ' + settlementMarketClass(settlementSheet())"></div></div>
+        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold" x-text="settlementCapacity(settlementSheet()).toLocaleString()"></div></div>
+        <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold" x-text="(settlementSheet().investment||0).toLocaleString()"></div></div>
+      </div>
+      <template x-if="demographicRoster()">
+        <div class="border border-ink/30 rounded p-2 text-sm">
+          <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
+          <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots</p>
+        </div>
+      </template>
+      <p class="text-sm opacity-70 italic">The full per-class demographic roster + resident reconciliation live in the home domain's Demographics tab.</p>
+    </div>
+  </div>
+  </template>
+</div>
+
+<!-- ═══════════ Roster ▸ MONSTERS (UI overhaul 2026-06-22) — bestiary catalog + placed/roving monsters ═══════════ -->
+<div x-show="currentView === 'roster' && rosterSubView === 'monsters'" class="p-4 space-y-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+      <h3 class="font-bold text-lg">🐉 Bestiary <span class="text-sm opacity-70 font-normal" x-text="'· ' + bestiaryRows().length + ' of ' + ((window.ACKS&&window.ACKS.MONSTER_CATALOG||[]).length) + ' creatures (Monstrous Manual)'"></span></h3>
+      <div class="flex gap-2 items-center text-sm">
+        <input type="text" x-model="bestiarySearch" placeholder="Search name…" class="w-56">
+        <select x-model="bestiaryTypeFilter" class="text-sm">
+          <template x-for="t in bestiaryTypeOptions()" :key="t"><option :value="t" x-text="t==='all' ? 'All types' : t"></option></template>
+        </select>
+      </div>
+    </div>
+    <div class="overflow-y-auto" style="max-height:60vh">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Monster</th><th>Type(s)</th><th class="text-right">HD</th><th class="text-right">AC</th><th class="text-right">XP</th><th class="text-right">Lair %</th><th class="text-right"># App. (lair)</th><th>Treasure</th><th class="text-right">MM p.</th></tr></thead>
+        <tbody>
+          <template x-for="m in bestiaryRows()" :key="m.key">
+            <tr class="hover:bg-yellow-50/60">
+              <td class="font-semibold" x-text="m.name"></td>
+              <td class="text-xs" x-text="(m.creatureTypes||[]).join(', ')"></td>
+              <td class="text-right" x-text="m.hd"></td>
+              <td class="text-right" x-text="m.ac"></td>
+              <td class="text-right" x-text="(m.xp||0).toLocaleString()"></td>
+              <td class="text-right" x-text="(m.lairPct!=null ? m.lairPct + '%' : '—')"></td>
+              <td class="text-right text-xs" x-text="(m.numberAppearing && m.numberAppearing.lair != null) ? m.numberAppearing.lair : '—'"></td>
+              <td class="text-xs" x-text="m.treasureType || '—'"></td>
+              <td class="text-right opacity-60 text-xs" x-text="m.page || ''"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-2">📍 In this campaign <span class="text-sm opacity-70 font-normal" x-text="'· ' + ((currentCampaign?.lairs?.length)||0) + ' lair(s) · ' + monsterLooseBandRows().length + ' roving band(s)'"></span></h3>
+    <template x-if="((currentCampaign?.lairs?.length)||0) === 0 && monsterLooseBandRows().length === 0">
+      <p class="text-sm italic opacity-60">No lairs or roving bands placed yet. Add them in World ▸ Points of Interest ▸ Lairs.</p>
+    </template>
+    <template x-if="((currentCampaign?.lairs?.length)||0) > 0">
+      <table class="bookkeeping text-sm w-full mb-2">
+        <thead><tr><th>Lair</th><th>Monster</th><th>Status</th></tr></thead>
+        <tbody>
+          <template x-for="l in (currentCampaign?.lairs||[])" :key="l.id">
+            <tr class="hover:bg-yellow-50/60"><td><button @click="openLairDetail(l.id)" class="underline text-left" x-text="l.name || '(lair)'"></button></td><td x-text="lairMonsterLabel(l)"></td><td class="text-xs opacity-70" x-text="l.status || ''"></td></tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 italic">Manage placed monsters on the map in <button @click="currentView='world'; worldSubView='poi'; poiShow.lairs=true" class="underline">World ▸ Points of Interest</button>.</p>
+  </div>
+</div>
+
+<!-- ═══════════ Roster ▸ SHIPS (UI overhaul 2026-06-22) — vessel roster (rows open the vessel modal) ═══════════ -->
+<div x-show="currentView === 'roster' && rosterSubView === 'ships'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+      <h3 class="font-bold text-lg">⛵ Ships <span class="text-sm opacity-70 font-normal" x-text="'· ' + voyagesVessels().length + ' vessel(s)'"></span></h3>
+    </div>
+    <template x-if="voyagesVessels().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No vessels yet. Build one in <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">Activities ▸ Travel</button>.</p>
+    </template>
+    <template x-if="voyagesVessels().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Vessel</th><th>Class</th><th class="text-right">SHP</th><th>Condition</th><th>Crew</th><th>Location</th></tr></thead>
+        <tbody>
+          <template x-for="v in voyagesVessels()" :key="v.id">
+            <tr class="hover:bg-yellow-50/60">
+              <td><button @click="openVesselDetail(v.id)" class="underline font-semibold text-left" x-text="v.name || '(unnamed)'"></button></td>
+              <td x-text="voyagesVesselRow(v).classLabel"></td>
+              <td class="text-right" :class="voyagesVesselRow(v).damaged ? 'accent-red' : ''" x-text="voyagesVesselRow(v).shp + ' / ' + voyagesVesselRow(v).maxShp"></td>
+              <td x-text="voyagesVesselRow(v).condition"></td>
+              <td class="text-xs" x-text="voyagesVesselRow(v).crewLine"></td>
+              <td class="text-xs" x-text="vesselHexLabel(v)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+</div>
+
+<!-- ═══════════ Activities ▸ MARKET (UI overhaul 2026-06-22) — all markets + per-market availability sheet ═══════════ -->
+<div x-show="currentView === 'activities' && activitiesSubView === 'market'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+      <h3 class="font-bold text-lg">🛒 Markets <span class="text-sm opacity-70 font-normal" x-text="'· ' + marketRows().length + ' market(s)'"></span></h3>
+      <span class="text-sm opacity-60">Click a market for current item availability (RR p.124).</span>
+    </div>
+    <template x-if="marketRows().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No markets yet. A settlement with 75+ families (Class V or better) holds a market.</p>
+    </template>
+    <template x-if="marketRows().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Market</th><th>Domain</th><th>Market class</th><th class="text-right">Families</th></tr></thead>
+        <tbody>
+          <template x-for="row in marketRows()" :key="row.settlement.id">
+            <tr class="hover:bg-yellow-50/60">
+              <td><button @click="openMarketSheet(row.settlement.id)" class="underline font-semibold text-left" x-text="row.settlement.name || '(unnamed)'"></button></td>
+              <td x-text="row.domainName || '(wilderness)'"></td>
+              <td x-text="'Class ' + row.marketClass"></td>
+              <td class="text-right" x-text="(row.settlement.families||0).toLocaleString()"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+</div>
+
+<!-- Market sheet modal — item availability at the chosen market (reuses the trade engine; read-only). -->
+<div x-show="marketSheetId" @keydown.escape.window="if(marketSheetId){ closeMarketSheet(); }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
+     style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeMarketSheet()">
+  <template x-if="marketSheetId && marketSheetRow()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🛒 <span x-text="marketSheetRow().settlement.name || '(market)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· Class ' + marketSheetRow().marketClass + ' market'"></span></h2>
+      <button @click="closeMarketSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="flex flex-wrap gap-2 items-center text-sm">
+        <input type="text" x-model="marketSheetSearch" placeholder="Search item…" class="w-48">
+        <select x-model="marketSheetCategory" class="text-sm">
+          <template x-for="c in marketCategoryOptions()" :key="c"><option :value="c" x-text="c==='all' ? 'All categories' : c"></option></template>
+        </select>
+        <span class="opacity-60" x-text="marketSheetItems().length + ' item(s)'"></span>
+      </div>
+      <div class="overflow-y-auto" style="max-height:55vh">
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Item</th><th class="text-right">Price (gp)</th><th class="text-right">Stone</th><th class="text-right">Availability</th></tr></thead>
+          <tbody>
+            <template x-for="item in marketSheetItems()" :key="item.id">
+              <tr>
+                <td x-text="item.name"></td>
+                <td class="text-right" x-text="(item.listPriceGp||0).toLocaleString()"></td>
+                <td class="text-right opacity-70" x-text="item.stone != null ? item.stone : ''"></td>
+                <td class="text-right text-xs" x-text="marketAvailLabelFor(marketSheetRow().marketClass, item.listPriceGp)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-sm opacity-70 italic">Availability follows the RR p.124 Equipment Availability table for this market's class. To actually buy or sell, open the Trade wizard from a settlement or army camp.</p>
+    </div>
+  </div>
+  </template>
+</div>
+
 <!-- ───── Activities ▸ RECRUIT (moved here from the Characters tab, 2026-06-06) ───── -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'recruit'" class="p-4" x-cloak>
   <div class="space-y-4">
@@ -15136,6 +15350,41 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
+<!-- ═══════════ Events ▸ CONSTRUCTION (UI overhaul 2026-06-22) — every domain's in-progress projects in one
+     place (separated from the per-domain Stronghold tab + the Domain Turn). ═══════════ -->
+<div x-show="currentView === 'review' && reviewSubView === 'construction'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+      <h3 class="font-bold text-lg">🏗 Construction <span class="text-sm opacity-70 font-normal" x-text="'· ' + allConstructionProjects().length + ' project(s) under way'"></span></h3>
+      <button @click="openConstructionWizard({})" class="px-3 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold">🏗 Build over time</button>
+    </div>
+    <template x-if="allConstructionProjects().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No construction under way. Start a project from a domain's Stronghold tab or the “Build over time” wizard.</p>
+    </template>
+    <template x-if="allConstructionProjects().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Domain</th><th>Project</th><th class="text-right">% complete</th><th class="text-right">Days left</th><th class="text-right">gp/day</th><th>Supervisor</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          <template x-for="row in allConstructionProjects()" :key="row.project.id">
+            <tr class="hover:bg-yellow-50/60">
+              <td x-text="row.domainName"></td>
+              <td class="font-semibold" x-text="row.project.name || row.project.constructibleSubtype || row.project.constructibleKind || '(project)'"></td>
+              <td class="text-right" x-text="row.forecast ? row.forecast.pctComplete + '%' : '—'"></td>
+              <td class="text-right" x-text="row.forecast ? (row.forecast.daysToComplete == null ? 'stalled' : row.forecast.daysToComplete.toLocaleString()) : '—'"></td>
+              <td class="text-right" x-text="row.forecast ? Math.round(row.forecast.dailyGp).toLocaleString() : '—'"></td>
+              <td class="text-xs">
+                <span x-show="row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk" class="accent-red" x-text="row.forecast ? ('⚠ ' + (row.forecast.supervisorBlockReason || 'no supervisor')) : ''"></span>
+                <span x-show="!(row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk)" class="opacity-50">ok</span>
+              </td>
+              <td class="text-right"><button @click="cancelConstructionProject(row.project)" class="text-sm accent-red px-2 border border-ink/30 rounded hover:bg-red-50" title="Abandon this project">× abandon</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+</div>
+
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — per-agent NEW top-level HTML (panels / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
 <!-- ── agent-1 (Military W6 Sieges): your siege panel / siege-resolution modal goes below ── -->
 <!-- Phase 3 Military W6 — Sieges (RR pp.473–485). A sibling of 📋 Review ▸ 🎌 Battles: the
@@ -33208,7 +33457,7 @@ return {
   hexSettlements(d){return window.ACKS.hexSettlements(this.currentCampaign, d);},
   // Settlement Demographics SD-1 — the per-settlement Step-3 census roster read (Settlement_Demographics_Plan.md).
   demoSettlementId: null,   // the settlement whose demographic roster is expanded (scoped to selectedDomain)
-  demoSettlement(){ const id=this.demoSettlementId; if(!id) return null; const e=(this.hexSettlements(this.selectedDomain)||[]).find(x=>x.settlement&&x.settlement.id===id); return e?e.settlement:null; },
+  demoSettlement(){ const id=this.demoSettlementId; if(!id) return null; const e=(this.hexSettlements(this.selectedDomain)||[]).find(x=>x.settlement&&x.settlement.id===id); if(e) return e.settlement; return (this.currentCampaign?.settlements||[]).find(s=>s&&s.id===id)||null; },  /* campaign-wide fallback for the Roster ▸ Settlements sheet (UI overhaul 2026-06-22) */
   demographicRoster(){ const s=this.demoSettlement(); return s ? window.ACKS.settlementDemographics(this.currentCampaign, s) : null; },
   demoRosterRows(){ const d=this.demographicRoster(); if(!d) return []; return d.byLevel.filter((r,i)=>{ const e=d.expected.byLevel[i], real=d.realized.byLevel[i]; return e.all>=0.5 || real.all>0; }); },
   fmtExpected(v){ return window.ACKS.formatExpectedCount(v); },
