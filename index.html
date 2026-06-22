@@ -10934,17 +10934,16 @@ document.addEventListener('alpine:init', () => {
           <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold" x-text="settlementCapacity(settlementSheet()).toLocaleString()"></div></div>
           <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold" x-text="(settlementSheet().investment||0).toLocaleString()"></div></div>
         </div>
-        <template x-if="demographicRoster()">
-          <div class="border border-ink/30 rounded p-2 text-sm">
-            <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
-            <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots · <button class="underline" @click="settlementSheetTab='demographics'">open the full roster ▸</button></p>
-          </div>
-        </template>
       </div>
       <!-- DEMOGRAPHICS (moved from Domain ▸ Demographics, 2026-06-22; keyed on demoSettlementId set by openSettlementSheet) -->
       <div x-show="settlementSheetTab==='demographics'">
         <template x-if="demographicRoster()">
-              <div class="mt-3 vellum border border-ink rounded p-3" style="background:#f4ecd2">
+          <div>
+            <div class="border border-ink/30 rounded p-2 text-sm mb-3">
+              <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
+              <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots</p>
+            </div>
+            <div class="mt-1 border border-ink/30 rounded p-3">
                 <p class="text-sm opacity-70 mb-2">
                   JJ Step 3 (pp.214–217) — Class <span x-text="demographicRoster().expected.marketClass"></span>,
                   <span x-text="(demographicRoster().expected.families||0).toLocaleString()"></span> families
@@ -11200,6 +11199,7 @@ document.addEventListener('alpine:init', () => {
                   </template>
                 </div>
               </div>
+            </div>
             </template>
         <template x-if="!demographicRoster()"><p class="text-sm italic opacity-70">No demographic data for this settlement yet.</p></template>
       </div>
