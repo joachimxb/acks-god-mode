@@ -6668,7 +6668,7 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(draw.category !== 'monster' && draw.category !== 'civilized') return null;
   const o = opts || {};
   const A = global.ACKS;
-  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, residentCharacterId: null, residentSettlementId: null };
+  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, residentCharacterId: null, residentSettlementId: null, garrisonDomainId: null, garrisonUnitId: null, garrisonTroopTypeKey: null };
   const prop = draw.proposal;
   if(draw.identityRoll){
     // E4 — the table named the creature; the 6a binding rides the draw verbatim
@@ -6701,6 +6701,26 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(draw.category === 'civilized' && monsterSide.monsterCatalogKey && typeof A.groundCivilizedEncounter === 'function'){
     const g = A.groundCivilizedEncounter(campaign, { hexId: draw.hexId || null, cellKey: monsterSide.monsterCatalogKey });
     if(g){ monsterSide.residentCharacterId = g.characterId; monsterSide.residentSettlementId = g.settlementId; }
+  }
+  // garrison-patrols (house rule, default OFF; MM p.226 + RR p.341): a "Man, Patroller" result
+  // inside a modelled domain is drawn from that domain's ACTUAL garrison — the troop type best
+  // suited to the hex terrain, capped at the garrison's strength. The source unit is recorded so
+  // patrollers slain in the meeting subtract from the garrison (the resolution panel's casualty
+  // control). The garrison reading supersedes the SD-5b census resident for patrollers. Late-bound
+  // (acks-engine-patrols.js loads after this module); the read is pure.
+  if(draw.category === 'civilized' && monsterSide.monsterCatalogKey === 'patroller'
+     && typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'garrison-patrols')
+     && typeof A.groundPatrollerToGarrison === 'function'){
+    const gp = A.groundPatrollerToGarrison(campaign, { hexId: draw.hexId || null, label: monsterSide.label });
+    if(gp){
+      monsterSide.garrisonDomainId = gp.domainId;
+      monsterSide.garrisonUnitId = gp.unitId;
+      monsterSide.garrisonTroopTypeKey = gp.troopTypeKey;
+      monsterSide.label = 'Man, Patroller — ' + gp.troopLabel + ' (' + gp.domainName + ' garrison)';
+      monsterSide.count = (monsterSide.count != null) ? Math.min(monsterSide.count, gp.availableCount) : gp.availableCount;
+      monsterSide.residentCharacterId = null;   // the garrison interpretation wins for patrollers
+      monsterSide.residentSettlementId = null;
+    }
   }
   const createOpts = {
     scale: 'wilderness',

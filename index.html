@@ -112,6 +112,8 @@
 <script src="acks-engine-domain-variants.js?v=2026-06-21-b13"></script>
 <!-- @b13-construction (team) — Phase 4 Construction Wave D (vessels / war machines). The WAR_MACHINE_CATALOG + the war-machine materializer + the siege feed; self-registers war-machine-built. Late-binds the construction/voyages/sieges core, so load order is irrelevant (it reads global.ACKS at call time); placed before player-view (which must stay last). -->
 <script src="acks-engine-construction.js?v=2026-06-21-wave-ehi"></script>
+<!-- Garrison Patrols — the garrison-patrols house rule (default OFF; MM p.226 + RR p.341): grounds a "Man, Patroller" civilized encounter to the hex domain's actual garrison + writes slain patrollers back to it. Self-registers the rule; late-binds findHex/domainGarrisonUnits/findTroopType/isHouseRuleEnabled, so load order is irrelevant; placed before player-view (which must stay last). -->
+<script src="acks-engine-patrols.js?v=2026-06-22-garrison-patrols"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
@@ -3269,6 +3271,21 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </template>
               <p class="opacity-70 text-xs capitalize" x-text="[encModalEnc().monsterSide.source, encModalEnc().monsterSide.encounterKind].filter(Boolean).join(' · ').replace(/-/g, ' ')"></p>
+              <!-- garrison-patrols (house rule) — this patroller is a detachment of the hex domain's
+                   REAL garrison; slain patrollers subtract from it (MM p.226 / RR p.341). -->
+              <template x-if="encGarrisonPatrol()">
+                <div class="mt-1 p-1.5 rounded border text-xs" style="background:#eef3ea; border-color:#5b6e4a">
+                  <p>🛡 <span class="font-semibold">Garrison patrol</span> —
+                    <span x-text="(encGarrisonPatrol().patrolCount != null ? encGarrisonPatrol().patrolCount + '× ' : '') + encGarrisonPatrol().troopLabel"></span>
+                    drawn from <span class="font-semibold" x-text="encGarrisonPatrol().domainName"></span>’s garrison<span class="opacity-60" x-text="' · ' + encGarrisonPatrol().garrisonRemaining + ' of this troop remain'"></span></p>
+                  <div class="flex items-center gap-1.5 mt-1" x-show="encGarrisonPatrol().unitPresent">
+                    <label>Patrollers slain this fight:</label>
+                    <input type="number" min="0" :max="encGarrisonPatrol().patrolCount || undefined" x-model.number="encModal.garrisonKilled" class="border border-ink rounded px-1 py-0.5 w-16">
+                    <button @click="encApplyGarrisonCasualties()" :disabled="!(encModal.garrisonKilled > 0)" :class="(encModal.garrisonKilled > 0) ? 'hover:bg-red-100' : 'opacity-40 cursor-not-allowed'" class="px-1.5 py-0.5 border border-ink rounded" title="Permanently subtract the slain from the domain garrison (RR p.341)">⚰ Apply to garrison</button>
+                  </div>
+                  <p class="opacity-60 italic mt-0.5" x-show="!encGarrisonPatrol().unitPresent">The source garrison unit is gone (disbanded since the meeting).</p>
+                </div>
+              </template>
             </div>
           </div>
           <!-- 1 · Distance -->
@@ -23423,6 +23440,24 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast('Influence: ' + r.attempt.from + ' → ' + r.attempt.to + (r.attempt.bribe && r.attempt.bribe.backlash ? ' (bribe backlash!)' : '') + '.', 4000);
   },
+  // ── garrison-patrols — the patroller IS a detachment of the hex domain's real garrison
+  // (MM p.226 / RR p.341). encGarrisonPatrol() is the derived display detail; the casualty
+  // verb permanently subtracts the slain from the source garrison unit (it then flows into
+  // garrison cost / Battle Rating / adequacy). ──
+  encGarrisonPatrol(){
+    const enc = this.encModalEnc(); if(!enc) return null;
+    return window.ACKS.garrisonPatrolSummary(this.currentCampaign, enc.id);
+  },
+  encApplyGarrisonCasualties(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const n = Math.floor(Number(this.encModal.garrisonKilled) || 0);
+    if(n <= 0) return;
+    const r = window.ACKS.applyGarrisonPatrolCasualties(this.currentCampaign, enc.id, n);
+    if(!r || !r.ok){ this.showToast('Could not apply casualties: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.encModal.garrisonKilled = 0;
+    this.showToast('⚰ ' + r.killed + ' patroller(s) lost — garrison reduced to ' + r.remaining + '.', 5000);
+  },
   encModalResolve(outcome){
     const enc = this.encModalEnc(); if(!enc) return;
     const r = window.ACKS.recordEncounterResolved(this.currentCampaign, enc.id, outcome, {});
@@ -30938,7 +30973,8 @@ return {
     pSurpMod: 0, mSurpMod: 0,
     evSize: 1, evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
     faceId: '', reactMod: 0,
-    inflActorId: '', inflMod: 0, inflBribe: 0
+    inflActorId: '', inflMod: 0, inflBribe: 0,
+    garrisonKilled: 0              // garrison-patrols — patrollers slain this fight (→ encApplyGarrisonCasualties)
   },
   lairsSearch: '',               // Lairs view text filter (name / monster / hex)
   lairsStatusFilter: 'all',      // Lairs view status filter
