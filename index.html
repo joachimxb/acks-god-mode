@@ -491,8 +491,10 @@ document.addEventListener('alpine:init', () => {
 <nav class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
      style="margin-top: 0.75rem; padding-top:0.5rem; padding-bottom:0.5rem;">
   <template x-for="v in topViews" :key="v.id">
-    <!-- alignRight (📋 Review, 2026-06-13): the work-queue tab is qualitatively different from
-         the world-content tabs, so it sits flush right (ml-auto in the flex row). -->
+    <!-- The turn-running tabs (📜 Events / 🏰 Domain Turn / ⚙ House Rules) float to the RIGHT end
+         of the bar — ml-auto on the first of the group (Events, alignRight in topViews) pushes it
+         and the two after it flush right, so they sit under the advance-day clock at the top-right;
+         the world-content tabs stay left. -->
     <button @click="currentView = v.id"
             :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '')"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
@@ -533,7 +535,14 @@ document.addEventListener('alpine:init', () => {
         <template x-for="b in advanceBlockers()" :key="b.kind + '-' + b.id">
           <div class="flex items-center justify-between gap-2 border-b border-dashed border-red-300 py-0.5">
             <span x-text="(b.kind === 'battle' ? '🎌 ' : '⚔ ') + b.label"></span>
-            <button @click="reviewSubView = (b.kind === 'battle' ? 'battles' : 'encounters')" class="underline font-semibold shrink-0" x-text="b.kind === 'battle' ? 'to Battles →' : 'to Encounters →'"></button>
+            <div class="flex items-center gap-2 shrink-0">
+              <!-- Quick-dismiss (encounters only) — resolve as 'dismissed' so the clock frees without
+                   walking the full RR panel; battles can't be dismissed (heavier aftermath), only opened. -->
+              <button x-show="b.kind !== 'battle'" @click="dismissEncounter(b.id, b.label)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+              <!-- Resolve — open THIS blocker's resolution panel directly (the encounter modal / battle
+                   panel), not just the list view (replaces the old 'to Encounters →' nav link). -->
+              <button @click="b.kind === 'battle' ? openBattlePanel(b.id) : openEncounterModal(b.id)" class="text-xs px-1.5 py-0.5 border border-red-700/60 text-red-800 rounded hover:bg-red-100 font-semibold" :title="b.kind === 'battle' ? 'Open this battle’s panel to resolve it' : 'Open this encounter’s resolution panel (the full RR pre-combat procedure)'" x-text="b.kind === 'battle' ? '🎌 resolve' : '⚔ resolve'"></button>
+            </div>
           </div>
         </template>
       </div>
@@ -1611,7 +1620,10 @@ document.addEventListener('alpine:init', () => {
                   </td>
                   <td class="font-mono" x-text="'t' + (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) + (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : '')"></td>
                   <td class="capitalize text-red-700 font-semibold" x-text="e.phase"></td>
-                  <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline text-red-800 font-semibold">⚔ resolve</button></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button @click="openEncounterModal(e.id)" class="underline text-red-800 font-semibold">⚔ resolve</button>
+                    <button @click="dismissEncounter(e.id, encounterLabel(e))" class="underline opacity-70 hover:opacity-100 hover:text-red-800 ml-3" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and clear it from the queue — without walking the full panel">✕ dismiss</button>
+                  </td>
                 </tr>
               </template>
             </tbody>
@@ -7306,29 +7318,25 @@ document.addEventListener('alpine:init', () => {
   </main>
 </div>
 
-<!-- ═══════════ VIEW: CAMPAIGN LOG ═══════════ -->
-<!-- Turn Cycle v2 — Event Log view. Pending events on top, applied/rejected history below.
-     Filterable by kind, submitter, status, domain, and free-text search. -->
+<!-- ═══════════ Events ▸ CHRONICLE · EMIT EVENT · EVENT LOG ═══════════
+     Three top-level Events sub-tabs (reviewSubView): the 📝 Chronicle narrative wizard, the
+     📨 Emit Event dev wizard, and the 📥 Event Log audit trail (pending on top, applied/rejected
+     history below; filterable by kind, submitter, status, domain, free-text search). Promoted out
+     of the old nested eventsSubView toggle 2026-06-22; the redundant Campaign Log (a derived prose
+     view of the same eventLog) was retired — the Event Log shows everything. -->
 
-<!-- ───── Sub-tab: Event Wizard (#541 — 2026-05-30) ───── -->
 <!-- ───── Sub-tab: Chronicle Entry (#551 Wave Entity-B — 2026-05-31) ───── -->
 <!-- The GM-facing narrative tool. Title + body + multi-Entity attachment via the Entity
      Registry (acks-engine-entity-registry.js). Emits a gm-narrative event with the
      context envelope populated from attached entities. Lands in Event Log + Campaign Log
      + entity history views via the existing derived-history machinery (#528). -->
-<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'chronicle'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'chronicle'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
-      <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
-      <button @click="eventsSubView='event-log'" :class="eventsSubView==='event-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='event-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📥 Event Log</button>
-      <button @click="eventsSubView='emit-wizard'" :class="eventsSubView==='emit-wizard' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='emit-wizard' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📨 Emit Event</button>
-      <button @click="eventsSubView='chronicle'" :class="eventsSubView==='chronicle' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='chronicle' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📝 Chronicle</button>
-    </div>
     <div class="flex justify-between items-baseline mb-3 flex-wrap gap-2">
       <h3 class="font-bold text-lg"><span x-text="chronicleState.editingEventId ? '📝 Edit Chronicle Entry' : '📝 Chronicle Entry'"></span> <span class="text-sm opacity-70 font-normal">· <span x-text="chronicleState.editingEventId ? 'Editing existing entry — Submit will update in place' : 'Freeform GM narrative attached to entities in your world'"></span></span></h3>
     </div>
     <div class="space-y-3">
-      <p class="text-sm opacity-80">Write down what happened in your world. Attach the entry to any entities it concerns — characters, hexes, settlements, domains, buildings, items, etc. The entry appears in the Event Log, Campaign Log, and the history view of every attached entity.</p>
+      <p class="text-sm opacity-80">Write down what happened in your world. Attach the entry to any entities it concerns — characters, hexes, settlements, domains, buildings, items, etc. The entry appears in the Event Log and the history view of every attached entity.</p>
 
       <div class="border border-ink/40 rounded p-3 space-y-2">
         <div class="wizard-step-header"><span class="wizard-step-n">Step 1</span>Title</div>
@@ -7385,14 +7393,8 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'emit-wizard'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'emit-wizard'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
-      <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
-      <button @click="eventsSubView='event-log'" :class="eventsSubView==='event-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='event-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📥 Event Log</button>
-      <button @click="eventsSubView='emit-wizard'" :class="eventsSubView==='emit-wizard' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='emit-wizard' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📨 Emit Event</button>
-      <button @click="eventsSubView='chronicle'" :class="eventsSubView==='chronicle' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='chronicle' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📝 Chronicle</button>
-    </div>
     <div class="flex justify-between items-baseline mb-3 flex-wrap gap-2">
       <h3 class="font-bold text-lg">📨 Emit Event <span class="text-sm opacity-70 font-normal">· Dev tool / GM escape valve</span></h3>
     </div>
@@ -7438,15 +7440,8 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'event-log'" class="p-4" x-cloak>
+<div x-show="currentView === 'review' && reviewSubView === 'event-log'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
-    <!-- Events log sub-tab bar (shared with Campaign log). -->
-    <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
-      <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
-      <button @click="eventsSubView='event-log'" :class="eventsSubView==='event-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='event-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📥 Event Log</button>
-      <button @click="eventsSubView='emit-wizard'" :class="eventsSubView==='emit-wizard' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='emit-wizard' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📨 Emit Event</button>
-      <button @click="eventsSubView='chronicle'" :class="eventsSubView==='chronicle' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='chronicle' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📝 Chronicle</button>
-    </div>
     <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
       <h2 class="font-bold text-xl">📥 Event Log
         <span class="text-sm opacity-70 font-normal">
@@ -7455,10 +7450,10 @@ document.addEventListener('alpine:init', () => {
         </span>
       </h2>
     </div>
-    <!-- Header guidance — explains the Event Log / Campaign Log relationship.
-         Post-v0.9 refactor (#234) will collapse this duplication. -->
+    <!-- Header guidance — the Event Log is the full audit trail; the day/month-scale views
+         (Daily / Monthly Events) are its filtered queues. -->
     <p class="text-sm opacity-70 italic mb-3 px-2 py-1 rounded" style="background:rgba(232,243,223,0.5)">
-      🔧 The Event Log is the structured audit trail — every typed event with its full payload, submitter, target turn, and result. Pending events can be resolved here (accept / reject / inline edit) without waiting for the month commit; the calendar-paged queue lives in <button @click="goToReview('pending-events')" class="underline font-semibold">📋 Review ▸ Pending Events</button>. For at-the-table narrative reading, see the <button @click="currentView='review'; reviewSubView='event-log'; eventsSubView='campaign-log'" class="underline font-semibold">📜 Campaign Log</button>.
+      🔧 The Event Log is the structured audit trail — every typed event with its full payload, submitter, target turn, and result. Pending events can be resolved here (accept / reject / inline edit) without waiting for the month commit; the day-scale effects queue under <button @click="goToReview('pending-events')" class="underline font-semibold">📥 Daily Events</button> and the domain-turn events under <button @click="goToReview('monthly-events')" class="underline font-semibold">📅 Monthly Events</button>.
     </p>
     <div class="flex flex-wrap gap-2 mb-3 text-sm">
       <select x-model="eventLogFilter.kind" class="text-sm">
@@ -7600,50 +7595,6 @@ document.addEventListener('alpine:init', () => {
           </li>
         </template>
       </ul>
-    </template>
-  </div>
-</div>
-
-<div x-show="currentView === 'review' && reviewSubView === 'event-log' && eventsSubView === 'campaign-log'" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <!-- Events log sub-tab bar (shared with Event log). -->
-    <div class="flex flex-wrap gap-1 mb-3 border-b border-ink/40">
-      <button @click="eventsSubView='campaign-log'" :class="eventsSubView==='campaign-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='campaign-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📜 Campaign Log</button>
-      <button @click="eventsSubView='event-log'" :class="eventsSubView==='event-log' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='event-log' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📥 Event Log</button>
-      <button @click="eventsSubView='emit-wizard'" :class="eventsSubView==='emit-wizard' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='emit-wizard' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📨 Emit Event</button>
-      <button @click="eventsSubView='chronicle'" :class="eventsSubView==='chronicle' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="eventsSubView==='chronicle' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">📝 Chronicle</button>
-    </div>
-    <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
-      <h2 class="font-bold text-xl">📜 Campaign Log <span class="text-sm opacity-70 font-normal" x-text="'· ' + campaignLogEntries().length + ' entries'"></span></h2>
-      <input x-model="campaignLogFilter" placeholder="Filter (text, domain name, date…)" class="w-64">
-    </div>
-
-    <!-- Header guidance — explains the Campaign Log / Event Log relationship.
-         Foundation #234 (2026-05-28): Campaign Log is now a DERIVED narrative view of
-         eventLog. No separate campaign.log[] array — every entry's prose comes from a
-         typed event's narrativeSummary. Single source of truth, no double-write. -->
-    <p class="text-sm opacity-70 italic mb-3 px-2 py-1 rounded" style="background:rgba(244,236,210,0.5)">
-      📖 The Campaign Log is the GM-facing narrative stream — a prose timeline derived from the same typed events the <button @click="currentView='review'; reviewSubView='event-log'; eventsSubView='event-log'" class="underline font-semibold">📥 Event Log</button> displays. Same source, different reading experience: structured rows there, story-shaped prose here.
-    </p>
-
-    <template x-if="campaignLogEntries().length === 0">
-      <p class="text-sm italic opacity-60">No log entries yet. Entries arrive when typed events apply — committing monthly turns, resolving pending events, adjusting treasury, founding settlements, level-ups, ventures, and so on.</p>
-    </template>
-
-    <template x-if="campaignLogEntries().length > 0">
-      <div>
-        <ul class="text-sm divide-y divide-ink/20">
-          <template x-for="(e, i) in campaignLogEntries().filter(e => !campaignLogFilter || (e.date + ' ' + e.text).toLowerCase().includes(campaignLogFilter.toLowerCase()))" :key="i">
-            <li class="py-2 flex gap-3">
-              <span class="font-mono opacity-60 whitespace-nowrap" style="min-width:10rem" x-text="'[' + e.date + ']'"></span>
-              <span x-text="e.text"></span>
-            </li>
-          </template>
-        </ul>
-        <p class="text-sm opacity-60 mt-3" x-show="campaignLogFilter">
-          Showing entries matching <code x-text="'&quot;' + campaignLogFilter + '&quot;'"></code>. Clear the filter to see all.
-        </p>
-      </div>
     </template>
   </div>
 </div>
@@ -20254,7 +20205,6 @@ return {
   // #225 (2026-06-02): default is now World; the Domains manager (which hosts the first-run welcome
   // banner) is the default World sub-view, so the landing experience is unchanged.
   currentView:'domains',   // UI overhaul 2026-06-22 — default lands on Domains (the heart of the tool + first-run welcome banner)
-  campaignLogFilter:'',
   activeTab:'overview',
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
   // (Phase 4 senate, Phase 4.6 mines/mushroom-farms, etc.) will insert into this list conditionally.
@@ -20535,7 +20485,14 @@ return {
         if(sess.rosterSubView)this.rosterSubView=sess.rosterSubView;
         if(sess.activitiesSubView)this.activitiesSubView=sess.activitiesSubView;
         if(sess.domainsSubView)this.domainsSubView=sess.domainsSubView;
-        if(sess.eventsSubView)this.eventsSubView=sess.eventsSubView;
+        // (2026-06-22) Emit Event + Chronicle were promoted from the nested eventsSubView toggle
+        // (under Event Log) to their own top-level Events sub-tabs; the redundant Campaign Log was
+        // retired. Migrate a persisted eventsSubView into the reviewSubView it became.
+        if(this.reviewSubView==='event-log' && sess.eventsSubView){
+          if(sess.eventsSubView==='emit-wizard') this.reviewSubView='emit-wizard';
+          else if(sess.eventsSubView==='chronicle') this.reviewSubView='chronicle';
+          // 'campaign-log' + 'event-log' both land on the Event Log (campaign-log retired).
+        }
         // ── Legacy session migration ──────────────────────────────────────────────
         // (pre-#225) 'map' was a top-level view → now a World sub-view.
         if(this.currentView==='map'){ this.worldSubView='map'; this.currentView='world'; }
@@ -20609,7 +20566,6 @@ return {
     this.$watch('rosterSubView',()=>this.schedulePersist());
     this.$watch('domainsSubView',()=>this.schedulePersist());
     this.$watch('activitiesSubView',()=>this.schedulePersist());
-    this.$watch('eventsSubView',()=>this.schedulePersist());
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -20655,7 +20611,7 @@ return {
         currentCampaign:this._campaignForCache(),   // domains live inside it now (single home); eventLog tail-capped for the cache only
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView, worldSubView:this.worldSubView, reviewSubView:this.reviewSubView,
-        rosterSubView:this.rosterSubView, activitiesSubView:this.activitiesSubView, domainsSubView:this.domainsSubView, eventsSubView:this.eventsSubView,
+        rosterSubView:this.rosterSubView, activitiesSubView:this.activitiesSubView, domainsSubView:this.domainsSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
         // (plan §8); mode always restores to 'inspect' (select is transient).
         mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
@@ -20681,30 +20637,28 @@ return {
     const enabledRules = (this.HOUSERULES||[]).filter(r => this.isHouseRuleEnabled(r.id)).length;
     const aliveChars = (this.currentCampaign?.characters||[]).filter(c=>c.alive!==false).length;
     const hexCount = (this.currentCampaign?.hexes||[]).filter(h=>h && h.domainId).length;
-    const pendingEv = (this.currentCampaign?.pendingEvents||[]).filter(e => e.status === 'pending').length;
-    const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
-    // 📋 Review badge (2026-06-13) — the "needs the GM" count: clock-holding blockers
-    // (active encounters / battles in motion) + due pending events + staged reviews.
-    let reviewCount = 0;
-    try {
-      const c = this.currentCampaign;
-      reviewCount = (window.ACKS.dailyAdvanceBlockers(c) || []).length
-        + (c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0)
-        + (this.dayTickProposal ? 1 : 0);   // turnProposal badge now lives on the Domain Turn tab (de-dup)
-    } catch(e){ reviewCount = 0; }
-    // UI overhaul 2026-06-22 — the 8 stable top-level tabs. Map/Domains are pulled out of World;
-    // the former conditional top-level tabs (religion, senate, banking, magic-items, knowledge,
-    // generators, gladiators) are now SUB-views of World/Domains/Roster/Activities (see the *SubTabs
-    // getters). 'review' keeps its internal id but is relabelled "📜 Events" (the old standalone
-    // 'events' chronicle/log view folds in as its Event-Log sub-tab). Domain Turn is the promoted
-    // old review/domain-review. All left-aligned, document order (no alignRight float).
+    // 📜 Events badge (2026-06-22) — the count of clock-holders that BLOCK the daily advance:
+    // active encounters + battles in motion (engine dailyAdvanceBlockers — exactly what greys the
+    // +1 day / Next month buttons and what the "⏸ The clock is held" banner on this tab lists).
+    // 0 → no badge, so it lights up only when something actually needs resolving before you advance.
+    let blockerCount = 0;
+    try { blockerCount = (window.ACKS.dailyAdvanceBlockers(this.currentCampaign) || []).length; } catch(e){ blockerCount = 0; }
+    // UI overhaul 2026-06-22 — the 8 stable top-level tabs. The world-content tabs lead at the
+    // LEFT in document order; the three turn-running tabs (Events / Domain Turn / House Rules)
+    // float to the RIGHT end of the bar (alignRight → ml-auto on the first of the group, Events),
+    // so they sit directly under the advance-day clock at the top-right of the header. Map/Domains
+    // are pulled out of World; the former conditional top-level tabs (religion, senate, banking,
+    // magic-items, knowledge, generators, gladiators) are now SUB-views of World/Domains/Roster/
+    // Activities (see the *SubTabs getters). 'review' keeps its internal id but is relabelled
+    // "📜 Events" (the old standalone 'events' chronicle/log view folds in as its Event-Log
+    // sub-tab). Domain Turn is the promoted old review/domain-review.
     return [
       { id:'world',        label:'🌍 World',        count: hexCount || null },
       { id:'domains',      label:'🏰 Domains',      count: (this.domains||[]).length || null },
       { id:'roster',       label:'👥 Roster',       count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
       { id:'inspector',    label:'🔍 Inspector' },
-      { id:'review',       label:'📜 Events',       count: (pendingEv + loggedEv) || null },
+      { id:'review',       label:'📜 Events',       count: blockerCount || null, alignRight: true },
       { id:'domain-turn',  label:'🏰 Domain Turn',  count: this.turnProposal ? 1 : null },
       { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
     ];
@@ -21095,8 +21049,6 @@ return {
     this.showToast('Loan written off.', 3000);
   },
 
-  // Events log — sub-tab toggle. Campaign log is the default (Joachim 2026-05-28).
-  eventsSubView: 'campaign-log',
             emitWizardKind: '', emitWizardPayloadJson: '{}',
             emitWizardCtxHexId: '', emitWizardCtxSettlementId: '', emitWizardCtxDomainId: '',
             emitWizardCtxRelatedJson: '[]', emitWizardNotes: '', emitWizardCadence: 'monthly-turn',
@@ -23765,6 +23717,20 @@ return {
     this.markDirty(); this.schedulePersist();
     if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
   },
+  // Quick-dismiss an active encounter — from the ⏸ clock-held banner (📜 Events ▸ Daily Events) or
+  // the ⚔ Encounters work-queue's Actions column — resolving it as 'dismissed' (nothing came of it)
+  // so it leaves the queue and the world clock frees, without walking the full RR pre-combat panel.
+  // Same engine path as the modal's encModalResolve above (recordEncounterResolved → the
+  // encounter-resolved event + entity flip). Encounters only (the banner hides it for battles).
+  // One-click by design — NO confirm (Joachim 2026-06-22): it's recoverable (the encounter lands in
+  // Past Encounters) and the toast names what was dismissed. Don't re-add a confirm() here.
+  dismissEncounter(id, label){
+    if(!this.currentCampaign) return;
+    const r = window.ACKS.recordEncounterResolved(this.currentCampaign, id, 'dismissed', {});
+    if(!r || !r.ok){ this.showToast('Could not dismiss: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Dismissed “' + (label || 'encounter') + '” — clock free if nothing else holds it.', 4000);
+  },
   // ── E3a — settle-as-lair (the linger-or-migrate proposal panel; JJ p.69 + p.103).
   // The verb rolls a PROPOSAL (transient encModal.settle — nothing written); ⟳ re-rolls;
   // the dungeon ×2 tick recomputes vs the held naturals; confirm materializes.
@@ -25137,7 +25103,7 @@ return {
     this.chronicleState.cadence = 'monthly-turn';
     this.chronicleState.editingEventId = null;
     this.chronicleState.returnToSubView = null;
-    if(returnTo && returnTo !== 'chronicle'){ this.eventsSubView = returnTo; }
+    if(returnTo && returnTo !== 'chronicle'){ this.reviewSubView = returnTo; }
   },
   chronicleEditExisting(eventId){
     // Open the Chronicle sub-tab pre-populated with the event's current values for editing.
@@ -25158,9 +25124,10 @@ return {
     this.chronicleState.pickerKind = '';
     this.chronicleState.pickerId = '';
     this.chronicleState.editingEventId = eventId;
-    // Remember where the GM came from so Cancel + Save can return them there.
-    this.chronicleState.returnToSubView = this.eventsSubView || 'event-log';
-    this.eventsSubView = 'chronicle';
+    // Remember where the GM came from so Cancel + Save can return them there. (Edit is
+    // launched from the Event Log row, so that's the natural return target.)
+    this.chronicleState.returnToSubView = (this.reviewSubView && this.reviewSubView !== 'chronicle') ? this.reviewSubView : 'event-log';
+    this.reviewSubView = 'chronicle';
   },
   chronicleSubmit(){
     if(!this.chronicleCanSubmit()) return;
@@ -26421,9 +26388,11 @@ return {
   },
 
   // ── 📜 Events sub-tabs (UI overhaul 2026-06-22 — was the 📋 Review tab). Daily Events | Monthly
-  // Events | Event Log | Construction | Encounters | Battles | Sieges. The internal view id stays
-  // 'review'. Domain Review is promoted to its own top-level 'domain-turn' tab; the old standalone
-  // 'events' chronicle/log view folds in under Event Log (its inner eventsSubView toggle preserved).
+  // Events | Event Log | Emit Event | Chronicle | Construction | Encounters | Battles | Sieges. The
+  // internal view id stays 'review'. Domain Review is promoted to its own top-level 'domain-turn'
+  // tab; Emit Event + Chronicle were promoted from the old nested eventsSubView toggle (under Event
+  // Log) to their own top-level sub-tabs, and the redundant Campaign Log was retired (the Event Log
+  // shows everything). Daily Events holds day-scale effects; Monthly Events the domain-turn events.
   get reviewSubTabs(){
     const c = this.currentCampaign;
     let dueM = 0, blk = 0, enc = 0, btl = 0, sie = 0, con = 0;
@@ -26438,6 +26407,8 @@ return {
       { id:'pending-events', label:'📥 Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
       { id:'monthly-events', label:'📅 Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
       { id:'event-log',      label:'📜 Event Log',      count: loggedEv || null },
+      { id:'emit-wizard',    label:'📨 Emit Event',     count: null },
+      { id:'chronicle',      label:'📝 Chronicle',      count: null },
       { id:'construction',   label:'🏗 Construction',   count: con || null },
       { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
       { id:'battles',        label:'🎌 Battles',        count: btl || null },
@@ -28328,8 +28299,8 @@ return {
         appliedAtTurn: ev.appliedAtTurn,
         appliedAt: new Date().toISOString(),
         // Operational edits (e.g. journey pace/mode/speed-override) stay in the Event Log audit
-        // but are filtered OUT of the narrative Campaign Log via this flag — they're knob-turns,
-        // not campaign moments. campaignLogEntries() skips entries carrying it.
+        // but are flagged campaignLogHidden — they're knob-turns, not campaign moments. The flag
+        // hides them from the Daily Events "show routine" toggle + the per-entity history boxes.
         ...(opts.suppressFromCampaignLog ? { campaignLogHidden: true } : {})
       });
       // Push to entity-specific history for at-a-glance browsing.
@@ -33028,34 +32999,12 @@ return {
     // intentionally empty — see Foundation #234
   },
 
-  // Campaign Log renderer (Foundation #234) — derives the narrative stream from
-  // campaign.eventLog. Each event's narrativeSummary (or applyResult.narrativeSummary)
-  // becomes a row; the date is the appliedAtTurn. Reverse-chronological (newest first).
-  // Engine emits + manual emits + GM-fiat audits + treasury edits all land in eventLog
-  // so this view covers every meaningful campaign moment without any parallel string list.
-  campaignLogEntries(){ return this._computeCampaignLogEntries(); },
-  _computeCampaignLogEntries(){
-    if(!this.currentCampaign) return [];
-    const eventLog = this.currentCampaign.eventLog || [];
-    // Operational knob-turns (journey pace/mode/speed-override) are flagged campaignLogHidden when
-    // committed — they belong in the Event Log audit, not the narrative Campaign Log. Filter them here.
-    return eventLog.slice().reverse().filter(entry => !entry.campaignLogHidden).map(entry => {
-      const ev = entry.event || {};
-      const narrative = entry.result?.narrativeSummary
-        || ev.payload?.narrativeSummary
-        || (ev.kind + (ev.status ? ' [' + ev.status + ']' : ''));
-      const turn = entry.appliedAtTurn != null ? entry.appliedAtTurn : (ev.appliedAtTurn || ev.targetTurn || (this.currentCampaign.currentTurn || 1));
-      return {
-        date: 'Turn ' + turn,
-        text: narrative,
-        kind: ev.kind,
-        submittedBy: ev.submittedBy,
-        eventId: ev.id
-      };
-    });
-  },
+  // (Campaign Log retired 2026-06-22 — campaignLogEntries()/_computeCampaignLogEntries() removed
+  // with the redundant Campaign Log view. The Event Log shows everything; the day/month-scale
+  // views filter it. The campaignLogHidden flag lives on — it now gates the Daily Events
+  // "show routine" toggle and the per-entity history boxes.)
 
-  // Build a context-rich narrative for a rejected event so the Campaign Log shows WHAT
+  // Build a context-rich narrative for a rejected event so the Event Log shows WHAT
   // was rejected rather than a bare "Rejected by GM". Pulls payload preview fields by
   // kind so a rejected rumor-emit reads "Rejected rumor-emit (from engine): 'Brigands
   // gather in the Thorn Wood' (topic: brigands, level 2)" instead of nothing.

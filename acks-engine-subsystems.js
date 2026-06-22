@@ -188,6 +188,40 @@ function _eventDayStamp(ev){
   return null;
 }
 
+// The cadences that mean "occurs at the monthly domain-turn granularity". Everything else
+// ('daily' day-tick, 'intra-encounter'/'hour'/'round'/'action' combat & delve ticks) is a
+// day-scale effect. 'decadal' = Domain-Wizard prehistory (turn-grained, lands far in the past).
+const _MONTHLY_CADENCES = { 'monthly-turn': 1, 'decadal': 1 };
+
+// Does this event belong to the MONTHLY Events tab (vs the DAILY tab)? This is the single
+// classifier the two review tables share, so an event lands in exactly one of them.
+//
+// WHY a cadence-based test, not "does it carry a day stamp": nearly every applied event is
+// stamped with the apply day (appliedAtDay) for the #346 activity budget — INCLUDING the
+// monthly domain-turn's own output (the engine-standard-turn's wealth-transfer income rows,
+// henchman wages, living expenses, aging, accrual). A day-stamp test therefore leaked the
+// monthly accounting into the Daily tab and dropped it from the Monthly tab. The day-tick
+// pipeline + day-scale subsystems tag their events cadence:'daily' (combat carries a
+// subdayContext); the monthly turn keeps the default 'monthly-turn'. So:
+//   • a sub-monthly cadence (or a sub-day combat context) → day-scale (Daily);
+//   • otherwise monthly — EXCEPT a standalone interactive day-errand (a sage consultation, a
+//     magic-item identify, a recorded proficiency/knowledge throw) that was historically left
+//     at the default cadence: it carries its own appliedAtDay but neither a monthly-turn parent
+//     (a roll-up child) nor a calendar gameTimeAt stamp (which the in-commit monthly processors
+//     set). The GP/item accounting grammar (wealth-transfer / item-transfer — Architecture §4)
+//     shares that exact shape for monthly income/wages/expenses, so it is excluded by kind and
+//     stays monthly; a genuinely day-scale transfer (a market buy mid-journey) is emitted at
+//     cadence:'daily' and is already caught above.
+function _eventIsMonthly(ev){
+  if(!ev) return true;
+  const cad = ev.cadence || 'monthly-turn';
+  if(!_MONTHLY_CADENCES[cad]) return false;          // 'daily' / combat / delve tick → day-scale
+  if(ev.subdayContext) return false;                 // within-a-day combat context → day-scale
+  if(ev.appliedAtDay != null && !ev.parentEventId && !ev.gameTimeAt
+     && ev.kind !== 'wealth-transfer' && ev.kind !== 'item-transfer') return false; // a standalone day-errand
+  return true;                                        // the domain turn + its children + monthly subsystems
+}
+
 // Uniform row shape for the Review ▸ Pending Events tables. `entryOrEv` is either a
 // pendingEvents[] event (isPending) or an eventLog[] wrapper {event, result, appliedAtTurn}.
 function _reviewEventRow(entryOrEv, isPending){
@@ -216,6 +250,7 @@ function eventsOnCalendarDay(campaign, info){
   (campaign.eventLog || []).forEach(entry => {
     const ev = (entry && entry.event) || entry;
     if(!ev) return;
+    if(_eventIsMonthly(ev)) return;                   // monthly-grained → the Monthly Events tab
     const evDay = _eventDayStamp(ev);
     if(evDay == null) return;
     const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
@@ -228,6 +263,7 @@ function eventsOnCalendarDay(campaign, info){
   });
   (campaign.pendingEvents || []).forEach(ev => {
     if(!ev || ev.status !== 'pending') return;
+    if(_eventIsMonthly(ev)) return;                   // monthly-grained → the Monthly Events tab
     const evDay = _eventDayStamp(ev);
     if(evDay == null) return;
     const gta = ev.gameTimeAt;
@@ -248,7 +284,7 @@ function monthlyEventsForReview(campaign, info){
   const pending = [], logged = [];
   (campaign.pendingEvents || []).forEach(ev => {
     if(!ev || ev.status !== 'pending') return;
-    if(_eventDayStamp(ev) != null) return;            // the daily table's business
+    if(!_eventIsMonthly(ev)) return;                  // day-scale → the Daily Events tab
     const t = ev.targetTurn || 0;
     const onItsMonth = (t === info.turn);
     const dueNow = (info.turn === currentTurn && t <= currentTurn);
@@ -257,7 +293,7 @@ function monthlyEventsForReview(campaign, info){
   (campaign.eventLog || []).forEach(entry => {
     const ev = (entry && entry.event) || entry;
     if(!ev) return;
-    if(_eventDayStamp(ev) != null) return;
+    if(!_eventIsMonthly(ev)) return;                  // day-scale → the Daily Events tab
     const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
     if(evTurn === info.turn) logged.push(_reviewEventRow(entry, false));
   });
