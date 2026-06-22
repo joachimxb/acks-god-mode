@@ -724,11 +724,11 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
-    <!-- Staged monthly turn pointer — the turn itself is reviewed on the Domain Review sub-tab. -->
+    <!-- Staged monthly turn pointer — the turn itself is reviewed on the 🏰 Monthly Turn tab. -->
     <template x-if="turnProposal">
       <div class="border-2 border-yellow-700/60 rounded p-3 text-sm flex items-center justify-between gap-2" style="background:#f4eed5">
         <span class="font-semibold">🏰 The monthly turn is staged and awaiting your review.</span>
-        <button @click="currentView='domain-turn'" class="underline font-semibold shrink-0">Open Domain Turn →</button>
+        <button @click="currentView='domain-turn'" class="underline font-semibold shrink-0">Open Monthly Turn →</button>
       </div>
     </template>
 
@@ -834,7 +834,7 @@ document.addEventListener('alpine:init', () => {
           </tbody>
         </table>
       </template>
-      <p class="text-xs opacity-60 italic mt-2">Month-scale events don't hold the day clock — anything still pending when the month is committed gets a forced decision (accept / reject / skip) in 🏰 Domain Review.</p>
+      <p class="text-xs opacity-60 italic mt-2">Month-scale events don't hold the day clock — anything still pending when the month is committed gets a forced decision (accept / reject / skip) in the 🏰 Monthly Turn tab.</p>
     </div>
   </div>
 </div>
@@ -7484,7 +7484,7 @@ document.addEventListener('alpine:init', () => {
          they don't have to wait for Advance Month. -->
     <template x-if="(currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending').length > 0">
       <p class="text-sm opacity-70 italic mb-2 px-2 py-1 rounded" style="background:#e8f3df">
-        💡 Pending events can be resolved here at any time — no need to wait for the month to end. Edit rumor text inline before accepting if you want to polish the wording. Anything still pending when the monthly turn is staged gets a forced decision in 📋 Review ▸ Domain Review as a backstop.
+        💡 Pending events can be resolved here at any time — no need to wait for the month to end. Edit rumor text inline before accepting if you want to polish the wording. Anything still pending when the monthly turn is committed gets a forced decision in the 🏰 Monthly Turn tab as a backstop.
       </p>
     </template>
     <template x-if="filteredEventLog().length > 0">
@@ -8043,7 +8043,7 @@ document.addEventListener('alpine:init', () => {
 
       <div class="vellum border border-ink rounded p-4">
         <h3 class="font-bold text-lg mb-2">🌊 Vagaries of Investment <span class="text-sm opacity-70 font-normal">· distilled from RR pp.383-388</span></h3>
-        <p class="text-sm opacity-70 mb-2">Per in-transit venture per turn, one entry is rolled and surfaced in the staged monthly turn (📋 Review ▸ Domain Review). Effects are applied at commit (GM can override or reroll). Weights total 90 + 10 calm-voyage buffer = 100 — distribution roughly 50% no-event, 22% minor setbacks, 15% good outcomes, 12% bad/catastrophic.</p>
+        <p class="text-sm opacity-70 mb-2">Per in-transit venture per turn, one entry is rolled and surfaced in the staged monthly turn (🏰 Monthly Turn ▸ Investments). Effects are applied at commit (GM can override or reroll). Weights total 90 + 10 calm-voyage buffer = 100 — distribution roughly 50% no-event, 22% minor setbacks, 15% good outcomes, 12% bad/catastrophic.</p>
         <table class="bookkeeping text-sm">
           <thead><tr><th class="text-left">Vagary</th><th>Weight</th><th>Severity</th><th>Effect</th><th class="text-left">Description</th></tr></thead>
           <tbody>
@@ -8101,25 +8101,50 @@ document.addEventListener('alpine:init', () => {
 <!-- ═══════════ Review ▸ 🏰 Domain Review — the monthly Turn Resolution. 2026-06-13: the old
      "Advance Month" MODAL re-homed as a Review sub-view; the inner content (pending-event
      decisions, living expenses, per-domain economy + morale, ventures) is unchanged. ═══════════ -->
-<div x-show="currentView === 'domain-turn'" class="p-4" x-cloak>
+<div x-show="currentView === 'domain-turn'" class="p-4" x-cloak
+     x-effect="if(currentView==='domain-turn' && currentCampaign && !turnProposal && !turnProposalError && domains.length>0 && advanceBlockers().length===0){ proposeMonthlyTurn(); }">
   <div class="max-w-screen-lg">
     <div class="vellum border border-ink rounded p-4">
-      <h2 class="font-bold text-lg mb-2">🏰 Domain Review — Turn Resolution</h2>
-      <!-- Empty state — nothing staged. "Next month ▶" (header) runs the remaining days first;
-           staging directly from here is the old Advance-month-button path: any un-ticked days
-           are subsumed on commit (monthly-commit-subsumes-in-flight, Calendar §10.4). -->
-      <template x-if="!turnProposal && !turnProposalError">
-        <div class="text-sm space-y-2">
-          <p class="italic opacity-70">No monthly turn is staged. The <strong>Next month ▶</strong> button (top right) runs the rest of the month day by day, then stages the turn here for review.</p>
-          <p class="opacity-70">Day <span class="font-semibold" x-text="(currentCampaign && currentCampaign.currentDayInMonth) || 1"></span> of 30 · <span x-text="dayClockLabel()"></span></p>
-          <button @click="proposeMonthlyTurn()" :disabled="advanceBlockers().length > 0 || domains.length === 0" :title="advanceLockReason() || (domains.length===0 ? 'No domains to advance.' : '')" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">Stage the monthly turn now</button>
-          <p class="text-xs opacity-60 italic" x-show="currentCampaign && (currentCampaign.currentDayInMonth || 1) < 30">Staging now skips ahead — the remaining days of the month run unreviewed when you commit (subsumed into the month).</p>
+      <h2 class="font-bold text-lg mb-2">🏰 Monthly Turn — Turn Resolution</h2>
+      <!-- No explicit "stage" gate any more (2026-06-22) — the whole preceding month IS the staging
+           period, so the turn auto-stages (the x-effect on the container above) the moment you open
+           this tab. What's left are the genuine preconditions: no domains, or a clock-holding
+           situation (active encounter / battle) that must be resolved before the month can resolve. -->
+      <template x-if="domains.length === 0">
+        <p class="text-sm italic opacity-70 py-4">No domains yet — create a domain before resolving a monthly turn.</p>
+      </template>
+      <template x-if="domains.length > 0 && !turnProposal && advanceBlockers().length > 0">
+        <div class="text-sm space-y-2 py-2">
+          <p class="accent-red font-semibold">⏸ The monthly turn can't be resolved while the clock is held.</p>
+          <p class="opacity-70" x-text="advanceLockReason()"></p>
+          <button @click="goToReview('encounters')" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold">Resolve in 📜 Events →</button>
         </div>
       </template>
       <p class="text-sm mb-3 accent-red" x-show="turnProposalError" x-text="turnProposalError"></p>
+
       <template x-if="turnProposal">
       <div>
-      <p class="text-sm mb-3">Review each domain. Edit any field. Click <strong>Commit all</strong> to apply — the campaign then rolls to day 1 of the next month.</p>
+        <!-- ═══ Top action bar — the sub-tab nav + Commit/Reset, visible from EVERY sub-tab ═══ -->
+        <div class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 mb-3 pb-2 pt-1 border-b-2 border-ink/40" style="background:#f6efd8">
+          <div class="flex flex-wrap gap-1">
+            <template x-for="t in monthlyTurnSubTabs" :key="t.id">
+              <button @click="monthlyTurnSubView=t.id"
+                      :class="monthlyTurnSubView===t.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+                      class="px-3 py-1 text-sm border-b-2 rounded-t"
+                      :style="monthlyTurnSubView===t.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+                      x-text="t.label + (t.count != null ? ' · ' + t.count : '')"></button>
+            </template>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs opacity-60 italic hidden sm:inline">Day <span x-text="(currentCampaign && currentCampaign.currentDayInMonth) || 1"></span> of 30</span>
+            <button @click="cancelTurn(); proposeMonthlyTurn()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100 text-sm" title="Discard your edits and re-stage a fresh turn">↻ Reset</button>
+            <button @click="commitTurn()" class="px-4 py-1.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Apply the whole turn — the campaign then rolls to day 1 of the next month">Commit Turn</button>
+          </div>
+        </div>
+
+        <!-- ═══ DOMAINS sub-tab — domain economics + events ═══ -->
+        <div x-show="monthlyTurnSubView==='domains'">
+        <p class="text-sm mb-3">Review each domain. Edit any field. Click <strong>Commit Turn</strong> (top) to apply — the campaign then rolls to day 1 of the next month.</p>
 
       <!-- Turn Cycle v2 — pending events panel. Surfaces every typed event awaiting review.
            Each row offers accept / reject / skip-this-turn. Per Turn_Cycle_v2_Plan.md §8.1. -->
@@ -8209,6 +8234,11 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+        </div><!-- /DOMAINS (pending-events block) -->
+
+      <!-- ═══ LIFESTYLE sub-tab — living expenses + henchman wages ═══ -->
+      <div x-show="monthlyTurnSubView==='lifestyle'">
+      <p class="text-sm mb-3 opacity-70">End-of-month living expenses and henchman wages. The debit happens on <strong>Commit Turn</strong>; adjust a character's lifestyle target on their Survival tab.</p>
       <!-- CoL-2 — end-of-month living-expenses + henchman-wage preview (read-only; the actual debit
            happens on commit). Mirrors the pending-events panel. Per-character target set on the Survival tab. -->
       <template x-if="turnLivingExpenseProposal && turnLivingExpenseProposal.ruleOn && (turnLivingExpenseProposal.charges||[]).length">
@@ -8234,7 +8264,13 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
       </template>
+      <template x-if="!turnLivingExpenseProposal || !turnLivingExpenseProposal.ruleOn || !(turnLivingExpenseProposal.charges||[]).length">
+        <p class="text-sm italic opacity-60 py-3">No living expenses or wages are due this month (or the Living Expenses house rule is off).</p>
+      </template>
+        </div><!-- /LIFESTYLE -->
 
+      <!-- ═══ SYNDICATES sub-tab — criminal-syndicate monthly tribute (RR p.362) ═══ -->
+      <div x-show="monthlyTurnSubView==='syndicates'">
       <template x-if="turnSyndicateTributeProposal && turnSyndicateTributeProposal.ruleOn && (turnSyndicateTributeProposal.collections||[]).length">
         <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
           <h3 class="font-bold text-base mb-1">🏛 Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
@@ -8256,20 +8292,67 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
       </template>
+      <template x-if="!turnSyndicateTributeProposal || !turnSyndicateTributeProposal.ruleOn || !(turnSyndicateTributeProposal.collections||[]).length">
+        <p class="text-sm italic opacity-60 py-4">No syndicate tribute due this month — no active syndicates, or the "Syndicates — auto-collect the monthly tribute" house rule (⚙ House Rules ▸ 🗡 Hijinks) is off. Run criminal syndicates from 🎭 Activities ▸ Hijinks.</p>
+      </template>
+        </div><!-- /SYNDICATES -->
 
+      <!-- ═══ CONSTRUCTION sub-tab — every domain's building projects + the urban/agricultural investments ═══ -->
+      <div x-show="monthlyTurnSubView==='construction'">
+        <!-- 🏗 Building projects under way (moved here from Events ▸ Construction, 2026-06-22). -->
+        <div class="border border-ink rounded p-3 mb-4" style="background:#f4ecd2">
+          <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
+            <h3 class="font-bold text-base">🏗 Building projects <span class="text-sm opacity-70 font-normal" x-text="'· ' + allConstructionProjects().length + ' project(s) under way'"></span></h3>
+            <button @click="openConstructionWizard({})" class="px-3 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold">🏗 Build over time</button>
+          </div>
+          <template x-if="allConstructionProjects().length === 0">
+            <p class="text-sm italic opacity-60 py-4 text-center">No construction under way. Start a project from a domain's Stronghold tab or the “Build over time” wizard.</p>
+          </template>
+          <template x-if="allConstructionProjects().length > 0">
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th>Domain</th><th>Project</th><th class="text-right">% complete</th><th class="text-right">Days left</th><th class="text-right">gp/day</th><th>Supervisor</th><th class="text-right">Actions</th></tr></thead>
+              <tbody>
+                <template x-for="row in allConstructionProjects()" :key="row.project.id">
+                  <tr class="hover:bg-yellow-50/60">
+                    <td x-text="row.domainName"></td>
+                    <td class="font-semibold" x-text="row.project.name || row.project.constructibleSubtype || row.project.constructibleKind || '(project)'"></td>
+                    <td class="text-right" x-text="row.forecast ? row.forecast.pctComplete + '%' : '—'"></td>
+                    <td class="text-right" x-text="row.forecast ? (row.forecast.daysToComplete == null ? 'stalled' : row.forecast.daysToComplete.toLocaleString()) : '—'"></td>
+                    <td class="text-right" x-text="row.forecast ? Math.round(row.forecast.dailyGp).toLocaleString() : '—'"></td>
+                    <td class="text-xs">
+                      <span x-show="row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk" class="accent-red" x-text="row.forecast ? ('⚠ ' + (row.forecast.supervisorBlockReason || 'no supervisor')) : ''"></span>
+                      <span x-show="!(row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk)" class="opacity-50">ok</span>
+                    </td>
+                    <td class="text-right"><button @click="cancelConstructionProject(row.project)" class="text-sm accent-red px-2 border border-ink/30 rounded hover:bg-red-50" title="Abandon this project">× abandon</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+        <h3 class="font-bold text-base mb-1">🏛 Domain investments this month</h3>
+        <p class="text-sm opacity-70 mb-3">Urban (RR p.351) and agricultural (RR p.341) investments allocated per domain this month. Amounts are spent on <strong>Commit Turn</strong>.</p>
+      </div>
+
+      <!-- The per-domain card feeds BOTH sub-tabs: its economics (income / expenses / morale / event)
+           show in DOMAINS; its urban + agricultural investment tables show in CONSTRUCTION. One loop,
+           two surfaces (Alpine x-show is position-independent). -->
       <template x-for="p in (turnProposal || [])" :key="p.domainId">
-        <div class="mb-4 border border-ink rounded p-3 vellum">
+        <div class="mb-4 border border-ink rounded p-3 vellum"
+             x-show="monthlyTurnSubView==='domains' || (monthlyTurnSubView==='construction' && ((p.urbanInvestments||[]).length>0 || (p.agriculturalOrders||[]).length>0))">
           <div class="flex justify-between items-center flex-wrap gap-2">
             <h3 class="font-bold">
               <span x-text="p.domainName + ' (' + p.classification + ')'"></span>
-              <span x-show="p.hasPlayerInput" class="ml-2 text-sm px-2 py-0.5 rounded accent-green" style="background:#e8f3df" title="Player has submitted an end-of-turn plan for this domain — Phase 5 will pre-populate the proposal fields from it">📥 player plan submitted</span>
+              <span x-show="p.hasPlayerInput && monthlyTurnSubView==='domains'" class="ml-2 text-sm px-2 py-0.5 rounded accent-green" style="background:#e8f3df" title="Player has submitted an end-of-turn plan for this domain — Phase 5 will pre-populate the proposal fields from it">📥 player plan submitted</span>
             </h3>
-            <div class="flex items-center gap-3 text-sm">
+            <div class="flex items-center gap-3 text-sm" x-show="monthlyTurnSubView==='domains'">
               <label><input type="checkbox" x-model="p.askClaude"> 🤖 Ask Claude (Phase 6)</label>
               <label><input type="checkbox" x-model="p.skip"> Skip</label>
             </div>
           </div>
 
+          <!-- economics (income / expenses / morale) — DOMAINS sub-tab only -->
+          <div x-show="monthlyTurnSubView==='domains'">
           <div x-show="p.skip" x-cloak class="skip-banner">⚠ SKIPPED — no changes applied to this domain this month</div>
           <div x-show="p.askClaude && !p.skip" x-cloak class="text-sm mt-1 px-2 py-1 rounded inline-block" style="background:#dde2f0;color:#1f3a7a">🤖 Marked for Claude to resolve · (Phase 6 will export this domain's state and ingest Claude's response on commit)</div>
 
@@ -8314,6 +8397,10 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
 
+          </div><!-- /economics (DOMAINS sub-tab) -->
+
+          <!-- urban + agricultural investments — CONSTRUCTION sub-tab only -->
+          <div x-show="monthlyTurnSubView==='construction'">
           <!-- Urban investments (per settlement) — ACKS RR p.351 -->
           <template x-if="(p.urbanInvestments||[]).length > 0">
             <div class="mt-3 p-2 border border-ink rounded" style="background:#f4ecd2" :class="p.skip ? 'skipped' : ''">
@@ -8440,13 +8527,18 @@ document.addEventListener('alpine:init', () => {
             </div>
           </template>
 
-          <div class="mt-2 text-sm" :class="p.skip ? 'skipped' : ''">
+          </div><!-- /investments (CONSTRUCTION sub-tab) -->
+
+          <!-- event + GM notes — DOMAINS sub-tab only -->
+          <div x-show="monthlyTurnSubView==='domains'" class="mt-2 text-sm" :class="p.skip ? 'skipped' : ''">
             <label class="block">Event: <input x-model="p.event" class="w-3/4"> <button @click="p.event = sampleEvent(p.moraleBefore)" class="text-sm underline">reroll</button></label>
             <label class="block mt-1">GM notes: <textarea x-model="p.gmNotes" class="w-full" rows="2"></textarea></label>
           </div>
         </div>
       </template>
 
+      <!-- ═══ INVESTMENTS sub-tab — in-transit ventures + their Vagaries of Investment ═══ -->
+      <div x-show="monthlyTurnSubView==='investments'">
       <!-- Phase 2b.5 — Vagaries of Investment for in-transit ventures -->
       <template x-if="(turnVentureProposals||[]).length > 0">
         <div class="mt-4 vellum border border-ink rounded p-3" style="background:#f0e8d8">
@@ -8485,11 +8577,11 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
       </template>
+      <template x-if="!(turnVentureProposals||[]).length">
+        <p class="text-sm italic opacity-60 py-4">No in-transit ventures this month — no Vagaries of Investment to resolve. Launch a venture from 🎭 Activities ▸ Ventures.</p>
+      </template>
+      </div><!-- /INVESTMENTS sub-tab -->
 
-      <div class="flex justify-end gap-2 mt-4">
-        <button @click="cancelTurn()" class="px-4 py-2 border border-ink rounded hover:bg-yellow-100">Cancel</button>
-        <button @click="commitTurn()" class="px-4 py-2 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold">Commit all</button>
-      </div>
       </div>
       </template>
     </div>
@@ -15254,40 +15346,7 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
-<!-- ═══════════ Events ▸ CONSTRUCTION (UI overhaul 2026-06-22) — every domain's in-progress projects in one
-     place (separated from the per-domain Stronghold tab + the Domain Turn). ═══════════ -->
-<div x-show="currentView === 'review' && reviewSubView === 'construction'" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
-      <h3 class="font-bold text-lg">🏗 Construction <span class="text-sm opacity-70 font-normal" x-text="'· ' + allConstructionProjects().length + ' project(s) under way'"></span></h3>
-      <button @click="openConstructionWizard({})" class="px-3 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold">🏗 Build over time</button>
-    </div>
-    <template x-if="allConstructionProjects().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No construction under way. Start a project from a domain's Stronghold tab or the “Build over time” wizard.</p>
-    </template>
-    <template x-if="allConstructionProjects().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Domain</th><th>Project</th><th class="text-right">% complete</th><th class="text-right">Days left</th><th class="text-right">gp/day</th><th>Supervisor</th><th class="text-right">Actions</th></tr></thead>
-        <tbody>
-          <template x-for="row in allConstructionProjects()" :key="row.project.id">
-            <tr class="hover:bg-yellow-50/60">
-              <td x-text="row.domainName"></td>
-              <td class="font-semibold" x-text="row.project.name || row.project.constructibleSubtype || row.project.constructibleKind || '(project)'"></td>
-              <td class="text-right" x-text="row.forecast ? row.forecast.pctComplete + '%' : '—'"></td>
-              <td class="text-right" x-text="row.forecast ? (row.forecast.daysToComplete == null ? 'stalled' : row.forecast.daysToComplete.toLocaleString()) : '—'"></td>
-              <td class="text-right" x-text="row.forecast ? Math.round(row.forecast.dailyGp).toLocaleString() : '—'"></td>
-              <td class="text-xs">
-                <span x-show="row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk" class="accent-red" x-text="row.forecast ? ('⚠ ' + (row.forecast.supervisorBlockReason || 'no supervisor')) : ''"></span>
-                <span x-show="!(row.forecast && row.forecast.requiresSupervisor && !row.forecast.supervisorOk)" class="opacity-50">ok</span>
-              </td>
-              <td class="text-right"><button @click="cancelConstructionProject(row.project)" class="text-sm accent-red px-2 border border-ink/30 rounded hover:bg-red-50" title="Abandon this project">× abandon</button></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-  </div>
-</div>
+<!-- Events ▸ Construction was moved to the 🏰 Monthly Turn ▸ Construction sub-tab (2026-06-22). -->
 
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — per-agent NEW top-level HTML (panels / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
 <!-- ── agent-1 (Military W6 Sieges): your siege panel / siege-resolution modal goes below ── -->
@@ -20482,6 +20541,7 @@ return {
         // Restore persisted sub-views — the original two plus the new ones from the 2026-06-22 UI overhaul.
         if(sess.worldSubView)this.worldSubView=sess.worldSubView;
         if(sess.reviewSubView)this.reviewSubView=sess.reviewSubView;
+        if(sess.monthlyTurnSubView)this.monthlyTurnSubView=sess.monthlyTurnSubView;
         if(sess.rosterSubView)this.rosterSubView=sess.rosterSubView;
         if(sess.activitiesSubView)this.activitiesSubView=sess.activitiesSubView;
         if(sess.domainsSubView)this.domainsSubView=sess.domainsSubView;
@@ -20517,8 +20577,10 @@ return {
         if(this.currentView==='knowledge'){ this.currentView='roster'; this.rosterSubView='knowledge'; }
         // Old standalone Events (chronicle/log) view folds under the Events ▸ Event Log sub-tab.
         if(this.currentView==='events'){ this.currentView='review'; this.reviewSubView='event-log'; }
-        // Domain Review promoted out of Review into its own Domain Turn tab.
+        // Domain Review promoted out of Review into its own Monthly Turn tab.
         if(this.currentView==='review' && this.reviewSubView==='domain-review'){ this.currentView='domain-turn'; }
+        // Construction moved from Events ▸ Construction to Monthly Turn ▸ Construction (2026-06-22).
+        if(this.currentView==='review' && this.reviewSubView==='construction'){ this.currentView='domain-turn'; this.monthlyTurnSubView='construction'; this.reviewSubView='pending-events'; }
         // 🛒 Market re-homed from Activities to the Settlement sheet (2026-06-22) — fall back to the dashboard.
         if(this.currentView==='activities' && this.activitiesSubView==='market') this.activitiesSubView='activities';
         // Final safety net — land on the default if currentView is still unknown.
@@ -20611,6 +20673,7 @@ return {
         currentCampaign:this._campaignForCache(),   // domains live inside it now (single home); eventLog tail-capped for the cache only
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView, worldSubView:this.worldSubView, reviewSubView:this.reviewSubView,
+        monthlyTurnSubView:this.monthlyTurnSubView,
         rosterSubView:this.rosterSubView, activitiesSubView:this.activitiesSubView, domainsSubView:this.domainsSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
         // (plan §8); mode always restores to 'inspect' (select is transient).
@@ -20659,7 +20722,7 @@ return {
       { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
       { id:'inspector',    label:'🔍 Inspector' },
       { id:'review',       label:'📜 Events',       count: blockerCount || null, alignRight: true },
-      { id:'domain-turn',  label:'🏰 Domain Turn',  count: this.turnProposal ? 1 : null },
+      { id:'domain-turn',  label:'🏰 Monthly Turn', count: this.turnProposal ? 1 : null },
       { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
     ];
   },
@@ -25237,6 +25300,11 @@ return {
   worldSubView:'map', // 'map' | 'hexes' | 'poi' | 'rumors' | 'religion' (UI overhaul 2026-06-22 — Domains/Stashes/Lairs/Dungeons moved out)
   // ── 📋 Review tab (2026-06-13) — the GM work queue: sub-view + the Pending Events cursors ──
   reviewSubView: 'pending-events',   // 'pending-events' | 'domain-review' | 'encounters' | 'battles'
+  // ── 🏰 Monthly Turn tab (2026-06-22) — the monthly Turn Resolution, split into sub-tabs.
+  // The whole month stages the turn (no explicit "stage" gate); the proposal auto-stages on
+  // entering the tab. 'domains' = economics + events | 'construction' = building projects +
+  // the urban/agricultural investments | 'investments' = ventures + their vagaries | 'lifestyle'.
+  monthlyTurnSubView: 'domains',
   reviewDayOffset: 0,                // Daily Events calendar cursor — days relative to today
   reviewMonthOffset: 0,              // Monthly Events calendar cursor — months relative to this month
   reviewShowRoutine: false,          // include campaignLogHidden chatter in Daily Events
@@ -26395,24 +26463,41 @@ return {
   // shows everything). Daily Events holds day-scale effects; Monthly Events the domain-turn events.
   get reviewSubTabs(){
     const c = this.currentCampaign;
-    let dueM = 0, blk = 0, enc = 0, btl = 0, sie = 0, con = 0;
+    let dueM = 0, blk = 0, enc = 0, btl = 0, sie = 0;
     const loggedEv = (c?.eventLog?.length) || 0;
     try { dueM = c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0; } catch(e){}
     try { blk = c ? (window.ACKS.dailyAdvanceBlockers(c) || []).length : 0; } catch(e){}
     try { enc = (window.ACKS.activeEncounters(c) || []).length; } catch(e){}
     try { btl = (window.ACKS.activeBattles(c) || []).length; } catch(e){}
     try { sie = (window.ACKS.activeSieges(c) || []).length; } catch(e){}   // Military W6 (burst3)
-    try { con = this.allConstructionProjects().length; } catch(e){}        // B6 — defined below
+    // Construction moved to the 🏰 Monthly Turn tab (2026-06-22) — no longer an Events sub-tab.
     return [
       { id:'pending-events', label:'📥 Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
       { id:'monthly-events', label:'📅 Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
       { id:'event-log',      label:'📜 Event Log',      count: loggedEv || null },
       { id:'emit-wizard',    label:'📨 Emit Event',     count: null },
       { id:'chronicle',      label:'📝 Chronicle',      count: null },
-      { id:'construction',   label:'🏗 Construction',   count: con || null },
       { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
       { id:'battles',        label:'🎌 Battles',        count: btl || null },
       { id:'sieges',         label:'🏯 Sieges',         count: sie || null }
+    ];
+  },
+
+  // ── 🏰 Monthly Turn sub-tabs (2026-06-22). Domains (economics + events) | Construction (the
+  // building projects + the urban/agricultural investments lifted out of the per-domain cards) |
+  // Investments (in-transit ventures + their vagaries) | Lifestyle (living expenses + wages).
+  get monthlyTurnSubTabs(){
+    let cons = 0, lifx = 0, ventx = 0, syndx = 0;
+    try { cons = this.allConstructionProjects().length; } catch(e){}
+    try { lifx = (this.turnLivingExpenseProposal && this.turnLivingExpenseProposal.ruleOn) ? (this.turnLivingExpenseProposal.charges||[]).length : 0; } catch(e){}
+    try { ventx = (this.turnVentureProposals||[]).length; } catch(e){}
+    try { syndx = (this.turnSyndicateTributeProposal && this.turnSyndicateTributeProposal.ruleOn) ? (this.turnSyndicateTributeProposal.collections||[]).length : 0; } catch(e){}
+    return [
+      { id:'domains',      label:'🏰 Domains',      count: (this.turnProposal||[]).length || null },
+      { id:'construction', label:'🏗 Construction', count: cons || null },
+      { id:'investments',  label:'🌊 Investments',  count: ventx || null },
+      { id:'syndicates',   label:'🗡 Syndicates',   count: syndx || null },
+      { id:'lifestyle',    label:'🏠 Lifestyle',    count: lifx || null }
     ];
   },
 
@@ -33937,12 +34022,15 @@ return {
   // pending events deliberately do NOT lock the clock (they're decided at the month commit).
   advanceLocked(){
     if(!this.currentCampaign) return true;
-    return !!this.dayTickProposal || !!this.turnProposal || this.advanceBlockers().length > 0;
+    // The monthly turn now stages across the whole month (auto-staged when you open the 🏰 Monthly
+    // Turn tab), so it no longer locks the day clock — only a staged DAY-tick or a clock-holding
+    // situation (active encounter / battle) does. The month still can't roll over without committing
+    // the turn: the day-30 tick re-stages the turn instead of advancing.
+    return !!this.dayTickProposal || this.advanceBlockers().length > 0;
   },
   advanceLockReason(){
     if(!this.currentCampaign) return '';
-    if(this.dayTickProposal) return 'A staged day awaits review — commit or cancel it in 📋 Review ▸ Pending Events.';
-    if(this.turnProposal) return 'The monthly turn is staged — commit or cancel it in 📋 Review ▸ Domain Review.';
+    if(this.dayTickProposal) return 'A staged day awaits review — commit or cancel it in 📜 Events ▸ Daily Events.';
     const b = this.advanceBlockers();
     if(!b.length) return '';
     const enc = b.filter(x => x.kind === 'encounter').length;
