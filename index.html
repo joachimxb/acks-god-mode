@@ -5378,23 +5378,13 @@ document.addEventListener('alpine:init', () => {
                       <td class="font-semibold"><button @click="openSettlementSheet(entry.settlement.id)" class="underline text-left" title="Open settlement sheet" x-text="entry.settlement.name || '(unnamed)'"></button></td>
                       <td class="font-mono text-sm" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r)"></td>
                       <td x-text="settlementType(entry.settlement)"></td>
-                      <td>
-                        <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'families', label:'Settlement families', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                        </span>
-                      </td>
+                      <td x-text="(entry.settlement.families||0).toLocaleString()"></td>
                       <td x-text="'Class '+settlementMarketClass(entry.settlement)"></td>
                       <td>
                         <span x-text="settlementCapacity(entry.settlement).toLocaleString()"></span>
                         <span x-show="(entry.settlement.families||0) >= settlementCapacity(entry.settlement)" class="accent-red ml-1" title="At investment cap — growth blocked. Invest more at the monthly turn to raise the tier.">⚠ full</span>
                       </td>
-                      <td>
-                        <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'totalInvestment', label:'Settlement investment', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue + ' gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" min="0" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                        </span>
-                      </td>
+                      <td x-text="(entry.settlement.totalInvestment||0).toLocaleString() + ' gp'"></td>
                     </tr>
                   </template>
                   <tr class="total">
@@ -10928,12 +10918,40 @@ document.addEventListener('alpine:init', () => {
     <div class="p-4">
       <!-- OVERVIEW -->
       <div x-show="settlementSheetTab==='overview'" class="space-y-3">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Families</div><div class="font-semibold" x-text="(settlementSheet().families||0).toLocaleString()"></div></div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Hex</div><div class="font-semibold font-mono" x-text="settlementSheetHex() ? window.ACKS.hexDisplayLabel(settlementSheetHex().coord.q, settlementSheetHex().coord.r) : '—'"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Type</div><div class="font-semibold" x-text="settlementType(settlementSheet())"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Families</div><div class="font-semibold"><span class="ed-stat" x-data="editableStat({entityType:'settlement', getEntity(){ return window.acksApp?.settlementSheet(); }, fieldPath:'families', label:'Settlement families', kind:'number', min:0})"><template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template><template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template></span></div></div>
           <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Market class</div><div class="font-semibold" x-text="'Class ' + settlementMarketClass(settlementSheet())"></div></div>
-          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold" x-text="settlementCapacity(settlementSheet()).toLocaleString()"></div></div>
-          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold" x-text="(settlementSheet().investment||0).toLocaleString()"></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Capacity</div><div class="font-semibold"><span x-text="settlementCapacity(settlementSheet()).toLocaleString()"></span><span x-show="(settlementSheet().families||0) >= settlementCapacity(settlementSheet())" class="accent-red ml-1 text-xs" title="At investment cap — growth blocked. Invest more to raise the tier.">⚠ full</span></div></div>
+          <div class="border border-ink/30 rounded p-2"><div class="opacity-60 text-xs">Investment (gp)</div><div class="font-semibold"><span class="ed-stat" x-data="editableStat({entityType:'settlement', getEntity(){ return window.acksApp?.settlementSheet(); }, fieldPath:'totalInvestment', label:'Settlement investment', kind:'number', min:0})"><template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template><template x-if="editing"><span class="ed-stat"><input type="number" min="0" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template></span></div></div>
         </div>
+        <!-- Settlement buildings (moved from the Hex sheet, 2026-06-22) — JJ pp.217–221 + RR p.133 -->
+        <template x-if="settlementSheetHex()">
+          <div class="border border-ink/30 rounded p-3">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <h4 class="font-semibold text-sm">🏛 Settlement buildings <span class="opacity-60 font-normal text-xs" x-text="'(' + settlementBuildingRows(settlementSheetHex()).length + ')'"></span></h4>
+              <button @click="openConstructionWizard({ kind:'settlement-building', siteHexId: settlementSheetHex().id }); closeSettlementSheet();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Found a new building here (JJ pp.217–221 + RR p.133) — built over time via the Construction Wizard">+ Found building</button>
+            </div>
+            <template x-if="settlementBuildingRows(settlementSheetHex()).length === 0 && settlementBuildingProjectsAtHex(settlementSheetHex()).length === 0">
+              <p class="text-xs italic opacity-60 mt-1">No buildings founded here yet — guildhouses, a temple, a tower of knowledge, baths, an emporium… (JJ pp.217–221 + RR p.133).</p>
+            </template>
+            <ul class="text-xs mt-1 space-y-0.5">
+              <template x-for="b in settlementBuildingRows(settlementSheetHex())" :key="b.id">
+                <li class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-semibold" x-text="b.name"></span>
+                  <span class="px-1.5 rounded bg-amber-100 border border-amber-300" x-text="b.fnLabel"></span>
+                  <span x-show="b.enables" class="opacity-60" x-text="'· enables ' + b.enables"></span>
+                  <span x-show="b.damageState && b.damageState !== 'intact'" class="accent-red font-semibold" x-text="'· ' + b.damageState"></span>
+                  <button x-show="b.damageState && b.damageState !== 'intact'" @click="openConstructionWizard({ repairTargetConstructibleId: b.id }); closeSettlementSheet();" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-amber-100 hover:bg-amber-200" title="Repair this damaged building (RR p.339) — built over time via the Construction Wizard">🔧 Repair</button>
+                </li>
+              </template>
+              <template x-for="p in settlementBuildingProjectsAtHex(settlementSheetHex())" :key="p.id">
+                <li class="opacity-70 italic" x-text="'🏗 ' + (p.name || 'building') + ' — under construction'"></li>
+              </template>
+            </ul>
+          </div>
+        </template>
       </div>
       <!-- DEMOGRAPHICS (moved from Domain ▸ Demographics, 2026-06-22; keyed on demoSettlementId set by openSettlementSheet) -->
       <div x-show="settlementSheetTab==='demographics'">
@@ -10941,7 +10959,6 @@ document.addEventListener('alpine:init', () => {
           <div>
             <div class="border border-ink/30 rounded p-2 text-sm mb-3">
               <div class="font-semibold mb-1">📊 Demographic census <span class="opacity-60 font-normal" x-text="'· JJ Step 3 · Class ' + demographicRoster().expected.marketClass"></span></div>
-              <p><span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered resident(s) of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected · <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots</p>
             </div>
             <div class="mt-1 border border-ink/30 rounded p-3">
                 <p class="text-sm opacity-70 mb-2">
@@ -11258,6 +11275,14 @@ document.addEventListener('alpine:init', () => {
       </div>
       <!-- MARKET availability (moved from Activities ▸ Market, 2026-06-22; per-settlement, reuses the trade engine) -->
       <div x-show="settlementSheetTab==='market'" class="text-sm">
+        <!-- Trade launcher (moved from the Hex sheet, 2026-06-22) -->
+        <div class="border border-ink/30 rounded p-2 mb-3 flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <span class="font-semibold text-sm">🛒 Market</span><span class="opacity-60 font-normal text-xs" x-text="' · '+(settlementSheet().name||'settlement')+' · Class '+settlementMarketClass(settlementSheet())"></span>
+            <p class="text-xs italic opacity-60 mt-0.5">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
+          </div>
+          <button @click="openTrade({ settlementId: settlementSheet().id }); closeSettlementSheet();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Buy or sell at this settlement's market">🛒 Trade here</button>
+        </div>
         <template x-if="settlementMarketClass(settlementSheet())==='VI*'">
           <p class="text-sm italic opacity-70">This settlement is too small for a market — a market needs 75+ families (Class V or better). Items can still be bought from a larger market or an army camp via the Trade wizard.</p>
         </template>
@@ -14100,45 +14125,19 @@ document.addEventListener('alpine:init', () => {
         </ul>
       </div>
 
-      <!-- Market (Item Trade IT-4) — retail buy/sell at this hex's settlement, when there is one. -->
+      <!-- Settlement reference (2026-06-22): the buildings management moved to the Settlement sheet ▸ Overview;
+           the hex sheet links to its settlement here (the name opens the settlement sheet). -->
       <template x-if="hexSettlementFor(worldHexEditingHex())">
         <div class="vellum border border-ink/40 rounded p-2">
           <div class="flex items-center justify-between gap-2 flex-wrap">
-            <h4 class="font-semibold text-sm">🛒 Market <span class="opacity-60 font-normal text-xs" x-text="'· '+(hexSettlementFor(worldHexEditingHex()).name||'settlement')+' · Class '+settlementMarketClass(hexSettlementFor(worldHexEditingHex()))"></span></h4>
-            <button @click="openTrade({ settlementId: hexSettlementFor(worldHexEditingHex()).id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Buy or sell at this settlement's market">🛒 Trade here</button>
+            <h4 class="font-semibold text-sm">🏘 Settlement</h4>
+            <button @click="openSettlementSheet(hexSettlementFor(worldHexEditingHex()).id); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Open this settlement's sheet — demographics, demand, market, buildings">Open sheet ▸</button>
           </div>
-          <p class="text-xs italic opacity-60 mt-1">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
-        </div>
-      </template>
-
-      <!-- Construction Wave E — settlement buildings (constructibleKind:'settlement-building'): the
-           function-chip readout + a "+ Found building" deep-link into the Construction Wizard, for a
-           settlement-bearing hex. Each built building shows what settlement function it provides + the
-           downstream subsystem it enables. -->
-      <template x-if="hexSettlementFor(worldHexEditingHex())">
-        <div class="vellum border border-ink/40 rounded p-2">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <h4 class="font-semibold text-sm">🏛 Settlement buildings <span class="opacity-60 font-normal text-xs" x-text="'(' + settlementBuildingRows(worldHexEditingHex()).length + ')'"></span></h4>
-            <button @click="openConstructionWizard({ kind:'settlement-building', siteHexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Found a new building here (JJ pp.217–221 + RR p.133) — built over time via the Construction Wizard">+ Found building</button>
-          </div>
-          <template x-if="settlementBuildingRows(worldHexEditingHex()).length === 0 && settlementBuildingProjectsAtHex(worldHexEditingHex()).length === 0">
-            <p class="text-xs italic opacity-60 mt-1">No buildings founded here yet — guildhouses, a temple, a tower of knowledge, baths, an emporium… (JJ pp.217–221 + RR p.133).</p>
-          </template>
-          <ul class="text-xs mt-1 space-y-0.5">
-            <template x-for="b in settlementBuildingRows(worldHexEditingHex())" :key="b.id">
-              <li class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-semibold" x-text="b.name"></span>
-                <span class="px-1.5 rounded bg-amber-100 border border-amber-300" x-text="b.fnLabel"></span>
-                <span x-show="b.enables" class="opacity-60" x-text="'· enables ' + b.enables"></span>
-                <span x-show="b.damageState && b.damageState !== 'intact'" class="accent-red font-semibold" x-text="'· ' + b.damageState"></span>
-                <!-- Wave F — a damaged building offers a repair launcher (opens the Wizard in repair mode). -->
-                <button x-show="b.damageState && b.damageState !== 'intact'" @click="openConstructionWizard({ repairTargetConstructibleId: b.id }); closeHexDetail();" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-amber-100 hover:bg-amber-200" title="Repair this damaged building (RR p.339) — built over time via the Construction Wizard">🔧 Repair</button>
-              </li>
-            </template>
-            <template x-for="p in settlementBuildingProjectsAtHex(worldHexEditingHex())" :key="p.id">
-              <li class="opacity-70 italic" x-text="'🏗 ' + (p.name || 'building') + ' — under construction'"></li>
-            </template>
-          </ul>
+          <p class="text-sm mt-1">
+            <button @click="openSettlementSheet(hexSettlementFor(worldHexEditingHex()).id); closeHexDetail();" class="font-semibold underline" x-text="hexSettlementFor(worldHexEditingHex()).name || '(unnamed settlement)'"></button>
+            <span class="opacity-60" x-text="'· ' + settlementType(hexSettlementFor(worldHexEditingHex()))"></span>
+          </p>
+          <p class="text-xs italic opacity-60 mt-1">Demographics, demand, market &amp; settlement buildings are managed on the settlement sheet.</p>
         </div>
       </template>
 
@@ -26680,6 +26679,7 @@ return {
   openSettlementSheet(id){ this.settlementSheetId=id; this.demoSettlementId=id; this.settlementSheetTab='overview'; },
   closeSettlementSheet(){ this.settlementSheetId=null; this.demoSettlementId=null; },
   settlementSheet(){ const id=this.settlementSheetId; if(!id) return null; return (this.currentCampaign?.settlements||[]).find(s=>s&&s.id===id)||null; },
+  settlementSheetHex(){ const st=this.settlementSheet(); if(!st||!st.hexId) return null; return (this.currentCampaign?.hexes||[]).find(h=>h && h.id===st.hexId)||null; },
   // B4 — Roster ▸ Ships location label (hexLabelFor is a global helper).
   vesselHexLabel(v){ if(!v||!v.hexId) return '—'; const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===v.hexId); return h ? hexLabelFor(h) : '—'; },
   // B5 — Settlement sheet ▸ Market tab: per-settlement item availability (reuses the trade engine).
