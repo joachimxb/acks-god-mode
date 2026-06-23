@@ -188,6 +188,40 @@ function _eventDayStamp(ev){
   return null;
 }
 
+// The cadences that mean "occurs at the monthly domain-turn granularity". Everything else
+// ('daily' day-tick, 'intra-encounter'/'hour'/'round'/'action' combat & delve ticks) is a
+// day-scale effect. 'decadal' = Domain-Wizard prehistory (turn-grained, lands far in the past).
+const _MONTHLY_CADENCES = { 'monthly-turn': 1, 'decadal': 1 };
+
+// Does this event belong to the MONTHLY Events tab (vs the DAILY tab)? This is the single
+// classifier the two review tables share, so an event lands in exactly one of them.
+//
+// WHY a cadence-based test, not "does it carry a day stamp": nearly every applied event is
+// stamped with the apply day (appliedAtDay) for the #346 activity budget — INCLUDING the
+// monthly domain-turn's own output (the engine-standard-turn's wealth-transfer income rows,
+// henchman wages, living expenses, aging, accrual). A day-stamp test therefore leaked the
+// monthly accounting into the Daily tab and dropped it from the Monthly tab. The day-tick
+// pipeline + day-scale subsystems tag their events cadence:'daily' (combat carries a
+// subdayContext); the monthly turn keeps the default 'monthly-turn'. So:
+//   • a sub-monthly cadence (or a sub-day combat context) → day-scale (Daily);
+//   • otherwise monthly — EXCEPT a standalone interactive day-errand (a sage consultation, a
+//     magic-item identify, a recorded proficiency/knowledge throw) that was historically left
+//     at the default cadence: it carries its own appliedAtDay but neither a monthly-turn parent
+//     (a roll-up child) nor a calendar gameTimeAt stamp (which the in-commit monthly processors
+//     set). The GP/item accounting grammar (wealth-transfer / item-transfer — Architecture §4)
+//     shares that exact shape for monthly income/wages/expenses, so it is excluded by kind and
+//     stays monthly; a genuinely day-scale transfer (a market buy mid-journey) is emitted at
+//     cadence:'daily' and is already caught above.
+function _eventIsMonthly(ev){
+  if(!ev) return true;
+  const cad = ev.cadence || 'monthly-turn';
+  if(!_MONTHLY_CADENCES[cad]) return false;          // 'daily' / combat / delve tick → day-scale
+  if(ev.subdayContext) return false;                 // within-a-day combat context → day-scale
+  if(ev.appliedAtDay != null && !ev.parentEventId && !ev.gameTimeAt
+     && ev.kind !== 'wealth-transfer' && ev.kind !== 'item-transfer') return false; // a standalone day-errand
+  return true;                                        // the domain turn + its children + monthly subsystems
+}
+
 // Uniform row shape for the Review ▸ Pending Events tables. `entryOrEv` is either a
 // pendingEvents[] event (isPending) or an eventLog[] wrapper {event, result, appliedAtTurn}.
 function _reviewEventRow(entryOrEv, isPending){
@@ -216,6 +250,7 @@ function eventsOnCalendarDay(campaign, info){
   (campaign.eventLog || []).forEach(entry => {
     const ev = (entry && entry.event) || entry;
     if(!ev) return;
+    if(_eventIsMonthly(ev)) return;                   // monthly-grained → the Monthly Events tab
     const evDay = _eventDayStamp(ev);
     if(evDay == null) return;
     const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
@@ -228,6 +263,7 @@ function eventsOnCalendarDay(campaign, info){
   });
   (campaign.pendingEvents || []).forEach(ev => {
     if(!ev || ev.status !== 'pending') return;
+    if(_eventIsMonthly(ev)) return;                   // monthly-grained → the Monthly Events tab
     const evDay = _eventDayStamp(ev);
     if(evDay == null) return;
     const gta = ev.gameTimeAt;
@@ -248,7 +284,7 @@ function monthlyEventsForReview(campaign, info){
   const pending = [], logged = [];
   (campaign.pendingEvents || []).forEach(ev => {
     if(!ev || ev.status !== 'pending') return;
-    if(_eventDayStamp(ev) != null) return;            // the daily table's business
+    if(!_eventIsMonthly(ev)) return;                  // day-scale → the Daily Events tab
     const t = ev.targetTurn || 0;
     const onItsMonth = (t === info.turn);
     const dueNow = (info.turn === currentTurn && t <= currentTurn);
@@ -257,7 +293,7 @@ function monthlyEventsForReview(campaign, info){
   (campaign.eventLog || []).forEach(entry => {
     const ev = (entry && entry.event) || entry;
     if(!ev) return;
-    if(_eventDayStamp(ev) != null) return;
+    if(!_eventIsMonthly(ev)) return;                  // day-scale → the Daily Events tab
     const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
     if(evTurn === info.turn) logged.push(_reviewEventRow(entry, false));
   });
@@ -6987,14 +7023,33 @@ function commitMilitaryRecord(campaign, record){
           text: 'Gave battle to ' + (band.name || 'the band') + (dom ? (' in ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
       }
     } else {   // driven off (JJ p.104) — the band is repelled and leaves the field
-      if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
-      band.currentHexId = null;                              // out of the hex — off the active map (no longer the domain's problem)
-      band.wanderState = null;
-      (band.history = band.history || []).push({ turn, type: 'incursion',
-        reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — repelled from ' + (dom ? (dom.name || dom.id) : 'the domain') });
-      army.reactionTargetGroupId = null;                     // mission accomplished — the GM recalls the force
-      (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
-        text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+      // RR p.351 — driving the domain's OWN bandits off the field with a superior force counts as
+      // "successfully defeating" them (parity with the pitched battle, per Joachim): +1 current
+      // morale (bloodless — no families slain), the bandit-lord's challenge broken, and the routed
+      // band disperses (the monthly re-derive re-musters them if morale stays below −1, RR p.351).
+      // Scoped to banditry bands — a monster incursion (no banditryDomainId) is simply repelled.
+      const banditDom = band.banditryDomainId
+        ? ((campaign.domains || []).find(x => x && x.id === band.banditryDomainId) || null)
+        : null;
+      if(banditDom && typeof A.applyBanditryQuelled === 'function'){
+        const heal = A.applyBanditryQuelled(campaign, banditDom, { killed: 0,
+          challengerNote: 'Routed by ' + (army.name || 'the garrison') + ' — his bandit revolt in ' + (banditDom.name || banditDom.id) + ' is broken (RR p.351)' });
+        campaign.groups = (campaign.groups || []).filter(g => g !== band);   // the routed band disperses
+        army.reactionTargetGroupId = null;
+        army.reactionBattleId = null;
+        const moraleNote = heal ? (' — ' + (banditDom.name || banditDom.id) + ' morale ' + heal.moraleBefore + ' → ' + heal.moraleAfter + ' (RR p.351)') : '';
+        (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
+          text: 'Routed the bandits of ' + (banditDom.name || banditDom.id) + moraleNote });
+      } else {
+        if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+        band.currentHexId = null;                            // out of the hex — off the active map (no longer the domain's problem)
+        band.wanderState = null;
+        (band.history = band.history || []).push({ turn, type: 'incursion',
+          reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — repelled from ' + (dom ? (dom.name || dom.id) : 'the domain') });
+        army.reactionTargetGroupId = null;                   // mission accomplished — the GM recalls the force
+        (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
+          text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+      }
     }
   } else if(record.kind === 'army-band-chase'){
     // Garrison-reaction AUTO-CHASE (v2, JJ p.104): the band wandered before the sally force
@@ -7060,6 +7115,18 @@ function commitMilitaryRecord(campaign, record){
     army.lastWarVagaryOrd = record.ord;
     army.vagaryWarNextMod = record.nextMod || 0;     // overwrites the consumed carried mod + sets the new omen mod (0 if none)
     (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'vagary-of-war', text: 'Vagary of War: ' + (record.vagaryName || record.vagaryKey) });
+    // W8 auto-apply — Brigands (JJ p.113): materialize the supply-line raiders as an independent
+    // enemy army at the army's hex (the supply +10% / recon −1 stay a GM-resolve note). The rest of
+    // the war vagaries stay GM-adjudicated. spawnBrigandArmy lives in acks-engine-vagaries.js (late).
+    if(record.vagaryKey === 'brigands-war' && typeof A.spawnBrigandArmy === 'function'){
+      const leaderDomain = army.leaderCharacterId ? (campaign.domains || []).find(d => d && d.rulerCharacterId === army.leaderCharacterId) || null : null;
+      const sp = A.spawnBrigandArmy(campaign, { domain: leaderDomain, atHexId: army.currentHexId,
+        source: 'war', vagaryKey: 'brigands-war', raidedArmyId: army.id });
+      if(sp && sp.army){
+        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null,
+          type: 'vagary-of-war', text: 'Brigands raid the supply lines — ' + (sp.army.name || 'an enemy army') + ' has mustered (now in 🎖 Armies; supply cost +10% / recon −1 until dealt with, JJ p.113)' });
+      }
+    }
   } else if(record.kind === 'pillage-complete'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);

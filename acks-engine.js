@@ -9995,6 +9995,16 @@ function commitTurn(campaign, proposal, options){
         (vr.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let a recruitment vagary fail the monthly commit */ }
+    // W8 — expire timed Commerce vagaries whose 1d6 months have run out (JJ p.111), restoring the
+    // affected settlement's market class. Runs every committed turn (the cached shift needs a
+    // campaign-aware tick to clear; the canonical read self-expires regardless). NOT rule-gated —
+    // a self-healing restore of a field only ever set while the vagary rule was on.
+    try {
+      if(typeof global.ACKS.processCommerceVagaryExpiryForTurn === 'function'){
+        const cx = global.ACKS.processCommerceVagaryExpiryForTurn(campaign) || {};
+        (cx.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let commerce expiry fail the monthly commit */ }
   }
 
   // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===

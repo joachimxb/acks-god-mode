@@ -153,6 +153,41 @@ const HIJINK_DEFINITIONS = Object.freeze({
 
 const HIJINK_TYPES = Object.freeze(Object.keys(HIJINK_DEFINITIONS));
 
+// DC-3 (RR p.351) — hijinks that are NOT operations against the domain's order, so a loyal
+// populace's vigilance does not impede them: carousing (overhearing rumors as a tavern patron)
+// and treasure-hunting (a dungeon expedition away from the settlement). Every other hijink is a
+// covert/criminal act against the local order and is subject to the domain-morale modifier.
+const _HIJINK_NOT_VS_DOMAIN = Object.freeze(['carousing', 'treasure-hunting']);
+
+// RR p.359 (Hideout Size, Cost, and Level) — the market class of the urban settlement a hijink
+// operates in caps the perpetrator's EFFECTIVE level: a small market cannot sustain a high-level
+// operation. The cap governs the level of the target and the amount of earnings; the perpetrator
+// STILL uses his full class level to calculate the throw itself (RR p.359). A hamlet (Class VI*)
+// folds to the Class VI floor; an unknown / off-map market imposes no cap (the freelance operator).
+const _HIJINK_MAX_EFFECTIVE_LEVEL = Object.freeze({ 'I': 14, 'II': 11, 'III': 9, 'IV': 7, 'V': 5, 'VI': 3 });
+
+// The Roman-numeral market class of the settlement a hijink is performed in: the explicit
+// settlement, else the largest settlement in the perpetrator's hex, else null (no urban market ⇒
+// no cap). economy.js + the core load before hijinks.js, so the late-bound calls resolve.
+function _hijinkMarketClass(campaign, opts, perp){
+  if(!campaign || typeof ACKS.lookupMarketClass !== 'function') return null;
+  const sets = (campaign.settlements) || [];
+  let s = opts.settlementId ? sets.find(x => x && x.id === opts.settlementId) : null;
+  if(!s){
+    const hexId = opts.hexId || (perp && perp.currentHexId) || null;
+    if(hexId){ const inHex = sets.filter(x => x && x.hexId === hexId); if(inHex.length) s = inHex.reduce((a, b) => (((b.families || 0) > (a.families || 0)) ? b : a)); }
+  }
+  return s ? ACKS.lookupMarketClass(s.families || 0).class : null;
+}
+
+// The perpetrator's effective level after the RR p.359 market-class cap (no urban market ⇒ the
+// full class level). 'VI*' (hamlet) folds to the 'VI' floor (cap 3).
+function _hijinkEffectiveLevel(campaign, opts, perp, classLevel){
+  const cls = _hijinkMarketClass(campaign, opts, perp);
+  const cap = cls ? (_HIJINK_MAX_EFFECTIVE_LEVEL[String(cls).replace('*', '')] || null) : null;
+  return cap ? Math.min(classLevel, cap) : classLevel;
+}
+
 // The thief-skill bonus proficiencies that grant +1 each to a hijink, plus the
 // Streetwise gate (RR p.360 — "Only characters with the Streetwise proficiency can
 // perpetrate hijinks"). The thieving classes get Streetwise as a class power.
@@ -231,9 +266,23 @@ function hijinkThrowProfile(campaign, ch, type, opts){
   if(def.victimPenalty && victimLevel){ victimPenalty = -victimLevel; parts.push({ label: 'victim level ' + victimLevel, value: -victimLevel }); }
   let crewBonus = 0;   // HJ-3 (gated crew-hijinks; computed in startHijink, passed in here)
   if(typeof opts.crewBonus === 'number' && opts.crewBonus){ crewBonus = opts.crewBonus; parts.push({ label: 'crew', value: crewBonus }); }
-  const bonus = levelBonus + specialBonus + victimPenalty + crewBonus + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
+  // DC-3 (RR p.351) — a loyal populace resists spies/thieves operating AGAINST the domain. The
+  // target domain's morale band sets a penalty on the throw (0 at morale ≤ 0; −1…−4 at +1…+4);
+  // benign carousing / treasure-hunting are exempt (not operations against the local order). The
+  // modifier is captured at launch (startHijink stores profile.bonus), so it stands even if the
+  // domain's morale later moves. domain-completion.js loads before hijinks.js → the call resolves.
+  let moraleMod = 0;
+  if(_HIJINK_NOT_VS_DOMAIN.indexOf(type) < 0 && typeof ACKS.domainMoraleEffects === 'function'){
+    const domId = opts.domainId || (ch && ch.currentDomainId) || null;
+    const dom = domId ? (((campaign && campaign.domains) || []).find(d => d && d.id === domId)) : null;
+    if(dom){
+      moraleMod = ACKS.domainMoraleEffects(campaign, dom).spyThiefThrow || 0;
+      if(moraleMod) parts.push({ label: (dom.name || 'domain') + ' populace (RR p.351)', value: moraleMod });
+    }
+  }
+  const bonus = levelBonus + specialBonus + victimPenalty + crewBonus + moraleMod + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
   if(opts.gmModifier) parts.push({ label: 'GM', value: opts.gmModifier });
-  return { target, bonus, levelBonus, specialBonus, victimPenalty, crewBonus, throwType: def.throwType || 'proficiency', parts };
+  return { target, bonus, levelBonus, specialBonus, victimPenalty, crewBonus, moraleMod, throwType: def.throwType || 'proficiency', parts };
 }
 
 // Resolve a thrown d20 against a profile (RR p.360): success if total ≥ target;
@@ -358,13 +407,16 @@ function startHijink(campaign, opts){
   if(!hijinkPerpetratorEligible(perp, opts.type)) return { ok:false, error:'not-eligible', detail: hijinkIneligibleReason(perp, opts.type) };
   const rng = _rng(opts);
   const level = Math.max(1, perp.level || 1);
-  const effectiveLevel = level;                       // 🔧 market-class effective-level cap deferred (RR p.361)
+  // RR p.359 — the market class of the urban settlement the hijink operates in caps the effective
+  // level (the target level + the earnings); the throw still uses the full class level. No urban
+  // market (the freelance / off-map operator) ⇒ no cap.
+  const effectiveLevel = _hijinkEffectiveLevel(campaign, opts, perp, level);
 
   // victim level (assassinating / kidnapping): ±2 of the perpetrator (RR p.362).
   let victimLevel = null;
   if(def.targetsVictim){
     if(typeof opts.victimLevel === 'number') victimLevel = Math.max(1, opts.victimLevel);
-    else victimLevel = Math.max(1, level + (Math.ceil(_d(rng, 10) / 2) - 3));   // 1d10/2 − 3 + level
+    else victimLevel = Math.max(1, effectiveLevel + (Math.ceil(_d(rng, 10) / 2) - 3));   // ±2 of the (capped) effective level — RR p.359 (the Viktir example)
   }
 
   // HJ-3 — a lieutenant's hijink reports to his syndicate boss unless an explicit boss is given.
@@ -378,7 +430,8 @@ function startHijink(campaign, opts){
   }
 
   // the throw — rolled now, outcome locked but hidden until the hijink completes.
-  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier, crewBonus });
+  const targetDomainId = opts.domainId || perp.currentDomainId || null;   // DC-3 (RR p.351) — the domain whose populace resists
+  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier, crewBonus, domainId: targetDomainId });
   // PT-5 — the hijink d20 now comes from the canonical Layer-1 roller (ACKS.rollProficiencyThrow)
   // instead of a re-inlined _d(rng,20). Byte-identical: _d(rng,20) === 1+floor(rng()*20) === the
   // resolver's natural — one rng consumption at the same point in the stream, so every downstream
@@ -408,7 +461,7 @@ function startHijink(campaign, opts){
     crew, crewBonus,
     hexId: opts.hexId || perp.currentHexId || null,
     settlementId: opts.settlementId || null,
-    domainId: opts.domainId || perp.currentDomainId || null,
+    domainId: targetDomainId,
     plannable,
     status: plannable ? 'planning' : 'performing',
     phase: plannable ? 'planning' : 'performing',

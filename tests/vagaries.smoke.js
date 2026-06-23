@@ -25,7 +25,9 @@ function seqRng(arr){ let i = 0; return () => arr[(i++) % arr.length]; }
 section('exports + table integrity');
 ['VAGARY_OF_RECRUITMENT','VAGARY_OF_WAR','VAGARY_OF_BATTLE','VAGARY_TABLES','lookupVagaryRow',
  'rollVagaryTable','vagaryNarrative','vagaryRealmUnitSize','rulersRecruitingThisMonth',
- 'processRecruitmentVagariesForTurn','warVagaryDue','armyInSiege','rollWarVagary','rollBattleVagaries']
+ 'processRecruitmentVagariesForTurn','warVagaryDue','armyInSiege','rollWarVagary','rollBattleVagaries',
+ 'spawnBrigandArmy','brigandArmiesForDomain','largestUrbanSettlement','applyCommerceVagary',
+ 'processCommerceVagaryExpiryForTurn']
   .forEach(fn => ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function' || (fn.startsWith('VAGARY') && ACKS[fn])));
 
 function contiguous(table){
@@ -140,6 +142,75 @@ ok('event payload carries realmUnitScale', !!ev.event.payload.realmUnitScale);
 ok('the duchy ruler\'s event scales to battalion', camp.eventLog.find(e => e.event.payload.rulerCharacterId === 'chr-mus').event.payload.realmUnitScale === 'battalion');
 ok('event has a context envelope (subject = ruler)', (ev.event.context.relatedEntities || []).some(re => re.role === 'subject' && re.kind === 'character'));
 
+// ── 5b. recruitment AUTO-APPLY (W8 2026-06-23): brigand armies + commerce market-class timers ─────
+section('recruitment auto-apply — brigands spawn an enemy army + commerce shifts market class');
+function autoApplyCampaign(){
+  return {
+    currentTurn: 5, currentDayInMonth: 1, houseRules: { 'vagaries-of-recruitment': { enabled: true } },
+    characters: [ { id:'chr-r', name:'Count R', schemaVersion:2, recruitmentDrives:[{ id:'rcd-1', status:'active' }] } ],
+    domains: [ { id:'dom-r', name:'County R', tags:['county'], rulerCharacterId:'chr-r', schemaVersion:2 } ],
+    hexes: [ { id:'hex-seat', q:0, r:0, domainId:'dom-r', stronghold:{}, schemaVersion:2 } ],
+    settlements: [ { id:'set-r', name:'Rivertown', hexId:'hex-seat', families:3000, schemaVersion:2 } ],  // Class III
+    units: [], armies: [], groups: [], eventLog: []
+  };
+}
+// Brigands (roll 28–32) → a real enemy Army materializes. seqRng: first draw 0.305 → roll 31 →
+// brigands-recruit; remaining values feed generateNPC (the captain) — varied so it never spins.
+let aac = autoApplyCampaign();
+let ar = ACKS.processRecruitmentVagariesForTurn(aac, { rng: seqRng([0.305, 0.5, 0.2, 0.7, 0.42, 0.61, 0.13, 0.88, 0.37]) });
+const brig = ACKS.brigandArmiesForDomain(aac, 'dom-r');
+ok('brigands-recruit → one enemy army raised', aac.armies.length === 1 && brig.length === 1, 'armies=' + aac.armies.length);
+const bArmy = brig[0] || {};
+ok('the army is marked brigandVagary (source recruitment, provenance domain)', bArmy.brigandVagary && bArmy.brigandVagary.source === 'recruitment' && bArmy.brigandVagary.domainId === 'dom-r');
+ok('the army holds 2 units (bowmen + light cavalry), stationed at the army', (() => {
+  const us = (aac.units || []).filter(u => u.stationedAt && u.stationedAt.kind === 'army' && u.stationedAt.id === bArmy.id);
+  return us.length === 2 && us.some(u => u.unitTypeKey === 'bowman') && us.some(u => u.unitTypeKey === 'light-cavalry');
+})(), 'units=' + (aac.units || []).length);
+ok('a county scales to a company (120 bowmen + 60 cavalry)', (() => {
+  const bow = (aac.units || []).find(u => u.unitTypeKey === 'bowman');
+  const cav = (aac.units || []).find(u => u.unitTypeKey === 'light-cavalry');
+  return bow && bow.count === 120 && cav && cav.count === 60;
+})());
+ok('the army is placed at the domain seat hex', bArmy.currentHexId === 'hex-seat');
+ok('a mercenary captain leads it (generator loaded → NPC officer)', !!bArmy.leaderCharacterId && (aac.characters || []).some(c => c.id === bArmy.leaderCharacterId));
+ok('the recruitment event records the applied spawn', (() => {
+  const e = aac.eventLog.find(x => x.event.kind === 'vagary-of-recruitment');
+  return e && e.event.payload.applied && e.event.payload.applied.kind === 'brigands' && e.event.payload.applied.armyId === bArmy.id;
+})());
+
+// Commerce Disrupted (roll 33–37, delta −1) → the largest urban settlement drops one market class.
+aac = autoApplyCampaign();
+ok('baseline: domain market class III (3,000 urban families)', ACKS.marketClass(aac, aac.domains[0]) === 'III');
+ar = ACKS.processRecruitmentVagariesForTurn(aac, { rng: rngFor(35) });   // 35 → commerce-disrupted; months = 1+floor(0.345*6)=3
+const setR = aac.settlements[0];
+ok('commerce-disrupted set marketClassVagary on the largest settlement', setR.marketClassVagary && setR.marketClassVagary.delta === -1 && setR.marketClassVagary.untilTurn === 8);
+ok('the settlement market-class cache shifts one SMALLER (III → IV)', setR.marketClass === 'IV');
+ok('economy.settlementMarketClass honors the shift (IV)', ACKS.settlementMarketClass(setR) === 'IV');
+ok('economy.marketClass (domain) reflects the shift (IV)', ACKS.marketClass(aac, aac.domains[0]) === 'IV');
+ok('no army spawned by a commerce vagary', aac.armies.length === 0);
+ok('the event records the commerce shift', (() => {
+  const e = aac.eventLog.find(x => x.event.kind === 'vagary-of-recruitment');
+  return e && e.event.payload.applied && e.event.payload.applied.kind === 'commerce' && e.event.payload.applied.toClass === 'IV';
+})());
+// expiry: at currentTurn ≥ untilTurn the shift restores
+aac.currentTurn = 8;
+const cx = ACKS.processCommerceVagaryExpiryForTurn(aac);
+ok('expiry at untilTurn restores the settlement (vagary cleared)', !setR.marketClassVagary && cx.restored.length === 1);
+ok('market class back to III after expiry', ACKS.marketClass(aac, aac.domains[0]) === 'III' && ACKS.settlementMarketClass(setR) === 'III');
+
+// Commerce Improves (roll 64–68, delta +1) → one market class LARGER (III → II).
+aac = autoApplyCampaign();
+ar = ACKS.processRecruitmentVagariesForTurn(aac, { rng: rngFor(66) });   // 66 → commerce-improves
+ok('commerce-improves shifts one LARGER (III → II)', aac.settlements[0].marketClass === 'II' && ACKS.marketClass(aac, aac.domains[0]) === 'II');
+
+// shiftMarketClassRow direct (clamps + VI→VI* floor)
+const T = ACKS.MARKET_CLASS_TABLE;
+const rowFor = c => T.find(x => x.class === c);
+ok('shift III by −1 → IV', ACKS.shiftMarketClassRow(rowFor('III'), -1).class === 'IV');
+ok('shift III by +1 → II', ACKS.shiftMarketClassRow(rowFor('III'), +1).class === 'II');
+ok('shift I by +1 clamps at I', ACKS.shiftMarketClassRow(rowFor('I'), +1).class === 'I');
+ok('shift VI by −1 → VI* (one smaller than the smallest real market)', ACKS.shiftMarketClassRow(rowFor('VI'), -1).class === 'VI*');
+
 // ── 6. war driver (weekly per army) ──────────────────────────────────────────────────────────────
 section('war driver — warVagaryDue + rollWarVagary + armyInSiege');
 ok('due when never rolled', ACKS.warVagaryDue({}, { id:'a' }, 160) === true);
@@ -168,6 +239,16 @@ ok('commit carries the next-roll mod', wcamp.armies[0].vagaryWarNextMod === 10);
 ok('commit stamps army history', (wcamp.armies[0].history || []).some(h => h.type === 'vagary-of-war'));
 ACKS.commitMilitaryRecord(wcamp, { kind:'army-vagary', armyId:'army-c', ord:197, nextMod:0, vagaryName:'All Quiet', vagaryKey:'all-quiet-war' });
 ok('a non-omen commit clears the carried mod (→ 0)', wcamp.armies[0].vagaryWarNextMod === 0);
+// W8 auto-apply on commit — brigands-war materializes the supply-line raiders as an enemy army.
+const wcamp2 = { armies:[{ id:'army-d', name:'D', leaderCharacterId:null, currentHexId:'hex-front', history:[] }],
+  characters:[], units:[], domains:[], hexes:[{ id:'hex-front' }], currentTurn:6, currentDayInMonth:12 };
+const armiesBefore = wcamp2.armies.length;
+ACKS.commitMilitaryRecord(wcamp2, { kind:'army-vagary', armyId:'army-d', ord:198, nextMod:0, vagaryName:'Brigands', vagaryKey:'brigands-war' });
+ok('brigands-war commit spawns a second (enemy) army', wcamp2.armies.length === armiesBefore + 1);
+ok('the spawned army is a war brigand band at the raided army\'s hex', (() => {
+  const nb = wcamp2.armies.find(a => a.brigandVagary);
+  return nb && nb.brigandVagary.source === 'war' && nb.brigandVagary.raidedArmyId === 'army-d' && nb.currentHexId === 'hex-front';
+})());
 
 // ── 7. battle driver (1d4 per foray) ─────────────────────────────────────────────────────────────
 section('battle driver — rollBattleVagaries');

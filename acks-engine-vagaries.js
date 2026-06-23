@@ -304,13 +304,16 @@
     return [...byRuler.values()];
   }
 
-  // Emit a record-only vagary-of-recruitment event (the F&D _emitFavorDutyEvent pattern).
-  function _emitRecruitmentVagary(campaign, ruler, domain, res, kinds){
+  // Emit a record-only vagary-of-recruitment event (the F&D _emitFavorDutyEvent pattern). `applied`
+  // (W8 auto-apply) carries what the engine actually did this turn — a spawned brigand army or a
+  // commerce market-class shift — and is folded into the payload + narrative so the chronicle reads
+  // the consequence, not just the roll.
+  function _emitRecruitmentVagary(campaign, ruler, domain, res, kinds, applied){
     const a = A();
     const row = res.row;
     const unit = vagaryRealmUnitSize(campaign, domain);
     const hexId = (domain && typeof a.domainSeatHexId === 'function') ? a.domainSeatHexId(campaign, domain) : null;
-    const narrative = (ruler.name || 'A ruler') + ' (recruiting): ' + vagaryNarrative(null, row);
+    const narrative = (ruler.name || 'A ruler') + ' (recruiting): ' + vagaryNarrative(null, row, applied ? applied.narrative : null);
     const ev = a.newEvent('vagary-of-recruitment', {
       submittedBy: 'engine',
       targetTurn: campaign.currentTurn || 1,
@@ -320,7 +323,7 @@
         domainId: domain ? domain.id : null, roll: res.roll, mod: res.mod || 0,
         pickBest: res.pickBest, pickWorst: res.pickWorst,
         recruitingKinds: kinds, realmUnitScale: unit.scale,
-        effect: row.effect, narrative
+        effect: row.effect, applied: applied || null, narrative
       }
     });
     if(typeof a.setEventContext === 'function'){
@@ -353,10 +356,28 @@
       const res = rollVagaryTable(VAGARY_OF_RECRUITMENT, { rng });
       if(!res.row) continue;
       const kinds = [...e.kinds];
-      _emitRecruitmentVagary(campaign, e.ruler, e.domain, res, kinds);
+      // ── W8 auto-apply: the two world-mutating recruitment vagaries (the rest stay GM-resolve). ──
+      let applied = null;
+      if(res.row.key === 'brigands-recruit'){
+        const sp = spawnBrigandArmy(campaign, { domain: e.domain, source: 'recruitment', vagaryKey: res.row.key, rng });
+        if(sp){
+          applied = { kind: 'brigands', armyId: sp.army.id, officerName: sp.officer ? sp.officer.name : null,
+            narrative: '— an enemy army has mustered' + (sp.army.currentHexId ? ' nearby' : '') + ' (now in 🎖 Armies)' };
+        }
+      } else if(res.row.key === 'commerce-disrupted' || res.row.key === 'commerce-improves'){
+        const delta = (res.row.effect && res.row.effect.delta) || (res.row.key === 'commerce-improves' ? 1 : -1);
+        const months = 1 + Math.floor(rng() * 6);   // 1d6 months (JJ p.111)
+        const cv = applyCommerceVagary(campaign, e.domain, delta, months, { vagaryKey: res.row.key, rng });
+        if(cv){
+          applied = { kind: 'commerce', settlementId: cv.settlementId, fromClass: cv.fromClass, toClass: cv.toClass,
+            delta: cv.delta, months: cv.months,
+            narrative: '— ' + cv.settlementName + ' is treated as market Class ' + cv.toClass + ' for ' + cv.months + ' month(s)' };
+        }
+      }
+      _emitRecruitmentVagary(campaign, e.ruler, e.domain, res, kinds, applied);
       result.events++;
-      result.rolled.push({ rulerCharacterId: e.ruler.id, domainId: e.domain ? e.domain.id : null, vagaryKey: res.row.key, name: res.row.name, roll: res.roll, kinds });
-      result.logEntries.push('Vagary of Recruitment — ' + (e.ruler.name || 'a ruler') + ': ' + res.row.name + ' (' + res.row.brief + ')');
+      result.rolled.push({ rulerCharacterId: e.ruler.id, domainId: e.domain ? e.domain.id : null, vagaryKey: res.row.key, name: res.row.name, roll: res.roll, kinds, applied });
+      result.logEntries.push('Vagary of Recruitment — ' + (e.ruler.name || 'a ruler') + ': ' + res.row.name + ' (' + res.row.brief + ')' + (applied ? ' ' + applied.narrative : ''));
     }
     return result;
   }
@@ -421,12 +442,160 @@
     return out;
   }
 
+  // =============================================================================
+  // W8 auto-apply (2026-06-23) — the two self-contained, world-mutating vagaries that
+  // RAW makes mechanically unambiguous: Brigands (spawn an independent enemy army) and
+  // Commerce Disrupted/Improves (a timed market-class shift on the largest urban settlement).
+  // Everything else (loyalty cascades, deaths, offers, war modifiers) stays a GM-resolve note,
+  // exactly as RAW vagary tables are GM-adjudicated. All behind the default-OFF vagary rules.
+  // =============================================================================
+
+  // JJ p.111 / p.113 — materialize the Brigands vagary as an independent enemy Army (RAW: "treat
+  // as an independent enemy army"). Composition by realm tier (vagaryRealmUnitSize): one bowman
+  // unit + one cavalry unit (light for the recruitment vagary; medium for the war vagary's supply-
+  // line raiders), plus a mercenary captain if the NPC generator is loaded. The army + its units
+  // (stationedAt the army) land at the target hex, marked army.brigandVagary (provenance — a field,
+  // not an entity; §3.1). It is fought through the shipped W3 Battle Wizard (it shows in 🎖 Armies);
+  // driving it off does NOT heal the domain (outside renegades, not the domain's own banditry —
+  // RR p.351). Defensive: a missing blankArmy/blankUnit/generator degrades gracefully. Returns
+  // { army, units, officer } or null.
+  function spawnBrigandArmy(campaign, opts){
+    const a = A();
+    opts = opts || {};
+    if(!campaign || typeof a.blankUnit !== 'function' || typeof a.blankArmy !== 'function') return null;
+    const rng = opts.rng || Math.random;
+    const domain = opts.domain || null;
+    const source = opts.source || 'recruitment';
+    const turn = campaign.currentTurn || 1;
+    const unit = vagaryRealmUnitSize(campaign, domain);   // {scale, infantry, cavalry}
+    const dn = domain ? (domain.name || domain.id) : 'the realm';
+    // placement: war raiders strike at the army's hex (its supply lines); recruitment brigands
+    // appear at the domain seat ("harass the realm").
+    let hexId = opts.atHexId || null;
+    if(!hexId && domain && typeof a.domainSeatHexId === 'function') hexId = a.domainSeatHexId(campaign, domain);
+    if(!hexId && domain){ const h = (campaign.hexes || []).find(x => x && x.domainId === domain.id); hexId = h ? h.id : null; }
+    const armyId = (typeof a.newId === 'function') ? a.newId((a.ID_PREFIXES && a.ID_PREFIXES.army) || 'army-')
+      : ('army-' + Math.floor(rng() * 1e9).toString(36));
+    // the mercenary captain (rank by realm tier), if the generator is available (battles-only test
+    // harnesses don't load it — degrade to a commanderless band, which the battle engine accepts).
+    let officer = null;
+    if(typeof a.generateNPC === 'function'){
+      const lvl = (unit.scale === 'brigade') ? 9 : (unit.scale === 'battalion') ? 7 : 5;
+      try {
+        const gen = a.generateNPC(campaign, { class: 'fighter', targetLevel: lvl, alignment: 'Chaotic',
+          socialTier: 'independent', controlledBy: 'gm', hexId, domainId: domain ? domain.id : null }, { rng });
+        if(gen && gen.character){
+          officer = gen.character;
+          if(!Array.isArray(campaign.characters)) campaign.characters = [];
+          campaign.characters.push(officer);
+          if(typeof a.addCharacterHistory === 'function'){
+            a.addCharacterHistory(campaign, officer, 'note', 'A mercenary captain leading brigands raised against ' + dn + ' (' + (source === 'war' ? 'JJ p.113' : 'JJ p.111') + ')');
+          }
+        }
+      } catch(e){ officer = null; }
+    }
+    const cavTypeKey = (source === 'war') ? 'medium-cavalry' : 'light-cavalry';
+    const bow = a.blankUnit({ unitTypeKey: 'bowman', race: 'man', count: unit.infantry, source: 'mercenary',
+      scale: unit.scale, stationedAt: { kind: 'army', id: armyId }, displayName: 'Brigand Bowmen' });
+    const cav = a.blankUnit({ unitTypeKey: cavTypeKey, race: 'man', count: unit.cavalry, source: 'mercenary',
+      scale: unit.scale, stationedAt: { kind: 'army', id: armyId }, displayName: (source === 'war' ? 'Brigand Riders' : 'Brigand Outriders') });
+    const units = [bow, cav];
+    if(!Array.isArray(campaign.units)) campaign.units = [];
+    campaign.units.push(bow, cav);
+    const army = a.blankArmy({
+      id: armyId,
+      name: 'Brigands of ' + dn,
+      leaderCharacterId: officer ? officer.id : null,
+      currentHexId: hexId,
+      strategicStance: 'offensive',
+      divisions: [{ name: 'Brigand band', commanderCharacterId: officer ? officer.id : null,
+        unitIds: units.map(u => u.id), role: 'main' }]
+    });
+    army.brigandVagary = { domainId: domain ? domain.id : null, raidedArmyId: opts.raidedArmyId || null,
+      source, vagaryKey: opts.vagaryKey || null, sinceTurn: turn, realmScale: unit.scale };
+    (army.history = army.history || []).push({ turn, type: 'brigands-mustered',
+      text: 'Mustered as brigands against ' + dn + ' — ' + unit.infantry + ' bowmen + ' + unit.cavalry + ' ' + (source === 'war' ? 'medium' : 'light') + ' cavalry (' + unit.scale + ' scale, ' + (source === 'war' ? 'JJ p.113' : 'JJ p.111') + ')' });
+    if(!Array.isArray(campaign.armies)) campaign.armies = [];
+    campaign.armies.push(army);
+    return { army, units, officer };
+  }
+  // The independent brigand armies raised against a domain (UI surfacing). Provenance via the field.
+  function brigandArmiesForDomain(campaign, domainId){
+    return ((campaign && campaign.armies) || []).filter(ar => ar && ar.brigandVagary && ar.brigandVagary.domainId === domainId);
+  }
+
+  // The domain's largest urban settlement (the Commerce vagary's RAW target, JJ p.111).
+  function largestUrbanSettlement(campaign, domain){
+    const a = A();
+    if(!campaign || !domain || typeof a.hexSettlements !== 'function') return null;
+    let best = null;
+    for(const x of a.hexSettlements(campaign, domain)){   // {hex, hexIndex, settlement}
+      const s = x && x.settlement;
+      if(!s) continue;
+      if(!best || (s.families || 0) > (best.families || 0)) best = s;
+    }
+    return best;
+  }
+  // JJ p.111 — Commerce Disrupted/Improves: treat the largest urban settlement as one market class
+  // SMALLER (delta −1) or LARGER (delta +1) for `months` (1d6). The shift is stored canonically as
+  // settlement.marketClassVagary (read by economy.marketClassRow + self-expiring) AND cached into
+  // settlement.marketClass — the override field the settlement-level readers (magic-items / events /
+  // demographics / hijinks / banking) already honor — so the shift reaches every market-class
+  // consumer with no signature churn. restoreMarketClass preserves the pre-vagary value across a
+  // re-application. processCommerceVagaryExpiryForTurn restores it. Returns the shift or null.
+  function applyCommerceVagary(campaign, domain, deltaClasses, months, opts){
+    const a = A();
+    opts = opts || {};
+    const s = largestUrbanSettlement(campaign, domain);
+    if(!s || !deltaClasses) return null;
+    const turn = campaign.currentTurn || 1;
+    const T = a.MARKET_CLASS_TABLE || [];
+    let baseRow = s.marketClass ? T.find(x => x.class === s.marketClass) : null;
+    if(!baseRow && typeof a.lookupMarketClass === 'function') baseRow = a.lookupMarketClass(s.families || 0);
+    const shifted = (typeof a.shiftMarketClassRow === 'function') ? a.shiftMarketClassRow(baseRow, deltaClasses) : baseRow;
+    if(!shifted) return null;
+    // Keep the ORIGINAL restore target across re-applications (never bake in an already-shifted cache).
+    const prevRestore = (s.marketClassVagary && 'restoreMarketClass' in s.marketClassVagary)
+      ? s.marketClassVagary.restoreMarketClass : (s.marketClass || null);
+    s.marketClassVagary = { delta: deltaClasses, untilTurn: turn + months, sinceTurn: turn,
+      source: 'recruitment-vagary', vagaryKey: opts.vagaryKey || null, restoreMarketClass: prevRestore };
+    s.marketClass = shifted.class;
+    return { settlementId: s.id, settlementName: s.name || s.id, fromClass: (baseRow && baseRow.class) || null,
+      toClass: shifted.class, delta: deltaClasses, months, untilTurn: turn + months };
+  }
+  // Monthly expiry — restore settlements whose Commerce vagary has run out (currentTurn ≥ untilTurn).
+  // Runs every committed turn from commitTurn (the cache needs a campaign-aware tick to clear; the
+  // canonical read self-expires regardless). Returns { restored, logEntries }.
+  function processCommerceVagaryExpiryForTurn(campaign){
+    const a = A();
+    const out = { restored: [], logEntries: [] };
+    if(!campaign) return out;
+    const turn = campaign.currentTurn || 1;
+    const T = a.MARKET_CLASS_TABLE || [];
+    for(const s of (campaign.settlements || [])){
+      const v = s && s.marketClassVagary;
+      if(!v) continue;
+      if(v.untilTurn != null && turn >= v.untilTurn){
+        if(v.restoreMarketClass) s.marketClass = v.restoreMarketClass; else delete s.marketClass;
+        delete s.marketClassVagary;
+        let nowRow = s.marketClass ? T.find(x => x.class === s.marketClass) : null;
+        if(!nowRow && typeof a.lookupMarketClass === 'function') nowRow = a.lookupMarketClass(s.families || 0);
+        const cls = nowRow ? nowRow.class : '?';
+        out.restored.push({ settlementId: s.id, marketClass: cls });
+        out.logEntries.push('Commerce in ' + (s.name || s.id) + ' has returned to normal (market Class ' + cls + ', JJ p.111).');
+      }
+    }
+    return out;
+  }
+
   Object.assign(ACKS, {
     VAGARY_OF_RECRUITMENT, VAGARY_OF_WAR, VAGARY_OF_BATTLE, VAGARY_TABLES,
     lookupVagaryRow, rollVagaryTable, vagaryNarrative, vagaryRealmUnitSize,
     rulersRecruitingThisMonth, processRecruitmentVagariesForTurn, _emitRecruitmentVagary,
     warVagaryDue, armyInSiege, rollWarVagary,
-    rollBattleVagaries
+    rollBattleVagaries,
+    spawnBrigandArmy, brigandArmiesForDomain, largestUrbanSettlement,
+    applyCommerceVagary, processCommerceVagaryExpiryForTurn
   });
 
   if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

@@ -116,11 +116,51 @@ function domainTotalLandImprovementBonus(campaign, d){
 // =============================================================================
 // Markets / settlements (RR pp.350–351)
 // =============================================================================
-function settlementMarketClass(s){ return lookupMarketClass(s.families||0).class; }
-function settlementTradeRate(s){ return lookupMarketClass(s.families||0).tradePerFamily; }
+// Step a market-class row by N classes on the I…VI(*) scale (delta +1 = LARGER / toward I,
+// −1 = SMALLER / toward VI*). The Commerce vagaries (JJ p.111, Military W8) treat a settlement
+// as one class up/down for 1d6 months; this is the shared shift. Clamped to the table ends;
+// VI→VI* is "one smaller than the smallest real market" (the hamlet, no market). Pure.
+function shiftMarketClassRow(row, deltaClasses){
+  const T = ACKS.MARKET_CLASS_TABLE;
+  if(!row || !deltaClasses || !Array.isArray(T)) return row;
+  const idx = T.findIndex(r => r.class === row.class);
+  if(idx < 0) return row;
+  const ni = Math.max(0, Math.min(T.length - 1, idx - deltaClasses));   // −delta: larger class = lower index
+  return T[ni];
+}
+// The active Commerce-vagary class delta on the domain's largest urban settlement (0 if none /
+// expired). RAW targets "the leader's largest urban settlement"; only that one ever carries the
+// field, so a sum is exact (and robust to the rare multi case). Self-expiring on currentTurn.
+function commerceVagaryClassDelta(campaign, d){
+  if(!campaign || !d) return 0;
+  const turn = campaign.currentTurn || 1;
+  let delta = 0;
+  for(const x of hexSettlements(campaign, d)){       // {hex, hexIndex, settlement}
+    const v = x && x.settlement && x.settlement.marketClassVagary;
+    if(v && v.delta && (v.untilTurn == null || turn < v.untilTurn)) delta += v.delta;
+  }
+  return delta;
+}
+// A settlement's base market-class row — a stored settlement.marketClass (a GM override OR the
+// Commerce-vagary cache, JJ p.111) wins over the family-derived class, mirroring the settlement-
+// level readers in events/magic-items/demographics. Falls back to the family count.
+function _settlementMarketRow(s){
+  if(s && s.marketClass){
+    const r = (ACKS.MARKET_CLASS_TABLE || []).find(x => x.class === s.marketClass);
+    if(r) return r;
+  }
+  return lookupMarketClass((s && s.families) || 0);
+}
+function settlementMarketClass(s){ return _settlementMarketRow(s).class; }
+function settlementTradeRate(s){ return _settlementMarketRow(s).tradePerFamily; }
 function settlementCapacity(s){ return urbanMaxFamilies(s.totalInvestment||0); }
-// Domain-level market class summary (largest settlement's class, or legacy aggregate).
-function marketClassRow(campaign, d){ return lookupMarketClass(effectiveUrbanFamilies(campaign, d)); }
+// Domain-level market class summary (largest settlement's class, or legacy aggregate) — shifted by
+// any active Commerce vagary on the largest urban settlement (W8).
+function marketClassRow(campaign, d){
+  const base = lookupMarketClass(effectiveUrbanFamilies(campaign, d));
+  const delta = commerceVagaryClassDelta(campaign, d);
+  return delta ? shiftMarketClassRow(base, delta) : base;
+}
 function marketClass(campaign, d){ return marketClassRow(campaign, d).class; }
 function tradeRevenuePerFamily(campaign, d){ return marketClassRow(campaign, d).tradePerFamily; }
 function urbanCapacity(campaign, d){
@@ -603,6 +643,7 @@ Object.assign(ACKS, {
   effectiveHexValue, domainTotalLandImprovementBonus,
   // Markets
   settlementMarketClass, settlementTradeRate, settlementCapacity, marketClassRow, marketClass, tradeRevenuePerFamily, urbanCapacity,
+  shiftMarketClassRow, commerceVagaryClassDelta,
   // Garrison
   garrisonHeadcount, garrisonCost, garrisonBR, requiredGarrison, banditCount,
   // Military W7 — adequacy spend (incl. trained-militia + lord-troops credit) + militia revenue reduction

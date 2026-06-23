@@ -258,6 +258,39 @@
     return (band === 'half') ? c.expeditionEncMi : c.expeditionMi;
   }
 
+  // ── Terrain movement: the surefooted exception (RR p.272 + RR pp.147–148) ────
+  // Wilderness travel charges a per-hex movement multiplier (JOURNEY_TERRAIN_SPEED,
+  // applied per-hex by the journey walk). Surefooted mounts (donkey + mule —
+  // mountIsSurefooted) cross a MOUNTAIN hex at ×2/3 instead of the standard ×1/2
+  // (RR pp.147–148, the breed descriptions); no other terrain is affected. These return
+  // the mount-aware multiplier so a mounted column can travel mountains at the gentler
+  // rate — the first real consumer of the long-declared `surefooted` catalog trait.
+  // (The journey per-hex walk ADOPTING this — charging mountain hexes by the column's
+  // governing mount instead of the flat JOURNEY_TERRAIN_SPEED value — is the deferred
+  // wiring; it lives in the journey engine, see Phase_2.5_Mounts_Plan.md §11.)
+  const SUREFOOTED_MOUNTAIN_MOVE_MULT = 2/3;   // RR pp.147–148 — vs the standard ×1/2 (RR p.272)
+  // The mount-aware per-hex movement multiplier for a terrain key. Resolves the key against
+  // JOURNEY_TERRAIN_SPEED exactly as the walk does (raw key → base family → ×1), then applies
+  // the surefooted mountain override (only ever RAISING the rate, never lowering it). Late-binds
+  // the table (it lives in acks-engine-catalogs.js, loaded first); table absent ⇒ ×1.
+  function mountTerrainMoveMultiplier(mount, terrainKey){
+    const A = _mACKS();
+    const table = A.JOURNEY_TERRAIN_SPEED || {};
+    let base = 1, baseKey = null;
+    if(typeof terrainKey === 'string' && terrainKey){
+      baseKey = terrainKey.split('-')[0];
+      if(table[terrainKey] != null) base = table[terrainKey];
+      else if(table[baseKey] != null) base = table[baseKey];
+    }
+    if(mountIsSurefooted(mount) && (baseKey === 'mountains' || baseKey === 'mountain')){
+      return Math.max(base, SUREFOOTED_MOUNTAIN_MOVE_MULT);
+    }
+    return base;
+  }
+  // Convenience: the headline RR rule — a mount's mountain-hex movement multiplier
+  // (×2/3 surefooted, ×1/2 otherwise).
+  function mountMountainMoveMultiplier(mount){ return mountTerrainMoveMultiplier(mount, 'mountains'); }
+
   // ── Care & feeding (RR p.276) ──────────────────────────────────────────────
   function mountDailyFoodSt(mount){ const c = mountClass(mount); return c ? c.dailyFoodSt : 0; }
   function mountDailyWaterSt(mount){ const c = mountClass(mount); return c ? c.dailyWaterSt : 0; }
@@ -363,6 +396,7 @@
     mountBardingAc, mountBardingLoadSt,
     mountRiderWeightSt, mountCargoWeightSt, mountNormalLoadSt, mountMaxLoadSt,
     mountCurrentLoadSt, mountLoadBand, mountExpeditionMi,
+    SUREFOOTED_MOUNTAIN_MOVE_MULT, mountTerrainMoveMultiplier, mountMountainMoveMultiplier,
     mountDailyFoodSt, mountDailyWaterSt, mountFeedingStatus,
     resolveMountFeedingDay, applyMountFeedingDay
   });
