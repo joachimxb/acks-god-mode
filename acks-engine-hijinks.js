@@ -159,6 +159,35 @@ const HIJINK_TYPES = Object.freeze(Object.keys(HIJINK_DEFINITIONS));
 // covert/criminal act against the local order and is subject to the domain-morale modifier.
 const _HIJINK_NOT_VS_DOMAIN = Object.freeze(['carousing', 'treasure-hunting']);
 
+// RR p.359 (Hideout Size, Cost, and Level) — the market class of the urban settlement a hijink
+// operates in caps the perpetrator's EFFECTIVE level: a small market cannot sustain a high-level
+// operation. The cap governs the level of the target and the amount of earnings; the perpetrator
+// STILL uses his full class level to calculate the throw itself (RR p.359). A hamlet (Class VI*)
+// folds to the Class VI floor; an unknown / off-map market imposes no cap (the freelance operator).
+const _HIJINK_MAX_EFFECTIVE_LEVEL = Object.freeze({ 'I': 14, 'II': 11, 'III': 9, 'IV': 7, 'V': 5, 'VI': 3 });
+
+// The Roman-numeral market class of the settlement a hijink is performed in: the explicit
+// settlement, else the largest settlement in the perpetrator's hex, else null (no urban market ⇒
+// no cap). economy.js + the core load before hijinks.js, so the late-bound calls resolve.
+function _hijinkMarketClass(campaign, opts, perp){
+  if(!campaign || typeof ACKS.lookupMarketClass !== 'function') return null;
+  const sets = (campaign.settlements) || [];
+  let s = opts.settlementId ? sets.find(x => x && x.id === opts.settlementId) : null;
+  if(!s){
+    const hexId = opts.hexId || (perp && perp.currentHexId) || null;
+    if(hexId){ const inHex = sets.filter(x => x && x.hexId === hexId); if(inHex.length) s = inHex.reduce((a, b) => (((b.families || 0) > (a.families || 0)) ? b : a)); }
+  }
+  return s ? ACKS.lookupMarketClass(s.families || 0).class : null;
+}
+
+// The perpetrator's effective level after the RR p.359 market-class cap (no urban market ⇒ the
+// full class level). 'VI*' (hamlet) folds to the 'VI' floor (cap 3).
+function _hijinkEffectiveLevel(campaign, opts, perp, classLevel){
+  const cls = _hijinkMarketClass(campaign, opts, perp);
+  const cap = cls ? (_HIJINK_MAX_EFFECTIVE_LEVEL[String(cls).replace('*', '')] || null) : null;
+  return cap ? Math.min(classLevel, cap) : classLevel;
+}
+
 // The thief-skill bonus proficiencies that grant +1 each to a hijink, plus the
 // Streetwise gate (RR p.360 — "Only characters with the Streetwise proficiency can
 // perpetrate hijinks"). The thieving classes get Streetwise as a class power.
@@ -378,13 +407,16 @@ function startHijink(campaign, opts){
   if(!hijinkPerpetratorEligible(perp, opts.type)) return { ok:false, error:'not-eligible', detail: hijinkIneligibleReason(perp, opts.type) };
   const rng = _rng(opts);
   const level = Math.max(1, perp.level || 1);
-  const effectiveLevel = level;                       // 🔧 market-class effective-level cap deferred (RR p.361)
+  // RR p.359 — the market class of the urban settlement the hijink operates in caps the effective
+  // level (the target level + the earnings); the throw still uses the full class level. No urban
+  // market (the freelance / off-map operator) ⇒ no cap.
+  const effectiveLevel = _hijinkEffectiveLevel(campaign, opts, perp, level);
 
   // victim level (assassinating / kidnapping): ±2 of the perpetrator (RR p.362).
   let victimLevel = null;
   if(def.targetsVictim){
     if(typeof opts.victimLevel === 'number') victimLevel = Math.max(1, opts.victimLevel);
-    else victimLevel = Math.max(1, level + (Math.ceil(_d(rng, 10) / 2) - 3));   // 1d10/2 − 3 + level
+    else victimLevel = Math.max(1, effectiveLevel + (Math.ceil(_d(rng, 10) / 2) - 3));   // ±2 of the (capped) effective level — RR p.359 (the Viktir example)
   }
 
   // HJ-3 — a lieutenant's hijink reports to his syndicate boss unless an explicit boss is given.

@@ -239,6 +239,42 @@ ok('boss collects the proceeds when set (independent ⇒ perpetrator keeps it)',
 })());
 
 // =============================================================================
+section('market-class effective-level cap (RR p.359 — a small market caps the take)');
+{
+  // a perpetrator operating in a settlement of a known market class. mk() sets the perp's
+  // currentHexId; the settlement shares that hex, so _hijinkMarketClass resolves it.
+  function mkMarket(families, level, cls) {
+    const c = mk({ level: level, cls: cls || 'Thief', profs: ['Streetwise'], hexId: 'hex-1' });
+    c.settlements.push({ schemaVersion: 2, id: 'set-1', name: 'Market', hexId: 'hex-1', families: families });
+    return c;
+  }
+  // 75 families = Class VI (cap 3). A 9th-level thief's stealing take is capped at 3×300 = 900gp.
+  const v = mkMarket(75, 9);
+  const rv = ACKS.startHijink(v, { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI });
+  ok('Class VI market caps a 9th-level thief to effective level 3', rv.hijink.effectiveLevel === 3);
+  ok('stealing reward uses the capped level (3 × 300 = 900, not 2700)', rv.hijink.rewardGp === 900);
+  ok('the throw still uses the full class level (+2 at 9th, RR p.359)', ACKS.hijinkThrowProfile(v, v.characters[0], 'stealing', {}).levelBonus === 2);
+  // 2,500 families = Class III (cap 9) ⇒ a 9th-level thief is NOT capped.
+  const city = mkMarket(2500, 9);
+  const rc = ACKS.startHijink(city, { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI });
+  ok('Class III market (cap 9) does not cap a 9th-level thief (9 × 300 = 2700)', rc.hijink.effectiveLevel === 9 && rc.hijink.rewardGp === 2700);
+  // a perp under every cap is unaffected.
+  ok('a 2nd-level perp under the Class VI cap is unaffected', ACKS.startHijink(mkMarket(75, 2), { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI }).hijink.effectiveLevel === 2);
+  // a hamlet (Class VI*, 0–74 families) folds to the Class VI floor (cap 3).
+  ok('a hamlet (Class VI*) folds to the Class VI floor (cap 3)', ACKS.startHijink(mkMarket(40, 9), { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI }).hijink.effectiveLevel === 3);
+  // the cap also lowers the target level — RR p.359 Viktir: a 9th assassin in Class VI targets 1st–5th.
+  const vik = ACKS.startHijink(mkMarket(75, 9, 'Assassin'), { type: 'assassinating', perpetratorCharacterId: 'chr-p', rng: () => 0.5 });
+  ok('the cap also lowers the target level (RR p.359 Viktir): 9th in Class VI ⇒ victim 1–5', vik.hijink.victimLevel >= 1 && vik.hijink.victimLevel <= 5);
+  // contrast — no urban market ⇒ no cap (the same 9th assassin targets 7–11).
+  const free = ACKS.startHijink(mk({ cls: 'Assassin', level: 9 }), { type: 'assassinating', perpetratorCharacterId: 'chr-p', rng: () => 0.5 });
+  ok('no urban market ⇒ no cap: the same 9th assassin targets 7–11 (effective = class level)', free.hijink.effectiveLevel === 9 && free.hijink.victimLevel >= 7 && free.hijink.victimLevel <= 11);
+  // explicit opts.settlementId resolves the market class (even off the perp's hex).
+  const ex = mk({ level: 9 });
+  ex.settlements.push({ schemaVersion: 2, id: 'set-2', name: 'Town', hexId: 'hex-z', families: 75 });
+  ok('explicit opts.settlementId resolves the market-class cap', ACKS.startHijink(ex, { type: 'stealing', perpetratorCharacterId: 'chr-p', settlementId: 'set-2', rng: HI }).hijink.effectiveLevel === 3);
+}
+
+// =============================================================================
 section('lookups');
 {
   const c = mk({ level: 1 });
