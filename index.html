@@ -6394,10 +6394,10 @@ document.addEventListener('alpine:init', () => {
           <!-- Active Threats / Reactions (2026-06-14, JJ pp.104–106) — the live incursion bands
                the ruler may deploy a force against. The deferred-reaction surface: a threat not
                answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow. -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-show="incursionBands(selectedDomain).length > 0">
+          <div class="vellum border border-ink p-3 rounded mt-4" x-show="incursionBands(selectedDomain).length > 0 || brigandArmies(selectedDomain).length > 0">
             <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
             <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
-            <table class="bookkeeping text-sm">
+            <table class="bookkeeping text-sm" x-show="incursionBands(selectedDomain).length > 0">
               <thead><tr><th>Band</th><th title="Whether the ruler’s reconnaissance has detected this band — a deliberate sally requires detection (JJ p.103, RR p.452)">Aware?</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
               <tbody>
                 <template x-for="g in incursionBands(selectedDomain)" :key="'thr-'+g.id">
@@ -6413,6 +6413,27 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </tbody>
             </table>
+            <!-- Military W8 — brigand ARMIES raised by a Vagary of Recruitment (JJ p.111). Real
+                 enemy armies (in 🎖 Armies); the ruler meets one via the Battle Wizard (garrison vs army). -->
+            <template x-if="brigandArmies(selectedDomain).length > 0">
+              <div class="mt-3">
+                <h3 class="font-semibold text-sm mb-1">🏴 Brigand armies <span class="opacity-60 font-normal">(raised by a recruitment vagary, JJ p.111)</span></h3>
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Force</th><th title="Active soldiers">Troops</th><th>Location</th><th>BR</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="a in brigandArmies(selectedDomain)" :key="'brig-'+a.id">
+                      <tr>
+                        <td x-text="a.name || 'Brigands'"></td>
+                        <td class="font-mono" x-text="(window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(currentCampaign, a) : '—')"></td>
+                        <td x-text="a.currentHexId ? hexLabelById(a.currentHexId) : '—'"></td>
+                        <td class="font-mono" x-text="(window.ACKS.armyBattleRating ? window.ACKS.armyBattleRating(currentCampaign, a).toFixed(2) : '—')"></td>
+                        <td class="whitespace-nowrap"><button @click="openBattleWizard({ hexId: a.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'army:' + a.id, stanceA: 'defensive', stanceB: 'offensive', awareness: 'mutual', scoped: true })" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100" title="Set up a battle: the domain garrison against the brigand army (RR pp.461–472)">⚔ Meet in battle</button></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -33707,6 +33728,13 @@ return {
   incursionBands(d){
     if(!d || !this.currentCampaign || typeof window.ACKS.incursionBandsForDomain !== 'function') return [];
     return window.ACKS.incursionBandsForDomain(this.currentCampaign, d.id);
+  },
+  // Military W8 — the independent brigand armies a Vagary of Recruitment raised against this domain
+  // (JJ p.111). They are real Armies (in 🎖 Armies); the GM meets one via the Battle Wizard.
+  brigandArmies(d){
+    if(!d || !this.currentCampaign || typeof window.ACKS.brigandArmiesForDomain !== 'function') return [];
+    return window.ACKS.brigandArmiesForDomain(this.currentCampaign, d.id)
+      .filter(a => (window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(this.currentCampaign, a) : 1) > 0);
   },
   incursionChanceLine(d){
     if(!d || !this.currentCampaign || typeof window.ACKS.domainDailyEncounterChance !== 'function') return '';
