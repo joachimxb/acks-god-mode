@@ -481,8 +481,7 @@ function applyEvent_recruitHireling(campaign, event){
         unit = global.ACKS.blankUnit({
           displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
-          count: 0,
-          stationedAtHexId: patron.currentHexId || null
+          count: 0
         });
         unit.recruitedAt = p.settlementId || null;
         global.ACKS.stationUnit(campaign, unit, { kind: 'character', id: patron.id });
@@ -512,8 +511,7 @@ function applyEvent_recruitHireling(campaign, event){
         unit = global.ACKS.blankUnit({
           displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
-          count: 0,
-          stationedAtHexId: patron.currentHexId || null
+          count: 0
         });
         global.ACKS.stationUnit(campaign, unit, { kind: 'domain-garrison', id: ruledDomain.id });
       }
@@ -3605,38 +3603,9 @@ function commitJourneyRecord(campaign, record){
       }
     }
   }
-  // A marching UNIT (journey.unitId) on arrival. Two cases:
-  //  • RETURN HOME (journey.unitReturnHome) — it falls back into its home-domain garrison.
-  //  • RALLY (the call-up) — it joins the army it was called up to, its strength now counted.
-  if(j.unitId && record.newStatus === 'arrived'){
-    const unit = (campaign.units || []).find(u => u && u.id === j.unitId);
-    const A = global.ACKS;
-    if(unit && (j.unitReturnHome || unit.returnJourneyId === j.id)){
-      const homeDomId = (A && typeof A.unitHomeDomainId === 'function') ? A.unitHomeDomainId(campaign, unit) : (unit.homeDomainId || null);
-      if(A && typeof A.stationUnit === 'function'){
-        if(homeDomId && (campaign.domains || []).some(d => d && d.id === homeDomId)){
-          A.stationUnit(campaign, unit, { kind: 'domain-garrison', id: homeDomId });
-          if(unit.homeHexId) unit.stationedAtHexId = unit.homeHexId;
-        } else {
-          A.stationUnit(campaign, unit, { kind: 'hex', id: j.destinationHexId || record.newCurrentHexId || null });   // home vanished — hold at the arrival hex
-        }
-      }
-      unit.returnJourneyId = null;
-      (unit.history = unit.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'returned-home', text: 'Marched home and fell back into the garrison.' });
-    } else if(unit){
-      const armyId = unit.rallyingToArmyId;
-      const army = armyId ? (campaign.armies || []).find(a => a && a.id === armyId) : null;
-      if(army && A && typeof A.stationUnit === 'function'){
-        A.stationUnit(campaign, unit, { kind: 'army', id: army.id });
-        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'reinforcement-arrived', narrative: (unit.displayName || unit.unitTypeKey || 'A unit') + ' marched in and joined ' + (army.name || 'the army') + '.' });
-      } else if(A && typeof A.stationUnit === 'function'){
-        // a FREE march (startUnitMarch / journey.unitMarch) — the unit halts at the hex it marched to
-        A.stationUnit(campaign, unit, { kind: 'hex', id: j.destinationHexId || record.newCurrentHexId || null });
-        (unit.history = unit.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'march-arrived', text: 'Marched to ' + (j.destinationHexId || 'its destination') + '.' });
-      }
-      unit.rallyingToArmyId = null; unit.rallyJourneyId = null; unit.marchJourneyId = null;
-    }
-  }
+  // (2026-06-22 muster model) Unit journeys are gone — a unit MUSTERS to its destination (the slot-46
+  // muster day-consumer stations it on arrival); it no longer marches on the journey engine. So
+  // commitJourneyRecord handles only party + army journeys; there is no j.unitId arrival case.
 }
 
 // Can the journey's LATEST day be rerolled right now? (Journeys J2 feedback.) Yes only when:

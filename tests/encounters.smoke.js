@@ -2679,7 +2679,7 @@ section('E10 — banditry drawn from the trained militia (RR p.433)');
     c.units = [];
     if(militiaCount > 0){
       c.units.push(Object.assign(ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', count: militiaCount }),
-        { source: 'militia', homeDomainId: 'dom-m', calledUp: (opts && opts.calledUp) === true }));
+        { source: 'militia', ownerDomainId: 'dom-m', calledUp: (opts && opts.calledUp) === true }));
     }
     c.currentTurn = 5;
     return c;

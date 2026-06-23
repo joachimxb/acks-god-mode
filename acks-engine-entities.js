@@ -478,27 +478,22 @@ function blankUnit(opts={}){
     // Where the unit is assigned: {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
     // The §5.5 Outpost demotion — stationing is a field, not a container entity.
     stationedAt: opts.stationedAt || null,
-    stationedAtHexId: opts.stationedAtHexId || null,   // legacy geographic hint (kept; map reads it)
-    // Home garrison (2026-06-14): the unit's DEFAULT station — a hex inside its domain. Where
-    // it sits when not on a mission, and where it returns when a task ends (an army disbands).
-    // homeDomainId is the owning domain (W7 levies already set it on the instance; formalized
-    // here). Both additive + lazy-null → old units read null = "no home set" (a graceful fall
-    // back to the prior homeless behavior). setUnitHome validates the hex is inside a domain;
-    // stationUnit auto-captures the garrison a unit leaves so it knows where to march back to.
-    homeHexId: opts.homeHexId || null,
-    homeDomainId: opts.homeDomainId || null,
+    // ownerDomainId — the domain (and thereby realm) that raised + owns this unit. RELATIONAL, not
+    // geographic: it survives un-stationing, so a unit in an army or in transit still knows which
+    // garrison it belongs to (muster timing, wages, the disband fall-back). The 2026-06-22 muster-
+    // model rework dropped the geographic home (homeHexId) + the idle map-hint (stationedAtHexId): a
+    // unit has a hex only when in an army on campaign or standing at a {kind:'hex'} station; a
+    // garrisoning unit is abstract (no coordinate). migrateCampaign renames homeDomainId -> this +
+    // drops homeHexId/stationedAtHexId on load.
+    ownerDomainId: opts.ownerDomainId || null,
     loyalty: opts.loyalty != null ? opts.loyalty : 0,  // unit loyalty score (RR p.429; ± employer CHA at hire)
     moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
     calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
     supplyState: opts.supplyState || 'supplied',   // supplied | underfed | starving | dehydrated (RR p.452)
-    // Reinforcement / rally state: when a distant unit is CALLED UP to an army it leaves its
-    // garrison and marches in (callUpUnit). rallyingToArmyId names the army it joins on arrival;
-    // rallyJourneyId is its rally march. Both null when present/at home (lazy — old saves read null).
-    rallyingToArmyId: opts.rallyingToArmyId || null,
-    rallyJourneyId: opts.rallyJourneyId || null,
-    // The unit's active RETURN MARCH home (returnUnitHome → a journey with unitReturnHome).
-    // On arrival it falls into its home garrison. null when home / not marching (lazy).
-    returnJourneyId: opts.returnJourneyId || null,
+    // Movement state is the lazy musterState / musterPending (NOT emitted here): a unit MUSTERS to an
+    // army / sortie / hex (callUpUnit / musterUnitToDestination) or is LEVIED in over ½/¼/remainder.
+    // Both absent = the unit is present (garrisoning or in the field). The 2026-06-22 muster model
+    // dropped the old rally/return-march journey markers — units muster, they no longer march.
     history: opts.history || [],
     notes: opts.notes || ''
   };
@@ -1089,7 +1084,8 @@ function blankCharacter(opts={}){
     // HEX this NPC lives in (the realized side of ACKS.domainRuralDemographics — "A Typical Hex").
     // Distinct from homeSettlementId (an urban resident) + currentHexId (where it stands now). The
     // rural tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
-    // (Note: blankUnit also has a homeHexId — a unit's home garrison; a different entity, no collision.)
+    // (Note: this homeHexId is the Character's census residence — the Unit entity has NO home hex; a
+    // unit's owner is unit.ownerDomainId, its location is unit.stationedAt. Different entity, no collision.)
     homeHexId: opts.homeHexId || null,
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,

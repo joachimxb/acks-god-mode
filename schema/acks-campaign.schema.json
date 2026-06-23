@@ -3875,21 +3875,7 @@
             }
           }
         },
-        "stationedAtHexId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "hex id — prefix \"hex-\""
-        },
-        "homeHexId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "hex id — prefix \"hex-\""
-        },
-        "homeDomainId": {
+        "ownerDomainId": {
           "type": [
             "string",
             "null"
