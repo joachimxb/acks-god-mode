@@ -24,6 +24,18 @@ ok('index.html loads domain-app.js via <script src>', /<script src="domain-app\.
 try { new vm.Script(appJs, { filename: 'domain-app.js' }); ok('domain-app.js compiles', true); }
 catch(e){ ok('domain-app.js compiles', false, (e.message || String(e))); }
 
+// T5 chip 5 (2026-06-23): feature method-groups are extracted from domain-app.js to
+// domain-app-<feature>.js mixin files (each pushes a members object onto a registry that
+// domainApp() merges with descriptor-preservation). Guard each the same way — non-trivial
+// size + a clean compile + index.html references it via <script src>.
+for (const mixin of ['domain-app-burst5.js']) {
+  const mx = fs.readFileSync(path.join(__dirname, '..', mixin), 'utf8');
+  ok(mixin + ' is non-trivial in size (not truncated)', mx.length > 5000, mx.length + ' bytes');
+  ok('index.html loads ' + mixin + ' via <script src>', new RegExp('<script src="' + mixin.replace(/\./g, '\\.')).test(html));
+  try { new vm.Script(mx, { filename: mixin }); ok(mixin + ' compiles', true); }
+  catch(e){ ok(mixin + ' compiles', false, (e.message || String(e))); }
+}
+
 // Extract inline <script> blocks (those WITHOUT a src= attribute) and compile each.
 const reInline = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
 let m, n = 0, compiled = 0;
