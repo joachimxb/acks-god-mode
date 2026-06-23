@@ -5551,51 +5551,6 @@ document.addEventListener('alpine:init', () => {
               </template>
             </div>
             <!-- === end @b13-domvariants === -->
-            <!-- === @b14-domvariants (team) — Terrain Transformation panel (Phase 5 §4; JJ p.412) === -->
-            <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
-              <p class="text-sm opacity-70 mb-2">As a hex's human/halfling/beastman population grows past <span class="font-mono">186</span> then <span class="font-mono">326</span> families, the land itself changes — deserts irrigated to grassland, forests cleared, swamps dredged, hills and mountains terraced (bidirectional: depopulation reverts). Dwarven/gnomish/elven hexes do not transform land. Enable <em>Terrain Transformation</em> in ⚙ House Rules to let the world evolve on the monthly turn.</p>
-              <template x-if="!terrainTransformRuleOn()">
-                <p class="text-sm italic opacity-60 mb-2">The <span class="font-mono">terrain-transformation</span> house rule is off — terrain is static (RAW default). The lineage below previews what would happen if it were enabled.</p>
-              </template>
-              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length === 0">
-                <p class="text-sm italic opacity-60">No populated land hexes in this domain.</p>
-              </template>
-              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length > 0">
-                <div>
-                  <table class="text-sm w-full">
-                    <thead>
-                      <tr class="text-left opacity-70 border-b border-ink/30">
-                        <th class="pr-2 py-1">Hex</th>
-                        <th class="pr-2 py-1 text-right">Families</th>
-                        <th class="pr-2 py-1 text-center" title="0 = natural (1–185) · 1 = 186–325 · 2 = 326–780 families">Stage</th>
-                        <th class="pr-2 py-1" title="The hex's original (pre-transformation) terrain">Natural</th>
-                        <th class="pr-2 py-1">Current</th>
-                        <th class="pr-2 py-1" title="What the hex will become on the next monthly turn (a stage crossing)">Pending</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="h in domainTerrainTransformInfo(selectedDomain).hexes" :key="h.hexId">
-                        <tr class="border-b border-ink/10" :class="h.pending ? 'text-amber-800' : ''">
-                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
-                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
-                          <td class="pr-2 py-1 text-center font-mono" x-text="h.stage"></td>
-                          <td class="pr-2 py-1 opacity-70" x-text="h.transformed ? h.naturalLabel : '—'"></td>
-                          <td class="pr-2 py-1" x-text="h.currentLabel"></td>
-                          <td class="pr-2 py-1" x-text="h.pending ? ((h.pending.direction === 'reversion' ? '↩ ' : '→ ') + h.pending.toLabel) : '—'"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                  <div class="mt-2 flex items-center gap-3" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length > 0">
-                    <span class="text-sm text-amber-800" x-text="domainTerrainTransformInfo(selectedDomain).pending.length + ' hex' + (domainTerrainTransformInfo(selectedDomain).pending.length === 1 ? '' : 'es') + ' will transform on the next monthly turn.'"></span>
-                    <button class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" @click="applyTerrainTransformations(selectedDomain)">Apply now</button>
-                  </div>
-                  <p class="text-sm italic opacity-60 mt-2" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length === 0">No hexes are crossing a transformation threshold.</p>
-                </div>
-              </template>
-            </div>
-            <!-- === end @b14-domvariants === -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
@@ -5624,99 +5579,8 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- Hexes section — moved under Demographics 2026-05-28. Renders in
-             source order after the Pop&Morale + Settlements 50/50 grid. -->
-        <div x-show="activeTab==='demographics'" class="mt-4">
-          <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="domainHexesFor(selectedDomain) && domainHexesFor(selectedDomain).length > 0" x-text="'· ' + domainHexesFor(selectedDomain).length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + domainHexesFor(selectedDomain).reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
-            <table class="bookkeeping text-sm">
-              <thead><tr>
-                <th>Hex</th>
-                <th>Class</th>
-                <th>Families</th>
-                <th>Land value</th>
-                <th title="Agricultural improvement bonus per RR p.341">Improvements</th>
-                <th x-show="isHouseRuleEnabled('families-per-hex-tracking')">Land income</th>
-                <th>Settlement</th>
-              </tr></thead>
-              <tbody>
-                <template x-for="(h, i) in domainHexesFor(selectedDomain)" :key="h.id || i">
-                  <tr>
-                    <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
-                    <td class="whitespace-nowrap">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="hexLabelFor(h)"></button>
-                    </td>
-                    <!-- (2) Class: plain text. Derived from domain (or per-hex families when the house rule is on). -->
-                    <td x-text="effectiveHexClassification(selectedDomain, h)"></td>
-                    <!-- (3) Families: per RAW, families are domain-level. With families-per-hex-tracking
-                         ON, each hex tracks its own; OFF shows the rural-total/hex-count estimate. -->
-                    <td>
-                      <template x-if="isHouseRuleEnabled('families-per-hex-tracking')">
-                        <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'families', label:'Families (hex)', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                        </span>
-                      </template>
-                      <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
-                        <span class="text-sm opacity-70 italic" :title="'Estimate: ' + ((selectedDomain.demographics.peasantFamilies||0)) + ' rural families / ' + (domainHexesFor(selectedDomain)?.length || 1) + ' hexes. Enable the families-per-hex-tracking house rule to track per hex.'" x-text="'~' + Math.round((selectedDomain.demographics.peasantFamilies||0) / (domainHexesFor(selectedDomain)?.length || 1)).toLocaleString() + ' est'"></span>
-                      </template>
-                    </td>
-                    <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                    </td>
-                    <td class="text-sm">
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-semibold" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — GM shortcut, max +3. Proper flow is the Queue improvements panel below.">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                      <span class="opacity-60" x-text="'(eff ' + effectiveHexValue(h) + ')'"></span>
-                      <template x-if="(h.landImprovementProjects||[]).length > 0">
-                        <div class="text-sm accent-amber" x-text="'⚒ ' + (h.landImprovementProjects.length) + ' project in progress, completes Turn ' + (h.landImprovementProjects[0].completesTurn||'?')"></div>
-                      </template>
-                    </td>
-                    <td x-show="isHouseRuleEnabled('families-per-hex-tracking')" class="font-mono" x-text="((h.families||0)*effectiveHexValue(h)).toLocaleString() + ' gp'"></td>
-                    <td>
-                      <template x-if="!settlementAtHexG(h)">
-                        <div x-data="{showFound:false, name:'', count:100}">
-                          <button @click="showFound = !showFound" class="text-sm underline" :disabled="(selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < 75" :title="(selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp treasury' : (selectedDomain.demographics.peasantFamilies||0) < 75 ? 'Need 75+ peasants' : 'Found a settlement here'">
-                            <span x-show="!showFound">+ found settlement</span>
-                            <span x-show="showFound">cancel</span>
-                          </button>
-                          <div x-show="showFound" class="mt-1 p-2 border border-ink rounded" style="background:#f4ecd2; min-width:14rem">
-                            <input x-model="name" placeholder="Settlement name" class="w-full text-sm mb-1">
-                            <label class="text-sm block">Peasants (75-249): <input type="number" min="75" max="249" x-model.number="count" class="w-16"></label>
-                            <button @click="foundSettlementOnHex(selectedDomain, h, name, count); showFound=false"
-                                    class="mt-1 px-2 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
-                                    :class="(!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
-                                    :disabled="!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count"
-                                    :title="!name ? 'Type a settlement name first' : (count < 75 ? 'Need at least 75 peasants' : (count > 249 ? 'Max 249 peasants (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury (have ' + (selectedDomain.treasury.gp||0).toLocaleString() + 'gp)' : ((selectedDomain.demographics.peasantFamilies||0) < count ? 'Domain has only ' + (selectedDomain.demographics.peasantFamilies||0).toLocaleString() + ' rural families — need ' + count : 'Found this settlement'))))">
-                              Found · 10,000gp + <span x-text="count"></span>p
-                            </button>
-                          </div>
-                        </div>
-                      </template>
-                      <template x-if="settlementAtHexG(h)">
-                        <div class="font-semibold">
-                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:settlementAtHexG(h), fieldPath:'name', label:'Settlement name', kind:'text'})">
-                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                          </span>
-                        </div>
-                      </template>
-                    </td>
-                  </tr>
-                </template>
-                <template x-if="!domainHexesFor(selectedDomain) || domainHexesFor(selectedDomain).length === 0">
-                  <tr><td :colspan="6 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
-                </template>
-              </tbody>
-            </table>
-            <button @click="addHexViaMap(selectedDomain.id)" class="mt-2 text-sm underline" title="Open the Map in Add/Edit mode to place a new hex for this domain, then return here">+ add hex</button>
-          </div>
-
+        <!-- ===== Investment tab (2026-06-23) — Agricultural improvements (moved from Demographics) + Urban investment (new, RR p.351) + Domain advancement (moved from Demographics) ===== -->
+        <div x-show="activeTab==='investment'" class="mt-4">
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
                RAW (RR p.174): land improvement is a labor-paid construction project that takes time
@@ -5860,6 +5724,65 @@ document.addEventListener('alpine:init', () => {
               </div>
             </div>
           </template>
+          <!-- Urban investment (RR p.351 / p.353) — domain-detail panel (Investment tab, 2026-06-23).
+               RAW-verified IMMEDIATE action, NOT a construction project: ordering investment pays the gp
+               at once (RR p.353 "Issuing Decrees"); for every 1,000gp, 1d10 urban families immigrate that
+               month (RR p.351); the spend raises the settlement's total investment, lifting its maximum-
+               population cap (RR p.350). Contrast the Agricultural land-value panel above (RR p.341 / p.174),
+               which IS a build-over-time construction project. Applies via ACKS.applyUrbanInvestment. -->
+          <div class="vellum border border-ink p-3 rounded mt-3"
+               x-data="{ amounts:{}, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
+            <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.351)</span></h2>
+            <p class="text-sm opacity-70 mb-3">
+              Spend gp on a settlement's roads, aqueducts, sewers, marketplaces, and walls. For every <strong>1,000gp</strong> invested, <strong>1d10</strong> new urban families immigrate <em>immediately</em>, and the settlement's total investment rises — lifting its maximum-population cap (RR p.350). Per RAW (RR p.353) the cost is paid at once; this is an immediate action, not a construction project. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
+            </p>
+            <template x-if="(hexSettlements(selectedDomain)||[]).length === 0">
+              <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Found one from the Hexes table on the Demographics tab, or via the Inspector.</p>
+            </template>
+            <template x-if="(hexSettlements(selectedDomain)||[]).length > 0">
+              <div>
+                <table class="bookkeeping text-sm w-full">
+                  <thead><tr>
+                    <th>Settlement</th>
+                    <th>Families</th>
+                    <th title="Maximum families at the settlement's current total investment (RR p.350)">Cap</th>
+                    <th>Class</th>
+                    <th>Total investment</th>
+                    <th>Invest (gp)</th>
+                    <th>Expected new families</th>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="entry in (hexSettlements(selectedDomain)||[])" :key="entry.settlement.id">
+                      <tr>
+                        <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
+                        <td x-text="(entry.settlement.families||0).toLocaleString()"></td>
+                        <td x-text="settlementCapacity(entry.settlement).toLocaleString()"></td>
+                        <td x-text="'Class ' + settlementMarketClass(entry.settlement)"></td>
+                        <td class="font-mono opacity-70" x-text="(entry.settlement.totalInvestment||0).toLocaleString() + 'gp'"></td>
+                        <td><input type="number" min="0" step="1000" x-model.number="amounts[entry.settlement.id]" class="w-24 text-sm" placeholder="0"></td>
+                        <td class="opacity-80" x-text="(amounts[entry.settlement.id]||0) >= 1000 ? '+' + Math.floor((amounts[entry.settlement.id]||0)/1000) + 'd10 (avg +' + Math.floor((amounts[entry.settlement.id]||0)/1000 * 5.5) + ')' : '—'"></td>
+                      </tr>
+                    </template>
+                    <tr class="subtotal">
+                      <td colspan="5">Total to invest now</td>
+                      <td x-text="total().toLocaleString() + 'gp'"></td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="flex items-center justify-between flex-wrap gap-2 mt-2">
+                  <span class="text-sm opacity-70">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></span>
+                  <button @click="investUrbanNow(selectedDomain, amounts)"
+                          class="px-3 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
+                          :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
+                          :disabled="total() <= 0"
+                          title="Apply urban investment now: 1d10 families per 1,000gp immigrate, the settlement's investment + population cap rise, and the gp is debited from the treasury (RR p.351).">💰 Invest now</button>
+                </div>
+                <p class="text-sm accent-red mt-1" x-show="total() > urbanInvestmentRevenueCap(selectedDomain)">⚠ Total exceeds this month's revenue cap — RAW (RR p.351) disallows spending more than the domain's monthly revenue. Reduce the amounts, or rule on it as GM.</p>
+                <p class="text-sm accent-red mt-1" x-show="total() > (selectedDomain.treasury?.gp||0)">⚠ Total exceeds the treasury (<span x-text="(selectedDomain.treasury?.gp||0).toLocaleString()"></span>gp) — investing this much would put it negative.</p>
+              </div>
+            </template>
+          </div>
           <!-- team:agent-3-domain-completion (panel:domain-advancement) — DC-0 read-only spatial
                conditions toward Outlands→Borderlands→Civilized advancement (RR p.340). Derived from
                the hex map (roads + settlement sizes); the GM override + the full eligibility check are DC-2. -->
@@ -5952,6 +5875,147 @@ document.addEventListener('alpine:init', () => {
             </template>
             <p class="text-xs opacity-60 italic mt-2">Spatial conditions are derived from the hex map (roads + settlement sizes); a GM override wins. Advancement (RR p.340) is permanent and fires automatically at each monthly turn — DC-2.</p>
           </div>
+        </div>
+
+        <!-- Hexes section — moved under Demographics 2026-05-28. Renders in
+             source order after the Pop&Morale + Settlements 50/50 grid. -->
+        <div x-show="activeTab==='demographics'" class="mt-4">
+          <div class="vellum border border-ink p-3 rounded">
+            <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="domainHexesFor(selectedDomain) && domainHexesFor(selectedDomain).length > 0" x-text="'· ' + domainHexesFor(selectedDomain).length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + domainHexesFor(selectedDomain).reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
+            <table class="bookkeeping text-sm">
+              <thead><tr>
+                <th>Hex</th>
+                <th>Class</th>
+                <th>Families</th>
+                <th>Land value</th>
+                <th title="Agricultural improvement bonus per RR p.341">Improvements</th>
+                <th x-show="isHouseRuleEnabled('families-per-hex-tracking')">Land income</th>
+                <th>Settlement</th>
+              </tr></thead>
+              <tbody>
+                <template x-for="(h, i) in domainHexesFor(selectedDomain)" :key="h.id || i">
+                  <tr>
+                    <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
+                    <td class="whitespace-nowrap">
+                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="hexLabelFor(h)"></button>
+                    </td>
+                    <!-- (2) Class: plain text. Derived from domain (or per-hex families when the house rule is on). -->
+                    <td x-text="effectiveHexClassification(selectedDomain, h)"></td>
+                    <!-- (3) Families: per RAW, families are domain-level. With families-per-hex-tracking
+                         ON, each hex tracks its own; OFF shows the rural-total/hex-count estimate. -->
+                    <td>
+                      <template x-if="isHouseRuleEnabled('families-per-hex-tracking')">
+                        <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'families', label:'Families (hex)', kind:'number', min:0})">
+                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+                        </span>
+                      </template>
+                      <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
+                        <span class="text-sm opacity-70 italic" :title="'Estimate: ' + ((selectedDomain.demographics.peasantFamilies||0)) + ' rural families / ' + (domainHexesFor(selectedDomain)?.length || 1) + ' hexes. Enable the families-per-hex-tracking house rule to track per hex.'" x-text="'~' + Math.round((selectedDomain.demographics.peasantFamilies||0) / (domainHexesFor(selectedDomain)?.length || 1)).toLocaleString() + ' est'"></span>
+                      </template>
+                    </td>
+                    <td>
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+                      </span>
+                    </td>
+                    <td class="text-sm">
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-semibold" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — GM shortcut, max +3. Proper flow is the Queue improvements panel below.">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+                      </span>
+                      <span class="opacity-60" x-text="'(eff ' + effectiveHexValue(h) + ')'"></span>
+                      <template x-if="(h.landImprovementProjects||[]).length > 0">
+                        <div class="text-sm accent-amber" x-text="'⚒ ' + (h.landImprovementProjects.length) + ' project in progress, completes Turn ' + (h.landImprovementProjects[0].completesTurn||'?')"></div>
+                      </template>
+                    </td>
+                    <td x-show="isHouseRuleEnabled('families-per-hex-tracking')" class="font-mono" x-text="((h.families||0)*effectiveHexValue(h)).toLocaleString() + ' gp'"></td>
+                    <td>
+                      <template x-if="!settlementAtHexG(h)">
+                        <div x-data="{showFound:false, name:'', count:100}">
+                          <button @click="showFound = !showFound" class="text-sm underline" :disabled="(selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < 75" :title="(selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp treasury' : (selectedDomain.demographics.peasantFamilies||0) < 75 ? 'Need 75+ peasants' : 'Found a settlement here'">
+                            <span x-show="!showFound">+ found settlement</span>
+                            <span x-show="showFound">cancel</span>
+                          </button>
+                          <div x-show="showFound" class="mt-1 p-2 border border-ink rounded" style="background:#f4ecd2; min-width:14rem">
+                            <input x-model="name" placeholder="Settlement name" class="w-full text-sm mb-1">
+                            <label class="text-sm block">Peasants (75-249): <input type="number" min="75" max="249" x-model.number="count" class="w-16"></label>
+                            <button @click="foundSettlementOnHex(selectedDomain, h, name, count); showFound=false"
+                                    class="mt-1 px-2 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
+                                    :class="(!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
+                                    :disabled="!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count"
+                                    :title="!name ? 'Type a settlement name first' : (count < 75 ? 'Need at least 75 peasants' : (count > 249 ? 'Max 249 peasants (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury (have ' + (selectedDomain.treasury.gp||0).toLocaleString() + 'gp)' : ((selectedDomain.demographics.peasantFamilies||0) < count ? 'Domain has only ' + (selectedDomain.demographics.peasantFamilies||0).toLocaleString() + ' rural families — need ' + count : 'Found this settlement'))))">
+                              Found · 10,000gp + <span x-text="count"></span>p
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                      <template x-if="settlementAtHexG(h)">
+                        <div class="font-semibold">
+                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:settlementAtHexG(h), fieldPath:'name', label:'Settlement name', kind:'text'})">
+                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+                          </span>
+                        </div>
+                      </template>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="!domainHexesFor(selectedDomain) || domainHexesFor(selectedDomain).length === 0">
+                  <tr><td :colspan="6 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
+                </template>
+              </tbody>
+            </table>
+            <button @click="addHexViaMap(selectedDomain.id)" class="mt-2 text-sm underline" title="Open the Map in Add/Edit mode to place a new hex for this domain, then return here">+ add hex</button>
+          </div>
+
+          <!-- Terrain Transformation — relocated here from the Economy tab to sit directly under the Hexes box (2026-06-23). -->
+            <!-- === @b14-domvariants (team) — Terrain Transformation panel (Phase 5 §4; JJ p.412) === -->
+            <div class="vellum border border-ink p-3 rounded mt-3">
+              <h2 class="font-bold text-lg mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
+              <p class="text-sm opacity-70 mb-2">As a hex's human/halfling/beastman population grows past <span class="font-mono">186</span> then <span class="font-mono">326</span> families, the land itself changes — deserts irrigated to grassland, forests cleared, swamps dredged, hills and mountains terraced (bidirectional: depopulation reverts). Dwarven/gnomish/elven hexes do not transform land. Enable <em>Terrain Transformation</em> in ⚙ House Rules to let the world evolve on the monthly turn.</p>
+              <template x-if="!terrainTransformRuleOn()">
+                <p class="text-sm italic opacity-60 mb-2">The <span class="font-mono">terrain-transformation</span> house rule is off — terrain is static (RAW default). The lineage below previews what would happen if it were enabled.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length === 0">
+                <p class="text-sm italic opacity-60">No populated land hexes in this domain.</p>
+              </template>
+              <template x-if="domainTerrainTransformInfo(selectedDomain).hexes.length > 0">
+                <div>
+                  <table class="text-sm w-full">
+                    <thead>
+                      <tr class="text-left opacity-70 border-b border-ink/30">
+                        <th class="pr-2 py-1">Hex</th>
+                        <th class="pr-2 py-1 text-right">Families</th>
+                        <th class="pr-2 py-1 text-center" title="0 = natural (1–185) · 1 = 186–325 · 2 = 326–780 families">Stage</th>
+                        <th class="pr-2 py-1" title="The hex's original (pre-transformation) terrain">Natural</th>
+                        <th class="pr-2 py-1">Current</th>
+                        <th class="pr-2 py-1" title="What the hex will become on the next monthly turn (a stage crossing)">Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="h in domainTerrainTransformInfo(selectedDomain).hexes" :key="h.hexId">
+                        <tr class="border-b border-ink/10" :class="h.pending ? 'text-amber-800' : ''">
+                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
+                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
+                          <td class="pr-2 py-1 text-center font-mono" x-text="h.stage"></td>
+                          <td class="pr-2 py-1 opacity-70" x-text="h.transformed ? h.naturalLabel : '—'"></td>
+                          <td class="pr-2 py-1" x-text="h.currentLabel"></td>
+                          <td class="pr-2 py-1" x-text="h.pending ? ((h.pending.direction === 'reversion' ? '↩ ' : '→ ') + h.pending.toLabel) : '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                  <div class="mt-2 flex items-center gap-3" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length > 0">
+                    <span class="text-sm text-amber-800" x-text="domainTerrainTransformInfo(selectedDomain).pending.length + ' hex' + (domainTerrainTransformInfo(selectedDomain).pending.length === 1 ? '' : 'es') + ' will transform on the next monthly turn.'"></span>
+                    <button class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" @click="applyTerrainTransformations(selectedDomain)">Apply now</button>
+                  </div>
+                  <p class="text-sm italic opacity-60 mt-2" x-show="terrainTransformRuleOn() && domainTerrainTransformInfo(selectedDomain).pending.length === 0">No hexes are crossing a transformation threshold.</p>
+                </div>
+              </template>
+            </div>
+            <!-- === end @b14-domvariants === -->
         </div>
 
         <!-- Settlement Demographics — Placement (SD-7b) + Countryside (SD-4) censuses, relocated to the

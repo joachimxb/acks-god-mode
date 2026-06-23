@@ -767,7 +767,7 @@ const _component = {
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
   // (Phase 4 senate, Phase 4.6 mines/mushroom-farms, etc.) will insert into this list conditionally.
   get tabs(){
-    return ['overview','demographics','economy','officers','military','vassalage','stronghold','history'];   // 'raw' tab removed (UI overhaul 2026-06-22)
+    return ['overview','demographics','investment','economy','officers','military','vassalage','stronghold','history'];   // 'investment' added 2026-06-23 (Agricultural + Urban + Domain advancement); 'raw' tab removed (UI overhaul 2026-06-22)
   },
   turnProposal:null,turnProposalError:'',   // (showTurnModal retired 2026-06-13 — the turn now stages in Review ▸ Domain Review)
   turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
@@ -8462,6 +8462,31 @@ const _component = {
   settlementMarketClass(s){return window.ACKS.settlementMarketClass(s);},
   settlementTradeRate(s){return window.ACKS.settlementTradeRate(s);},
   settlementCapacity(s){return window.ACKS.settlementCapacity(s);},
+  // Urban investment (Investment tab, 2026-06-23) — RAW-immediate (RR p.351/p.353; see
+  // ACKS.applyUrbanInvestment). The advisory monthly-revenue cap = this month's morale-adjusted gross
+  // income ("a ruler cannot spend more than his domain's revenue on urban investment each month").
+  urbanInvestmentRevenueCap(d){ if(!d) return 0; return window.ACKS.bankersRound((this.monthlyGrossIncome(d)||0) * this.incomeFactor(d.demographics?.morale||0)); },
+  // Apply immediate urban investment for every settlement with a positive amount in the panel's
+  // transient `amounts` {settlementId: gp} map. Rolls 1d10/1,000gp, raises totalInvestment + cap,
+  // debits treasury — per settlement, immediately. Clears the inputs + toasts the result.
+  investUrbanNow(d, amounts){
+    const c = this.currentCampaign; if(!c || !d) return;
+    const A = window.ACKS;
+    const results = [];
+    for(const { settlement } of (this.hexSettlements(d) || [])){
+      const amt = Math.floor((amounts && amounts[settlement.id]) || 0);
+      if(amt <= 0) continue;
+      const r = A.applyUrbanInvestment(c, d, settlement, amt);
+      if(r) results.push(r);
+    }
+    if(results.length === 0){ this.showToast('Enter an investment amount first (1,000gp grants 1d10 families).', 4000); return; }
+    if(amounts) for(const k of Object.keys(amounts)) amounts[k] = 0;
+    this.markDirty(); this.schedulePersist();
+    const totalGp = results.reduce((s,r) => s + r.spent, 0);
+    const totalFam = results.reduce((s,r) => s + r.gained, 0);
+    const detail = results.map(r => r.settlementName + ' +' + r.gained + (r.capped ? ' (at cap)' : '')).join('; ');
+    this.showToast('Invested ' + totalGp.toLocaleString() + 'gp · +' + totalFam.toLocaleString() + ' urban families — ' + detail, 6000);
+  },
   // Villages/Towns/Cities benchmarks (RR p.351)
   settlementType(s){return lookupSettlementBenchmark(s.families||0).type;},
   settlementIncomeBenchmark(s){
