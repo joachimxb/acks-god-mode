@@ -12,8 +12,11 @@
  *   MO-3 — resolveMountFeedingDay/applyMountFeedingDay (RR p.276: food=load/10, water=load/5; grazers;
  *          camels; fresh-water; Hungry→Underfed→Starving/Dehydrated ladder) + an end-to-end day-tick
  *          that feeds the herd on commit + the ignore-rations opt-out + migrate-no-op on templates.
+ *   MO-4 — mountTerrainMoveMultiplier / mountMountainMoveMultiplier (RR pp.147-148 + RR p.272):
+ *          the surefooted exception — donkey + mule cross mountain hexes at ×2/3 instead of ×1/2;
+ *          off-mountain terrain is the flat JOURNEY_TERRAIN_SPEED value (surefooted-agnostic).
  *
- * Authored 2026-06-21 (Mounts MO-1..MO-3).
+ * Authored 2026-06-21 (Mounts MO-1..MO-3); MO-4 surefooted terrain added 2026-06-23.
  */
 const fs = require('fs');
 const path = require('path');
@@ -156,6 +159,25 @@ e = journeyRig({ supplies: { animalFeed: 0, animalWater: 0 }, houseRules: { 'ign
 ACKS.advanceJourneyOneDay(e.cc, e.j);
 check('ignore-rations: no feeding, the mount is untouched', e.m.foodDeficitDays === 0 && e.m.waterDeficitDays === 0 && !e.m.conditionFlags.hungry);
 check('ignore-rations: the store is untouched too', e.j.supplies.animalFeed === 0);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('MO-4 — surefooted mountain movement (RR pp.147–148 + RR p.272)');
+const donkeyM = ACKS.blankMount({ catalogKey: 'donkey' });
+const muleM   = ACKS.blankMount({ catalogKey: 'mule' });
+const lightHM = ACKS.blankMount({ catalogKey: 'horse-light' });
+// the trait: donkey + mule are the two surefooted breeds (RR pp.147-148); horses aren't
+check('donkey + mule are surefooted; light horse is not', ACKS.mountIsSurefooted(donkeyM) && ACKS.mountIsSurefooted(muleM) && !ACKS.mountIsSurefooted(lightHM));
+// the headline rule: ×2/3 surefooted vs the standard ×1/2 in mountains
+check('surefooted mountain multiplier = 2/3 (RR pp.147-148)', Math.abs(ACKS.mountMountainMoveMultiplier(donkeyM) - 2/3) < 1e-9 && Math.abs(ACKS.mountMountainMoveMultiplier(muleM) - 2/3) < 1e-9);
+check('non-surefooted mountain multiplier = the standard 1/2 (RR p.272)', ACKS.mountMountainMoveMultiplier(lightHM) === 0.5);
+check('exported constant SUREFOOTED_MOUNTAIN_MOVE_MULT = 2/3', Math.abs(ACKS.SUREFOOTED_MOUNTAIN_MOVE_MULT - 2/3) < 1e-9);
+// both mountain keys ('mountains' + the singular 'mountain') honour surefooted
+check('both mountain keys give surefooted ×2/3; horses stay ×1/2', Math.abs(ACKS.mountTerrainMoveMultiplier(muleM, 'mountain') - 2/3) < 1e-9 && ACKS.mountTerrainMoveMultiplier(lightHM, 'mountain') === 0.5);
+// off-mountain terrain is the flat table value for EVERY mount (no surefooted effect)
+check('hills ×2/3 for any mount (= JOURNEY_TERRAIN_SPEED, surefooted-agnostic)', ACKS.mountTerrainMoveMultiplier(donkeyM, 'hills') === ACKS.JOURNEY_TERRAIN_SPEED.hills && ACKS.mountTerrainMoveMultiplier(lightHM, 'hills') === ACKS.JOURNEY_TERRAIN_SPEED.hills);
+check('grassland ×1 unaffected by surefootedness', ACKS.mountTerrainMoveMultiplier(muleM, 'grassland') === 1 && ACKS.mountTerrainMoveMultiplier(lightHM, 'grassland') === 1);
+// the override only ever RAISES: road ×3/2 passes through; unknown/blank terrain ⇒ ×1
+check('road ×3/2 passes through for a surefooted mount; unknown/null terrain ⇒ ×1', ACKS.mountTerrainMoveMultiplier(muleM, 'road') === ACKS.JOURNEY_TERRAIN_SPEED.road && ACKS.mountTerrainMoveMultiplier(muleM, 'nonsense-terrain') === 1 && ACKS.mountTerrainMoveMultiplier(muleM, null) === 1);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('MO-1 — migrate-no-op on the shipped templates');
