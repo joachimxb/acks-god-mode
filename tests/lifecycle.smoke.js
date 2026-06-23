@@ -430,6 +430,79 @@ if(typeof ACKS.applyMortalWound === 'function' && typeof ACKS.rollMortalWound ==
   ok('D1 wound-interplay test skipped (mortal-wounds module not present)', true);
 }
 
+section('CL-2 disease — Healing-throw resolution (JJ p.84 + RR Healing Progression)');
+ok('exports rollDiagnoseThrow + rollCureThrow', typeof ACKS.rollDiagnoseThrow==='function' && typeof ACKS.rollCureThrow==='function');
+{
+  // a Chirurgeon (3 ranks of Healing) cures a symptomatic patient on a successful throw (14+).
+  const c = mkCampaign();
+  const healer = mkChar(c, { id:'doc', name:'Chirurgeon' }); healer.proficiencies = [{ key:'healing', ranks:3 }];
+  const ch = mkChar(c, { id:'sick', name:'Sick', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:2, forcedSymptom:7 });
+  ACKS.advanceDiseases(c, 2);  // → symptomatic
+  const r = ACKS.rollCureThrow(c, 'doc', 'sick', rec.id, { rng: RNG_HI });
+  ok('cure throw uses the Chirurgeon target (14+)', r.ok && r.throw.resolvedTarget===14);
+  ok('a successful cure throw resolves the disease (recovered)', r.success===true && ch.diseases[0].resolved===true && ch.diseases[0].phase==='recovered');
+  ok('the cure emits disease-recovered', c.eventLog.some(e=>e.event.kind==='disease-recovered'));
+}
+{
+  // a failed cure throw (natural 1) leaves the disease unresolved.
+  const c = mkCampaign();
+  const healer = mkChar(c, { id:'doc', name:'Chirurgeon' }); healer.proficiencies = [{ key:'healing', ranks:3 }];
+  const ch = mkChar(c, { id:'sick', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:2, forcedSymptom:7 });
+  ACKS.advanceDiseases(c, 2);
+  const r = ACKS.rollCureThrow(c, 'doc', 'sick', rec.id, { rng: RNG0 });
+  ok('a failed cure throw does not cure (ok, success:false, still unresolved)', r.ok===true && r.success===false && ch.diseases[0].resolved!==true);
+}
+{
+  // a Physicker (2 ranks) cures at 18+; a 1-rank Healer cannot cure (unqualified, no roll).
+  const c = mkCampaign();
+  const phys = mkChar(c, { id:'phys' }); phys.proficiencies = [{ key:'healing', ranks:2 }];
+  const heal = mkChar(c, { id:'heal' }); heal.proficiencies = [{ key:'healing', ranks:1 }];
+  const ch = mkChar(c, { id:'sick', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:1, forcedSymptom:9 });
+  ACKS.advanceDiseases(c, 1);  // → symptomatic
+  const rp = ACKS.rollCureThrow(c, 'phys', 'sick', rec.id, { rng: RNG_HI });
+  ok('a Physicker cures at 18+', rp.ok && rp.throw.resolvedTarget===18 && rp.success===true && ch.diseases[0].resolved===true);
+  const rec2 = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:1, forcedSymptom:9 });
+  ACKS.advanceDiseases(c, 1);
+  const rh = ACKS.rollCureThrow(c, 'heal', 'sick', rec2.id, { rng: RNG_HI });
+  ok('a 1-rank Healer cannot cure disease (unqualified, no roll, disease untouched)', rh.ok===false && rh.reason==='unqualified' && ch.diseases.find(d=>d.id===rec2.id).resolved!==true);
+}
+{
+  // diagnose: infected → sensed (Healer 11+); a failed throw changes nothing.
+  const c = mkCampaign();
+  const healer = mkChar(c, { id:'doc' }); healer.proficiencies = [{ key:'healing', ranks:1 }];
+  const ch = mkChar(c, { id:'sick', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:3, forcedSymptom:7 });  // infected
+  const fail = ACKS.rollDiagnoseThrow(c, 'doc', 'sick', rec.id, { rng: RNG0 });
+  ok('a failed diagnose changes nothing (success:false, level null, undiagnosed)', fail.ok && fail.success===false && fail.level===null && ch.diseases[0].identifiedLevel===null);
+  const r = ACKS.rollDiagnoseThrow(c, 'doc', 'sick', rec.id, { rng: RNG_HI });
+  ok('a successful diagnose on an infected patient → sensed (11+ at 1 rank)', r.ok && r.success===true && r.level==='sensed' && r.throw.resolvedTarget===11 && ch.diseases[0].identifiedLevel==='sensed');
+}
+{
+  // diagnose: symptomatic → identified, then a subsequent throw → prognosis (Chirurgeon 3+).
+  const c = mkCampaign();
+  const healer = mkChar(c, { id:'doc' }); healer.proficiencies = [{ key:'healing', ranks:3 }];
+  const ch = mkChar(c, { id:'sick', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:1, forcedSymptom:9 });
+  ACKS.advanceDiseases(c, 1);  // → symptomatic
+  const r1 = ACKS.rollDiagnoseThrow(c, 'doc', 'sick', rec.id, { rng: RNG_HI });
+  ok('a symptomatic patient → identified (Chirurgeon 3+)', r1.success && r1.level==='identified' && r1.throw.resolvedTarget===3 && ch.diseases[0].identifiedLevel==='identified');
+  const r2 = ACKS.rollDiagnoseThrow(c, 'doc', 'sick', rec.id, { rng: RNG_HI });
+  ok('a subsequent successful throw → prognosis', r2.level==='prognosis' && ch.diseases[0].identifiedLevel==='prognosis' && ch.diseases[0].prognosisKnown===true);
+}
+{
+  // guards: no active disease, a missing healer, and self-treat (healer === patient).
+  const c = mkCampaign();
+  const healer = mkChar(c, { id:'doc', savingThrows:{death:15} }); healer.proficiencies = [{ key:'healing', ranks:3 }];
+  ok('rollCureThrow on a healthy patient → no-active-disease', ACKS.rollCureThrow(c, 'doc', 'doc', 0, { rng:RNG_HI }).reason==='no-active-disease');
+  ok('a missing healer → no-healer', ACKS.rollCureThrow(c, 'ghost', 'doc', 0, { rng:RNG_HI }).reason==='no-healer');
+  const rec = ACKS.contractDisease(c, 'doc', { diseaseType:'ague', forcedSave:8, forcedOnset:3, forcedSymptom:7 });
+  const r = ACKS.rollDiagnoseThrow(c, 'doc', 'doc', rec.id, { rng: RNG_HI });
+  ok('a healer can self-treat (diagnose his own disease)', r.ok && r.success===true && r.level==='sensed');
+}
+
 section('CL-2 disease — migrate-no-op (the demo carries no diseases)');
 {
   require(path.join(__dirname, '..', 'acks-demo-template.js'));

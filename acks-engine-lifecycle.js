@@ -737,6 +737,64 @@ function cureDisease(campaign, characterId, diseaseRef, opts){
   return d;
 }
 
+// =============================================================================
+// Healing-throw resolution (JJ p.84 + RR Healing Proficiency Progression). The proficiency catalog
+// already carries the two RAW throws — `healing:diagnose` (tierTargets 1→11+ / 2→7+ / 3→3+, by Healing
+// rank) and `healing:cure` (2→18+ / 3→14+, a Physicker/Chirurgeon only — rank 1 cannot cure) — but they
+// were unwired to the disease subsystem (the v1 GM rolled them by hand and called identifyDisease /
+// cureDisease). These verbs roll a HEALER's throw through the shipped Layer-1 resolver and, ON SUCCESS,
+// apply the result via those same GM-fiat primitives — so the manual path is preserved and a MAGIC cure
+// (no throw, RAW) still calls cureDisease({ method:'magic' }) directly. healer and patient may be the
+// same character (self-treat); the resolver returns { unavailableReason } (no roll) when the healer's
+// rank is too low (a Healer cannot cure), surfaced here as reason:'unqualified'.
+//   🔧 v1 (GM-paced, not engine-enforced — GM-judgment-first): the Patients/Day cap (RR — Healer 4 /
+//   Physicker 5 / Chirurgeon 6) and the throw's day-gating (a diagnosis advances identified→prognosis on
+//   a "subsequent" throw, per the task's retryGate metadata) are left to the GM's cadence.
+function _rollDiseaseHealingThrow(campaign, healerId, patientId, diseaseRef, taskKey, opts){
+  opts = opts || {};
+  const A = global.ACKS;
+  const healer  = (healerId  && typeof healerId  === 'object') ? healerId  : _findCharacterLC(campaign, healerId);
+  if(!healer)  return { ok:false, reason:'no-healer' };
+  const patient = (patientId && typeof patientId === 'object') ? patientId : _findCharacterLC(campaign, patientId);
+  if(!patient) return { ok:false, reason:'no-patient' };
+  const d = _findDisease(patient, diseaseRef);
+  if(!d || d.resolved) return { ok:false, reason:'no-active-disease' };
+  if(typeof A.characterProficiencyThrow !== 'function') return { ok:false, reason:'proficiency-engine-unavailable' };
+  const thr = A.characterProficiencyThrow(campaign, healer, taskKey, { rng: opts.rng, situational: opts.situational, secret: opts.secret });
+  if(!thr || thr.unavailableReason) return { ok:false, reason:'unqualified', detail: thr ? thr.unavailableReason : null, throw: thr || null, healer, patient, disease: d };
+  return { ok:true, success: !!thr.success, throw: thr, healer, patient, disease: d };
+}
+
+// Roll a healer's Diagnose throw to identify a patient's disease (RR — Healer 11+ / Physicker 7+ /
+// Chirurgeon 3+). On success the party's diagnosis advances per JJ p.84: an INFECTED patient ⇒ 'sensed'
+// ("coming down with something"), a SYMPTOMATIC patient ⇒ 'identified' (the exact disease), and a
+// subsequent successful throw ⇒ 'prognosis'. Returns { ok, success, level, throw } / { ok:false, reason }.
+function rollDiagnoseThrow(campaign, healerId, patientId, diseaseRef, opts){
+  opts = opts || {};
+  const r = _rollDiseaseHealingThrow(campaign, healerId, patientId, diseaseRef, 'healing:diagnose', opts);
+  if(!r.ok) return r;
+  let level = opts.level;
+  if(!level){
+    if(r.disease.phase === 'symptomatic')
+      level = (r.disease.identifiedLevel === 'identified' || r.disease.identifiedLevel === 'prognosis') ? 'prognosis' : 'identified';
+    else level = 'sensed';
+  }
+  if(r.success) identifyDisease(campaign, r.patient, r.disease, { level });
+  return { ok:true, success: r.success, level: r.success ? level : null, throw: r.throw };
+}
+
+// Roll a healer's cure-disease throw (RR — Physicker 18+ / Chirurgeon 14+; a Healer of 1 rank cannot
+// cure, only diagnose). On success the disease is cured via cureDisease (clears incapacitation, emits
+// disease-recovered with outcome 'cured'). A magic cure needs no throw — call cureDisease directly with
+// method:'magic'. Returns { ok, success, throw } / { ok:false, reason }.
+function rollCureThrow(campaign, healerId, patientId, diseaseRef, opts){
+  opts = opts || {};
+  const r = _rollDiseaseHealingThrow(campaign, healerId, patientId, diseaseRef, 'healing:cure', opts);
+  if(!r.ok) return r;
+  if(r.success) cureDisease(campaign, r.patient, r.disease, { method: opts.method || 'Healing proficiency' });
+  return { ok:true, success: r.success, throw: r.throw };
+}
+
 // A read accessor for the character-sheet Health panel — the active diseases, phase, days
 // remaining, prognosis (GM-truthful), and the worst phase. (the truth is always shown; the
 // identifiedLevel/prognosisKnown flags annotate what the party has diagnosed.)
@@ -804,7 +862,7 @@ Object.assign(ACKS, {
   // catalog lookups
   diseaseTypeForRoll, diseaseTypeById,
   // verbs
-  contractDisease, cureDisease, identifyDisease,
+  contractDisease, cureDisease, identifyDisease, rollDiagnoseThrow, rollCureThrow,
   // reads
   characterActiveDiseases, anyDiseased, characterDiseaseInfo,
   // the day-tick consumer (also self-registered above) + a direct advance
