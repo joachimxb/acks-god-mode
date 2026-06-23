@@ -290,6 +290,14 @@ function blankSettlement(opts={}){
     name,
     families: opts.families || 75,
     totalInvestment: opts.totalInvestment || 10000,
+    // Urban investment paid over time (RR p.353 — "deduct the expense at a rate of 500gp per day").
+    // investmentBudgetGp = committed-but-unpaid gp the GM ordered; it drips into totalInvestment at
+    // 500gp/day on the Day Clock (the 'urban-investment' day consumer). investmentDripPaid = the
+    // cumulative gp ever paid via the drip; floor(investmentDripPaid/1000) is the family-milestone
+    // index that seeds the reproducible 1d10-per-1,000gp immigration roll. Both lazy (|| 0), so old
+    // saves migrate for free.
+    investmentBudgetGp: opts.investmentBudgetGp || 0,
+    investmentDripPaid: opts.investmentDripPaid || 0,
     foundedTurn: opts.foundedTurn || 1,
     foundedByCharacterId: opts.foundedByCharacterId || null,
     demandModifiers: opts.demandModifiers || {},
