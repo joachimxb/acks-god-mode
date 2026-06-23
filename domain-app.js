@@ -8462,30 +8462,45 @@ const _component = {
   settlementMarketClass(s){return window.ACKS.settlementMarketClass(s);},
   settlementTradeRate(s){return window.ACKS.settlementTradeRate(s);},
   settlementCapacity(s){return window.ACKS.settlementCapacity(s);},
-  // Urban investment (Investment tab, 2026-06-23) — RAW-immediate (RR p.351/p.353; see
-  // ACKS.applyUrbanInvestment). The advisory monthly-revenue cap = this month's morale-adjusted gross
-  // income ("a ruler cannot spend more than his domain's revenue on urban investment each month").
+  // Urban investment (Investment tab, 2026-06-23) — paid over time at 500gp/day (RR p.353 — THE
+  // behaviour). The advisory monthly-revenue cap = this month's morale-adjusted gross income
+  // ("a ruler cannot spend more than his domain's revenue on urban investment each month", RR p.351).
   urbanInvestmentRevenueCap(d){ if(!d) return 0; return window.ACKS.bankersRound((this.monthlyGrossIncome(d)||0) * this.incomeFactor(d.demographics?.morale||0)); },
-  // Apply immediate urban investment for every settlement with a positive amount in the panel's
-  // transient `amounts` {settlementId: gp} map. Rolls 1d10/1,000gp, raises totalInvestment + cap,
-  // debits treasury — per settlement, immediately. Clears the inputs + toasts the result.
-  investUrbanNow(d, amounts){
+  // ORDER urban investment: add each settlement's amount to its committed budget. The gp is NOT spent
+  // now — the slot-51 day consumer drips it out of the treasury at 500gp/day, raising the settlement's
+  // total investment, and 1d10 families immigrate for every 1,000gp actually paid (RR p.351/p.353).
+  beginUrbanInvestment(d, amounts){
     const c = this.currentCampaign; if(!c || !d) return;
-    const A = window.ACKS;
-    const results = [];
+    const ordered = [];
     for(const { settlement } of (this.hexSettlements(d) || [])){
       const amt = Math.floor((amounts && amounts[settlement.id]) || 0);
       if(amt <= 0) continue;
-      const r = A.applyUrbanInvestment(c, d, settlement, amt);
-      if(r) results.push(r);
+      settlement.investmentBudgetGp = (settlement.investmentBudgetGp || 0) + amt;
+      ordered.push({ name: settlement.name || '(unnamed)', amt });
     }
-    if(results.length === 0){ this.showToast('Enter an investment amount first (1,000gp grants 1d10 families).', 4000); return; }
+    if(ordered.length === 0){ this.showToast('Enter an investment amount first.', 4000); return; }
     if(amounts) for(const k of Object.keys(amounts)) amounts[k] = 0;
     this.markDirty(); this.schedulePersist();
-    const totalGp = results.reduce((s,r) => s + r.spent, 0);
-    const totalFam = results.reduce((s,r) => s + r.gained, 0);
-    const detail = results.map(r => r.settlementName + ' +' + r.gained + (r.capped ? ' (at cap)' : '')).join('; ');
-    this.showToast('Invested ' + totalGp.toLocaleString() + 'gp · +' + totalFam.toLocaleString() + ' urban families — ' + detail, 6000);
+    const totalGp = ordered.reduce((s,o) => s + o.amt, 0);
+    const detail = ordered.map(o => o.name + ' +' + o.amt.toLocaleString() + 'gp').join('; ');
+    this.showToast('Ordered ' + totalGp.toLocaleString() + 'gp of urban investment — ' + detail + '. It builds at 500gp/day on the Day Clock.', 6000);
+  },
+  // Settlements (in this domain) with a committed investment budget in flight — drives the panel's
+  // "in progress" readout. Each entry carries the budget remaining + the cumulative gp paid so far.
+  urbanInvestmentInFlight(d){
+    return (this.hexSettlements(d) || [])
+      .filter(e => e.settlement && (e.settlement.investmentBudgetGp || 0) > 0)
+      .map(e => ({ settlement: e.settlement, budget: e.settlement.investmentBudgetGp || 0, paid: e.settlement.investmentDripPaid || 0 }));
+  },
+  // Admin "complete now": pay a settlement's whole remaining budget at once (RR p.353 — the GM may
+  // resolve it immediately instead of dripping). Rolls every family-milestone the payment crosses.
+  completeUrbanInvestmentNow(d, settlement){
+    const c = this.currentCampaign; if(!c || !d || !settlement) return;
+    const r = window.ACKS.flushUrbanInvestment(c, d, settlement);
+    if(!r){ this.showToast('Nothing to complete.', 3000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast((settlement.name || 'Settlement') + ' investment completed: ' + (r.paid||0).toLocaleString() + 'gp paid · +' + (r.families||0).toLocaleString() + ' families'
+      + (r.remaining > 0 ? ' (' + r.remaining.toLocaleString() + 'gp left — treasury ran short)' : ''), 6000);
   },
   // Villages/Towns/Cities benchmarks (RR p.351)
   settlementType(s){return lookupSettlementBenchmark(s.families||0).type;},

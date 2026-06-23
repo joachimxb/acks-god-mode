@@ -169,58 +169,6 @@ function urbanCapacity(campaign, d){
   return urbanMaxFamilies(d.urban?.totalInvestment||0);
 }
 
-// Immediate urban investment (RR p.351 + RR p.353 "Issuing Decrees"). RAW-verified 2026-06-23:
-// urban investment is an IMMEDIATE action, NOT a construction project. Ordering investment is an
-// ancillary activity and "the gp cost is immediately paid" (RR p.353). For every 1,000gp spent,
-// 1d10 new urban families immigrate that month (RR p.351, plain 1d10 — not exploding); the spend
-// also raises the settlement's total investment, lifting its maximum-population cap (RR p.350). The
-// optional "deduct at 500gp/day" drip (RR p.353) is a Judge variant RAW itself dismisses as "more
-// bookkeeping than its worth" — so this is deliberately NOT a build-over-time budget (contrast the
-// agricultural land-value improvement, RR p.341/p.174, which IS a real construction project).
-//
-// This is the standalone-action sibling of the monthly commitTurn "Urban settlement growth" block:
-// it applies ONLY the investment component (immigration + totalInvestment + cap-clamp + treasury
-// debit), leaving the RAW natural increase/decrease/morale rolls to the monthly turn, so investing
-// here and then running the month does not double-count population growth.
-//
-// Returns null when nothing is applied (bad args / non-positive spend); otherwise a result object
-// { before, after, gained, immigrants, capped, cap, newInvestment, spent, settlementName }.
-function applyUrbanInvestment(campaign, domain, settlement, amount, opts){
-  opts = opts || {};
-  if(!campaign || !domain || !settlement) return null;
-  const spend = Math.floor(amount || 0);
-  if(spend <= 0) return null;
-  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
-  const before = settlement.families || 0;
-  const thousands = Math.floor(spend / 1000);                 // RAW grants families per FULL 1,000gp
-  let immigrants = 0;
-  for(let k = 0; k < thousands; k++) immigrants += 1 + Math.floor(rng() * 10);   // 1d10 each (plain)
-  const newInvestment = (settlement.totalInvestment || 0) + spend;
-  const cap = urbanMaxFamilies(newInvestment);
-  let after = before + immigrants;
-  let capped = false;
-  if(cap > 0 && after > cap){ after = cap; capped = true; }    // clamp to the (raised) cap, RR p.350
-  settlement.totalInvestment = newInvestment;
-  settlement.families = after;
-  ACKS._applyDomainTreasuryDelta(campaign, domain, -spend, { reason:'urban-investment', label:'urban investment — ' + (settlement.name || 'settlement') });
-  // Audit narrative on the domain history (read by the UI History tab + entity-history readouts).
-  if(Array.isArray(domain.history)){
-    domain.history.push({
-      kind:'urban-investment',
-      date:'Turn ' + (campaign.currentTurn || 1),
-      settlementId: settlement.id,
-      settlementName: settlement.name || '(unnamed)',
-      gpSpent: spend,
-      familiesBefore: before,
-      familiesAfter: after,
-      immigrants,
-      totalInvestmentAfter: newInvestment,
-      capped
-    });
-  }
-  return { before, after, gained: after - before, immigrants, capped, cap, newInvestment, spent: spend, settlementName: settlement.name || '(unnamed)' };
-}
-
 // =============================================================================
 // Garrison (RR p.351)
 // =============================================================================
@@ -696,8 +644,6 @@ Object.assign(ACKS, {
   // Markets
   settlementMarketClass, settlementTradeRate, settlementCapacity, marketClassRow, marketClass, tradeRevenuePerFamily, urbanCapacity,
   shiftMarketClassRow, commerceVagaryClassDelta,
-  // Urban investment — immediate (RR p.351 / p.353): 1d10 fam per 1,000gp + raises totalInvestment→cap
-  applyUrbanInvestment,
   // Garrison
   garrisonHeadcount, garrisonCost, garrisonBR, requiredGarrison, banditCount,
   // Military W7 — adequacy spend (incl. trained-militia + lord-troops credit) + militia revenue reduction

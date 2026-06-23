@@ -5780,6 +5780,9 @@ function dayTickActivityInFlight(campaign){
   // the slot-66 settlement-incidents consumer (acks-engine-delves.js) makes its 1/day urban-incident
   // check while the party recuperates/studies/trains in town (JJ p.80).
   if(Array.isArray(campaign.settlementVisits) && campaign.settlementVisits.some(v => v && v.status === 'active' && v.mode === 'holed-up')) return true;
+  // Urban investment paid over time (RR p.353): a settlement with a committed investment budget is
+  // day-aware activity in flight — its 500gp/day drip runs on the Day Clock (slot-51 consumer).
+  if(Array.isArray(campaign.settlements) && campaign.settlements.some(s => s && (s.investmentBudgetGp || 0) > 0)) return true;
   return false;
 }
 
@@ -6592,6 +6595,155 @@ registerDayConsumer('construction', {
   commit: commitConstructionRecord
 });
 
+// ── Urban investment paid over time (RR p.353 + RR p.351 + RR p.350) ─────────────────────────────
+// RAW makes ordering urban investment a decree whose cost "is immediately paid" by default, but
+// explicitly allows the Judge to "deduct the expense at a rate of 500gp per day" (RR p.353). For
+// ACKS God Mode that 500gp/day drip is THE behaviour — the tool exists to do the bookkeeping RAW
+// itself calls "usually more bookkeeping than its worth" (Joachim 2026-06-23). The committed gp
+// (settlement.investmentBudgetGp) is paid out of the treasury at URBAN_INVESTMENT_RATE_PER_DAY on
+// the Day Clock, raising the settlement's total investment (and so its max-population cap, RR p.350),
+// and the FAMILIES FOLLOW THE BUILD: for every 1,000gp actually paid, 1d10 new urban families
+// immigrate (RR p.351) — people move into the city as the infrastructure is built (Joachim's ruling).
+//
+// Reproducibility: the k-th 1,000gp-of-drip rolls a FIXED seeded 1d10, keyed on
+// (campaign, settlement.id, k = floor(investmentDripPaid/1000)). So the propose half, the commit
+// half, and a re-opened day review all agree regardless of how the days are chunked, and the
+// treasury-authoritative recompute at commit can never drift the immigration off its seed.
+const URBAN_INVESTMENT_RATE_PER_DAY = 500; // gp/day (RR p.353 — the investment-deduction rate)
+
+function _urbanFamilyHash32(str){
+  let h = 0x811c9dc5;
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function _urbanMulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// One seeded 1d10 for a settlement's k-th family-milestone (k = the 1,000gp boundary just crossed).
+function _urbanMilestoneFamilies(campaign, settlement, k){
+  const seed = _urbanFamilyHash32(String((campaign && (campaign.seed || campaign.id || campaign.name)) || 'acks')
+    + ':' + String(settlement.id) + ':uinv:' + k);
+  return 1 + Math.floor(_urbanMulberry32(seed)() * 10);   // 1d10 (plain, RR p.351 — not exploding)
+}
+
+// PURE projection of ONE drip step for a settlement carrying a committed investment budget. Pays
+// min(rate*days, budget, treasury) out of the treasury, rolls the family-milestones that payment
+// crosses (seeded), and clamps the would-be arrivals to the settlement's NEW cap (RR p.350). Returns
+// a result object (paid 0 + blockReason when it can't progress). Does NOT mutate.
+function computeUrbanInvestmentDrip(campaign, domain, settlement, days){
+  days = (typeof days === 'number' && days > 0) ? days : 1;
+  const out = { paid: 0, families: 0, capped: false, settlement, domain,
+    budget: (settlement && settlement.investmentBudgetGp) || 0,
+    treasury: (domain && domain.treasury && domain.treasury.gp) || 0,
+    newInvestment: (settlement && settlement.totalInvestment) || 0, cap: 0,
+    blockReason: '', treasuryLimited: false };
+  if(!campaign || !domain || !settlement) return out;
+  const budget = settlement.investmentBudgetGp || 0;
+  if(budget <= 0){ out.blockReason = 'no budget'; return out; }
+  const treasury = Math.max(0, (domain.treasury && domain.treasury.gp) || 0);
+  const want = URBAN_INVESTMENT_RATE_PER_DAY * days;
+  const paid = Math.max(0, Math.min(want, budget, treasury));
+  out.paid = paid;
+  out.treasuryLimited = treasury < want && treasury < budget;
+  if(paid <= 0){ out.blockReason = treasury <= 0 ? 'treasury empty' : 'idle'; return out; }
+  // Family-milestones crossed: the 1,000gp boundaries between dripPaid and dripPaid + paid.
+  const before = settlement.investmentDripPaid || 0;
+  const mBefore = Math.floor(before / 1000), mAfter = Math.floor((before + paid) / 1000);
+  let fam = 0;
+  for(let k = mBefore + 1; k <= mAfter; k++) fam += _urbanMilestoneFamilies(campaign, settlement, k);
+  out.newInvestment = (settlement.totalInvestment || 0) + paid;
+  out.cap = global.ACKS.urbanMaxFamilies(out.newInvestment);
+  const wouldBe = (settlement.families || 0) + fam;
+  if(out.cap > 0 && wouldBe > out.cap){ out.families = Math.max(0, out.cap - (settlement.families || 0)); out.capped = true; }
+  else out.families = fam;
+  return out;
+}
+
+// §10.2 day-handler for urban investment (order 51 — right after construction's drip at 50). PURE:
+// projects one day's drip per domain settlement with a committed budget WITHOUT mutating.
+function proposeUrbanInvestmentDay(campaign, ctx){
+  const days = (ctx && typeof ctx.days === 'number') ? ctx.days : 1;
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.domains)) return { pendingRecords, notableEvents, encounters: [] };
+  for(const d of campaign.domains){
+    if(!d) continue;
+    let setts; try { setts = global.ACKS.hexSettlements(campaign, d) || []; } catch(e){ setts = []; }
+    for(const entry of setts){
+      const settlement = entry && entry.settlement, hex = entry && entry.hex;
+      if(!settlement || (settlement.investmentBudgetGp || 0) <= 0) continue;
+      const calc = computeUrbanInvestmentDrip(campaign, d, settlement, days);
+      if(calc.paid <= 0) continue;
+      const budgetLeft = Math.max(0, (settlement.investmentBudgetGp || 0) - calc.paid);
+      const label = (settlement.name || 'settlement') + ': +' + Math.round(calc.paid) + 'gp invested'
+        + (calc.families > 0 ? ' (+' + calc.families + ' famil' + (calc.families === 1 ? 'y' : 'ies') + (calc.capped ? ', at cap' : '') + ')' : '')
+        + ' · ' + budgetLeft.toLocaleString() + 'gp budget left'
+        + (calc.treasuryLimited ? ' · limited by treasury' : '');
+      pendingRecords.push({
+        kind: 'urban-investment-progress', settlementId: settlement.id, domainId: d.id,
+        paid: calc.paid, families: calc.families, daysAdded: days, budgetLeftAfter: budgetLeft,
+        primaryHexId: (hex && hex.id) || settlement.hexId || null, label
+      });
+      if(calc.families > 0){
+        notableEvents.push({
+          kind: 'urban-investment', type: 'immigration', settlementId: settlement.id, domainId: d.id,
+          primaryHexId: (hex && hex.id) || settlement.hexId || null, campaignLogHidden: true,
+          label: (settlement.name || 'settlement') + ' — +' + calc.families + ' urban famil' + (calc.families === 1 ? 'y' : 'ies') + ' (investment, RR p.351)'
+        });
+      }
+    }
+  }
+  return { pendingRecords, notableEvents, encounters: [] };
+}
+
+// COMMIT half: recompute the drip authoritatively against CURRENT state (so the treasury depletes
+// correctly across sequential records) and apply it — debit treasury, advance dripPaid + total
+// investment, add the (seeded, clamped) families, draw down the budget, audit on completion.
+function commitUrbanInvestmentRecord(campaign, record){
+  if(!campaign || !record || !record.settlementId) return;
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId) || null;
+  const settlement = (campaign.settlements || []).find(s => s && s.id === record.settlementId) || null;
+  if(!d || !settlement) return;
+  const calc = computeUrbanInvestmentDrip(campaign, d, settlement, record.daysAdded || 1);
+  if(calc.paid <= 0) return;
+  global.ACKS._applyDomainTreasuryDelta(campaign, d, -calc.paid, { reason: 'urban-investment', label: 'urban investment — ' + (settlement.name || 'settlement') });
+  settlement.investmentDripPaid = (settlement.investmentDripPaid || 0) + calc.paid;
+  settlement.totalInvestment = (settlement.totalInvestment || 0) + calc.paid;
+  settlement.investmentBudgetGp = Math.max(0, (settlement.investmentBudgetGp || 0) - calc.paid);
+  if(calc.families > 0) settlement.families = (settlement.families || 0) + calc.families;
+  if((settlement.investmentBudgetGp || 0) <= 0 && Array.isArray(d.history)){
+    d.history.push({
+      kind: 'urban-investment-complete', date: 'Turn ' + (campaign.currentTurn || 1),
+      settlementId: settlement.id, settlementName: settlement.name || '(unnamed)',
+      totalInvestmentAfter: settlement.totalInvestment, familiesAfter: settlement.families
+    });
+  }
+}
+
+registerDayConsumer('urban-investment', {
+  handler: proposeUrbanInvestmentDay,
+  order: 51,
+  pauseTriggers: [],
+  commit: commitUrbanInvestmentRecord
+});
+
+// Admin "complete now": pay the whole remaining budget at once (rolling every family-milestone the
+// payment crosses), clamped by the treasury. Returns { paid, families, remaining } or null.
+function flushUrbanInvestment(campaign, domain, settlement){
+  if(!campaign || !domain || !settlement) return null;
+  const budget = settlement.investmentBudgetGp || 0;
+  if(budget <= 0) return null;
+  const famBefore = settlement.families || 0, paidBefore = settlement.investmentDripPaid || 0;
+  const days = Math.ceil(budget / URBAN_INVESTMENT_RATE_PER_DAY) + 1;   // enough to clear it (treasury permitting)
+  commitUrbanInvestmentRecord(campaign, { settlementId: settlement.id, domainId: domain.id, daysAdded: days });
+  return { paid: (settlement.investmentDripPaid || 0) - paidBefore, families: (settlement.families || 0) - famBefore,
+           remaining: settlement.investmentBudgetGp || 0 };
+}
+
 // Activity-budget heads-up (#346 AB-3 / Joachim 2026-06-05): a READ-ONLY day consumer that flags
 // any active character whose committed undertakings push them OVER their RAW day budget (e.g.
 // travelling while administering a domain = two dedicated tasks; RR p.272 / JJ pp.99–100). Emits a
@@ -7247,6 +7399,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   dailyAdvanceBlockers,
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
   proposeConstructionDay, commitConstructionRecord,
+  // Urban investment paid over time (RR p.353 — the 500gp/day drip; slot-51 day consumer)
+  URBAN_INVESTMENT_RATE_PER_DAY, computeUrbanInvestmentDrip, proposeUrbanInvestmentDay, commitUrbanInvestmentRecord, flushUrbanInvestment,
   // Construction-specific helpers
   isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind, constructionBuilderClassAdvisory,
   tickConstructionByDays, tickConstructionMonthly,

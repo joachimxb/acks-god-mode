@@ -5724,18 +5724,39 @@ document.addEventListener('alpine:init', () => {
               </div>
             </div>
           </template>
-          <!-- Urban investment (RR p.351 / p.353) — domain-detail panel (Investment tab, 2026-06-23).
-               RAW-verified IMMEDIATE action, NOT a construction project: ordering investment pays the gp
-               at once (RR p.353 "Issuing Decrees"); for every 1,000gp, 1d10 urban families immigrate that
-               month (RR p.351); the spend raises the settlement's total investment, lifting its maximum-
-               population cap (RR p.350). Contrast the Agricultural land-value panel above (RR p.341 / p.174),
-               which IS a build-over-time construction project. Applies via ACKS.applyUrbanInvestment. -->
+          <!-- Urban investment (RR p.353 / p.351 / p.350) — Investment-tab panel (2026-06-23).
+               PAID OVER TIME at 500gp/day (RR p.353 "deduct the expense at a rate of 500gp per day" —
+               THE behaviour for the tool). Ordering an amount adds it to the settlement's committed
+               budget; the slot-51 day consumer (ACKS.proposeUrbanInvestmentDay) drips it out of the
+               treasury at 500gp/day, raising total investment (→ cap, RR p.350), and 1d10 families
+               immigrate per 1,000gp actually paid (RR p.351 — the families follow the build). A GM may
+               'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
                x-data="{ amounts:{}, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
-            <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.351)</span></h2>
+            <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
-              Spend gp on a settlement's roads, aqueducts, sewers, marketplaces, and walls. For every <strong>1,000gp</strong> invested, <strong>1d10</strong> new urban families immigrate <em>immediately</em>, and the settlement's total investment rises — lifting its maximum-population cap (RR p.350). Per RAW (RR p.353) the cost is paid at once; this is an immediate action, not a construction project. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
+              Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
             </p>
+            <!-- In progress: settlements whose committed budget is still building. -->
+            <template x-if="(urbanInvestmentInFlight(selectedDomain)||[]).length > 0">
+              <div class="mb-3 p-2 border border-ink/40 rounded" style="background:#eef7e3">
+                <h3 class="font-semibold text-sm mb-1">⏳ Building now <span class="opacity-60 font-normal">(drips 500gp/day on the Day Clock)</span></h3>
+                <table class="bookkeeping text-sm w-full">
+                  <thead><tr><th>Settlement</th><th>Budget left</th><th>Paid so far</th><th title="At 500gp/day, treasury permitting">~Days left</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="row in urbanInvestmentInFlight(selectedDomain)" :key="row.settlement.id">
+                      <tr>
+                        <td class="font-semibold" x-text="row.settlement.name || '(unnamed)'"></td>
+                        <td class="font-mono accent-amber" x-text="row.budget.toLocaleString() + 'gp'"></td>
+                        <td class="font-mono opacity-70" x-text="row.paid.toLocaleString() + 'gp'"></td>
+                        <td class="opacity-70" x-text="Math.ceil(row.budget / 500) + 'd'"></td>
+                        <td><button @click="completeUrbanInvestmentNow(selectedDomain, row.settlement)" class="text-sm underline" title="Pay the whole remaining budget now (RR p.353 — the GM may resolve it at once instead of waiting for the drip).">⏩ Complete now</button></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length === 0">
               <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Found one from the Hexes table on the Demographics tab, or via the Inspector.</p>
             </template>
@@ -5748,13 +5769,16 @@ document.addEventListener('alpine:init', () => {
                     <th title="Maximum families at the settlement's current total investment (RR p.350)">Cap</th>
                     <th>Class</th>
                     <th>Total investment</th>
-                    <th>Invest (gp)</th>
-                    <th>Expected new families</th>
+                    <th>Order (gp)</th>
+                    <th>Families it will draw</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="entry in (hexSettlements(selectedDomain)||[])" :key="entry.settlement.id">
                       <tr>
-                        <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
+                        <td class="font-semibold">
+                          <span x-text="entry.settlement.name || '(unnamed)'"></span>
+                          <span x-show="(entry.settlement.investmentBudgetGp||0) > 0" class="accent-amber text-sm" x-text="' · ⏳ ' + (entry.settlement.investmentBudgetGp||0).toLocaleString() + 'gp building'"></span>
+                        </td>
                         <td x-text="(entry.settlement.families||0).toLocaleString()"></td>
                         <td x-text="settlementCapacity(entry.settlement).toLocaleString()"></td>
                         <td x-text="'Class ' + settlementMarketClass(entry.settlement)"></td>
@@ -5764,7 +5788,7 @@ document.addEventListener('alpine:init', () => {
                       </tr>
                     </template>
                     <tr class="subtotal">
-                      <td colspan="5">Total to invest now</td>
+                      <td colspan="5">Total to order</td>
                       <td x-text="total().toLocaleString() + 'gp'"></td>
                       <td></td>
                     </tr>
@@ -5772,14 +5796,13 @@ document.addEventListener('alpine:init', () => {
                 </table>
                 <div class="flex items-center justify-between flex-wrap gap-2 mt-2">
                   <span class="text-sm opacity-70">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></span>
-                  <button @click="investUrbanNow(selectedDomain, amounts)"
+                  <button @click="beginUrbanInvestment(selectedDomain, amounts)"
                           class="px-3 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
                           :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
                           :disabled="total() <= 0"
-                          title="Apply urban investment now: 1d10 families per 1,000gp immigrate, the settlement's investment + population cap rise, and the gp is debited from the treasury (RR p.351).">💰 Invest now</button>
+                          title="Order this investment: it is added to each settlement's committed budget and built at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp paid (RR p.351).">🏗 Order investment</button>
                 </div>
                 <p class="text-sm accent-red mt-1" x-show="total() > urbanInvestmentRevenueCap(selectedDomain)">⚠ Total exceeds this month's revenue cap — RAW (RR p.351) disallows spending more than the domain's monthly revenue. Reduce the amounts, or rule on it as GM.</p>
-                <p class="text-sm accent-red mt-1" x-show="total() > (selectedDomain.treasury?.gp||0)">⚠ Total exceeds the treasury (<span x-text="(selectedDomain.treasury?.gp||0).toLocaleString()"></span>gp) — investing this much would put it negative.</p>
               </div>
             </template>
           </div>
