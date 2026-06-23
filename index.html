@@ -3891,9 +3891,9 @@ document.addEventListener('alpine:init', () => {
 
     <label class="block text-sm">
       <span class="font-semibold">Commander</span>
-      <select x-model="musterArmyForm.commanderId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+      <select x-model="musterArmyForm.commanderId" @change="musterSyncName()" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
         <option value="">— none (set later) —</option>
-        <template x-for="c in musterCommanderOptions()" :key="c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
+        <template x-for="c in musterCommanderOptions(musterArmyForm.commanderId)" :key="c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
       </select>
       <span class="text-xs opacity-60" x-show="musterArmyForm.commanderId" x-text="(() => { const la = musterLeadership(); return 'Leadership ' + la + ' — may field up to ' + la + ' division' + (la===1?'':'s') + ' (RR p.435).'; })()"></span>
     </label>
@@ -3972,7 +3972,7 @@ document.addEventListener('alpine:init', () => {
       <span class="font-semibold">Commander</span> <span class="text-xs opacity-60">— the ruler may lead in person (RR p.435)</span>
       <select x-model="garrisonDeployForm.commanderId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
         <option value="">— none (set later) —</option>
-        <template x-for="c in musterCommanderOptions()" :key="'gd-'+c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
+        <template x-for="c in musterCommanderOptions(garrisonDeployForm.commanderId)" :key="'gd-'+c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
       </select>
     </label>
 

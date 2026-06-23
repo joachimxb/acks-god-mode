@@ -3414,15 +3414,33 @@ const _component = {
     } else if(commanderId){
       preIds = (camp.units||[]).filter(u => u && u.stationedAt && u.stationedAt.kind === 'character' && u.stationedAt.id === commanderId && Math.max(0,(u.count||0)-(u.casualties||0)) > 0).map(u => u.id);
     }
-    this.musterArmyForm = { commanderId, name: defName, hexId, stance: 'defensive', unitIds: preIds, _domainId: domainId };
+    this.musterArmyForm = { commanderId, name: defName, _autoName: defName, hexId, stance: 'defensive', unitIds: preIds, _domainId: domainId };
     this.musterArmyOpen = true;
   },
   // Candidate commanders — every living character (RAW: any character can command, subject
-  // to scale quals which the findings surface). Sorted by name.
-  musterCommanderOptions(){
-    return ((this.currentCampaign && this.currentCampaign.characters) || [])
-      .filter(c => c && c.alive !== false)
+  // to scale quals which the findings surface), EXCEPT those already leading another army (a
+  // character commands one army at a time). The current selection (currentId) is always kept,
+  // so a pre-seated commander never drops out of its own list. Sorted by name.
+  musterCommanderOptions(currentId){
+    const camp = this.currentCampaign;
+    const leading = new Set(((camp && camp.armies) || [])
+      .filter(a => a && a.status !== 'disbanded' && a.leaderCharacterId && a.leaderCharacterId !== currentId)
+      .map(a => a.leaderCharacterId));
+    return ((camp && camp.characters) || [])
+      .filter(c => c && c.alive !== false && !leading.has(c.id))
       .slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  },
+  // Keep the muster army name in step with the commander — but ONLY while the GM hasn't typed
+  // their own. We stash the last auto-generated name in _autoName; if the field still equals it
+  // the GM hasn't diverged, so re-derive "<leader>'s Army". Once they edit it, name ≠ _autoName
+  // and a leader change leaves their name untouched.
+  musterSyncName(){
+    const f = this.musterArmyForm; if(!f) return;
+    if(f.name === (f._autoName || '')){
+      const cmdr = this.musterCommander();
+      const def = cmdr ? (cmdr.name + "'s Army") : '';
+      f.name = def; f._autoName = def;
+    }
   },
   musterCommander(){
     const id = this.musterArmyForm.commanderId; if(!id) return null;
