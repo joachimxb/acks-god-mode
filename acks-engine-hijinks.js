@@ -153,6 +153,12 @@ const HIJINK_DEFINITIONS = Object.freeze({
 
 const HIJINK_TYPES = Object.freeze(Object.keys(HIJINK_DEFINITIONS));
 
+// DC-3 (RR p.351) — hijinks that are NOT operations against the domain's order, so a loyal
+// populace's vigilance does not impede them: carousing (overhearing rumors as a tavern patron)
+// and treasure-hunting (a dungeon expedition away from the settlement). Every other hijink is a
+// covert/criminal act against the local order and is subject to the domain-morale modifier.
+const _HIJINK_NOT_VS_DOMAIN = Object.freeze(['carousing', 'treasure-hunting']);
+
 // The thief-skill bonus proficiencies that grant +1 each to a hijink, plus the
 // Streetwise gate (RR p.360 — "Only characters with the Streetwise proficiency can
 // perpetrate hijinks"). The thieving classes get Streetwise as a class power.
@@ -231,9 +237,23 @@ function hijinkThrowProfile(campaign, ch, type, opts){
   if(def.victimPenalty && victimLevel){ victimPenalty = -victimLevel; parts.push({ label: 'victim level ' + victimLevel, value: -victimLevel }); }
   let crewBonus = 0;   // HJ-3 (gated crew-hijinks; computed in startHijink, passed in here)
   if(typeof opts.crewBonus === 'number' && opts.crewBonus){ crewBonus = opts.crewBonus; parts.push({ label: 'crew', value: crewBonus }); }
-  const bonus = levelBonus + specialBonus + victimPenalty + crewBonus + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
+  // DC-3 (RR p.351) — a loyal populace resists spies/thieves operating AGAINST the domain. The
+  // target domain's morale band sets a penalty on the throw (0 at morale ≤ 0; −1…−4 at +1…+4);
+  // benign carousing / treasure-hunting are exempt (not operations against the local order). The
+  // modifier is captured at launch (startHijink stores profile.bonus), so it stands even if the
+  // domain's morale later moves. domain-completion.js loads before hijinks.js → the call resolves.
+  let moraleMod = 0;
+  if(_HIJINK_NOT_VS_DOMAIN.indexOf(type) < 0 && typeof ACKS.domainMoraleEffects === 'function'){
+    const domId = opts.domainId || (ch && ch.currentDomainId) || null;
+    const dom = domId ? (((campaign && campaign.domains) || []).find(d => d && d.id === domId)) : null;
+    if(dom){
+      moraleMod = ACKS.domainMoraleEffects(campaign, dom).spyThiefThrow || 0;
+      if(moraleMod) parts.push({ label: (dom.name || 'domain') + ' populace (RR p.351)', value: moraleMod });
+    }
+  }
+  const bonus = levelBonus + specialBonus + victimPenalty + crewBonus + moraleMod + ((typeof opts.gmModifier === 'number') ? opts.gmModifier : 0);
   if(opts.gmModifier) parts.push({ label: 'GM', value: opts.gmModifier });
-  return { target, bonus, levelBonus, specialBonus, victimPenalty, crewBonus, throwType: def.throwType || 'proficiency', parts };
+  return { target, bonus, levelBonus, specialBonus, victimPenalty, crewBonus, moraleMod, throwType: def.throwType || 'proficiency', parts };
 }
 
 // Resolve a thrown d20 against a profile (RR p.360): success if total ≥ target;
@@ -378,7 +398,8 @@ function startHijink(campaign, opts){
   }
 
   // the throw — rolled now, outcome locked but hidden until the hijink completes.
-  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier, crewBonus });
+  const targetDomainId = opts.domainId || perp.currentDomainId || null;   // DC-3 (RR p.351) — the domain whose populace resists
+  const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier, crewBonus, domainId: targetDomainId });
   // PT-5 — the hijink d20 now comes from the canonical Layer-1 roller (ACKS.rollProficiencyThrow)
   // instead of a re-inlined _d(rng,20). Byte-identical: _d(rng,20) === 1+floor(rng()*20) === the
   // resolver's natural — one rng consumption at the same point in the stream, so every downstream
@@ -408,7 +429,7 @@ function startHijink(campaign, opts){
     crew, crewBonus,
     hexId: opts.hexId || perp.currentHexId || null,
     settlementId: opts.settlementId || null,
-    domainId: opts.domainId || perp.currentDomainId || null,
+    domainId: targetDomainId,
     plannable,
     status: plannable ? 'planning' : 'performing',
     phase: plannable ? 'planning' : 'performing',

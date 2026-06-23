@@ -100,6 +100,39 @@ ok('resolveThrow: natural 1 ⇒ caught', ACKS.hijinkResolveThrow(1, { target: 11
 ok('resolveThrow: fail by 14+ ⇒ caught', ACKS.hijinkResolveThrow(2, { target: 18, bonus: 0 }).outcome === 'caught');
 
 // =============================================================================
+section('DC-3 domain-morale resistance (RR p.351 — a loyal populace resists infiltration)');
+{
+  // a perpetrator operating IN a domain whose morale governs the populace's vigilance.
+  // Skulking ⇒ +2 to a Hiding hijink, so the net throw exposes how the morale band folds in.
+  function mkDom(morale) {
+    const c = mk({ level: 1, profs: ['Streetwise', 'Skulking'] });
+    c.domains.push({ schemaVersion: 2, id: 'dom-x', name: 'Loyalia', demographics: { morale: morale } });
+    c.characters[0].currentDomainId = 'dom-x';
+    return c;
+  }
+  const hi = mkDom(3);
+  const sp = ACKS.hijinkThrowProfile(hi, hi.characters[0], 'spying', {});
+  ok('+3 morale ⇒ spyThiefThrow −3 on a covert hijink (moraleMod)', sp.moraleMod === -3);
+  ok('the morale penalty nets the bonus (+2 Skulking −3 morale = −1)', sp.bonus === -1);
+  ok('the breakdown shows a named domain-populace part', sp.parts.some(p => /populace \(RR p\.351\)/.test(p.label) && p.value === -3));
+  const hi4 = mkDom(4);
+  ok('+4 morale ⇒ −4 (max penalty)', ACKS.hijinkThrowProfile(hi4, hi4.characters[0], 'spying', {}).moraleMod === -4);
+  ok('0 morale ⇒ no modifier', ACKS.hijinkThrowProfile(mkDom(0), mkDom(0).characters[0], 'spying', {}).moraleMod === 0);
+  ok('rebellious (−4) populace gives no bonus (table is 0 at ≤0)', ACKS.hijinkThrowProfile(mkDom(-4), mkDom(-4).characters[0], 'spying', {}).moraleMod === 0);
+  // benign hijinks are exempt
+  ok('carousing is exempt (overheard as a tavern patron)', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'carousing', {}).moraleMod === 0);
+  ok('treasure-hunting is exempt (a dungeon expedition, not vs the settlement)', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'treasure-hunting', {}).moraleMod === 0);
+  // domain resolution: perp.currentDomainId, explicit opts.domainId, or none
+  const plain = mk({ level: 1, profs: ['Streetwise'] });
+  ok('no domain context ⇒ no morale modifier', ACKS.hijinkThrowProfile(plain, plain.characters[0], 'spying', {}).moraleMod === 0);
+  ok('explicit opts.domainId resolves the morale target', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'stealing', { domainId: 'dom-x' }).moraleMod === -3);
+  // captured at LAUNCH in the stored throwBonus (the outcome is locked even if morale later moves)
+  const launch = mkDom(3);
+  const r = ACKS.startHijink(launch, { perpetratorCharacterId: 'chr-p', type: 'spying', rng: () => 0.99 });
+  ok('startHijink stores the morale-adjusted throwBonus', r.ok && launch.hijinks[0].throwBonus === -1);
+}
+
+// =============================================================================
 section('startHijink — launch verb');
 {
   const c = mk({ level: 1 });
