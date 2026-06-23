@@ -7146,6 +7146,18 @@ function commitMilitaryRecord(campaign, record){
     army.lastWarVagaryOrd = record.ord;
     army.vagaryWarNextMod = record.nextMod || 0;     // overwrites the consumed carried mod + sets the new omen mod (0 if none)
     (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'vagary-of-war', text: 'Vagary of War: ' + (record.vagaryName || record.vagaryKey) });
+    // W8 auto-apply — Brigands (JJ p.113): materialize the supply-line raiders as an independent
+    // enemy army at the army's hex (the supply +10% / recon −1 stay a GM-resolve note). The rest of
+    // the war vagaries stay GM-adjudicated. spawnBrigandArmy lives in acks-engine-vagaries.js (late).
+    if(record.vagaryKey === 'brigands-war' && typeof A.spawnBrigandArmy === 'function'){
+      const leaderDomain = army.leaderCharacterId ? (campaign.domains || []).find(d => d && d.rulerCharacterId === army.leaderCharacterId) || null : null;
+      const sp = A.spawnBrigandArmy(campaign, { domain: leaderDomain, atHexId: army.currentHexId,
+        source: 'war', vagaryKey: 'brigands-war', raidedArmyId: army.id });
+      if(sp && sp.army){
+        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null,
+          type: 'vagary-of-war', text: 'Brigands raid the supply lines — ' + (sp.army.name || 'an enemy army') + ' has mustered (now in 🎖 Armies; supply cost +10% / recon −1 until dealt with, JJ p.113)' });
+      }
+    }
   } else if(record.kind === 'pillage-complete'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
