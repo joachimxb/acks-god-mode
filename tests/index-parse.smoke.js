@@ -28,7 +28,7 @@ catch(e){ ok('domain-app.js compiles', false, (e.message || String(e))); }
 // domain-app-<feature>.js mixin files (each pushes a members object onto a registry that
 // domainApp() merges with descriptor-preservation). Guard each the same way — non-trivial
 // size + a clean compile + index.html references it via <script src>.
-for (const mixin of ['domain-app-burst5.js']) {
+for (const mixin of ['domain-app-burst5.js', 'domain-app-military-w7.js', 'domain-app-mounts.js', 'domain-app-voyages.js']) {
   const mx = fs.readFileSync(path.join(__dirname, '..', mixin), 'utf8');
   ok(mixin + ' is non-trivial in size (not truncated)', mx.length > 5000, mx.length + ' bytes');
   ok('index.html loads ' + mixin + ' via <script src>', new RegExp('<script src="' + mixin.replace(/\./g, '\\.')).test(html));
