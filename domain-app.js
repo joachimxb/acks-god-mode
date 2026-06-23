@@ -3766,7 +3766,7 @@ const _component = {
   // Investments (in-transit ventures + their vagaries) | Lifestyle (living expenses + wages).
   get monthlyTurnSubTabs(){
     let cons = 0, lifx = 0, ventx = 0, syndx = 0;
-    try { cons = this.allConstructionProjects().length; } catch(e){}
+    try { cons = this.allConstructionProjects().length + this.allUrbanInvestmentsInFlight().length + this.allAgriculturalInvestmentsInFlight().length; } catch(e){}
     try { lifx = (this.turnLivingExpenseProposal && this.turnLivingExpenseProposal.ruleOn) ? (this.turnLivingExpenseProposal.charges||[]).length : 0; } catch(e){}
     try { ventx = (this.turnVentureProposals||[]).length; } catch(e){}
     try { syndx = (this.turnSyndicateTributeProposal && this.turnSyndicateTributeProposal.ruleOn) ? (this.turnSyndicateTributeProposal.collections||[]).length : 0; } catch(e){}
@@ -8501,6 +8501,71 @@ const _component = {
     this.markDirty(); this.schedulePersist();
     this.showToast((settlement.name || 'Settlement') + ' investment completed: ' + (r.paid||0).toLocaleString() + 'gp paid · +' + (r.families||0).toLocaleString() + ' families'
       + (r.remaining > 0 ? ' (' + r.remaining.toLocaleString() + 'gp left — treasury ran short)' : ''), 6000);
+  },
+  // ── Agricultural investment (Investment tab) — built over time at ~500gp/day (RR p.174). Mirrors the
+  //    urban over-time model: ordering adds gp to each eligible hex's improvement BUDGET (not spent now)
+  //    and ensures a live agricultural Project so the day-tick drips it toward the next +1 step (25,000gp).
+  beginAgriculturalInvestment(d, amounts){
+    const c = this.currentCampaign, A = window.ACKS; if(!c || !d) return;
+    const ordered = [];
+    for(const h of (domainHexesFor(d) || [])){
+      const amt = Math.floor((amounts && amounts[h.id]) || 0);
+      if(amt <= 0) continue;
+      const base = h.valuePerFamily || 0, bonus = h.landImprovementBonus || 0;
+      if(bonus >= A.AGRICULTURAL_IMPROVEMENT_MAX_BONUS || base + bonus >= A.AGRICULTURAL_IMPROVEMENT_VALUE_CAP) continue;
+      h.improvementBudgetGp = (h.improvementBudgetGp || 0) + amt;
+      try { A.syncAgriculturalProject(c, h, { domainId: d.id, turn: c.currentTurn || null }); } catch(e){}
+      ordered.push({ label: A.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0), amt });
+    }
+    if(ordered.length === 0){ this.showToast('Enter an improvement amount for an eligible hex first.', 4000); return; }
+    if(amounts) for(const k of Object.keys(amounts)) amounts[k] = 0;
+    this.markDirty(); this.schedulePersist();
+    const totalGp = ordered.reduce((s,o) => s + o.amt, 0);
+    const detail = ordered.map(o => o.label + ' +' + o.amt.toLocaleString() + 'gp').join('; ');
+    this.showToast('Ordered ' + totalGp.toLocaleString() + 'gp of agricultural improvement — ' + detail + '. It builds at ~500gp/day on the Day Clock.', 6000);
+  },
+  // Hexes in this domain whose improvement budget is still building (drives the agri "Building now"
+  // readout). Each carries the budget remaining + gp already invested toward the next +1 step (25,000gp).
+  agriculturalInvestmentInFlight(d){
+    return (domainHexesFor(d) || [])
+      .filter(h => (h.improvementBudgetGp || 0) > 0)
+      .map(h => ({ hex: h, budget: h.improvementBudgetGp || 0, invested: h.landImprovementInvested || 0, bonus: h.landImprovementBonus || 0 }));
+  },
+  // Hexes that can still take agricultural investment (under the +3 bonus / 9gp value caps, RR p.341).
+  agriculturalInvestableHexes(d){
+    const A = window.ACKS;
+    return (domainHexesFor(d) || []).filter(h => {
+      const base = h.valuePerFamily || 0, bonus = h.landImprovementBonus || 0;
+      return bonus < A.AGRICULTURAL_IMPROVEMENT_MAX_BONUS && base + bonus < A.AGRICULTURAL_IMPROVEMENT_VALUE_CAP;
+    });
+  },
+  // ── Monthly-Turn ▸ Construction overview (read-only) — every domain's in-flight investments, joined to
+  //    the domain so the overview can deep-link to where each is actually run (the per-domain Investment tab).
+  allUrbanInvestmentsInFlight(){
+    const out = [];
+    for(const d of (this.domains || [])){
+      for(const row of this.urbanInvestmentInFlight(d)){
+        out.push({ domainId: d.id, domainName: d.name || d.id, settlement: row.settlement, budget: row.budget, paid: row.paid });
+      }
+    }
+    return out;
+  },
+  allAgriculturalInvestmentsInFlight(){
+    const out = [];
+    for(const d of (this.domains || [])){
+      for(const row of this.agriculturalInvestmentInFlight(d)){
+        out.push({ domainId: d.id, domainName: d.name || d.id, hex: row.hex, budget: row.budget, invested: row.invested, bonus: row.bonus });
+      }
+    }
+    return out;
+  },
+  // Deep-link from an overview row to a domain's per-domain tab (Investment / Stronghold), where the work
+  // is actually run. The Monthly-Turn Construction view is a read-only overview, not an edit surface.
+  goToDomainTab(domainId, tab){
+    if(domainId) this.selectedDomainId = domainId;
+    this.currentView = 'domains';
+    this.domainsSubView = 'domains';
+    if(tab && this.tabs.includes(tab)) this.activeTab = tab;
   },
   // Villages/Towns/Cities benchmarks (RR p.351)
   settlementType(s){return lookupSettlementBenchmark(s.families||0).type;},

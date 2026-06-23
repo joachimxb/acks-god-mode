@@ -5588,140 +5588,125 @@ document.addEventListener('alpine:init', () => {
                time-based model + this panel's rework land with the construction rework — see
                _handoffs/Agricultural_Time_Based_Spec.md. -->
           <template x-if="true">
-            <div class="vellum border border-ink p-3 rounded mt-3">
+            <div class="vellum border border-ink p-3 rounded mt-3"
+                 x-data="{ agAmounts:{}, showAgriModal:false, agTotal(){ const app=window.acksApp; return (app.agriculturalInvestableHexes(app.selectedDomain)||[]).reduce((t,h)=>t+((this.agAmounts[h.id])||0),0); } }">
               <h2 class="font-bold text-lg mb-1">⚒ Agricultural improvements <span class="text-sm opacity-60 font-normal">(RR p.341)</span></h2>
               <p class="text-sm opacity-70 mb-3">
-                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
+                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family. Built over time at ~500gp/day (RR p.174) — each +1 step takes ~50 days.
               </p>
 
-              <!-- Hexes with investment accumulating toward the next +1 step. -->
-              <h3 class="font-semibold text-sm mb-1">Investment in progress</h3>
-              <template x-if="(domainHexesFor(selectedDomain)||[]).every(h => (h.landImprovementInvested||0) === 0)">
-                <p class="text-sm italic opacity-60 mb-3">No improvements under way. Fund one below.</p>
-              </template>
-              <template x-if="(domainHexesFor(selectedDomain)||[]).some(h => (h.landImprovementInvested||0) > 0)">
-                <table class="bookkeeping text-sm w-full mb-3">
-                  <thead><tr><th>Hex</th><th>Land value</th><th>Current bonus</th><th>Invested toward next +1</th><th>Progress</th><th>Lifetime invested</th></tr></thead>
-                  <tbody>
-                    <template x-for="h in (domainHexesFor(selectedDomain)||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
-                      <tr>
-                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
-                        <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + 'gp'"></td>
-                        <td x-text="'+' + (h.landImprovementBonus||0)"></td>
-                        <td class="font-mono" x-text="(h.landImprovementInvested||0).toLocaleString() + ' / 25,000gp'"></td>
-                        <td class="text-sm accent-amber" x-text="Math.round(((h.landImprovementInvested||0) / 25000) * 100) + '%'"></td>
-                        <td class="font-mono opacity-70" x-text="(((h.landImprovementBonus||0) * 25000) + (h.landImprovementInvested||0)).toLocaleString() + 'gp'"></td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
+              <!-- ⏳ Building now: hexes whose committed improvement budget is still dripping out of the treasury. -->
+              <template x-if="(agriculturalInvestmentInFlight(selectedDomain)||[]).length > 0">
+                <div class="mb-3 p-2 border border-ink/40 rounded" style="background:#eef7e3">
+                  <h3 class="font-semibold text-sm mb-1">⏳ Building now <span class="opacity-60 font-normal">(drips ~500gp/day on the Day Clock)</span></h3>
+                  <table class="bookkeeping text-sm w-full">
+                    <thead><tr><th>Hex</th><th>Budget left</th><th>Invested toward next +1</th><th>Current bonus</th><th title="At ~500gp/day, treasury permitting">~Days left</th></tr></thead>
+                    <tbody>
+                      <template x-for="row in agriculturalInvestmentInFlight(selectedDomain)" :key="row.hex.id">
+                        <tr>
+                          <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(row.hex.coord?.q||0, row.hex.coord?.r||0)"></span></td>
+                          <td class="font-mono accent-amber" x-text="row.budget.toLocaleString() + 'gp'"></td>
+                          <td class="font-mono opacity-70" x-text="(row.invested||0).toLocaleString() + ' / 25,000gp'"></td>
+                          <td x-text="'+' + (row.bonus||0)"></td>
+                          <td class="opacity-70" x-text="Math.ceil(row.budget / 500) + 'd'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
               </template>
 
-              <!-- Prep flow: queue arbitrary gp amount per hex for next advance-month. -->
-              <div class="border-t border-ink/30 pt-3">
-                <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
-                <p class="text-sm opacity-70 mb-2">
-                  Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days (no engineer needed — the supervisor rule is for strongholds and ships, not land; RR p.174). Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
-                  <span x-show="(domainHexesFor(selectedDomain)||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
-                    Total budget in flight: <strong x-text="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
-                  </span>
-                </p>
-                <table class="bookkeeping text-sm w-full">
-                  <thead><tr>
-                    <th>Hex</th>
-                    <th>Land value</th>
-                    <th>Bonus / next step</th>
-                    <th>Eligibility</th>
-                    <th x-show="false">Supervisor</th>
-                    <th>Budget (drips ~500/day)</th>
-                  </tr></thead>
-                  <tbody>
-                    <template x-for="(h, hi) in domainHexesFor(selectedDomain)" :key="h.id || hi">
-                      <tr>
-                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
-                        <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + ' / ' + Math.round(effectiveHexValue(h)) + 'gp'"></td>
-                        <td class="text-sm">
-                          <span x-text="'+' + (h.landImprovementBonus||0)"></span>
-                          <template x-if="(h.landImprovementInvested||0) > 0">
-                            <span class="opacity-60 ml-1" x-text="'(' + (h.landImprovementInvested||0).toLocaleString() + ' / 25,000 toward next)'"></span>
-                          </template>
-                          <template x-if="(h.improvementBudgetGp||0) > 0">
-                            <span class="accent-green ml-1" x-text="'· budget ' + (h.improvementBudgetGp||0).toLocaleString() + 'gp building'"></span>
-                          </template>
-                        </td>
-                        <td class="text-sm"
-                            :class="{'opacity-60': (h.landImprovementBonus||0) >= 3 || effectiveHexValue(h) >= 9}"
-                            x-text="
-                              (h.landImprovementBonus||0) >= 3 ? 'at +3 bonus cap' :
-                              effectiveHexValue(h) >= 9 ? 'at 9gp value cap' :
-                              'eligible'
-                            "></td>
-                        <!-- Foundation #18 followup — multi-supervisor picker. Per RR p.174,
-                             multiple engineers/siege engineers can co-supervise (caps additive).
-                             Only on-site supervisors (currentHexId matches) count at commit. -->
-                        <td x-show="false" class="text-sm">
-                          <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="block">
-                              <!-- Chip list — one per assigned supervisor. -->
-                              <template x-for="(sid, sIdx) in (h.constructionSupervisorCharacterIds||[])" :key="sid">
-                                <span class="inline-flex items-center gap-1 mr-1 mb-1 px-1 border border-ink/40 rounded"
-                                      :style="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return 'background:#fee'; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return onSite ? 'background:#eef7e3' : 'background:#fce8e6'; })()">
-                                  <span x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); return sup ? sup.name + ' (' + (sup.constructionSupervisorCap||0).toLocaleString() + 'gp)' : '— missing —'; })()"></span>
-                                  <span class="text-[10px] opacity-70" x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return ''; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return onSite ? '' : '⚠ off-site'; })()"></span>
-                                  <button class="text-sm accent-red"
-                                          title="Remove (logged)"
-                                          @click="(() => { const list = (h.constructionSupervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); })()">×</button>
-                                </span>
-                              </template>
-                              <!-- + Add supervisor dropdown — filters out characters already assigned. -->
-                              <select class="text-sm mt-1" style="max-width:11rem"
-                                      @change="(() => { const newId = $event.target.value; if(!newId) return; const list = (h.constructionSupervisorCharacterIds||[]).slice(); if(!list.includes(newId)) list.push(newId); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); $event.target.value = ''; })()">
-                                <option value="">＋ Add supervisor…</option>
-                                <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && (c.constructionSupervisorCap||0) > 0 && !(h.constructionSupervisorCharacterIds||[]).includes(c.id))" :key="c.id">
-                                  <option :value="c.id" x-text="c.name + ' (' + (c.constructionSupervisorCap||0).toLocaleString() + 'gp' + (c.currentHexId && c.currentHexId !== h.id ? ', off-site' : '') + ')'"></option>
-                                </template>
-                              </select>
-                              <!-- Combined-cap hint vs. remaining step cost. -->
-                              <template x-if="(h.constructionSupervisorCharacterIds||[]).length > 0">
-                                <span class="block text-[10px] mt-1"
-                                      x-text="(() => { const chars = currentCampaign?.characters||[]; const onSiteCap = (h.constructionSupervisorCharacterIds||[]).reduce((s,sid) => { const sup = chars.find(c=>c.id===sid); if(!sup) return s; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return s + (onSite ? (sup.constructionSupervisorCap||0) : 0); }, 0); const remaining = 25000 - (h.landImprovementInvested||0); return onSiteCap >= remaining ? ('OK — combined on-site cap ' + onSiteCap.toLocaleString() + 'gp ≥ ' + remaining.toLocaleString() + 'gp') : ('⚠ on-site cap ' + onSiteCap.toLocaleString() + 'gp < remaining ' + remaining.toLocaleString() + 'gp'); })()"
-                                      :class="(() => { const chars = currentCampaign?.characters||[]; const onSiteCap = (h.constructionSupervisorCharacterIds||[]).reduce((s,sid) => { const sup = chars.find(c=>c.id===sid); if(!sup) return s; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return s + (onSite ? (sup.constructionSupervisorCap||0) : 0); }, 0); const remaining = 25000 - (h.landImprovementInvested||0); return onSiteCap >= remaining ? 'accent-green' : 'accent-red'; })()"></span>
-                              </template>
-                            </span>
-                          </template>
-                          <template x-if="!((h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9)">
-                            <span class="opacity-40">—</span>
-                          </template>
-                        </td>
-                        <td>
-                          <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0})">
-                              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                            </span>
-                          </template>
-                          <template x-if="!((h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9)">
-                            <span class="opacity-40">—</span>
-                          </template>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-                <!-- Monthly labor cap is an abstract-path (instant) concept; the timed RAW default is
-                     limited by the per-day construction rate, not a monthly gp cap. Hidden by default. -->
-                <p x-show="isHouseRuleEnabled('abstract-construction')" class="text-sm mt-2 opacity-80">
-                  <span>Monthly labor cap:
-                    <strong x-text="(selectedDomain.monthlyLaborCapGp||0) > 0 ? (selectedDomain.monthlyLaborCapGp||0).toLocaleString() + 'gp' : '— unlimited (set on Economy tab) —'"></strong>
-                  </span>
-                  <template x-if="(selectedDomain.monthlyLaborCapGp||0) > 0">
-                    <span class="ml-2">
-                      Currently queued: <strong x-text="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString() + 'gp'"></strong>
-                      <span x-show="(domainHexesFor(selectedDomain)||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0) > (selectedDomain.monthlyLaborCapGp||0)" class="accent-red ml-2">⚠ exceeds labor cap — engine will clip allocations at commit.</span>
-                    </span>
+              <!-- Hexes with gp already invested toward the next +1 step. -->
+              <template x-if="(domainHexesFor(selectedDomain)||[]).some(h => (h.landImprovementInvested||0) > 0)">
+                <div class="mb-3">
+                  <h3 class="font-semibold text-sm mb-1">Invested toward the next +1</h3>
+                  <table class="bookkeeping text-sm w-full">
+                    <thead><tr><th>Hex</th><th>Land value</th><th>Current bonus</th><th>Invested toward next +1</th><th>Progress</th><th>Lifetime invested</th></tr></thead>
+                    <tbody>
+                      <template x-for="h in (domainHexesFor(selectedDomain)||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
+                        <tr>
+                          <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
+                          <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + 'gp'"></td>
+                          <td x-text="'+' + (h.landImprovementBonus||0)"></td>
+                          <td class="font-mono" x-text="(h.landImprovementInvested||0).toLocaleString() + ' / 25,000gp'"></td>
+                          <td class="text-sm accent-amber" x-text="Math.round(((h.landImprovementInvested||0) / 25000) * 100) + '%'"></td>
+                          <td class="font-mono opacity-70" x-text="(((h.landImprovementBonus||0) * 25000) + (h.landImprovementInvested||0)).toLocaleString() + 'gp'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+
+              <!-- Nothing under way at all (no invested gp and no dripping budget). -->
+              <template x-if="(domainHexesFor(selectedDomain)||[]).every(h => (h.landImprovementInvested||0) === 0) && (agriculturalInvestmentInFlight(selectedDomain)||[]).length === 0">
+                <p class="text-sm italic opacity-60 mb-3">No improvements under way. Fund one below.</p>
+              </template>
+
+              <!-- Fund land improvement — opens the per-hex budget dialog (built over time at ~500gp/day, RR p.174). -->
+              <div class="flex items-center justify-between flex-wrap gap-2 border-t border-ink/30 pt-3">
+                <span class="text-sm opacity-70">
+                  <template x-if="(agriculturalInvestableHexes(selectedDomain)||[]).length > 0">
+                    <span><strong x-text="(agriculturalInvestableHexes(selectedDomain)||[]).length"></strong> hex(es) can still be improved (under the +3 bonus / 9gp value caps, RR p.341).</span>
                   </template>
-                </p>
+                  <template x-if="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0">
+                    <span class="italic">Every hex is at the +3 bonus or 9gp value cap — no further improvement is possible.</span>
+                  </template>
+                </span>
+                <button @click="showAgriModal = true"
+                        :disabled="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0"
+                        :class="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                        class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                        title="Fund land improvement — opens a dialog to enter gp per hex. The budget builds at ~500gp/day on the Day Clock (RR p.174), each +1 step (25,000gp) taking ~50 days.">⚒ Fund improvements…</button>
               </div>
+
+              <!-- ⚒ Fund agricultural improvements dialog — the per-hex budget amounts, moved out of the panel. -->
+              <template x-if="showAgriModal">
+                <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showAgriModal=false" @keydown.escape.window="showAgriModal=false">
+                  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-10">
+                    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+                      <h3 class="font-bold text-lg">⚒ Fund agricultural improvements</h3>
+                      <button @click="showAgriModal=false" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+                    </div>
+                    <div class="p-4 space-y-3 text-sm">
+                      <p class="text-xs opacity-70">Allocate gp per hex toward its land value. The budget is not spent now — RAW (RR p.174) builds land over time at ~500gp/day, so each +1 step (25,000gp) takes ~50 days. Progress lands on the Day Clock; stopping just halts further spend (no refund). Instant completion is available via the Inspector. Caps (RR p.341): max +3 per hex, 9gp/family.</p>
+                      <table class="bookkeeping text-sm w-full">
+                        <thead><tr><th>Hex</th><th>Land value</th><th>Bonus / next step</th><th>Add to budget (gp)</th></tr></thead>
+                        <tbody>
+                          <template x-for="h in (agriculturalInvestableHexes(selectedDomain)||[])" :key="h.id">
+                            <tr>
+                              <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
+                              <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + ' / ' + Math.round(effectiveHexValue(h)) + 'gp'"></td>
+                              <td class="text-sm">
+                                <span x-text="'+' + (h.landImprovementBonus||0)"></span>
+                                <template x-if="(h.landImprovementInvested||0) > 0">
+                                  <span class="opacity-60 ml-1" x-text="'(' + (h.landImprovementInvested||0).toLocaleString() + ' / 25,000 toward next)'"></span>
+                                </template>
+                                <template x-if="(h.improvementBudgetGp||0) > 0">
+                                  <span class="accent-green ml-1" x-text="'· budget ' + (h.improvementBudgetGp||0).toLocaleString() + 'gp building'"></span>
+                                </template>
+                              </td>
+                              <td><input type="number" min="0" step="1000" x-model.number="agAmounts[h.id]" class="w-24 text-sm" placeholder="0"></td>
+                            </tr>
+                          </template>
+                          <tr class="subtotal">
+                            <td colspan="3">Total to add to budgets</td>
+                            <td x-text="agTotal().toLocaleString() + 'gp'"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <p class="text-sm opacity-70" x-show="agTotal() > (selectedDomain?.treasury?.gp || 0)">Note: the total exceeds the current treasury (<span x-text="(selectedDomain?.treasury?.gp || 0).toLocaleString()"></span>gp). That is fine — it drips as funds allow; the day-tick simply pauses when the treasury runs dry.</p>
+                    </div>
+                    <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+                      <button @click="showAgriModal=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+                      <button @click="beginAgriculturalInvestment(selectedDomain, agAmounts); showAgriModal=false"
+                              :disabled="agTotal() <= 0"
+                              :class="agTotal() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                              class="px-3 py-1 border border-ink rounded font-semibold">⚒ Fund improvements</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
           </template>
           <!-- Urban investment (RR p.353 / p.351 / p.350) — Investment-tab panel (2026-06-23).
@@ -5732,7 +5717,7 @@ document.addEventListener('alpine:init', () => {
                immigrate per 1,000gp actually paid (RR p.351 — the families follow the build). A GM may
                'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
-               x-data="{ amounts:{}, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
+               x-data="{ amounts:{}, showOrderModal:false, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
             <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
               Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
@@ -5762,6 +5747,7 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length > 0">
               <div>
+                <!-- Read-only status. The per-settlement order amounts moved into the 🏗 Order investment dialog. -->
                 <table class="bookkeeping text-sm w-full">
                   <thead><tr>
                     <th>Settlement</th>
@@ -5769,8 +5755,6 @@ document.addEventListener('alpine:init', () => {
                     <th title="Maximum families at the settlement's current total investment (RR p.350)">Cap</th>
                     <th>Class</th>
                     <th>Total investment</th>
-                    <th>Order (gp)</th>
-                    <th>Families it will draw</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="entry in (hexSettlements(selectedDomain)||[])" :key="entry.settlement.id">
@@ -5783,26 +5767,58 @@ document.addEventListener('alpine:init', () => {
                         <td x-text="settlementCapacity(entry.settlement).toLocaleString()"></td>
                         <td x-text="'Class ' + settlementMarketClass(entry.settlement)"></td>
                         <td class="font-mono opacity-70" x-text="(entry.settlement.totalInvestment||0).toLocaleString() + 'gp'"></td>
-                        <td><input type="number" min="0" step="1000" x-model.number="amounts[entry.settlement.id]" class="w-24 text-sm" placeholder="0"></td>
-                        <td class="opacity-80" x-text="(amounts[entry.settlement.id]||0) >= 1000 ? '+' + Math.floor((amounts[entry.settlement.id]||0)/1000) + 'd10 (avg +' + Math.floor((amounts[entry.settlement.id]||0)/1000 * 5.5) + ')' : '—'"></td>
                       </tr>
                     </template>
-                    <tr class="subtotal">
-                      <td colspan="5">Total to order</td>
-                      <td x-text="total().toLocaleString() + 'gp'"></td>
-                      <td></td>
-                    </tr>
                   </tbody>
                 </table>
-                <div class="flex items-center justify-between flex-wrap gap-2 mt-2">
+                <div class="flex items-center justify-between flex-wrap gap-2 mt-3">
                   <span class="text-sm opacity-70">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></span>
-                  <button @click="beginUrbanInvestment(selectedDomain, amounts)"
-                          class="px-3 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
-                          :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
-                          :disabled="total() <= 0"
-                          title="Order this investment: it is added to each settlement's committed budget and built at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp paid (RR p.351).">🏗 Order investment</button>
+                  <button @click="showOrderModal = true"
+                          class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold"
+                          title="Order urban investment — opens a dialog to enter gp per settlement. It builds at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp built (RR p.351).">🏗 Order investment…</button>
                 </div>
-                <p class="text-sm accent-red mt-1" x-show="total() > urbanInvestmentRevenueCap(selectedDomain)">⚠ Total exceeds this month's revenue cap — RAW (RR p.351) disallows spending more than the domain's monthly revenue. Reduce the amounts, or rule on it as GM.</p>
+              </div>
+            </template>
+            <!-- 🏗 Order urban investment dialog — the per-settlement amounts, moved out of the status table. -->
+            <template x-if="showOrderModal">
+              <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
+                <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-10">
+                  <div class="flex justify-between items-start p-4 border-b border-ink/30">
+                    <h3 class="font-bold text-lg">🏛 Order urban investment</h3>
+                    <button @click="showOrderModal=false" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+                  </div>
+                  <div class="p-4 space-y-3 text-sm">
+                    <p class="text-xs opacity-70">Enter gp per settlement. The cost is not spent now — each settlement's committed budget builds at <strong>500gp/day</strong> on the Day Clock (RR p.353), drawing <strong>1d10</strong> families per <strong>1,000gp</strong> built (RR p.351). A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.</p>
+                    <table class="bookkeeping text-sm w-full">
+                      <thead><tr><th>Settlement</th><th>Families</th><th>Cap</th><th>Order (gp)</th><th>Families it will draw</th></tr></thead>
+                      <tbody>
+                        <template x-for="entry in (hexSettlements(selectedDomain)||[])" :key="entry.settlement.id">
+                          <tr>
+                            <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
+                            <td x-text="(entry.settlement.families||0).toLocaleString()"></td>
+                            <td x-text="settlementCapacity(entry.settlement).toLocaleString()"></td>
+                            <td><input type="number" min="0" step="1000" x-model.number="amounts[entry.settlement.id]" class="w-24 text-sm" placeholder="0"></td>
+                            <td class="opacity-80" x-text="(amounts[entry.settlement.id]||0) >= 1000 ? '+' + Math.floor((amounts[entry.settlement.id]||0)/1000) + 'd10 (avg +' + Math.floor((amounts[entry.settlement.id]||0)/1000 * 5.5) + ')' : '—'"></td>
+                          </tr>
+                        </template>
+                        <tr class="subtotal">
+                          <td colspan="3">Total to order</td>
+                          <td x-text="total().toLocaleString() + 'gp'"></td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p class="text-sm" :class="total() > urbanInvestmentRevenueCap(selectedDomain) ? 'accent-red' : 'opacity-70'">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></p>
+                    <p class="text-sm accent-red" x-show="total() > urbanInvestmentRevenueCap(selectedDomain)">⚠ Total exceeds this month's revenue cap — RAW (RR p.351) disallows spending more than the domain's monthly revenue. Reduce the amounts, or rule on it as GM.</p>
+                  </div>
+                  <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+                    <button @click="showOrderModal=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+                    <button @click="beginUrbanInvestment(selectedDomain, amounts); showOrderModal=false"
+                            :disabled="total() <= 0"
+                            :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                            class="px-3 py-1 border border-ink rounded font-semibold">🏗 Order investment</button>
+                  </div>
+                </div>
               </div>
             </template>
           </div>
@@ -8267,6 +8283,7 @@ document.addEventListener('alpine:init', () => {
 
       <!-- ═══ CONSTRUCTION sub-tab — every domain's building projects + the urban/agricultural investments ═══ -->
       <div x-show="monthlyTurnSubView==='construction'">
+        <p class="text-sm opacity-70 mb-3 italic">A read-only overview of every domain's construction and investment in flight. Investments are <strong>run from each domain's Investment tab</strong> and construction from its Stronghold tab — use the → links to go adjust them.</p>
         <!-- 🏗 Building projects under way (moved here from Events ▸ Construction, 2026-06-22). -->
         <div class="border border-ink rounded p-3 mb-4" style="background:#f4ecd2">
           <div class="flex flex-wrap justify-between items-baseline mb-3 gap-2">
@@ -8282,7 +8299,7 @@ document.addEventListener('alpine:init', () => {
               <tbody>
                 <template x-for="row in allConstructionProjects()" :key="row.project.id">
                   <tr class="hover:bg-yellow-50/60">
-                    <td x-text="row.domainName"></td>
+                    <td><button @click="goToDomainTab(row.project.ownerDomainId, 'stronghold')" class="underline text-left" title="Open this domain's Stronghold tab" x-text="row.domainName"></button></td>
                     <td class="font-semibold" x-text="row.project.name || row.project.constructibleSubtype || row.project.constructibleKind || '(project)'"></td>
                     <td class="text-right" x-text="row.forecast ? row.forecast.pctComplete + '%' : '—'"></td>
                     <td class="text-right" x-text="row.forecast ? (row.forecast.daysToComplete == null ? 'stalled' : row.forecast.daysToComplete.toLocaleString()) : '—'"></td>
@@ -8298,16 +8315,67 @@ document.addEventListener('alpine:init', () => {
             </table>
           </template>
         </div>
-        <h3 class="font-bold text-base mb-1">🏛 Domain investments this month</h3>
-        <p class="text-sm opacity-70 mb-3">Urban (RR p.351) and agricultural (RR p.341) investments allocated per domain this month. Amounts are spent on <strong>Commit Turn</strong>.</p>
+        <h3 class="font-bold text-base mb-1">🏛 Investments in flight <span class="text-sm opacity-70 font-normal">(across all domains)</span></h3>
+        <p class="text-sm opacity-70 mb-3">Urban (RR p.351) and agricultural (RR p.341) investments build over time on the Day Clock, and are run from each domain's <strong>Investment</strong> tab. This is a read-only overview — use → tweak to go adjust them.</p>
+
+        <!-- 🏛 Urban investment in flight (cross-domain) -->
+        <div class="border border-ink rounded p-3 mb-4" style="background:#f4ecd2">
+          <h4 class="font-semibold text-sm mb-2">🏛 Urban investment <span class="opacity-60 font-normal" x-text="'· ' + allUrbanInvestmentsInFlight().length + ' settlement(s) building'"></span></h4>
+          <template x-if="allUrbanInvestmentsInFlight().length === 0">
+            <p class="text-sm italic opacity-60">None under way. Order some from a domain ▸ Investment ▸ 🏛 Urban investment.</p>
+          </template>
+          <template x-if="allUrbanInvestmentsInFlight().length > 0">
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th>Domain</th><th>Settlement</th><th class="text-right">Budget left</th><th class="text-right">Paid so far</th><th class="text-right" title="At 500gp/day, treasury permitting">~Days left</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="row in allUrbanInvestmentsInFlight()" :key="row.settlement.id">
+                  <tr class="hover:bg-yellow-50/60">
+                    <td x-text="row.domainName"></td>
+                    <td class="font-semibold" x-text="row.settlement.name || '(unnamed)'"></td>
+                    <td class="text-right font-mono accent-amber" x-text="row.budget.toLocaleString() + 'gp'"></td>
+                    <td class="text-right font-mono opacity-70" x-text="(row.paid||0).toLocaleString() + 'gp'"></td>
+                    <td class="text-right opacity-70" x-text="Math.ceil(row.budget / 500) + 'd'"></td>
+                    <td class="text-right"><button @click="goToDomainTab(row.domainId, 'investment')" class="text-sm underline" title="Open this domain's Investment tab">→ tweak</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+
+        <!-- 🌾 Agricultural improvement in flight (cross-domain) -->
+        <div class="border border-ink rounded p-3 mb-4" style="background:#e8f0d4">
+          <h4 class="font-semibold text-sm mb-2">🌾 Agricultural improvement <span class="opacity-60 font-normal" x-text="'· ' + allAgriculturalInvestmentsInFlight().length + ' hex(es) building'"></span></h4>
+          <template x-if="allAgriculturalInvestmentsInFlight().length === 0">
+            <p class="text-sm italic opacity-60">None under way. Fund some from a domain ▸ Investment ▸ ⚒ Agricultural improvements.</p>
+          </template>
+          <template x-if="allAgriculturalInvestmentsInFlight().length > 0">
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th>Domain</th><th>Hex</th><th class="text-right">Budget left</th><th class="text-right">Toward next +1</th><th class="text-right">Bonus</th><th class="text-right" title="At ~500gp/day, treasury permitting">~Days left</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="row in allAgriculturalInvestmentsInFlight()" :key="row.hex.id">
+                  <tr class="hover:bg-yellow-50/60">
+                    <td x-text="row.domainName"></td>
+                    <td class="font-mono" x-text="window.ACKS.hexDisplayLabel(row.hex.coord?.q||0, row.hex.coord?.r||0)"></td>
+                    <td class="text-right font-mono accent-amber" x-text="row.budget.toLocaleString() + 'gp'"></td>
+                    <td class="text-right font-mono opacity-70" x-text="(row.invested||0).toLocaleString() + ' / 25,000'"></td>
+                    <td class="text-right" x-text="'+' + (row.bonus||0)"></td>
+                    <td class="text-right opacity-70" x-text="Math.ceil(row.budget / 500) + 'd'"></td>
+                    <td class="text-right"><button @click="goToDomainTab(row.domainId, 'investment')" class="text-sm underline" title="Open this domain's Investment tab">→ tweak</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
       </div>
 
-      <!-- The per-domain card feeds BOTH sub-tabs: its economics (income / expenses / morale / event)
-           show in DOMAINS; its urban + agricultural investment tables show in CONSTRUCTION. One loop,
-           two surfaces (Alpine x-show is position-independent). -->
+      <!-- The per-domain card shows each domain's monthly economics (income / expenses / morale / event)
+           on the DOMAINS sub-tab only. Investments are no longer handled here — they are run continuously
+           from each domain's Investment tab; the CONSTRUCTION sub-tab shows a read-only overview of them. -->
       <template x-for="p in (turnProposal || [])" :key="p.domainId">
         <div class="mb-4 border border-ink rounded p-3 vellum"
-             x-show="monthlyTurnSubView==='domains' || (monthlyTurnSubView==='construction' && ((p.urbanInvestments||[]).length>0 || (p.agriculturalOrders||[]).length>0))">
+             x-show="monthlyTurnSubView==='domains'">
           <div class="flex justify-between items-center flex-wrap gap-2">
             <h3 class="font-bold">
               <span x-text="p.domainName + ' (' + p.classification + ')'"></span>
@@ -8366,136 +8434,6 @@ document.addEventListener('alpine:init', () => {
           </div>
 
           </div><!-- /economics (DOMAINS sub-tab) -->
-
-          <!-- urban + agricultural investments — CONSTRUCTION sub-tab only -->
-          <div x-show="monthlyTurnSubView==='construction'">
-          <!-- Urban investments (per settlement) — ACKS RR p.351 -->
-          <template x-if="(p.urbanInvestments||[]).length > 0">
-            <div class="mt-3 p-2 border border-ink rounded" style="background:#f4ecd2" :class="p.skip ? 'skipped' : ''">
-              <div class="flex justify-between items-baseline">
-                <h4 class="font-semibold text-sm">🏛 Urban investments this month</h4>
-                <span class="text-sm opacity-70">Cap: <span x-text="urbanInvestmentCap(p).toLocaleString()"></span> gp (this month's revenue)</span>
-              </div>
-              <p class="text-sm opacity-70 mb-2">Per 1,000 gp invested in a settlement, 1d10 new urban families immigrate that month (RR p.351). Investment also raises the settlement's total investment, increasing its population cap.</p>
-              <table class="bookkeeping text-sm">
-                <thead><tr><th>Settlement</th><th>Current</th><th>Cap</th><th>Class</th><th>Invest (gp)</th><th>Expected new families</th></tr></thead>
-                <tbody>
-                  <template x-for="(inv, ii) in p.urbanInvestments" :key="ii">
-                    <tr>
-                      <td class="font-semibold" x-text="inv.settlementName"></td>
-                      <td x-text="inv.currentFamilies.toLocaleString()"></td>
-                      <td x-text="inv.capacity.toLocaleString()"></td>
-                      <td x-text="'Class ' + inv.marketClass"></td>
-                      <td><input type="number" min="0" step="1000" x-model.number="inv.amount" class="w-24"></td>
-                      <td class="opacity-80" x-text="(inv.amount||0) >= 1000 ? '+'+Math.floor(inv.amount/1000)+'d10 (avg +'+Math.floor(inv.amount/1000 * 5.5)+')' : '—'"></td>
-                    </tr>
-                  </template>
-                  <tr class="subtotal">
-                    <td colspan="4">Total this month</td>
-                    <td x-text="urbanInvestmentTotal(p).toLocaleString() + ' gp'"></td>
-                    <td></td>
-                  </tr>
-                </tbody>
-              </table>
-              <p class="text-sm accent-red mt-1" x-show="urbanInvestmentTotal(p) > urbanInvestmentCap(p)">⚠ Investment exceeds this month's revenue cap — ACKS RAW disallows this. Adjust the amounts or rule on it as GM.</p>
-              <p class="text-sm accent-red mt-1" x-show="urbanInvestmentTotal(p) > 0 && urbanInvestmentTotal(p) > (selectedDomain?.treasury?.gp || 0) + Math.round(incomeSum(p)*p.incomeFactor) - expenseSum(p)">⚠ May leave treasury negative after this month's net.</p>
-            </div>
-          </template>
-
-          <!-- Agricultural investments (per hex) — ACKS RR p.341 -->
-          <template x-if="(p.agriculturalOrders||[]).length > 0">
-            <div class="mt-3 p-2 border border-ink rounded" style="background:#e8f0d4" :class="p.skip ? 'skipped' : ''">
-              <div class="flex justify-between items-baseline">
-                <h4 class="font-semibold text-sm">🌾 Agricultural investments this month</h4>
-                <span class="text-sm opacity-70">Built over time — ~500gp/day, ~50 days per +1gp/family step (RR p.341 + p.174)</span>
-              </div>
-              <p class="text-sm opacity-70 mb-2">Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW (RR p.174) builds land over time: the budget is spent as the work proceeds (~500gp/day), so each +1 step (25,000gp) takes ~50 days (no engineer needed — that supervisor rule is for strongholds and ships, not land; RR p.174). Caps per RR p.341: max +3 per hex; 9gp/family absolute. Progress lands via the day-tick — tick days or advance the month; instant completion is via the Inspector.</p>
-              <table class="bookkeeping text-sm">
-                <thead><tr>
-                  <th>Hex</th>
-                  <th>Land value</th>
-                  <th>Bonus</th>
-                  <th>Toward next +1</th>
-                  <th>Status</th>
-                  <th x-show="false">Supervisor</th>
-                  <th>Add to budget</th>
-                </tr></thead>
-                <tbody>
-                  <template x-for="(ord, oi) in p.agriculturalOrders" :key="oi">
-                    <tr>
-                      <td class="font-mono" x-text="ord.coordStr"></td>
-                      <td x-text="ord.baseValue + 'gp'"></td>
-                      <td x-text="'+' + ord.currentBonus"></td>
-                      <td class="opacity-80 font-mono" x-text="(ord.currentInvested||0).toLocaleString() + ' / 25,000'"></td>
-                      <td class="opacity-80 text-sm">
-                        <span x-show="ord.eligible" class="accent-green">eligible</span>
-                        <span x-show="!ord.eligible" class="accent-red" x-text="ord.ineligibleReason"></span>
-                      </td>
-                      <!-- Foundation #18 followup — multi-supervisor picker in the modal.
-                           Mutates ord.supervisorCharacterIds (array) which commitTurn transcribes
-                           to hex.constructionSupervisorCharacterIds. On-site = supervisor's
-                           currentHexId matches the order's hexId (permissive if unset). -->
-                      <td x-show="false" class="text-sm">
-                        <template x-if="ord.eligible">
-                          <span class="flex flex-col gap-0.5">
-                            <!-- Existing supervisors as chips. -->
-                            <template x-for="(sid, sIdx) in (ord.supervisorCharacterIds||[])" :key="sid">
-                              <span class="inline-flex items-center gap-1 px-1 border border-ink/40 rounded"
-                                    :style="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return 'background:#fee'; const onSite = !sup.currentHexId || sup.currentHexId === ord.hexId; return onSite ? 'background:#eef7e3' : 'background:#fce8e6'; })()">
-                                <span x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); return sup ? sup.name + ' (' + (sup.constructionSupervisorCap||0).toLocaleString() + ')' : '— missing —'; })()"></span>
-                                <span class="text-[10px] opacity-70" x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return ''; const onSite = !sup.currentHexId || sup.currentHexId === ord.hexId; return onSite ? '' : '⚠'; })()"></span>
-                                <button class="text-sm accent-red"
-                                        title="Remove"
-                                        @click="(() => { const list = (ord.supervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); ord.supervisorCharacterIds = list; })()">×</button>
-                              </span>
-                            </template>
-                            <!-- + Add. -->
-                            <select class="text-sm"
-                                    @change="(() => { const newId = $event.target.value; if(!newId) return; if(!Array.isArray(ord.supervisorCharacterIds)) ord.supervisorCharacterIds = []; if(!ord.supervisorCharacterIds.includes(newId)) ord.supervisorCharacterIds.push(newId); $event.target.value = ''; })()">
-                              <option value="">＋ Add…</option>
-                              <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && (c.constructionSupervisorCap||0) > 0 && !(ord.supervisorCharacterIds||[]).includes(c.id))" :key="c.id">
-                                <option :value="c.id" x-text="c.name + ' (' + (c.constructionSupervisorCap||0).toLocaleString() + 'gp' + (c.currentHexId && c.currentHexId !== ord.hexId ? ', off-site' : '') + ')'"></option>
-                              </template>
-                            </select>
-                            <!-- Combined on-site cap hint. -->
-                            <template x-if="(ord.supervisorCharacterIds||[]).length > 0">
-                              <span class="text-[10px]"
-                                    x-text="(() => { const chars = currentCampaign?.characters||[]; const onSiteCap = (ord.supervisorCharacterIds||[]).reduce((s,sid) => { const sup = chars.find(c=>c.id===sid); if(!sup) return s; const onSite = !sup.currentHexId || sup.currentHexId === ord.hexId; return s + (onSite ? (sup.constructionSupervisorCap||0) : 0); }, 0); const remaining = 25000 - (ord.currentInvested||0); return onSiteCap >= remaining ? 'OK — on-site ' + onSiteCap.toLocaleString() + 'gp' : '⚠ on-site ' + onSiteCap.toLocaleString() + 'gp < ' + remaining.toLocaleString() + 'gp'; })()"
-                                    :class="(() => { const chars = currentCampaign?.characters||[]; const onSiteCap = (ord.supervisorCharacterIds||[]).reduce((s,sid) => { const sup = chars.find(c=>c.id===sid); if(!sup) return s; const onSite = !sup.currentHexId || sup.currentHexId === ord.hexId; return s + (onSite ? (sup.constructionSupervisorCap||0) : 0); }, 0); const remaining = 25000 - (ord.currentInvested||0); return onSiteCap >= remaining ? 'accent-green' : 'accent-red'; })()"></span>
-                            </template>
-                            <template x-if="(ord.supervisorCharacterIds||[]).length === 0 && (ord.gpAmount||0) > 0">
-                              <span class="text-[10px] accent-red">⚠ no supervisor — will be skipped</span>
-                            </template>
-                          </span>
-                        </template>
-                        <template x-if="!ord.eligible">
-                          <span class="opacity-40">—</span>
-                        </template>
-                      </td>
-                      <td>
-                        <span x-show="ord.eligible" class="flex items-center gap-1">
-                          <input type="number" min="0" step="1000" x-model.number="ord.gpAmount" class="w-24 text-sm">
-                          <span class="text-sm opacity-60">gp</span>
-                        </span>
-                        <span x-show="!ord.eligible" class="opacity-40 text-sm">—</span>
-                      </td>
-                    </tr>
-                  </template>
-                  <tr class="subtotal">
-                    <td :colspan="5">Total added to budget this turn</td>
-                    <td x-text="agriculturalOrderTotal(p).toLocaleString() + ' gp'"></td>
-                  </tr>
-                </tbody>
-              </table>
-              <p class="text-sm accent-red mt-1" x-show="agriculturalOrderTotal(p) > (selectedDomain?.treasury?.gp || 0) + Math.round(incomeSum(p)*p.incomeFactor) - expenseSum(p) - urbanInvestmentTotal(p)">⚠ Total agricultural allocations may leave treasury negative after this month's other costs.</p>
-              <!-- Labor cap is an abstract-path concept; hidden in the timed RAW default. -->
-              <p class="text-sm accent-red mt-1"
-                 x-show="isHouseRuleEnabled('abstract-construction') && (selectedDomain?.monthlyLaborCapGp||0) > 0 && agriculturalOrderTotal(p) > (selectedDomain?.monthlyLaborCapGp||0)"
-                 x-text="'⚠ Total (' + agriculturalOrderTotal(p).toLocaleString() + 'gp) exceeds monthly labor cap (' + (selectedDomain?.monthlyLaborCapGp||0).toLocaleString() + 'gp). Engine will clip excess at commit.'"></p>
-            </div>
-          </template>
-
-          </div><!-- /investments (CONSTRUCTION sub-tab) -->
 
           <!-- event + GM notes — DOMAINS sub-tab only -->
           <div x-show="monthlyTurnSubView==='domains'" class="mt-2 text-sm" :class="p.skip ? 'skipped' : ''">
