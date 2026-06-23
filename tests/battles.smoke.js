@@ -20,7 +20,7 @@ const DIR = path.join(__dirname, '..');
 global.window = global;
 [
   'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
-  'acks-engine.js', 'acks-engine-lairs.js', 'acks-engine-stash.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
+  'acks-engine.js', 'acks-engine-lairs.js', 'acks-engine-stash.js', 'acks-engine-military.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
   'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-battles.js', 'acks-engine-maneuvers.js', 'acks-engine-subsystems.js',
   'acks-engine-mortal-wounds.js'   // Delves D1 — the officer-casualty Mortal Wounds resolver (RR p.470 aftermath wiring)
 ].forEach(f => require(path.join(DIR, f)));

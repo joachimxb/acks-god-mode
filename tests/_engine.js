@@ -26,6 +26,7 @@ const CANONICAL = [
   'acks-engine.js',
   'acks-engine-lairs.js',
   'acks-engine-stash.js',
+  'acks-engine-military.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',
   'acks-engine-entity-registry.js',
