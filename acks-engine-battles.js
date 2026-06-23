@@ -1294,8 +1294,10 @@
       for(const b of af.banditOutcome){
         const d = (campaign.domains || []).find(x => x && x.id === b.domainId);
         if(!d || !d.demographics) continue;
-        d.demographics.morale = b.moraleAfter;                // +1 current morale on victory (RR p.351)
-        if(b.dead) d.demographics.peasantFamilies = Math.max(0, (d.demographics.peasantFamilies || 0) - b.dead);
+        // +1 current morale + the slain → families + the bandit-lord's challenge broken
+        // (RR p.351, via the shared driven-off/battle heal). The band reduction stays below.
+        applyBanditryQuelled(campaign, d, { killed: b.dead,
+          challengerNote: 'Defeated at ' + battle.name + ' — his bandit revolt in ' + (d.name || d.id) + ' is broken (RR p.351)' });
         for(const x of (b.bands || [])){
           const g = (campaign.groups || []).find(gr => gr && gr.id === x.groupId);
           if(!g) continue;
@@ -1305,17 +1307,6 @@
           g.history.push({ atTurn: campaign.currentTurn || 1, type: 'battle',
             summary: 'Defeated at ' + battle.name + ' — ' + (x.dead || 0) + ' slain, ' + (x.captured || 0) + ' freed to ' + (d.name || d.id) });
           if((g.count || 0) <= 0) wipedBands.add(g.id);
-        }
-        // The ruler met the bandit lord in battle (RR p.351) — his challenge is broken (the
-        // domain-level state cleared here; if he was statted as a unit officer the Mortal-Wounds
-        // pass above already set his fate, so don't overwrite a death).
-        if(d.banditryChallenger){
-          const lord = (campaign.characters || []).find(c => c && c.id === d.banditryChallenger.characterId);
-          if(lord && lord.lifecycleState !== 'deceased' && lord.lifecycleState !== 'departed'){
-            lord.lifecycleState = 'departed';
-            if(typeof A().addCharacterHistory === 'function') A().addCharacterHistory(campaign, lord, 'note', 'Defeated at ' + battle.name + ' — his bandit revolt in ' + (d.name || d.id) + ' is broken (RR p.351)');
-          }
-          d.banditryChallenger = null;
         }
       }
       if(wipedBands.size) campaign.groups = (campaign.groups || []).filter(g => !(g && wipedBands.has(g.id)));
@@ -1429,6 +1420,33 @@
     return ev;
   }
 
+  // ── Shared RR p.351 banditry-quelled domain heal ─────────────────────────────
+  // Used by BOTH the battle aftermath (a pitched battle) and the garrison-reaction driven-off
+  // path (a superior force routs the bandits). RR p.351 grants +1 morale for "successfully
+  // defeats the bandits" — which covers a rout as well as a pitched battle. +1 current morale
+  // (clamped to the −4..+4 band); the slain (killed) reduce the population (a bloodless rout
+  // passes 0 → no family loss); the bandit-lord's challenge is broken (he slips away unless a
+  // Mortal-Wounds pass already killed him). The CALLER settles the bands (battle: reduce by loss;
+  // drive-off: disperse) and emits its own event. Returns {moraleBefore, moraleAfter}.
+  function applyBanditryQuelled(campaign, d, opts){
+    const o = opts || {};
+    if(!d || !d.demographics) return null;
+    const killed = Math.max(0, o.killed || 0);
+    const before = (d.demographics.morale != null) ? d.demographics.morale : 0;
+    const after = Math.max(-4, Math.min(4, before + 1));
+    d.demographics.morale = after;
+    if(killed) d.demographics.peasantFamilies = Math.max(0, (d.demographics.peasantFamilies || 0) - killed);
+    if(d.banditryChallenger){
+      const lord = (campaign.characters || []).find(c => c && c.id === d.banditryChallenger.characterId);
+      if(lord && lord.lifecycleState !== 'deceased' && lord.lifecycleState !== 'departed'){
+        lord.lifecycleState = 'departed';
+        if(typeof A().addCharacterHistory === 'function') A().addCharacterHistory(campaign, lord, 'note', o.challengerNote || ('His bandit revolt in ' + (d.name || d.id) + ' is broken (RR p.351)'));
+      }
+      d.banditryChallenger = null;
+    }
+    return { moraleBefore: before, moraleAfter: after };
+  }
+
   // ── namespace ───────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     findBattle, activeBattles, battlesAtHex,
@@ -1437,7 +1455,7 @@
     battleSideSummary,
     runBattleTurn, revertBattleTurn, withdrawBattleSide,
     declareForay, resolveForay, cancelForay,
-    computeBattleAftermath, setOfficerOutcome, applyBattleAftermath,
+    computeBattleAftermath, setOfficerOutcome, applyBattleAftermath, applyBanditryQuelled,
     qualifiesAsBattleHero, heroBattleUnitBr, addHeroToBattle
   });
 

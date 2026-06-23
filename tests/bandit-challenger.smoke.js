@@ -184,5 +184,62 @@ section('One challenger at a time');
   ok('an existing challenger blocks a second spawn', n1 === 1 && n2 === 1);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+section('applyBanditryQuelled — the shared RR p.351 heal (pitched battle + drive-off)');
+{
+  const { c, d } = mkCamp({ morale: -3, families: 1000 });
+  const r = A.applyBanditryQuelled(c, d, { killed: 0 });
+  ok('+1 current morale, clamped (−3 → −2)', d.demographics.morale === -2 && r.moraleBefore === -3 && r.moraleAfter === -2);
+  ok('a bloodless rout (killed 0) costs no families', d.demographics.peasantFamilies === 1000);
+}
+{
+  const { c, d } = mkCamp({ morale: -3, families: 1000 });
+  A.applyBanditryQuelled(c, d, { killed: 400 });
+  ok('the slain reduce the population (RR p.351)', d.demographics.peasantFamilies === 600 && d.demographics.morale === -2);
+}
+{
+  const { c, d } = mkCamp({ morale: 4, families: 1000 });
+  A.applyBanditryQuelled(c, d, { killed: 0 });
+  ok('morale clamps at +4', d.demographics.morale === 4);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Driving bandits off the field heals the domain too (RR p.351 — parity with the battle)');
+{
+  const { c, d } = mkCamp({ morale: -3, families: 1000, turn: 4 });
+  const lord = A.blankCharacter({ id: 'chr-lord', name: 'Bandit Lord', level: 5, kind: 'NPC', controlledBy: 'gm' });
+  c.characters.push(lord);
+  d.banditryChallenger = { characterId: 'chr-lord', sinceTurn: 1, status: 'pillaging', pillaging: true };
+  const band = A.blankGroup({ id: 'grp-b', name: 'Bandits of Greymarch',
+    groupTemplate: { monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' },
+    count: 200, currentHexId: 'hex-x' });
+  band.banditryDomainId = d.id; band.commanderCharacterId = 'chr-lord';
+  c.groups = [band];
+  c.armies = [{ id: 'army-g', name: 'Greymarch Garrison', leaderCharacterId: 'chr-ruler',
+    currentHexId: 'hex-x', reactionTargetGroupId: 'grp-b', history: [] }];
+  ok('the −4 pillage penalty is live before the rout', A.moraleModifiersFor(c, d).some(m => m.value === -4 && /bandit lord/i.test(m.label)));
+  A.commitMilitaryRecord(c, { kind: 'army-band-contact', armyId: 'army-g', groupId: 'grp-b',
+    domainId: null, outcome: 'driven-off', hexId: 'hex-x' });
+  ok('the domain is healed +1 on a rout (RR p.351 — parity with the battle path)', d.demographics.morale === -2);
+  ok('a bloodless rout costs no families', d.demographics.peasantFamilies === 1000);
+  ok('the routed band disperses', !(c.groups || []).some(g => g.id === 'grp-b'));
+  ok('routing the bandits breaks the bandit-lord challenge', d.banditryChallenger == null && lord.lifecycleState === 'departed');
+  ok('the −4 pillage penalty is gone once the challenge is broken', !A.moraleModifiersFor(c, d).some(m => m.value === -4 && /bandit lord/i.test(m.label)));
+}
+{
+  // A monster incursion (no banditryDomainId) driven off does NOT heal domain morale — the
+  // RR p.351 heal is scoped to the domain's own bandits; orcs are simply repelled off-map.
+  const { c, d } = mkCamp({ morale: -3, families: 1000, turn: 4 });
+  const orc = A.blankGroup({ id: 'grp-orc', name: 'Orc raiders', count: 30, currentHexId: 'hex-y' });
+  orc.incursion = { domainId: d.id, attitude: 'unfriendly' };
+  c.groups = [orc];
+  c.armies = [{ id: 'army-2', name: 'Garrison', leaderCharacterId: 'chr-ruler',
+    currentHexId: 'hex-y', reactionTargetGroupId: 'grp-orc', history: [] }];
+  A.commitMilitaryRecord(c, { kind: 'army-band-contact', armyId: 'army-2', groupId: 'grp-orc',
+    domainId: d.id, outcome: 'driven-off', hexId: 'hex-y' });
+  ok('a monster incursion driven off does NOT heal domain morale', d.demographics.morale === -3);
+  ok('the incursion band is repelled off-map (kept, currentHexId null)', (c.groups || []).some(g => g.id === 'grp-orc' && g.currentHexId == null));
+}
+
 console.log((fail === 0 ? 'PASS ' : 'FAIL ') + pass + '/' + (pass + fail) + ' bandit-challenger assertions');
 if(fail){ console.log(failures.length + ' failure(s):'); failures.forEach(f => console.log('  - ' + f)); process.exit(1); }
