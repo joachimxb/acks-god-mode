@@ -100,6 +100,39 @@ ok('resolveThrow: natural 1 ⇒ caught', ACKS.hijinkResolveThrow(1, { target: 11
 ok('resolveThrow: fail by 14+ ⇒ caught', ACKS.hijinkResolveThrow(2, { target: 18, bonus: 0 }).outcome === 'caught');
 
 // =============================================================================
+section('DC-3 domain-morale resistance (RR p.351 — a loyal populace resists infiltration)');
+{
+  // a perpetrator operating IN a domain whose morale governs the populace's vigilance.
+  // Skulking ⇒ +2 to a Hiding hijink, so the net throw exposes how the morale band folds in.
+  function mkDom(morale) {
+    const c = mk({ level: 1, profs: ['Streetwise', 'Skulking'] });
+    c.domains.push({ schemaVersion: 2, id: 'dom-x', name: 'Loyalia', demographics: { morale: morale } });
+    c.characters[0].currentDomainId = 'dom-x';
+    return c;
+  }
+  const hi = mkDom(3);
+  const sp = ACKS.hijinkThrowProfile(hi, hi.characters[0], 'spying', {});
+  ok('+3 morale ⇒ spyThiefThrow −3 on a covert hijink (moraleMod)', sp.moraleMod === -3);
+  ok('the morale penalty nets the bonus (+2 Skulking −3 morale = −1)', sp.bonus === -1);
+  ok('the breakdown shows a named domain-populace part', sp.parts.some(p => /populace \(RR p\.351\)/.test(p.label) && p.value === -3));
+  const hi4 = mkDom(4);
+  ok('+4 morale ⇒ −4 (max penalty)', ACKS.hijinkThrowProfile(hi4, hi4.characters[0], 'spying', {}).moraleMod === -4);
+  ok('0 morale ⇒ no modifier', ACKS.hijinkThrowProfile(mkDom(0), mkDom(0).characters[0], 'spying', {}).moraleMod === 0);
+  ok('rebellious (−4) populace gives no bonus (table is 0 at ≤0)', ACKS.hijinkThrowProfile(mkDom(-4), mkDom(-4).characters[0], 'spying', {}).moraleMod === 0);
+  // benign hijinks are exempt
+  ok('carousing is exempt (overheard as a tavern patron)', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'carousing', {}).moraleMod === 0);
+  ok('treasure-hunting is exempt (a dungeon expedition, not vs the settlement)', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'treasure-hunting', {}).moraleMod === 0);
+  // domain resolution: perp.currentDomainId, explicit opts.domainId, or none
+  const plain = mk({ level: 1, profs: ['Streetwise'] });
+  ok('no domain context ⇒ no morale modifier', ACKS.hijinkThrowProfile(plain, plain.characters[0], 'spying', {}).moraleMod === 0);
+  ok('explicit opts.domainId resolves the morale target', ACKS.hijinkThrowProfile(hi, hi.characters[0], 'stealing', { domainId: 'dom-x' }).moraleMod === -3);
+  // captured at LAUNCH in the stored throwBonus (the outcome is locked even if morale later moves)
+  const launch = mkDom(3);
+  const r = ACKS.startHijink(launch, { perpetratorCharacterId: 'chr-p', type: 'spying', rng: () => 0.99 });
+  ok('startHijink stores the morale-adjusted throwBonus', r.ok && launch.hijinks[0].throwBonus === -1);
+}
+
+// =============================================================================
 section('startHijink — launch verb');
 {
   const c = mk({ level: 1 });
@@ -204,6 +237,42 @@ ok('boss collects the proceeds when set (independent ⇒ perpetrator keeps it)',
   const boss = c.characters.find(x => x.id === 'chr-boss');
   return boss.coins.gp === r.hijink.rewardGp && c.characters[0].coins.gp === 0;
 })());
+
+// =============================================================================
+section('market-class effective-level cap (RR p.359 — a small market caps the take)');
+{
+  // a perpetrator operating in a settlement of a known market class. mk() sets the perp's
+  // currentHexId; the settlement shares that hex, so _hijinkMarketClass resolves it.
+  function mkMarket(families, level, cls) {
+    const c = mk({ level: level, cls: cls || 'Thief', profs: ['Streetwise'], hexId: 'hex-1' });
+    c.settlements.push({ schemaVersion: 2, id: 'set-1', name: 'Market', hexId: 'hex-1', families: families });
+    return c;
+  }
+  // 75 families = Class VI (cap 3). A 9th-level thief's stealing take is capped at 3×300 = 900gp.
+  const v = mkMarket(75, 9);
+  const rv = ACKS.startHijink(v, { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI });
+  ok('Class VI market caps a 9th-level thief to effective level 3', rv.hijink.effectiveLevel === 3);
+  ok('stealing reward uses the capped level (3 × 300 = 900, not 2700)', rv.hijink.rewardGp === 900);
+  ok('the throw still uses the full class level (+2 at 9th, RR p.359)', ACKS.hijinkThrowProfile(v, v.characters[0], 'stealing', {}).levelBonus === 2);
+  // 2,500 families = Class III (cap 9) ⇒ a 9th-level thief is NOT capped.
+  const city = mkMarket(2500, 9);
+  const rc = ACKS.startHijink(city, { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI });
+  ok('Class III market (cap 9) does not cap a 9th-level thief (9 × 300 = 2700)', rc.hijink.effectiveLevel === 9 && rc.hijink.rewardGp === 2700);
+  // a perp under every cap is unaffected.
+  ok('a 2nd-level perp under the Class VI cap is unaffected', ACKS.startHijink(mkMarket(75, 2), { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI }).hijink.effectiveLevel === 2);
+  // a hamlet (Class VI*, 0–74 families) folds to the Class VI floor (cap 3).
+  ok('a hamlet (Class VI*) folds to the Class VI floor (cap 3)', ACKS.startHijink(mkMarket(40, 9), { type: 'stealing', perpetratorCharacterId: 'chr-p', rng: HI }).hijink.effectiveLevel === 3);
+  // the cap also lowers the target level — RR p.359 Viktir: a 9th assassin in Class VI targets 1st–5th.
+  const vik = ACKS.startHijink(mkMarket(75, 9, 'Assassin'), { type: 'assassinating', perpetratorCharacterId: 'chr-p', rng: () => 0.5 });
+  ok('the cap also lowers the target level (RR p.359 Viktir): 9th in Class VI ⇒ victim 1–5', vik.hijink.victimLevel >= 1 && vik.hijink.victimLevel <= 5);
+  // contrast — no urban market ⇒ no cap (the same 9th assassin targets 7–11).
+  const free = ACKS.startHijink(mk({ cls: 'Assassin', level: 9 }), { type: 'assassinating', perpetratorCharacterId: 'chr-p', rng: () => 0.5 });
+  ok('no urban market ⇒ no cap: the same 9th assassin targets 7–11 (effective = class level)', free.hijink.effectiveLevel === 9 && free.hijink.victimLevel >= 7 && free.hijink.victimLevel <= 11);
+  // explicit opts.settlementId resolves the market class (even off the perp's hex).
+  const ex = mk({ level: 9 });
+  ex.settlements.push({ schemaVersion: 2, id: 'set-2', name: 'Town', hexId: 'hex-z', families: 75 });
+  ok('explicit opts.settlementId resolves the market-class cap', ACKS.startHijink(ex, { type: 'stealing', perpetratorCharacterId: 'chr-p', settlementId: 'set-2', rng: HI }).hijink.effectiveLevel === 3);
+}
 
 // =============================================================================
 section('lookups');
