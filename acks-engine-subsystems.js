@@ -7054,14 +7054,33 @@ function commitMilitaryRecord(campaign, record){
           text: 'Gave battle to ' + (band.name || 'the band') + (dom ? (' in ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
       }
     } else {   // driven off (JJ p.104) — the band is repelled and leaves the field
-      if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
-      band.currentHexId = null;                              // out of the hex — off the active map (no longer the domain's problem)
-      band.wanderState = null;
-      (band.history = band.history || []).push({ turn, type: 'incursion',
-        reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — repelled from ' + (dom ? (dom.name || dom.id) : 'the domain') });
-      army.reactionTargetGroupId = null;                     // mission accomplished — the GM recalls the force
-      (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
-        text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+      // RR p.351 — driving the domain's OWN bandits off the field with a superior force counts as
+      // "successfully defeating" them (parity with the pitched battle, per Joachim): +1 current
+      // morale (bloodless — no families slain), the bandit-lord's challenge broken, and the routed
+      // band disperses (the monthly re-derive re-musters them if morale stays below −1, RR p.351).
+      // Scoped to banditry bands — a monster incursion (no banditryDomainId) is simply repelled.
+      const banditDom = band.banditryDomainId
+        ? ((campaign.domains || []).find(x => x && x.id === band.banditryDomainId) || null)
+        : null;
+      if(banditDom && typeof A.applyBanditryQuelled === 'function'){
+        const heal = A.applyBanditryQuelled(campaign, banditDom, { killed: 0,
+          challengerNote: 'Routed by ' + (army.name || 'the garrison') + ' — his bandit revolt in ' + (banditDom.name || banditDom.id) + ' is broken (RR p.351)' });
+        campaign.groups = (campaign.groups || []).filter(g => g !== band);   // the routed band disperses
+        army.reactionTargetGroupId = null;
+        army.reactionBattleId = null;
+        const moraleNote = heal ? (' — ' + (banditDom.name || banditDom.id) + ' morale ' + heal.moraleBefore + ' → ' + heal.moraleAfter + ' (RR p.351)') : '';
+        (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
+          text: 'Routed the bandits of ' + (banditDom.name || banditDom.id) + moraleNote });
+      } else {
+        if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+        band.currentHexId = null;                            // out of the hex — off the active map (no longer the domain's problem)
+        band.wanderState = null;
+        (band.history = band.history || []).push({ turn, type: 'incursion',
+          reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — repelled from ' + (dom ? (dom.name || dom.id) : 'the domain') });
+        army.reactionTargetGroupId = null;                   // mission accomplished — the GM recalls the force
+        (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
+          text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+      }
     }
   } else if(record.kind === 'army-band-chase'){
     // Garrison-reaction AUTO-CHASE (v2, JJ p.104): the band wandered before the sally force
