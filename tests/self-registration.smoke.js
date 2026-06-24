@@ -188,7 +188,7 @@ ok('registerCollection() with no name is a safe no-op', (function(){ try { const
 // fails here; the default set is behaviour-critical (isHouseRuleEnabled falls back to it).
 const EXP_HR_IDS = [
   "alternative-farming-methods", "auran-calendar", "auto-pause-on-encounter", "auto-pause-on-navigation-fail", "auto-pause-on-overbudget", "auto-pause-on-supplies-low",
-  "auto-resolve-trivial-throws", "beastman-domains", "crew-hijinks", "custom-power-compendium", "demographics-auto-generate", "detailed-hijink-tracking",
+  "auto-resolve-trivial-throws", "crew-hijinks", "custom-power-compendium", "demographics-auto-generate", "detailed-hijink-tracking",
   "domain-morale-banditry", "dwarven-civilization", "dwarven-mining", "dwarven-mining-despoliation", "dwarven-mining-discovery", "dwarven-mining-non-dwarven",
   "dwarven-mining-salt", "dwarven-mining-vagaries", "elite-troops", "elven-civilization", "experimental-mushroom-farming", "families-per-hex-tracking",
   "favor-duty-auto-roll", "gladiator-games", "gm-fiat-proficiency-throws", "gm-set-weather", "hidden-stashes", "ignore-encumbrance",
@@ -210,7 +210,7 @@ const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living
 
 section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
 const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
-ok('exactly 73 house rules seeded', hrIds.length === 73, 'got ' + hrIds.length);
+ok('exactly 72 house rules seeded', hrIds.length === 72, 'got ' + hrIds.length);
 ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
 ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
   'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');
@@ -272,18 +272,19 @@ const EXP_LOAD_MIGRATIONS = [
   [70,'character-coins'],[80,'wave-a-relations'],[90,'domain-treasuries'],[100,'stash-item-shapes'],
   [110,'reconcile-stashes'],[120,'reconcile-treasury-scalars'],[130,'lazy-default-v1-reservations'],
   [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[155,'strip-unit-mirror'],[160,'agricultural-to-projects'],
-  [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes']
+  [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes'],
+  [200,'domain-variants-retire-pastoralist-economy']   // Phase 5 Tribal Domains PT-0 (2026-06-24)
 ];
 
 section('the seeded load-migration pipeline (T6: + strip-unit-mirror @155)');
 const lm = ACKS.registeredLoadMigrations();
-ok('exactly 20 passes seeded', lm.length === 20, 'got ' + lm.length);
+ok('exactly 21 passes seeded', lm.length === 21, 'got ' + lm.length);
 ok('passes in the exact order with the exact order numbers',
   JSON.stringify(lm.map(p => [p.order, p.name])) === JSON.stringify(EXP_LOAD_MIGRATIONS),
   'got ' + JSON.stringify(lm.map(p => [p.order, p.name])));
 ok('every pass has a function', lm.every(p => typeof p.fn === 'function'));
 ok('registeredLoadMigrations() returns a fresh array (mutating it cannot corrupt the store)',
-  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 20; })());
+  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 21; })());
 
 section('registerLoadMigration — the kernel (explicit-order pipeline)');
 ok('registerLoadMigration exported', typeof ACKS.registerLoadMigration === 'function');
@@ -340,7 +341,9 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // pre-slice-5 baseline (SUMMARY); the ongoing exact-membership guards are drift-lint's count + the
 // schema generator + schema.smoke. Here we pin the COUNTS + the structural invariants (1:1 kinds↔schemas,
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
-const EV_KINDS_COUNT = 189, EV_SCHEMAS_COUNT = 189, EV_OPTOUT_COUNT = 163;
+// Tribal Domains (2026-06-24): −1 `economy-type-changed` (removed), +2 `domain-type-changed` +
+// `domain-decreed-transitional` (all wizard-opt-out) ⇒ net +1 kind / +1 schema / +1 opt-out.
+const EV_KINDS_COUNT = 190, EV_SCHEMAS_COUNT = 190, EV_OPTOUT_COUNT = 164;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',

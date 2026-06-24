@@ -21,8 +21,10 @@
   fdLiegeOfVassal(vDomainId){ const v=(this.currentCampaign?.vassalages||[]).find(x=>x&&x.status==='active'&&x.vassalDomainId===vDomainId); return v?v.suzerainCharacterId:null; },
   fdActiveObligations(vDomainId){ const L=this.fdLiegeOfVassal(vDomainId); return L?window.ACKS.activeFavorDutyObligationsFor(this.currentCampaign,L,vDomainId):[]; },
   fdBalance(vDomainId){ const L=this.fdLiegeOfVassal(vDomainId); return L?window.ACKS.favorDutyBalance(this.currentCampaign,L,vDomainId,{turn:this.currentCampaign?.currentTurn||1}):null; },
-  fdFavorKinds(){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===true); },
-  fdDutyKinds(){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===false); },
+  fdFavorKinds(vassal){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===true && this.fdKindAllowed(vassal, e.kind)); },
+  fdDutyKinds(vassal){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===false && this.fdKindAllowed(vassal, e.kind)); },
+  // RR p.354 — a clanhold vassal hides the restricted kinds from the composer (custom always allowed).
+  fdKindAllowed(vassal, kind){ return (!vassal || !window.ACKS.favorDutyKindAllowedForDomain) ? true : window.ACKS.favorDutyKindAllowedForDomain(vassal, kind); },
   fdKindLabel(kind){ const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); return e?e.label:kind; },
   fdMuster(o){ if(!o||!o.musterTitle||!o.gpPerMonth)return null; return window.ACKS.musterSchedule(o.musterTitle,o.gpPerMonth); },
   fdIsThisMonth(o){ return o && o.grantedAtTurn === (this.currentCampaign?.currentTurn||1); },
@@ -47,6 +49,11 @@
   fdRaiseEdict(vDomainId, opts){
     opts = opts || {}; if(!opts.kind) return;
     if(opts.kind==='custom' && !String(opts.customLabel||'').trim()){ this.showToast && this.showToast('Give the custom edict a name first.', 3500); return; }
+    // RR p.354 — a clanhold vassal can't be subject to the restricted kinds (defence-in-depth; the dropdown already hides them).
+    if(opts.kind!=='custom' && window.ACKS.favorDutyKindAllowedForDomain){
+      const vd=(this.currentCampaign?.domains||[]).find(x=>x.id===vDomainId);
+      if(vd && !window.ACKS.favorDutyKindAllowedForDomain(vd, opts.kind)){ this.showToast && this.showToast('A clanhold vassal cannot be subject to that favor/duty (RR p.354) — only a call to arms, a gift, or a custom edict.', 5000); return; }
+    }
     const payload = { vassalDomainId: vDomainId, kind: opts.kind };
     if(opts.kind==='custom'){
       payload.customLabel = String(opts.customLabel||'').trim();

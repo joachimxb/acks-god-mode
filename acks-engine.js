@@ -755,6 +755,18 @@ function rollMoraleExtra(moraleAfter,familiesK,rng){
   const sum=rollD10x(absMor*familiesK,rng);
   return moraleAfter>0?sum:-sum;
 }
+// RR p.353 — a clanhold whose chief actively raided/adventured this month grows faster ("treat the
+// clanhold as two population categories smaller on the p.340 growth table"). 🔧 The shipped growth model
+// is a simplified d10-per-thousand oracle with no explicit RR p.340 category brackets, so the bonus is
+// modelled as one EXTRA natural-increase roll — a clear, bounded "grows faster" increment in the same
+// dice unit (the magnitude is a tooling approximation, open to tuning). Returns the extra families this
+// month: 0 unless the domain is a clanhold whose chief raided AND morale is above collapse (≤ −4 ⇒ 0,
+// mirroring rollNaturalIncrease). Late-binds isClanhold (domain-variants.js loads after this file).
+function clanholdRaidGrowth(campaign,d,familiesK,moraleAfter,rng){
+  if(moraleAfter<=-4 || !d || !d.chiefRaidedThisMonth) return 0;
+  if(!(global.ACKS && typeof global.ACKS.isClanhold==='function' && global.ACKS.isClanhold(d))) return 0;
+  return rollD10x(familiesK,rng);
+}
 
 // =============================================================================
 // Foundation #241 — Rural population reconciliation.
@@ -3902,6 +3914,12 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   rng = rng || Math.random;
   const { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, currentTurn } = ctx;
   const roll = ctx.roll != null ? ctx.roll : null;
+  // RR p.354 — a clanhold vassal can only be offered/demanded the clanhold-restricted F&D set (a
+  // 'custom' edict is the Judge's freeform device, RR p.345, always allowed). Refuse an excluded kind —
+  // the real limitation, enforced for BOTH the manual composer AND the monthly auto-roll (both paths
+  // funnel here). The caller (Phase A / applyFavorDutyEdictByKind) handles the null.
+  if(entry && entry.kind && entry.kind !== 'custom' && global.ACKS && typeof global.ACKS.favorDutyKindAllowedForDomain === 'function'
+     && !global.ACKS.favorDutyKindAllowedForDomain(vassalDomain, entry.kind)) return null;
 
   // Compute the gp amount: a GM amount override (RR p.345 — "a lord may always choose to demand
   // less when demanding a duty"; a favor's value may likewise be set), else the RAW basis. The
@@ -4405,6 +4423,10 @@ function processFavorsAndDutiesForTurn(campaign, options){
 
     // Apply the edict via the shared core (the same path the manual GM-pick UI calls).
     const r = _applyFavorDutyEdict(campaign, { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, roll, currentTurn }, rng);
+    if(!r){   // RR p.354 — the rolled kind isn't available to a clanhold vassal; record it + skip (no edict this month)
+      result.logEntries.push('Favor/Duty — ' + (vassalDomain.name || vassalDomainId) + ': rolled ' + entry.kind + ', not available to a clanhold vassal (RR p.354) — skipped.');
+      continue;
+    }
     r.gpFlows.forEach(f => result.gpFlows.push(f));
     if(r.loyaltyResult){
       result.loyaltyRolls.push({ vassalDomainId, vassalRulerCharacterId: vassalRulerId, modifier: r.balance.loyaltyModifier, bandKey: r.loyaltyResult.bandKey });
@@ -4788,7 +4810,8 @@ function commitTurn(campaign, proposal, options){
     const naturalIncrease = rollNaturalIncrease(familiesK, moraleAfter, rng);
     const naturalDecrease = rollNaturalDecrease(familiesK, rng);
     const moraleExtra = rollMoraleExtra(moraleAfter, familiesK, rng);
-    const popDelta = naturalIncrease - naturalDecrease + moraleExtra;
+    const raidGrowth = clanholdRaidGrowth(campaign, d, familiesK, moraleAfter, rng);   // RR p.353 — clanhold raid bonus (0 otherwise)
+    const popDelta = naturalIncrease - naturalDecrease + moraleExtra + raidGrowth;
     const populationAfter = Math.max(0, global.ACKS.totalFamilies(campaign, d) + popDelta);
 
     const snapshotBefore = {
@@ -4827,6 +4850,7 @@ function commitTurn(campaign, proposal, options){
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(campaign, d, (d.demographics.peasantFamilies || 0) + popDelta);
     d.administersThisMonth = false;
+    d.chiefRaidedThisMonth = false;   // RR p.353 — the raid bonus is per-month; the GM re-affirms the chief raided each month
 
     // Urban settlement growth (RR p.351).
     const urbanInvestmentResults = [];
@@ -6658,6 +6682,13 @@ function computeUrbanInvestmentDrip(campaign, domain, settlement, days){
   for(let k = mBefore + 1; k <= mAfter; k++) fam += _urbanMilestoneFamilies(campaign, settlement, k);
   out.newInvestment = (settlement.totalInvestment || 0) + paid;
   out.cap = global.ACKS.urbanMaxFamilies(out.newInvestment);
+  // RR p.353 — a clanhold caps urban families at min(249, 12.5% of peasants), whatever the investment
+  // (defence-in-depth: beginUrbanInvestment already blocks ordering, but a domain flipped to clanhold
+  // mid-investment could still have an in-flight budget). clanholdMaxUrbanFamilies → null for non-clanholds.
+  if(global.ACKS.clanholdMaxUrbanFamilies){
+    const chCap = global.ACKS.clanholdMaxUrbanFamilies(domain);
+    if(chCap != null) out.cap = out.cap > 0 ? Math.min(out.cap, chCap) : chCap;
+  }
   const wouldBe = (settlement.families || 0) + fam;
   if(out.cap > 0 && wouldBe > out.cap){ out.families = Math.max(0, out.cap - (settlement.families || 0)); out.capped = true; }
   else out.families = fam;
@@ -7460,7 +7491,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Dice + rolls
   rollD6, rollD20, rollD10x, clamp,
-  rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra,
+  rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra, clanholdRaidGrowth,
   moraleChangeFromRoll, baseMoraleFromClassification, strongholdMoralePenalty,
   DOMAIN_CLASSIFICATIONS, suggestDomainClassification, effectiveDomainClassification,
 

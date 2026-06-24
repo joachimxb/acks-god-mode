@@ -25,7 +25,10 @@ const BT = new RegExp('`(' + KEBAB + ')`', 'g');
 const HISTORICAL = /\b(removed?|superseded|retired?|deprecated|formerly|renamed|no longer|legacy|placeholder|unused)\b/i;
 // Removals not (yet) recorded in a CHANGELOG `### Removed` block. Per the removal protocol
 // (CLAUDE §8.9), add a token here when you remove it from the engine if it isn't changelogged.
-const EXPLICIT_REMOVED = ['realistic-construction', 'immediate-construction'];
+const EXPLICIT_REMOVED = ['realistic-construction', 'immediate-construction',
+  // Phase 5 Tribal Domains (2026-06-24): the `economy-type-changed` event + the `beastman-domains`
+  // placeholder house rule are retired (pastoralist economy removed; beastman is now a domainType tag).
+  'economy-type-changed', 'beastman-domains'];
 
 // Load the full engine headless via the harness loader — tests/_engine.js is the ONE maintained
 // module list (it auto-discovers every acks-engine-*.js), so this drift linter doesn't itself

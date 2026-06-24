@@ -193,13 +193,34 @@
     if(!c || !Array.isArray(c.senates)) return [];
     return c.senates.filter(s => s && s.status !== 'dissolved').map(s => ({ id: s.id, name: s.name || s.id }));
   },
+  // Phase 5 — the Senate tab is PER-DOMAIN: the senate shown/acted-on is the SELECTED DOMAIN's
+  // realm senate, resolved at the apex (RR pp.355–360), and ONLY that — never another realm's.
+  // Returns null when this realm has no active senate (→ the re-establish view).
   senateSelected(){
     const c = this.currentCampaign, A = window.ACKS;
     if(!c || !A) return null;
+    if(this.selectedDomain && A.senateForDomain) return A.senateForDomain(c, this.selectedDomain);
+    // Legacy fallback (a caller with no selected domain): the explicit pointer, else the first senate.
     const rows = this.senateAllRows();
     if(rows.length === 0) return null;
     const id = this.senateSelectedId || rows[0].id;
     return A.findSenate(c, id) || A.findSenate(c, rows[0].id);
+  },
+  // Keep the senate context bound to the selected domain (driven by the Senate view's x-effect).
+  // When the resolved senate changes, align senateSelectedId and drop the PREVIOUS senate's
+  // transient consult state so nothing bleeds between two senatorial realms.
+  senateSyncContext(){
+    if(this.activeTab !== 'senate') return;
+    const c = this.currentCampaign, A = window.ACKS;
+    const sen = (c && A && A.senateForDomain && this.selectedDomain) ? A.senateForDomain(c, this.selectedDomain) : null;
+    const id = sen ? sen.id : null;
+    if(this.senateSelectedId === id) return;          // already aligned — nothing to reset
+    this.senateSelectedId = id;
+    this.senateConsultResult = null;                  // the prior senate's vote result
+    this.senateConsult.rulerFactionId = '';           // faction ids are senate-specific
+    this.senateConsult.policyHelps = [];
+    this.senateConsult.policyHinders = [];
+    this.senateConsult.controlledIndependentVotes = 0;
   },
   _senateApex(senate){
     const c = this.currentCampaign;
@@ -237,21 +258,69 @@
     if(!A || !apex) return { active: false, inDispute: false, isSenatorial: false, benefits: { moraleBonus: 0, vassalBaseLoyalty: -2, freeFirstExtraDuty: false, freeMilitiaLevy: false } };
     return A.senateBenefits(this.currentCampaign, apex);
   },
+  // resolve a senator Character's display name (helper for the named-senator rows)
+  _senCharName(id){
+    if(!id) return '(vacant)';
+    const c = this.currentCampaign;
+    const ch = c && (c.characters || []).find(x => x && x.id === id);
+    return ch ? (ch.name || ch.id) : id;
+  },
+  // Phase 5 — a senator is "clickable" (opens its character sheet) whenever it is backed by a defined
+  // Character in the campaign — INCLUDING a lightweight minor-senator stub (RR p.357: every senator,
+  // independent ones included, is a defined character). Only a dangling / vacant id is not clickable.
+  _senExists(id){
+    if(!id) return false;
+    const c = this.currentCampaign;
+    return !!(c && (c.characters || []).some(x => x && x.id === id));
+  },
+  // Name every remaining anonymous vote as a defined character (RR p.357) — the inline action beside the
+  // independents (and the legacy under-populated nudge). REUSES the engine's populateNamedSenators.
+  senatePopulateNamed(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || !A.populateNamedSenators) return;
+    const r = A.populateNamedSenators(c, senate.id);
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast('👥 Named ' + ((r.clientsMinted || 0) + (r.independentsMinted || 0)) + ' minor senator(s).', 4000);
+  },
   senateLeadingSenatorRows(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
     if(!A || !c || !senate) return [];
     return (A.senatorshipsForSenate(c, senate.id) || []).filter(s => s.rank !== 'minor').sort((a, b) => (b.votes || 0) - (a.votes || 0)).map(s => {
       const ch = (c.characters || []).find(x => x && x.id === s.senatorCharacterId);
       const f = s.factionId ? A.findFaction(c, s.factionId) : null;
+      // Phase 5 — the patron's NAMED clients (each with a clickable flag) + the unnamed remainder.
+      const clientIds = Array.isArray(s.clientCharacterIds) ? s.clientCharacterIds : [];
+      const clients = clientIds.map(id => ({ id, name: this._senCharName(id), clickable: this._senExists(id) }));
+      const unnamedClients = Math.max(0, (s.votes || 1) - 1 - clients.length);
       return {
-        id: s.id, name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
-        factionName: f ? (f.name || f.id) : '—', votes: s.votes || 0,
+        id: s.id, characterId: s.senatorCharacterId, clickable: this._senExists(s.senatorCharacterId),
+        name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
+        factionName: f ? (f.name || f.id) : '—', factionId: s.factionId || null, votes: s.votes || 0,
         objectives: (Array.isArray(s.policyObjectives) && s.policyObjectives.length) ? s.policyObjectives.join(', ') : '—',
         attitude: s.attitudeTowardRuler != null ? s.attitudeTowardRuler : '—',
         viaOffice: !!s.sourceObligationId,
-        bewitched: Array.isArray(s.influenceModifiers) && s.influenceModifiers.some(m => m && m.kind === 'bewitched')
+        bewitched: Array.isArray(s.influenceModifiers) && s.influenceModifiers.some(m => m && m.kind === 'bewitched'),
+        clients, unnamedClients
       };
     });
+  },
+  // Phase 5 — the NAMED independent minor senators (each with a clickable flag) + the unnamed remainder.
+  senateIndependentRows(){
+    const senate = this.senateSelected();
+    if(!senate) return [];
+    return (Array.isArray(senate.independentSenatorCharacterIds) ? senate.independentSenatorCharacterIds : [])
+      .map(id => ({ id, name: this._senCharName(id), clickable: this._senExists(id) }));
+  },
+  senateUnnamedIndependents(){
+    const senate = this.senateSelected();
+    if(!senate) return 0;
+    const named = Array.isArray(senate.independentSenatorCharacterIds) ? senate.independentSenatorCharacterIds.length : 0;
+    return Math.max(0, (Number(senate.independentMinorSenatorVotes) || 0) - named);
+  },
+  // True when every vote is a named senator (the engine predicate; gates drag-drop in Edit Senate).
+  senateFullyNamed(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    return !!(A && c && senate && A.senateIsFullyNamed && A.senateIsFullyNamed(c, senate));
   },
   senateMatterOptions(){
     const labels = { 'invade-realm': 'Invade another realm', 'demand-duty': 'Demand a duty of a vassal',

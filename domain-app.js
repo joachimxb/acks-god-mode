@@ -455,28 +455,81 @@ function _acksApplyAppMixins(component){
 
 function domainApp(){
 const _component = {
-  // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
-  // Pastoralist economics readouts + the economyType setter. Logic lives in acks-engine-domain-variants.js;
-  // these are thin pass-throughs (Phase 5 §3, JJ pp.436–438). domainPastoralistInfo recomputes on read,
-  // so flipping a hex's economy re-renders the panel AND the income breakdown's Land revenue row live.
-  domainPastoralistInfo(d){
-    return (d && window.ACKS && window.ACKS.domainPastoralistInfo)
-      ? window.ACKS.domainPastoralistInfo(this.currentCampaign, d)
-      : { hasPastoralist:false, hexes:[], factor:1, densityPct:100, ruralHexCount:0, pastoralistHexCount:0 };
+  // === Tribal Domains (Phase 5; RR pp.353–354) — the domain-TYPE picker + clanhold/transitional panel ===
+  // Thin pass-throughs over acks-engine-domain-variants.js. domainTypeInfo recomputes on read, so changing
+  // the type re-renders the panel AND the income breakdown's Land revenue row (the clanhold/transitional cap)
+  // live. (Demchi is reserved for PT-C — not offered in the picker yet, but the field/accessors accept it.)
+  domainTypeInfo(d){
+    return (d && window.ACKS && window.ACKS.domainTypeInfo) ? window.ACKS.domainTypeInfo(this.currentCampaign, d) : null;
   },
-  pastoralistEconomyOptions(){
-    const A = window.ACKS;
-    const opts = [{ value:'agricultural', label:'Agricultural (default)' }];
-    if(A && A.pastoralistEconomyTypes) (A.pastoralistEconomyTypes()||[]).forEach(k => opts.push({ value:k, label:A.pastoralistEconomyLabel(k) }));
-    return opts;
+  domainTypeOptions(){
+    return [{ value:'ordinary', label:'Ordinary' }, { value:'clanhold', label:'Barbarian Clanhold' }, { value:'transitional', label:'Transitional' }];
   },
-  setHexEconomy(hexId, value){
-    if(!hexId || !this.currentCampaign || !window.ACKS || !window.ACKS.setHexEconomyType) return;
-    const r = window.ACKS.setHexEconomyType(this.currentCampaign, hexId, value);
+  specialTypeOptions(){
+    return [{ value:'', label:'(none)' }, { value:'beastman', label:'Beastman' }, { value:'dwarven', label:'Dwarven Vault' }, { value:'elven', label:'Elven Fastness' }];
+  },
+  setDomainTypeUI(d, type){
+    if(!d || !this.currentCampaign || !window.ACKS || !window.ACKS.setDomainType) return;
+    const r = window.ACKS.setDomainType(this.currentCampaign, d.id, type);
     if(r && r.ok && !r.unchanged){
       if(this.markDirty) this.markDirty();
       if(this.schedulePersist) this.schedulePersist();
-      if(this.showToast) this.showToast('🐄 Economy: ' + window.ACKS.pastoralistEconomyLabel(r.from) + ' → ' + window.ACKS.pastoralistEconomyLabel(r.to));
+      if(this.showToast) this.showToast('🏷 Domain type → ' + (window.ACKS.domainTypeLabel ? window.ACKS.domainTypeLabel(type) : type));
+    } else if(r && r.reason === 'senate-on-apex'){
+      if(this.showToast) this.showToast('⚠ A senatorial apex cannot become a clanhold — dissolve the senate first.');
+    } else if(r && r.reason === 'transitional-irrevocable'){
+      if(this.showToast) this.showToast('⚠ Transitional is irrevocable (RR p.354) — it cannot revert to a clanhold.');
+    }
+  },
+  setDominantRaceUI(d, race){
+    if(!d) return;
+    // The special type (stored on dominantRace). Domain type is now set at creation / by decree, so this
+    // no longer flips the type — the beastman advisory (domainTypeInfo) nudges instead.
+    d.dominantRace = race || null;
+    if(this.markDirty) this.markDirty();
+    if(this.schedulePersist) this.schedulePersist();
+  },
+  // ── New-domain creation modal (Phase 5; 2026-06-24) — domain type + special type + senatorial republic ──
+  newDomainModal: { open:false, name:'New Domain', domainType:'ordinary', specialType:'', senatorial:false },
+  openNewDomainModal(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    this.newDomainModal = { open:true, name:'New Domain', domainType:'ordinary', specialType:'', senatorial:false };
+  },
+  createDomainFromModal(){
+    if(!this.currentCampaign) return;
+    const A = window.ACKS, m = this.newDomainModal;
+    const d = blankDomain({ name: (m.name||'').trim() || 'New Domain' });
+    this.upsertDomain(d);
+    // Domain type — clanhold via the engine setter (sets classification Outlands + emits); ordinary is the default.
+    if(m.domainType === 'clanhold' && A && A.setDomainType) A.setDomainType(this.currentCampaign, d.id, 'clanhold');
+    // Special type (stored on dominantRace; the overview row only shows when set).
+    d.dominantRace = m.specialType || null;
+    // Senatorial Republic — a lightweight governance flag; the senate itself is materialized later from the
+    // Senate tab. Not available to clanholds (the RR p.354 senate gate).
+    if(m.senatorial && m.domainType !== 'clanhold' && A && A.setDomainGovernance) A.setDomainGovernance(this.currentCampaign, d.id, { mode:'senatorial' });
+    this.selectedDomainId = d.id;
+    this.activeTab = 'overview';
+    this.newDomainModal.open = false;
+    if(this.markDirty) this.markDirty();
+    if(this.schedulePersist) this.schedulePersist();
+    if(this.showToast) this.showToast('🏰 Created ' + (d.name||'domain'));
+  },
+  // True when the domain's realm is governed by a senate (read-only overview indicator).
+  isSenatorialRealm(d){ return !!(d && window.ACKS && window.ACKS.isSenatorialRealm && window.ACKS.isSenatorialRealm(this.currentCampaign, d)); },
+  toggleChiefRaided(d){
+    if(!d) return;
+    d.chiefRaidedThisMonth = !d.chiefRaidedThisMonth;
+    if(this.markDirty) this.markDirty();
+    if(this.schedulePersist) this.schedulePersist();
+  },
+  decreeTransitionalUI(d){
+    if(!d || !this.currentCampaign || !window.ACKS || !window.ACKS.decreeTransitional) return;
+    if(!window.confirm('Decree ' + (d.name || 'this domain') + ' a Transitional Domain (RR p.354)? This is IRREVOCABLE — it can no longer revert to a clanhold.')) return;
+    const r = window.ACKS.decreeTransitional(this.currentCampaign, d.id);
+    if(r && r.ok){
+      if(this.markDirty) this.markDirty();
+      if(this.schedulePersist) this.schedulePersist();
+      if(this.showToast) this.showToast('📜 ' + (d.name || 'Domain') + ' decreed Transitional.');
     }
   },
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===
@@ -767,7 +820,20 @@ const _component = {
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
   // (Phase 4 senate, Phase 4.6 mines/mushroom-farms, etc.) will insert into this list conditionally.
   get tabs(){
-    return ['overview','demographics','investment','economy','officers','military','vassalage','stronghold','history'];   // 'investment' added 2026-06-23 (Agricultural + Urban + Domain advancement); 'raw' tab removed (UI overhaul 2026-06-22)
+    const base = ['overview','demographics','investment','economy','officers','military','vassalage','stronghold'];
+    if(this.selectedDomain && this.domainSenateTabVisible(this.selectedDomain)) base.push('senate');   // Phase 5 — the 🏛 Senate tab, left of History
+    base.push('history');
+    return base;
+  },
+  // The per-domain 🏛 Senate tab shows on a realm APEX that is senatorial (incl. a dissolved-but-
+  // reestablishable senate) or where rule-of-the-few governance is available (Phase 5, 2026-06-24).
+  domainSenateTabVisible(d){
+    if(!d || !this.currentCampaign || !window.ACKS) return false;
+    const c = this.currentCampaign, A = window.ACKS;
+    if(A.realmApexDomain){ const apex = A.realmApexDomain(c, d); if(apex && apex.id !== d.id) return false; }   // apex-only (the senate sits at the realm apex)
+    if(A.isSenatorialRealm && A.isSenatorialRealm(c, d)) return true;
+    if(A.senatesForRealm && A.senatesForRealm(c, d.id).length > 0) return true;   // a dissolved senate stays reachable to re-establish
+    return this.governanceTabAvailable();
   },
   turnProposal:null,turnProposalError:'',   // (showTurnModal retired 2026-06-13 — the turn now stages in Review ▸ Domain Review)
   turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
@@ -1008,7 +1074,8 @@ const _component = {
         if(this.currentView==='world' && this.worldSubView==='domains'){ this.currentView='domains'; this.domainsSubView='domains'; }
         // Former top-level tabs → sub-views.
         if(this.currentView==='religion'){ this.currentView='world'; this.worldSubView='religion'; }
-        if(this.currentView==='senate'){ this.currentView='domains'; this.domainsSubView='governance'; }
+        if(this.currentView==='senate'){ this.currentView='domains'; this.domainsSubView='domains'; }
+        if(this.domainsSubView==='governance'){ this.domainsSubView='domains'; }   // Phase 5 — the governance sub-view is gone
         if(this.currentView==='banking'){ this.currentView='activities'; this.activitiesSubView='banking'; }
         if(this.currentView==='magic-items'){ this.currentView='activities'; this.activitiesSubView='magic-items'; }
         if(this.currentView==='gladiators'){ this.currentView='activities'; this.activitiesSubView='gladiators'; }
@@ -1471,7 +1538,8 @@ const _component = {
   motionWizard: { open: false, senateId: '', motionId: null, kind: 'edict', matter: 'change-taxes',
     customMatter: '', policyObjective: '', title: '', mode: 'per-senator', domainMorale: 0,
     rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0, policyHelps: [],
-    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false },
+    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false,
+    abandonGovernment: false },
   // the senate the wizard is operating on (its own id, else the tab-selected senate)
   motionWizardSenate(){
     const A = window.ACKS, c = this.currentCampaign;
@@ -1519,7 +1587,7 @@ const _component = {
       kind: inDispute ? 'dispute' : 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '',
       title: '', mode: 'per-senator', domainMorale: 0, rulerFactionId: '', militaryLoyalty: 'none',
       controlledIndependentVotes: 0, policyHelps: [], policyHinders: [], gmOutcome: 'approved',
-      vote: null, rolledSpec: null, enactDespiteRejection: false };
+      vote: null, rolledSpec: null, enactDespiteRejection: false, abandonGovernment: false };
     if(motionId){
       const m = A.findSenateMotion(c, sid, motionId);
       if(m){
@@ -1535,7 +1603,15 @@ const _component = {
       }
     }
   },
-  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; },
+  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; this.motionWizard.enactDespiteRejection = false; this.motionWizard.abandonGovernment = false; },
+  // Step 3 (pre-roll) — the dice-free preview of the voting bloc + the modifiers each senator WOULD
+  // carry, shown BEFORE the roll (same view as clicking a motion → openMotionDetail). REUSES the engine's
+  // previewSenateMotionModifiers; pure, no mutation. Returns null in honeymoon (the motion auto-passes).
+  motionWizardPreview(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !A.previewSenateMotionModifiers || !this.motionWizardCanRoll() || this.motionWizardInHoneymoon()) return null;
+    return A.previewSenateMotionModifiers(c, { senateId: senate.id, motion: this._motionWizardSpec() });
+  },
   // Step 3 — roll the votes (REUSE the engine's senateVote via previewSenateMotionVote; pure, no event).
   motionWizardRoll(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
@@ -1547,6 +1623,8 @@ const _component = {
       rng: Math.random, autoRoll: auto, gmOutcome: honeymoon ? 'approved' : w.gmOutcome });
     this.motionWizard.vote = res;
     this.motionWizard.rolledSpec = spec;
+    this.motionWizard.enactDespiteRejection = false;   // a fresh roll starts with no defiance / abandonment chosen
+    this.motionWizard.abandonGovernment = false;
   },
   motionWizardCanCommit(){ return !!this.motionWizard.vote; },
   motionWizardCommitDisabledReason(){ return this.motionWizard.vote ? '' : 'Roll the vote first (Step 3).'; },
@@ -1555,7 +1633,8 @@ const _component = {
     if(!v) return '✓ Resolve';
     if(w.kind === 'dispute') return v.approved ? '✓ Clear the dispute' : '⚠ Resolve (escalates)';
     if(v.approved) return '✓ Enact with the senate’s sanction';
-    if(this.motionWizardRestricted() && w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
+    if(w.abandonGovernment) return '🏳 Abandon senatorial government';
+    if(w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
     return '✗ Motion fails (stand down)';
   },
   motionWizardResolveHint(){
@@ -1565,28 +1644,33 @@ const _component = {
       ? 'A majority FOR grants retroactive approval — the dispute ends and benefits return (RR p.359).'
       : 'Without a majority the dispute deepens: the against-voters seek to replace the ruler (RR p.359).';
     if(v.approved) return 'The motion carries — it is enacted with the senate’s sanction.';
-    if(this.motionWizardRestricted()) return w.enactDespiteRejection
-      ? 'The ruler enacts a restricted matter against the senate — the realm goes into dispute (RR p.359).'
-      : 'The motion fails; the ruler stands down (no dispute).';
-    return 'The motion fails; nothing is enacted.';
+    // RR p.359 — when the senate votes the ruler down he is NOT bound by it: he may stand down, enact
+    // anyway (→ dispute), or dissolve the senate entirely.
+    if(w.abandonGovernment) return 'The ruler dissolves the senate and rules without it — all senate benefits are permanently lost, “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months (RR p.359).';
+    if(w.enactDespiteRejection) return 'The ruler enacts the matter against the senate’s vote — the realm goes into dispute until he wins the senate’s retroactive approval (RR p.359).';
+    return 'The ruler abides by the vote and stands down — the motion fails, but the senate keeps its benefits (no dispute). Or pick an option below to act against it.';
   },
   // commit — open the motion (if fresh) + resolve it with the shown tally (the two P-5 events fire here).
   motionWizardCommit(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
     if(!A || !c || !senate || !this.motionWizard.vote) return;
-    let motionId = this.motionWizard.motionId;
+    const w = this.motionWizard;
+    if(w.abandonGovernment && !confirm('Abandon senatorial government? The senate is dissolved, all benefits are permanently lost, influential “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months (RR p.359).')) return;
+    let motionId = w.motionId;
     if(!motionId){
-      const m = A.openSenateMotion(c, this.motionWizard.rolledSpec || this._motionWizardSpec());
+      const m = A.openSenateMotion(c, w.rolledSpec || this._motionWizardSpec());
       if(!m) return;
-      motionId = m.id; this.motionWizard.motionId = motionId;
+      motionId = m.id; w.motionId = motionId;
     }
-    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: this.motionWizard.vote,
-      enactDespiteRejection: this.motionWizard.enactDespiteRejection });
+    // resolve the motion with the shown tally; defy only when chosen (and never while abandoning — the
+    // motion just fails, then the senate is dissolved outright, RR p.359).
+    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: w.vote,
+      enactDespiteRejection: w.enactDespiteRejection && !w.abandonGovernment });
+    let abandoned = null;
+    if(w.abandonGovernment) abandoned = A.abandonSenatorialGovernment(c, { senateId: senate.id });   // engine resolves the ruler from the apex
     this.markDirty(); this.schedulePersist();
-    if(r && r.ok){
-      const m = r.motion;
-      this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000);
-    }
+    if(abandoned) this.showToast('🏳 Senatorial government abandoned — ' + abandoned.penalties.hostileSenators.length + ' senator(s) turn Hostile; re-establish on/after turn ' + abandoned.penalties.reestablishCooldownUntilTurn + '.', 7000);
+    else if(r && r.ok){ const m = r.motion; this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000); }
     this.closeMotionWizard();
   },
   // table the motion (open it, resolve later) — only when fresh (no motionId yet)
@@ -1615,6 +1699,62 @@ const _component = {
     if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'bg-red-200 text-red-900';
     if(s === 'open') return 'bg-yellow-200 text-yellow-900';
     return 'bg-gray-200';
+  },
+  // ── Phase 5 — "Bring a motion" CREATOR (raise the issue only: kind/matter/title → Table it) ──
+  newMotion: { open: false, senateId: '', kind: 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '', title: '' },
+  openNewMotion(senateId){
+    const A = window.ACKS, c = this.currentCampaign;
+    const sid = senateId || (this.senateSelected() && this.senateSelected().id);
+    if(!A || !c || !sid) return;
+    const senate = A.findSenate(c, sid);
+    const inDispute = !!(senate && senate.dispute != null);
+    this.newMotion = { open: true, senateId: sid, kind: inDispute ? 'dispute' : 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '', title: '' };
+  },
+  closeNewMotion(){ this.newMotion.open = false; },
+  newMotionSenate(){ const A = window.ACKS, c = this.currentCampaign; return (A && c) ? A.findSenate(c, this.newMotion.senateId) : null; },
+  newMotionDisputeOpen(){ const s = this.newMotionSenate(); return !!(s && s.dispute != null); },
+  newMotionDisputeTopic(){ const s = this.newMotionSenate(); return (s && s.dispute && s.dispute.defiedTopic) || '—'; },
+  _newMotionMatter(){ const w = this.newMotion; return w.kind === 'edict' ? (w.matter === '__custom__' ? (w.customMatter || '') : w.matter) : ''; },
+  newMotionCanTable(){ const w = this.newMotion; if(w.kind === 'dispute') return this.newMotionDisputeOpen(); if(w.kind === 'policy') return !!w.policyObjective; return !!this._newMotionMatter(); },
+  tableNewMotion(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.newMotionSenate();
+    if(!A || !c || !senate || !this.newMotionCanTable()) return;
+    const w = this.newMotion;
+    const m = A.openSenateMotion(c, { senateId: senate.id, kind: w.kind, matter: this._newMotionMatter(),
+      policyObjective: w.kind === 'policy' ? w.policyObjective : '', title: w.title });
+    this.markDirty(); this.schedulePersist();
+    if(m) this.showToast('📋 Motion tabled — click it in the list to view, then Resolve to vote.', 4500);
+    this.closeNewMotion();
+  },
+  // ── Phase 5 — read-only motion DETAIL (active: the dice-free modifier preview; resolved: the result) ──
+  motionDetail: { open: false, senateId: '', motionId: null },
+  openMotionDetail(senateId, motionId){
+    const sid = senateId || (this.senateSelected() && this.senateSelected().id);
+    if(!sid || !motionId) return;
+    this.motionDetail = { open: true, senateId: sid, motionId };
+  },
+  closeMotionDetail(){ this.motionDetail.open = false; },
+  motionDetailMotion(){ const A = window.ACKS, c = this.currentCampaign; return (A && c) ? A.findSenateMotion(c, this.motionDetail.senateId, this.motionDetail.motionId) : null; },
+  motionDetailIsOpen(){ const m = this.motionDetailMotion(); return !!(m && m.status === 'open'); },
+  motionDetailPreview(){
+    const A = window.ACKS, c = this.currentCampaign, m = this.motionDetailMotion();
+    if(!A || !c || !m || m.status !== 'open' || !A.previewSenateMotionModifiers) return null;
+    return A.previewSenateMotionModifiers(c, { senateId: this.motionDetail.senateId, motionId: m.id });
+  },
+  motionDetailMatterLabel(){
+    const m = this.motionDetailMotion(); if(!m) return '—';
+    if(m.kind === 'dispute') return 'Retroactive approval' + (m.matter ? ' — ' + m.matter : '');
+    if(m.policyObjective) return 'Policy: ' + m.policyObjective;
+    return m.matter || m.title || '—';
+  },
+  // open the 🗳 Senate voting modal for the detail's motion (and close the detail)
+  motionDetailResolve(){ const d = this.motionDetail; this.closeMotionDetail(); this.openMotionWizard(d.senateId, d.motionId); },
+  // the read-only motion header shown in the repurposed 🗳 Senate voting modal
+  motionWizardSubjectLabel(){
+    const w = this.motionWizard;
+    if(w.kind === 'dispute') return 'Retroactive approval — ' + this.motionWizardDisputeTopic();
+    if(w.kind === 'policy') return 'Policy: ' + (w.policyObjective || '—');
+    return this._motionWizardMatter() || w.title || '—';
   },
   senateResumeMotion(id){ const s = this.senateSelected(); if(s) this.openMotionWizard(s.id, id); },
   senateWithdrawMotion(id){
@@ -1713,7 +1853,7 @@ const _component = {
   // The generative Senate Wizard — thin UI over acks-engine-politics.js (proposeSenateMaterialization /
   // materializeSenate + senateMaterializeCandidates). Reads the SHIPPED demographics census to draw
   // senators; mints sen-/fac-/snr-; sets the apex governance senatorial; emits one senate-materialized.
-  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, fillWithGenerated:true, plan:null },
+  senGen: { open:false, apexId:null, seats:null, seed:1, extraPick:'', extras:[], replace:false, fillWithGenerated:true, leadingCount:null, plan:null },
   // the realm apexes (no liege) — where a senate can be convened (self-contained; not @b10's helper)
   senGenApexRows(){
     const c = this.currentCampaign; if(!c || !Array.isArray(c.domains)) return [];
@@ -1729,7 +1869,7 @@ const _component = {
   openSenateGen(apexId){
     const rows = this.senGenApexRows();
     this.senGen.apexId = apexId || (rows[0] && rows[0].id) || null;
-    this.senGen.seats = null; this.senGen.seed = 1; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGen.replace = false;
+    this.senGen.seats = null; this.senGen.seed = 1; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGen.replace = false; this.senGen.leadingCount = null;
     this.senGen.plan = null;
     this.senGenRepreview();
     this.senGen.open = true;
@@ -1742,6 +1882,7 @@ const _component = {
       domainId: this.senGen.apexId,
       seats: (this.senGen.seats != null && this.senGen.seats !== '') ? Number(this.senGen.seats) : undefined,
       seed: this.senGen.seed, extraCharacterIds: this.senGen.extras.slice(),
+      leadingCount: (this.senGen.leadingCount != null && this.senGen.leadingCount !== '') ? Number(this.senGen.leadingCount) : undefined,   // Phase 5 — GM-decided count
       fillWithGenerated: !!this.senGen.fillWithGenerated      // @b14-politics — mint senators to fill the shortfall
     });
     this.senGen.plan = (p && p.ok) ? p : null;
@@ -1749,8 +1890,84 @@ const _component = {
     if(this.senGen.plan) this.senGen.seats = this.senGen.plan.seats;
   },
   senGenReroll(){ this.senGen.seed = (this.senGen.seed || 1) + 1; this.senGenRepreview(); },
-  senGenApexChanged(){ this.senGen.seats = null; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGenRepreview(); },
-  senGenSeatsChanged(){ this.senGenRepreview(); },
+  senGenApexChanged(){ this.senGen.seats = null; this.senGen.extras = []; this.senGen.extraPick = ''; this.senGen.leadingCount = null; this.senGenRepreview(); },
+  // Phase 5 — change the senate size WITHOUT rerolling the roster: update seats + the seats-derived
+  // characteristics (deterministic — no RNG), re-clamp the leading count to the new die range, recompute.
+  senGenSeatsChanged(){
+    const p = this.senGen.plan, A = window.ACKS; if(!p) return;
+    let seats = Math.max(p.minSeats, Math.min(p.maxSeats, Math.round(Number(this.senGen.seats) || p.minSeats)));
+    this.senGen.seats = seats; p.seats = seats;
+    if(A.senateCharacteristicsForSeats){
+      const chars = A.senateCharacteristicsForSeats(seats);
+      p.minSenatorLevel = Math.max(1, (p.rulerLevel || 1) + (chars.minLevelDelta || 0));
+      p.leadingDiceLabel = this._senGenDiceLabel(chars.leading);
+      p.influenceDiceLabel = this._senGenDiceLabel(chars.influence);
+      if(A.requirementsOfOfficeForLevel){ const rq = A.requirementsOfOfficeForLevel(p.minSenatorLevel); p.requirements = { minLevel: p.minSenatorLevel, title: rq.title, netWorthGp: rq.netWorthGp, landDescription: rq.landDescription, families: rq.families, bribe: Object.assign({}, rq.bribe) }; }
+      p.senators.forEach(sn => { if(sn.generated) sn.level = p.minSenatorLevel; });
+    }
+    const range = this.senGenLeadingRange();
+    if(p.senators.length > range.max) p.senators.splice(range.max);
+    this.senGenRecomputeDerived();
+  },
+  // the leading die's allowed [min,max] (RR p.357 Senate Characteristics — {n,d,plus}); no mult on leading.
+  senGenLeadingRange(){
+    const p = this.senGen.plan, A = window.ACKS;
+    if(!p || !A.senateCharacteristicsForSeats) return { min: 1, max: 99 };
+    const lead = A.senateCharacteristicsForSeats(p.seats).leading || {};
+    const n = lead.n || 1, plus = lead.plus || 0;
+    return { min: n + plus, max: (n * (lead.d || 1)) + plus };
+  },
+  _senGenDiceLabel(spec){ if(!spec) return ''; let x = ((spec.n)||0) + 'd' + ((spec.d)||0); if(spec.plus) x += '+' + spec.plus; if(spec.mult) x += '×' + spec.mult; return x; },
+  _senGenRollDie(spec){ let sum = 0; const n = (spec && spec.n) || 0, d = (spec && spec.d) || 1; for(let i = 0; i < n; i++) sum += 1 + Math.floor(Math.random() * d); sum += (spec && spec.plus) || 0; if(spec && spec.mult) sum *= spec.mult; return sum; },
+  _senGenRollObjectives(){ const list = (window.ACKS && window.ACKS.POLICY_OBJECTIVES) || []; if(!list.length) return []; const count = 1 + Math.floor(Math.random() * 3); const out = []; let g = 0; while(out.length < count && g++ < 40){ const o = list[Math.floor(Math.random() * list.length)]; if(out.indexOf(o) < 0) out.push(o); } return out; },
+  // append one freshly-generated leading senator (rolled influence + objectives; GM names + assigns it).
+  _senGenAppendSenator(){
+    const p = this.senGen.plan, A = window.ACKS; if(!p) return;
+    const inf = (A.senateCharacteristicsForSeats ? A.senateCharacteristicsForSeats(p.seats).influence : { n:1, d:6 });
+    p.senators.push({ characterId: null, name: '(to be generated)', level: p.minSenatorLevel, class: '', source: 'generated', generated: true, votes: Math.max(1, this._senGenRollDie(inf)), objectives: this._senGenRollObjectives(), factionIndex: null });
+  },
+  // Phase 5 — GM control of the leading-senator count (decide, or roll/reroll a fresh draw).
+  // Phase 5 — set the leading-senator count INCREMENTALLY (constrained to the die range): adding creates
+  // fresh generated senators; removing drops the tail. Existing senators are NOT rerolled.
+  senGenLeadingCountChanged(val){
+    const p = this.senGen.plan; if(!p) return;
+    const range = this.senGenLeadingRange();
+    const n = Math.max(range.min, Math.min(range.max, Math.round(Number(val) || range.min)));
+    const cur = p.senators.length;
+    if(n > cur){ for(let k = 0; k < n - cur; k++) this._senGenAppendSenator(); }
+    else if(n < cur){ p.senators.splice(n); }
+    this.senGenRecomputeDerived();
+  },
+  // ⟳ Re-roll the leading senators (lives in the Leading-senators box): a fresh roster at the SAME count.
+  senGenRerollSenators(){ const p = this.senGen.plan; this.senGen.seed = (this.senGen.seed || 1) + 1; this.senGen.leadingCount = p ? p.senators.length : null; this.senGenRepreview(); },
+  // Phase 5 — GM editing of the generated plan (factions + leading senators). materializeSenate is
+  // plan-faithful, so these edits to senGen.plan commit verbatim. Re-roll / seats / count regenerate.
+  senGenAddFaction(){ const p = this.senGen.plan; if(!p) return; p.factions.push({ index: p.factions.length, name: 'New faction', platform: '', policyObjectives: [], memberCharacterIds: [], totalVotes: 0, standing: 'minor' }); this.senGenRecomputeDerived(); },
+  senGenRemoveFaction(idx){ const p = this.senGen.plan; if(!p) return; p.factions.splice(idx, 1); p.senators.forEach(s => { if(s.factionIndex === idx) s.factionIndex = null; else if(s.factionIndex != null && s.factionIndex > idx) s.factionIndex -= 1; }); p.factions.forEach((f, i) => { f.index = i; }); this.senGenRecomputeDerived(); },
+  senGenSetSenatorFaction(i, val){ const p = this.senGen.plan; if(!p || !p.senators[i]) return; p.senators[i].factionIndex = (val === '' || val == null) ? null : Number(val); this.senGenRecomputeDerived(); },
+  senGenRemoveSenator(i){ const p = this.senGen.plan; if(!p) return; p.senators.splice(i, 1); this.senGenRecomputeDerived(); },
+  // recompute the derived plan fields after a GM edit (faction member lists/totals/standing, the
+  // independent-minor votes, and the ruling/leading faction) — mirrors the engine's propose* tally.
+  senGenRecomputeDerived(){
+    const p = this.senGen.plan; if(!p) return;
+    p.factions.forEach(f => { f.memberCharacterIds = []; f.totalVotes = 0; });
+    p.senators.forEach(s => {
+      s.votes = Math.max(1, Math.round(Number(s.votes) || 1));
+      if(s.factionIndex != null){ const f = p.factions.find(x => x.index === s.factionIndex); if(f){ f.memberCharacterIds.push(s.characterId); f.totalVotes += s.votes; } else s.factionIndex = null; }
+    });
+    const seatedInfluence = p.senators.reduce((a, x) => a + (Number(x.votes) || 0), 0);
+    p.independentMinorVotes = Math.max(0, (Number(p.seats) || 0) - seatedInfluence);
+    const totalPool = seatedInfluence + p.independentMinorVotes;
+    const majority = Math.floor(totalPool / 2) + 1;
+    let ruling = -1, leading = -1, best = 0, tie = false;
+    p.factions.forEach(f => { if(f.totalVotes >= majority && ruling < 0) ruling = f.index; if(f.totalVotes > best){ best = f.totalVotes; leading = f.index; tie = false; } else if(f.totalVotes === best && f.totalVotes > 0) tie = true; });
+    if(ruling >= 0) leading = ruling; else if(tie || best === 0) leading = -1;
+    p.factions.forEach(f => { f.standing = (f.index === ruling) ? 'ruling' : (f.index === leading ? 'leading' : 'minor'); });
+    p.rulingFactionIndex = ruling; p.leadingFactionIndex = leading;
+    p.seatedCount = p.senators.length;
+    p.generatedCount = p.senators.filter(s => s.generated).length;
+    p.realCount = p.senators.filter(s => !s.generated).length;
+  },
   senGenFactionName(idx){ const p = this.senGen.plan; const f = (p && idx != null) ? p.factions[idx] : null; return f ? f.name : '—'; },
   // the GM-add picker: every character except the apex ruler + already-added extras + the deceased
   senGenAddCandidates(){
@@ -1771,16 +1988,116 @@ const _component = {
     const A = window.ACKS, c = this.currentCampaign;
     if(!c || !this.senGen.plan){ this.showToast('No senate plan to materialize.', 4000, 'warn'); return; }
     const r = A.materializeSenate(c, { domainId: this.senGen.apexId, plan: this.senGen.plan, replace: this.senGen.replace });
+    // Phase 5 — name every vote: mint the client + independent senator stubs so each vote is a named
+    // Character (the patron/client model). New senates land fully named; legacy ones use Edit ▸ Populate.
+    let named = null;
+    if(r && r.ok && A.populateNamedSenators) named = A.populateNamedSenators(c, r.senate.id);
     this.markDirty(); this.schedulePersist();
     if(r && r.ok){
       this.senGen.open = false;
-      this.currentView = 'domains'; this.domainsSubView = 'governance';
+      this.currentView = 'domains'; this.domainsSubView = 'domains'; this.selectedDomainId = this.senGen.apexId; this.activeTab = 'senate';   // Phase 5 — jump to the apex's Senate tab
       this.senateSelectedId = r.senate.id;
-      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + '.', 6000);
+      const extra = (named && (named.clientsMinted || named.independentsMinted)) ? (' · ' + ((named.clientsMinted||0) + (named.independentsMinted||0)) + ' minor senators named') : '';
+      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + extra + '.', 6000);
     } else {
       const why = (r && r.reason) === 'senate-exists' ? 'a senate already governs this realm (tick Replace to convene a new one)' : ((r && r.reason) || 'error');
       this.showToast('Could not materialize the senate: ' + why, 5000, 'warn');
     }
+  },
+  // Phase 5 — the prospective senate "shape" for a realm with no senate yet (the empty-state readout
+  // on the per-domain Senate tab): the realm's family count → the RAW seat band (RR p.357). Pure.
+  senateProspectiveShape(){
+    const c = this.currentCampaign, A = window.ACKS, d = this.selectedDomain;
+    if(!c || !A || !d || typeof A.senateSizeBandForFamilies !== 'function') return null;
+    const apex = (typeof A.realmApexDomain === 'function') ? A.realmApexDomain(c, d) : d;
+    const fams = (typeof A.realmFamiliesForDomain === 'function') ? (Number(A.realmFamiliesForDomain(c, apex)) || 0) : 0;
+    const band = A.senateSizeBandForFamilies(fams) || {};
+    return { families: fams, minSeats: band.minSeats || 0, maxSeats: band.maxSeats || 0 };
+  },
+
+  // ════════ Phase 5 (2026-06-24) — Edit Senate (the in-place editor that replaces ⟳ Regenerate) ════════
+  // Edits the LIVE senate entities (not a generator plan): retire/add leading senators, add/remove/rename
+  // factions, edit a leading senator's policy objectives + faction, add independent minor senators, and
+  // drag-and-drop a client/independent between patrons + the independent pool. All over the canonical
+  // engine verbs (acks-engine-politics.js) so the vote mirrors stay in sync.
+  senateEdit: { open:false, senateId:null, dragCharId:null, addIndepCount:1, objSeatId:null },
+  openSenateEdit(senateId){
+    const s = senateId ? window.ACKS.findSenate(this.currentCampaign, senateId) : this.senateSelected();
+    if(!s){ this.showToast('No senate to edit.', 3500, 'warn'); return; }
+    this.senateEdit = { open:true, senateId:s.id, dragCharId:null, addIndepCount:1, objSeatId:null };
+  },
+  closeSenateEdit(){ this.senateEdit.open = false; this.senateEdit.dragCharId = null; this.senateEdit.objSeatId = null; },
+  senateEditSenate(){ const A=window.ACKS,c=this.currentCampaign; return (A&&c&&this.senateEdit.senateId)?A.findSenate(c,this.senateEdit.senateId):null; },
+  senateEditName(){ const s=this.senateEditSenate(); return s?(s.name||s.id):'—'; },
+  // the live leading senators (with named clients) for the editor
+  senateEditLeadingRows(){
+    const A=window.ACKS, c=this.currentCampaign, sen=this.senateEditSenate(); if(!A||!c||!sen) return [];
+    return (A.senatorshipsForSenate(c,sen.id)||[]).filter(s=>s.rank!=='minor').sort((a,b)=>(b.votes||0)-(a.votes||0)).map(s=>{
+      const f = s.factionId ? A.findFaction(c,s.factionId) : null;
+      return { id:s.id, characterId:s.senatorCharacterId, name:this._senCharName(s.senatorCharacterId),
+        factionId:s.factionId||null, factionName:f?(f.name||f.id):'—', votes:s.votes||0,
+        objectives:Array.isArray(s.policyObjectives)?s.policyObjectives.slice():[],
+        clients:(Array.isArray(s.clientCharacterIds)?s.clientCharacterIds:[]).map(id=>({id,name:this._senCharName(id)})),
+        unnamedClients: Math.max(0,(s.votes||1)-1-(Array.isArray(s.clientCharacterIds)?s.clientCharacterIds.length:0)) };
+    });
+  },
+  senateEditIndependentRows(){
+    const sen=this.senateEditSenate(); if(!sen) return [];
+    return (Array.isArray(sen.independentSenatorCharacterIds)?sen.independentSenatorCharacterIds:[]).map(id=>({id,name:this._senCharName(id)}));
+  },
+  senateEditUnnamedIndependents(){
+    const sen=this.senateEditSenate(); if(!sen) return 0;
+    const named=Array.isArray(sen.independentSenatorCharacterIds)?sen.independentSenatorCharacterIds.length:0;
+    return Math.max(0,(Number(sen.independentMinorSenatorVotes)||0)-named);
+  },
+  senateEditFactions(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return [];
+    return (A.factionsForSenate(c,sen.id)||[]).map(f=>({ id:f.id, name:f.name||f.id, members:(A.senatorshipsInFaction(c,f.id)||[]).filter(s=>s.rank!=='minor').length, influence:A.factionTotalInfluence(c,f), standing:A.factionStanding(c,f) }));
+  },
+  senateEditFullyNamed(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); return !!(A&&c&&sen&&A.senateIsFullyNamed&&A.senateIsFullyNamed(c,sen)); },
+  senateEditObjectiveOptions(){ return (window.ACKS && window.ACKS.POLICY_OBJECTIVES) || []; },
+  senObjLabel(o){ return String(o||'').replace(/-/g,' '); },
+  _senEditCommit(){ this.markDirty(); this.schedulePersist(); },
+  // populate — name every vote (legacy / under-populated senate → fully named)
+  senateEditPopulate(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return;
+    const r=A.populateNamedSenators(c,sen.id); this._senEditCommit();
+    if(r&&r.ok) this.showToast('👥 Named '+((r.clientsMinted||0)+(r.independentsMinted||0))+' minor senator(s).', 4000);
+  },
+  senateEditAddLeading(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; if(A.addLeadingSenator(c,sen.id,{})) this._senEditCommit(); },
+  senateEditRetire(seatId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.retireLeadingSenator(c,seatId); this._senEditCommit(); },
+  senateEditAddIndependents(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return;
+    const r=A.addIndependentSenators(c,sen.id,{count:Math.max(1,Number(this.senateEdit.addIndepCount)||1)}); this._senEditCommit();
+    if(r&&r.ok) this.showToast('➕ Added '+r.minted+' independent minor senator(s).',3500);
+  },
+  senateEditRemoveSenator(charId){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; A.removeSenatorFromSenate(c,{senateId:sen.id,characterId:charId}); this._senEditCommit(); },
+  senateEditAddFaction(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; A.addSenateFaction(c,sen.id,{name:'New faction'}); this._senEditCommit(); },
+  senateEditRemoveFaction(facId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.removeSenateFaction(c,facId); this._senEditCommit(); },
+  senateEditRenameFaction(facId,name){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.renameSenateFaction(c,facId,name); this._senEditCommit(); },
+  senateEditSetFaction(seatId,facId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.setSenatorshipFaction(c,seatId,facId||null); this._senEditCommit(); },
+  senateEditToggleObjective(seatId,obj){
+    const A=window.ACKS,c=this.currentCampaign; const seat=A&&c&&A.findSenatorship(c,seatId); if(!seat) return;
+    const cur=Array.isArray(seat.policyObjectives)?seat.policyObjectives.slice():[];
+    const i=cur.indexOf(obj); if(i>=0) cur.splice(i,1); else cur.push(obj);
+    A.setSenatorshipObjectives(c,seatId,cur); this._senEditCommit();
+  },
+  senateEditRenameSenator(charId,name){
+    const c=this.currentCampaign; const ch=c&&(c.characters||[]).find(x=>x&&x.id===charId); if(!ch) return;
+    ch.name=(name==null||name==='')?ch.name:String(name); this._senEditCommit();
+  },
+  // drag-and-drop: a client/independent moves between patrons + the independent pool (the move verb).
+  senateDragStart(charId){ this.senateEdit.dragCharId = charId; },
+  senateDragEnd(){ this.senateEdit.dragCharId = null; },
+  senateDropOnPatron(seatId){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(),id=this.senateEdit.dragCharId;
+    this.senateEdit.dragCharId=null; if(!A||!c||!sen||!id) return;
+    A.moveSenatorClient(c,{senateId:sen.id,characterId:id,to:seatId}); this._senEditCommit();
+  },
+  senateDropOnIndependent(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(),id=this.senateEdit.dragCharId;
+    this.senateEdit.dragCharId=null; if(!A||!c||!sen||!id) return;
+    A.moveSenatorClient(c,{senateId:sen.id,characterId:id,to:'independent'}); this._senEditCommit();
   },
   // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
   // Thin UI over the D5 engine (acks-engine-delves.js): start/depart a SettlementVisit, roll urban
@@ -2847,24 +3164,38 @@ const _component = {
   },
   // Grand total over the whole garrison as displayed — mercenaries (standing) + conscripts + militia,
   // each summed by living count (count - casualties) so the foot row equals the sum of the rows above.
-  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
+  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia'), ...this.domainLevyRows(domain,'clanhold') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
   openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
   closeUnitSheet(){ this.unitSheetUnitId = null; },
   // Levy modal — count + home hex (RR pp.430–433). Materializes the levy, then sets its home.
-  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1 }; },
+  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1, troopTypeKey: source === 'clanhold' ? ((window.ACKS && window.ACKS.clanWarriorDefaultTroopTypeKey) ? window.ACKS.clanWarriorDefaultTroopTypeKey(domain) : 'light-infantry') : null }; },
   closeLevyModal(){ this.levyModal.open = false; },
   levyModalDomain(){ const id = this.levyModal && this.levyModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   levyModalAvailable(){ const d = this.levyModalDomain(); return d ? this.domainLevyAvailable(d, this.levyModal.source) : 0; },
   levyModalCanSubmit(){ const d = this.levyModalDomain(); if(!d) return false; const n = Math.floor(Number(this.levyModal.count) || 0); return this.domainCanLevy(d) && n >= 1 && n <= this.levyModalAvailable(); },
+  // Troop-type options for the ⚔ clan-warrior levy modal (RR p.433 — "trained and equipped as customary
+  // for their tribe"). The dominant race's trainable types (the conscript catalog), GM-picked; falls back
+  // to the human set when the race tag isn't a catalog race. Conscripts/militia don't use this (they levy
+  // as an untrained levy and are trained later).
+  clanWarriorTypeRows(){
+    const A = window.ACKS; const d = this.levyModalDomain();
+    const race = (d && (A.dominantRaceOf ? A.dominantRaceOf(d) : d.dominantRace)) || 'man';
+    let keys = (A.trainableTroopTypes ? A.trainableTroopTypes(race) : null) || [];
+    if(!keys.length) keys = (A.trainableTroopTypes ? A.trainableTroopTypes('man') : null) || ['light-infantry'];
+    return keys.map(key => { const row = A.findTroopType ? A.findTroopType(key, { race }) : null; return { key, label: row ? row.label : key }; });
+  },
   submitLevy(){
     const d = this.levyModalDomain(); if(!d || !this.levyModalCanSubmit()) return;
     const n = Math.floor(Number(this.levyModal.count) || 0); const src = this.levyModal.source; const A = window.ACKS;
-    const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n }) : A.levyConscripts(this.currentCampaign, d.id, { count: n });
-    if(!u){ this.showToast && this.showToast('No room to levy more ' + src + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
+    const srcLabel = src === 'clanhold' ? 'clan warriors' : src;
+    const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n })
+            : src === 'clanhold' ? A.levyClanWarriors(this.currentCampaign, d.id, { count: n, troopTypeKey: this.levyModal.troopTypeKey })
+            : A.levyConscripts(this.currentCampaign, d.id, { count: n });
+    if(!u){ this.showToast && this.showToast('No room to levy more ' + srcLabel + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(u.musterState
-      ? 'Began levying ' + u.musterState.total + ' ' + src + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
-      : 'Levied ' + u.count + ' ' + src + ' from ' + (d.name || d.id) + '.');
+      ? 'Began levying ' + u.musterState.total + ' ' + srcLabel + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
+      : 'Levied ' + u.count + ' ' + srcLabel + ' from ' + (d.name || d.id) + '.');
     this.closeLevyModal();
   },
 
@@ -3018,7 +3349,7 @@ const _component = {
   // = cap − ever-raised (sticky casualties, RR p.430); casualties recover 5%/yr in commitTurn. This
   // replaces the old army Troop-depth levy panel (levy is a DOMAIN act; armies call them up via muster).
   domainLevyRows(domain, source){ return (domain && window.ACKS.domainLevyUnits) ? window.ACKS.domainLevyUnits(this.currentCampaign, domain, source) : []; },
-  domainLevyCap(domain, source){ return source === 'militia' ? window.ACKS.militiaLevyMax(domain) : window.ACKS.conscriptLevyMax(domain); },
+  domainLevyCap(domain, source){ return source === 'militia' ? window.ACKS.militiaLevyMax(domain) : source === 'clanhold' ? window.ACKS.clanholdWarriorLevyMax(this.currentCampaign, domain) : window.ACKS.conscriptLevyMax(domain); },
   domainLevyEverRaised(domain, source){ return window.ACKS.levyEverRaised(this.currentCampaign, domain, source); },
   domainLevyAvailable(domain, source){ return window.ACKS.levyAvailable(this.currentCampaign, domain, source); },
   domainCanLevy(domain){ return !!domain && window.ACKS.canLevyFromDomain(domain); },
@@ -3026,8 +3357,10 @@ const _component = {
     const n = Math.max(1, Math.floor(Number(count) || 0));
     const u = source === 'militia'
       ? window.ACKS.levyMilitia(this.currentCampaign, domain.id, { count: n })
+      : source === 'clanhold'
+      ? window.ACKS.levyClanWarriors(this.currentCampaign, domain.id, { count: n })
       : window.ACKS.levyConscripts(this.currentCampaign, domain.id, { count: n });
-    if(!u){ this.showToast && this.showToast('No room to levy more ' + source + ' (available ' + this.domainLevyAvailable(domain, source) + ', or the realm is too unhappy).', 4000); return; }
+    if(!u){ this.showToast && this.showToast('No room to levy more ' + (source === 'clanhold' ? 'clan warriors' : source) + ' (available ' + this.domainLevyAvailable(domain, source) + ', or the realm is too unhappy).', 4000); return; }
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(u.musterState
       ? 'Began levying ' + u.musterState.total + ' ' + source + ' from ' + (domain.name || domain.id) + ' — they arrive over 3 weeks (RR p.430).'
@@ -3175,9 +3508,9 @@ const _component = {
     const camp = this.currentCampaign; if(!domain) return [];
     const A = window.ACKS; const byId = new Map();
     if(camp && Array.isArray(camp.units) && A && A.unitOwnerDomainId){
-      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitOwnerDomainId(camp, u) === domain.id) byId.set(u.id, u); }
+      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && u.source !== 'clanhold' && A.unitOwnerDomainId(camp, u) === domain.id) byId.set(u.id, u); }
     }
-    for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
+    for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && u.source !== 'clanhold' && !byId.has(u.id)) byId.set(u.id, u); }
     return [...byId.values()];
   },
   removeGarrisonUnit(domain, u){
@@ -3993,10 +4326,9 @@ const _component = {
   },
   // UI overhaul 2026-06-22 — Domains sub-tabs: Domains (+ Governance/Senate, dormant-until-used).
   get domainsSubTabs(){
-    const tabs = [ { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null } ];
-    if(this.campaignHasSenate() || this.governanceTabAvailable())
-      tabs.push({ id:'governance', label: this.campaignHasSenate() ? '🏛 Senate' : '⚖ Governance', count: (this.currentCampaign?.senates||[]).length || null });
-    return tabs;
+    // Phase 5 (2026-06-24): the Governance/Senate sub-tab moved to a per-domain tab; only Domains remains
+    // (the strip auto-hides at length 1).
+    return [ { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null } ];
   },
   // ════════ UI overhaul 2026-06-22 — helpers for the new Roster/World/Activities/Events surfaces ════════
   // B1 — World ▸ Points of Interest scope filter (claimed vs unclaimed hexes).
@@ -7139,7 +7471,7 @@ const _component = {
     this.showHexDetailModal = false;
     this.worldHexEditing = null;
   },
-  levyModal: { open: false, domainId: null, source: 'conscript', count: 1 },  // ⚒/🛡 Levy modal
+  levyModal: { open: false, domainId: null, source: 'conscript', count: 1, troopTypeKey: null },  // ⚒/🛡/⚔ Levy modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   followerArrival: { open: false, domainId: '', proposal: null },  // 🎺 Follower Arrival modal (Domain ▸ Stronghold — RR p.334)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
@@ -8471,6 +8803,8 @@ const _component = {
   // total investment, and 1d10 families immigrate for every 1,000gp actually paid (RR p.351/p.353).
   beginUrbanInvestment(d, amounts){
     const c = this.currentCampaign; if(!c || !d) return;
+    // RR p.353 — a clanhold MAY invest in its settlements; the family cap (computeUrbanInvestmentDrip
+    // clamps to min(249, 12.5% of peasants) ⇒ Class VI) limits the result. Investment is capped, not forbidden.
     const ordered = [];
     for(const { settlement } of (this.hexSettlements(d) || [])){
       const amt = Math.floor((amounts && amounts[settlement.id]) || 0);
