@@ -7,6 +7,10 @@
   "scripts": {
     "test": "node tests/run.js",
     "lint:docs": "node tools/doc-drift-lint.js",
-    "lint:engine": "node tools/cross-module-lint.js"
+    "lint:engine": "node tools/cross-module-lint.js",
+    "build:catalogs": "node tools/build/build_catalog.js && node tools/build/build_encounter_tables.js && node tools/build/build_troop_catalog.js"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }
