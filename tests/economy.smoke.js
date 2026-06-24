@@ -127,14 +127,17 @@ function computeDomainEconomy(camp, d){
 function makeRng(seed){ let s = seed >>> 0; return function(){ s = (s + 0x6D2B79F5)|0; let t = Math.imul(s ^ (s>>>15), 1|s); t = (t + Math.imul(t ^ (t>>>7), 61|t)) ^ t; return ((t ^ (t>>>14))>>>0)/4294967296; }; }
 
 console.log('--- Engine surface ---');
-['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
+['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','domainRulerXpAward','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
   .forEach(fn => check('ACKS.' + fn + ' is a function', typeof ACKS[fn] === 'function', 'got ' + typeof ACKS[fn]));
 
 console.log('--- (a) Characterization oracle: campaign-build fidelity (invariants) ---');
 const demo = buildDemoCampaign();
 const byId = {};
 demo.domains.forEach(d => byId[d.id] = d);
-check('demo rebuilt with 4 domains', demo.domains.length === 4, 'got ' + demo.domains.length);
+// Demo refresh (2026-06-24, World-Layer): the demo now ships a 5th domain — the dom-gravewolf-clans
+// beastman clanhold (Tribal Domains showcase). The oracle was regenerated to match (March + Tidewrack
+// byte-identical; Northwatch/Saltcombe rulers bumped to L7 for Senate eligibility; clanhold added).
+check('demo rebuilt with 5 domains', demo.domains.length === 5, 'got ' + demo.domains.length);
 Object.keys(ORACLE.invariants).forEach(id => {
   const d = byId[id], inv = ORACLE.invariants[id];
   if(!d){ check('invariant domain present: ' + id, false); return; }
@@ -228,6 +231,15 @@ check('isHenchman(henchRuler) is true (sanity)', ACKS.isHenchman(henchRuler) ===
 check('domainXpFromNet henchman SUBTRACTS the wage = max(0, 6000 − 500 − 5000) = 500', ACKS.domainXpFromNet(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainXpFromNet(hCamp, hDom, 6000));
 check('domainXpFromNet floors at 0 (net below threshold)', ACKS.domainXpFromNet(pcCamp, pcDom, 3000) === 0);
 
+// domainRulerXpAward (RR p.342): the XP a ruler ACTUALLY gains from domain income = the wage-adjusted
+// basis, with NO ½-share — domain income is the explicit exception ("they do not reduce earned XP
+// from domains by 50%"). Regression for the 2026-06-24 audit double-penalty (acks-authority C1): the
+// commit path used to ×0.5 a henchman ruler's domain XP ON TOP of the wage subtraction.
+check('domainRulerXpAward henchman ruler is NOT halved = wage-adjusted basis 500 (bug awarded 250)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainRulerXpAward(hCamp, hDom, 6000));
+check('domainRulerXpAward === domainXpFromNet for the henchman ruler (no extra ×0.5)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === ACKS.domainXpFromNet(hCamp, hDom, 6000));
+check('domainRulerXpAward non-henchman = full basis 1000', ACKS.domainRulerXpAward(pcCamp, pcDom, 6000) === 1000, 'got ' + ACKS.domainRulerXpAward(pcCamp, pcDom, 6000));
+check('domainRulerXpAward floors at 0 (net below threshold)', ACKS.domainRulerXpAward(pcCamp, pcDom, 3000) === 0);
+
 console.log('--- (c) Headless monthly turn (no DOM) ---');
 // No-rng default path runs without throwing — the 5-line "engine runs a turn headless" snippet.
 let snippetOk = true;
@@ -235,9 +247,9 @@ try {
   const c0 = buildDemoCampaign();
   const prop0 = ACKS.proposeMonthlyTurn(c0);
   const res0 = ACKS.commitTurn(c0, prop0);
-  snippetOk = !prop0.error && !res0.error && res0.committed === 4 && c0.currentTurn === 6;
+  snippetOk = !prop0.error && !res0.error && res0.committed === 5 && c0.currentTurn === 6;
 } catch(e){ snippetOk = false; console.log('  (snippet threw: ' + e.message + ')'); }
-check('default-rng headless turn runs: propose + commit, 4 committed, turn 5 → 6', snippetOk);
+check('default-rng headless turn runs: propose + commit, 5 committed, turn 5 → 6', snippetOk);
 
 // Seeded turn — deterministic + treasury deltas equal the monthly net.
 function runSeededTurn(seed){
@@ -248,8 +260,8 @@ function runSeededTurn(seed){
   return { camp, before, prop, res };
 }
 const r1 = runSeededTurn(424242);
-check('seeded propose has no error + 4 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 4);
-check('seeded commit: 4 committed, no error, turn advanced to 6', r1.res.committed === 4 && !r1.res.error && r1.camp.currentTurn === 6);
+check('seeded propose has no error + 5 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 5);
+check('seeded commit: 5 committed, no error, turn advanced to 6', r1.res.committed === 5 && !r1.res.error && r1.camp.currentTurn === 6);
 // Treasury delta == monthly net (incomeFactor 1, no construction queued) PLUS any passive-investment
 // payout credited to the domain (the demo's "Saltspur Distillery" pays 30,000 × 1% = 300/mo to
 // Saltspur — exercises the lifted processPassiveInvestmentsForTurn in the headless turn). So

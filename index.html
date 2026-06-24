@@ -851,6 +851,65 @@ document.addEventListener('alpine:init', () => {
      worldSubView. The Map + Domains content divs live further down (their large markup stayed put —
      only their x-show flipped from a top-level currentView to this World sub-view). -->
 <div x-show="currentCampaign && currentView === 'world'" class="px-4 pt-3" x-cloak>
+  <!-- ═══ World ▸ Import / Export box (XLS — Excel world-spec; world-scoped, between the top tabs and
+       the World sub-tabs). Bulk Domains · Hexes · Settlements · Lairs as one .xlsx workbook, both ways;
+       inline propose-review-commit. SheetJS lazy-loads on first use. See domain-app-worldio.js. ═══ -->
+  <div class="vellum border border-ink rounded p-3 mb-3 text-sm">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="font-bold">📊 World Import / Export</span>
+      <span class="opacity-60 text-xs hidden sm:inline">— bulk Domains · Hexes · Settlements · Lairs as one .xlsx workbook</span>
+      <span class="flex-1"></span>
+      <button @click="worldExportTemplate()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-50">⬇ Template</button>
+      <button @click="worldExportCurrent()" :disabled="!currentCampaign" class="px-2 py-1 border border-ink rounded hover:bg-yellow-50 disabled:opacity-40">⬇ Export world</button>
+      <label class="px-2 py-1 border border-ink rounded hover:bg-yellow-50 cursor-pointer" :class="!currentCampaign ? 'opacity-40 pointer-events-none' : ''">
+        ⬆ Import…
+        <input type="file" accept=".xlsx" class="hidden" @change="worldOnFilePicked($event)">
+      </label>
+    </div>
+    <div x-show="worldIO.loading" class="mt-2 opacity-70" x-cloak>Reading workbook…</div>
+    <div x-show="worldIO.error" class="mt-2 text-red-700" x-text="worldIO.error" x-cloak></div>
+
+    <!-- inline preview — nothing mutates until Commit (propose-review-commit, lens #1) -->
+    <template x-if="worldIO.preview">
+      <div class="mt-3 border-t border-ink/30 pt-3">
+        <div class="flex flex-wrap items-center gap-3 mb-2">
+          <span class="font-semibold" x-text="'Preview · ' + (worldIO.fileName || 'workbook')"></span>
+          <label class="flex items-center gap-1 cursor-pointer"><input type="radio" value="create" x-model="worldIO.mode"> Create only</label>
+          <label class="flex items-center gap-1 cursor-pointer"><input type="radio" value="upsert" x-model="worldIO.mode"> Update existing</label>
+        </div>
+        <div class="flex flex-wrap gap-2 mb-2">
+          <template x-for="s in worldIO.preview.sheets" :key="s.sheet">
+            <span class="px-2 py-0.5 border border-ink/40 rounded text-xs" x-show="(worldSheetTally(s).create+worldSheetTally(s).update+worldSheetTally(s).skip+worldSheetTally(s).error) > 0">
+              <span class="font-semibold" x-text="s.label"></span>
+              <span class="text-green-700" x-text="' ' + worldSheetTally(s).create + ' new'"></span>
+              <span class="text-blue-700" x-text="' · ' + worldSheetTally(s).update + ' upd'"></span>
+              <span class="opacity-60" x-show="worldSheetTally(s).skip" x-text="' · ' + worldSheetTally(s).skip + ' skip'"></span>
+              <span class="text-red-700" x-show="worldSheetTally(s).error" x-text="' · ' + worldSheetTally(s).error + ' err'"></span>
+            </span>
+          </template>
+        </div>
+        <div x-show="worldPreviewRowsWithIssues().length" class="mb-2">
+          <button @click="worldIO.showErrors=!worldIO.showErrors" class="underline text-xs" x-text="(worldIO.showErrors?'▾ Hide':'▸ Show') + ' ' + worldPreviewRowsWithIssues().length + ' issue(s)'"></button>
+          <button @click="worldDownloadReport()" class="underline text-xs ml-2">⬇ report</button>
+          <div x-show="worldIO.showErrors" class="mt-1 max-h-48 overflow-auto text-xs border border-ink/20 rounded p-2 bg-white/40" x-cloak>
+            <template x-for="(iss,i) in worldPreviewRowsWithIssues()" :key="i">
+              <div>
+                <span class="font-mono opacity-60" x-text="iss.sheet + '!R' + iss.rowNum + ' '"></span>
+                <template x-for="e in iss.errors" :key="e"><span class="text-red-700"> ✗ <span x-text="e"></span></span></template>
+                <template x-for="w in iss.warnings" :key="w"><span class="text-amber-700"> ⚠ <span x-text="w"></span></span></template>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center">
+          <button @click="worldCommitImport()" class="px-3 py-1 border border-ink rounded bg-green-100 hover:bg-green-200 font-semibold">✓ Commit import</button>
+          <button @click="worldCancelImport()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <span class="opacity-60 text-xs" x-show="worldIO.preview.hasBlockingErrors">Rows with errors are skipped; valid rows still commit.</span>
+        </div>
+      </div>
+    </template>
+  </div>
+
   <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in worldSubTabs" :key="tab.id">
       <button @click="worldSubView=tab.id"
@@ -1134,56 +1193,6 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- ───── POI table: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
-<div x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.stashes" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🪙 Stashes <span class="text-sm opacity-70 font-normal" x-text="'· ' + allStashes().length + ' located'"></span></h3>
-      <div class="flex gap-2 items-center text-sm">
-        <input type="text" x-model="stashSearch" placeholder="Search name, owner, hex…" class="w-64">
-        <select x-model="stashOwnerFilter" class="text-sm">
-          <option value="all">All kinds</option>
-          <option value="treasury">Domain treasuries</option>
-          <option value="personal">Personal</option>
-          <option value="party">Party loot</option>
-          <option value="cache">Caches</option>
-          <option value="hidden">Hidden only</option>
-        </select>
-        <span class="text-sm opacity-70" x-text="poiStashes().length + ' shown'"></span>
-        <button @click="openTreasureWizard()" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache stash">💰 Generate treasure</button>
-      </div>
-    </div>
-    <template x-if="allStashes().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
-    </template>
-    <template x-if="allStashes().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr>
-          <th>Name</th><th>Kind</th><th>Owner</th><th>Hex</th>
-          <th class="text-right">Total</th><th class="text-right">Items</th><th class="text-right">Weight</th><th>Hidden</th><th class="text-right">Actions</th>
-        </tr></thead>
-        <tbody>
-          <template x-for="row in poiStashes()" :key="row.stash.id">
-            <tr>
-              <td><button @click="openStashDetail(row.stash.id)" class="underline font-semibold" x-text="row.stash.name || '(unnamed)'"></button></td>
-              <td x-text="stashKindLabel(row.stash)"></td>
-              <td x-text="row.ownerLabel"></td>
-              <td x-text="row.hexLabel"></td>
-              <td class="text-right font-mono" x-text="Math.round(row.totalGp).toLocaleString()+' gp'"></td>
-              <td class="text-right" x-text="row.itemCount"></td>
-              <td class="text-right font-mono" x-text="(Math.round(row.totalSt*10)/10)+' st'"></td>
-              <td x-text="row.stash.isHidden ? '🔒' : '—'"></td>
-              <td class="text-right"><button @click="openStashDetail(row.stash.id)" class="underline">open</button></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-    <p class="text-sm opacity-60 mt-3 italic">Located, owned inventories in <code>campaign.stashes[]</code>. A domain's treasury is a stash that transfers with the office, not the ruler. Total sums all coin (gp-equivalent across cp/sp/ep/gp/pp) + valuables; weight derives per RR p.83 (1,000 coins = 1 stone).</p>
-  </div>
-</div>
-
-<!-- ───── Sub-tab: LAIRS (#476 M7 — Plan §12) ───── -->
 <!-- === Delves D2 (burst4) — World ▸ Dungeons sub-view (campaign.dungeons[]): a light read table
      + an author button. The 🔍 Inspector (Browse/Inspect/Create) is the full editor; the abstract-
      foray resolution + the Foray Wizard land in D3. Lifecycle overlays Attuned/Owned (derived) onto
@@ -1414,13 +1423,16 @@ document.addEventListener('alpine:init', () => {
            the Religion subsystem — this only FLAGS it (record-only). Settlement-scoped, surfaced in the
            arcane hub. -->
       <div class="border border-red-300 rounded p-2 mt-2 text-sm" style="background:rgba(254,226,226,.35)">
-        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — the divine seam, a stub)</span></div>
-        <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power. The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem. This flags it for that consequence (record-only here).</p>
+        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — extract arcane power; the gods take notice)</span></div>
+        <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power — 2%/day of their families' XP, the same rate as a dungeon (RR p.388). An L9+ arcane caster draws this power to fund magic research (below L9, the act flags the settlement but extracts nothing). The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem.</p>
         <template x-if="arcaneUsurpedSettlements().length">
           <div class="mb-1 text-xs flex flex-col gap-1">
             <template x-for="u in arcaneUsurpedSettlements()" :key="u.id">
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span class="inline-flex items-center gap-1">⚖️ <span class="font-semibold" x-text="u.name"></span> — usurped by <span x-text="u.usurperName"></span> (<span class="font-mono" x-text="u.familiesXp.toLocaleString()"></span> XP)</span>
+                <!-- AD-F arcane REWARD — the gp/mo arcane power the usurper extracts (L9+ arcane); the L9 gate is made legible. -->
+                <span x-show="u.canExtract" class="inline-flex items-center gap-1 text-purple-800 font-semibold" x-text="'🔮 extracting ' + u.perMonth.toLocaleString() + ' gp/mo arcane power'"></span>
+                <span x-show="!u.canExtract" class="italic opacity-70">— (usurper is below L9; no extraction)</span>
                 <button @click="arcaneClearUsurp(u.id)" class="px-1 border border-ink rounded hover:bg-yellow-100" title="Release the settlement — the gods’ wrath then cools each monthly turn">Release</button>
                 <!-- Wave E — the mounting divine wrath (escalates each monthly turn the usurpation persists; RR p.388) -->
                 <span class="font-semibold" :class="u.wrathLevel >= 2 ? 'text-red-800' : 'text-red-700'" x-text="'· ⚖ ' + u.wrathLabel"></span>
@@ -1449,7 +1461,7 @@ document.addEventListener('alpine:init', () => {
         <span class="italic">Room-by-room stocking — the Dungeon Builder — arrives in Phase 4.8.</span>
       </div>
 
-      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E/AD-F). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. ⚖️ Usurping a settlement flags the arcane↔divine seam for the Religion subsystem. Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
+      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E/AD-F). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. ⚖️ Usurping a settlement extracts arcane power from its terrified peasants (2%/day, RR p.388) to fund the usurper's research AND provokes the divine response (wrath + co-extraction, the Religion subsystem). Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
     </div>
   </template>
 </div>
@@ -1578,6 +1590,55 @@ document.addEventListener('alpine:init', () => {
       </table>
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
+  </div>
+</div>
+
+<!-- ───── POI table: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
+<div x-show="currentView === 'world' && worldSubView === 'poi' && poiShow.stashes" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🪙 Stashes <span class="text-sm opacity-70 font-normal" x-text="'· ' + allStashes().length + ' located'"></span></h3>
+      <div class="flex gap-2 items-center text-sm">
+        <input type="text" x-model="stashSearch" placeholder="Search name, owner, hex…" class="w-64">
+        <select x-model="stashOwnerFilter" class="text-sm">
+          <option value="all">All kinds</option>
+          <option value="treasury">Domain treasuries</option>
+          <option value="personal">Personal</option>
+          <option value="party">Party loot</option>
+          <option value="cache">Caches</option>
+          <option value="hidden">Hidden only</option>
+        </select>
+        <span class="text-sm opacity-70" x-text="poiStashes().length + ' shown'"></span>
+        <button @click="openTreasureWizard()" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache stash">💰 Generate treasure</button>
+      </div>
+    </div>
+    <template x-if="allStashes().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
+    </template>
+    <template x-if="allStashes().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Kind</th><th>Owner</th><th>Hex</th>
+          <th class="text-right">Total</th><th class="text-right">Items</th><th class="text-right">Weight</th><th>Hidden</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="row in poiStashes()" :key="row.stash.id">
+            <tr>
+              <td><button @click="openStashDetail(row.stash.id)" class="underline font-semibold" x-text="row.stash.name || '(unnamed)'"></button></td>
+              <td x-text="stashKindLabel(row.stash)"></td>
+              <td x-text="row.ownerLabel"></td>
+              <td x-text="row.hexLabel"></td>
+              <td class="text-right font-mono" x-text="Math.round(row.totalGp).toLocaleString()+' gp'"></td>
+              <td class="text-right" x-text="row.itemCount"></td>
+              <td class="text-right font-mono" x-text="(Math.round(row.totalSt*10)/10)+' st'"></td>
+              <td x-text="row.stash.isHidden ? '🔒' : '—'"></td>
+              <td class="text-right"><button @click="openStashDetail(row.stash.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">Located, owned inventories in <code>campaign.stashes[]</code>. A domain's treasury is a stash that transfers with the office, not the ruler. Total sums all coin (gp-equivalent across cp/sp/ep/gp/pp) + valuables; weight derives per RR p.83 (1,000 coins = 1 stone).</p>
   </div>
 </div>
 
@@ -4915,7 +4976,8 @@ document.addEventListener('alpine:init', () => {
     <!-- All-domains overview table. Replaces the old left-rail bulleted list.
          Shows every domain (vassal-indented) with ruler, population, treasury, morale at a glance.
          Rows are clickable — selects that domain, which then renders the detail panel below.
-         The "+ New domain" and "Import domains" buttons live in this table's header. -->
+         The "+ New domain" button lives in this table's header. (Bulk world import/export is now the
+         World ▸ 📊 Import / Export box — Excel workbook; the legacy JSON merge was retired, OQ9/D8.) -->
     <template x-if="currentCampaign && domains.length > 0">
       <div class="vellum border border-ink rounded p-3 mb-4">
         <div class="flex justify-between items-baseline flex-wrap gap-2 mb-2">
@@ -4923,8 +4985,6 @@ document.addEventListener('alpine:init', () => {
           <div class="flex items-center gap-2">
             <span class="text-sm opacity-70" x-text="domains.reduce((s,d) => s + totalFamilies(d), 0).toLocaleString() + ' families · ' + domains.reduce((s,d) => s + (d.treasury?.gp||0), 0).toLocaleString() + 'gp combined'"></span>
             <button @click="openNewDomainModal()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Create a new empty domain in this campaign">＋ New domain</button>
-            <button @click="$refs.domainFileInput.click()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" title="Merge domains (and their rulers/henchmen) from one or more campaign or domain files. Duplicates by ID are skipped.">📥 Import domains…</button>
-            <input type="file" x-ref="domainFileInput" multiple accept=".acks.json,.domain.json,.json" class="hidden" @change="importDomainFiles($event.target.files)">
           </div>
         </div>
         <table class="bookkeeping text-sm w-full" style="table-layout:fixed">
@@ -4993,9 +5053,6 @@ document.addEventListener('alpine:init', () => {
         <p class="mt-3 text-sm">
           No domains in this campaign yet.
           <button @click="openNewDomainModal()" class="underline ml-1">＋ New domain</button>
-          ·
-          <button @click="$refs.domainFileInput.click()" class="underline ml-1">📥 Import domains…</button>
-          <input type="file" x-ref="domainFileInput" multiple accept=".acks.json,.domain.json,.json" class="hidden" @change="importDomainFiles($event.target.files)">
         </p>
       </div>
     </template>
@@ -5366,11 +5423,11 @@ document.addEventListener('alpine:init', () => {
               <template x-if="hexSettlements(selectedDomain).length > 0">
                 <span class="font-mono" x-text="totalUrbanFamiliesFromHexes(selectedDomain).toLocaleString()"></span>
               </template>
+              <!-- Urban families is read-only (2026-06-24, agent-3): with settlements it derives from
+                   the hexes; with none it shows the stored fallback. Adjust urban population by founding
+                   a settlement (Investment ▸ 🏛 Urban investment ▸ 🏘 Found settlement). -->
               <template x-if="hexSettlements(selectedDomain).length === 0">
-                <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'demographics.urbanFamilies', label:'Urban families', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                </span>
+                <span class="font-mono" x-text="(selectedDomain.demographics.urbanFamilies||0).toLocaleString()"></span>
               </template>
             </div>
 
@@ -5413,7 +5470,7 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
             <template x-if="hexSettlements(selectedDomain).length === 0">
-              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want one.</p>
+              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Investment</strong> tab — <em>🏛 Urban investment ▸ 🏘 Found settlement</em>.</p>
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
@@ -5765,7 +5822,7 @@ document.addEventListener('alpine:init', () => {
                immigrate per 1,000gp actually paid (RR p.351 — the families follow the build). A GM may
                'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
-               x-data="{ amounts:{}, showOrderModal:false, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
+               x-data="{ amounts:{}, showOrderModal:false, showFoundModal:false, foundHexId:'', foundName:'', foundCount:100, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
             <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
               Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
@@ -5791,7 +5848,7 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length === 0">
-              <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Found one from the Hexes table on the Demographics tab, or via the Inspector.</p>
+              <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Use <strong>🏘 Found settlement…</strong> below to establish one, or the Inspector.</p>
             </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length > 0">
               <div>
@@ -5828,6 +5885,17 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
             </template>
+            <!-- 🏘 Found a settlement — founding a settlement IS an urban investment, so it lives here
+                 (relocated from the Demographics ▸ Hexes table, 2026-06-24, agent-3). Always available so
+                 the FIRST settlement can be founded from here too. Opens a picker for an unsettled hex +
+                 name + initial peasants; defers to foundSettlementById → foundSettlementOnHex, which
+                 enforces the RAW 10,000gp + 75–249-family gates and confirms before committing. -->
+            <div class="mt-3 pt-3 border-t border-ink/20 flex items-center justify-between flex-wrap gap-2">
+              <span class="text-sm opacity-70">Found a new settlement on an unsettled hex — 10,000gp + 75–249 peasant families (RR p.353).</span>
+              <button @click="showFoundModal = true"
+                      class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold"
+                      title="Found a settlement — opens a dialog to pick an unsettled hex, name it, and transfer 75–249 peasant families (RR p.353). Costs 10,000gp from the treasury.">🏘 Found settlement…</button>
+            </div>
             <!-- 🏗 Order urban investment dialog — the per-settlement amounts, moved out of the status table. -->
             <template x-if="showOrderModal">
               <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
@@ -5866,6 +5934,52 @@ document.addEventListener('alpine:init', () => {
                             :disabled="total() <= 0"
                             :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
                             class="px-3 py-1 border border-ink rounded font-semibold">🏗 Order investment</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <!-- 🏘 Found settlement dialog — pick an unsettled hex, name it, set initial peasants. The
+                 commit defers to foundSettlementById (a thin wrapper adjacent to foundSettlementOnHex). -->
+            <template x-if="showFoundModal">
+              <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showFoundModal=false" @keydown.escape.window="showFoundModal=false">
+                <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
+                  <div class="flex justify-between items-start p-4 border-b border-ink/30">
+                    <h3 class="font-bold text-lg">🏘 Found a settlement</h3>
+                    <button @click="showFoundModal=false" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+                  </div>
+                  <div class="p-4 space-y-3 text-sm">
+                    <p class="text-xs opacity-70">Founding a settlement is an urban investment of <strong>10,000gp</strong> (RR p.353). Pick an unsettled hex, name the settlement, and transfer <strong>75–249</strong> peasant families to seed it. The cost leaves the treasury at once and the families move off the rural population.</p>
+                    <template x-if="(domainHexesFor(selectedDomain)||[]).filter(h => !settlementAtHexG(h)).length === 0">
+                      <p class="italic opacity-70">Every hex in this domain already has a settlement. Add a hex first (Demographics ▸ Hexes ▸ + add hex).</p>
+                    </template>
+                    <template x-if="(domainHexesFor(selectedDomain)||[]).filter(h => !settlementAtHexG(h)).length > 0">
+                      <div class="space-y-2">
+                        <label class="block">Hex
+                          <select x-model="foundHexId" class="w-full text-sm mt-1">
+                            <option value="">— pick an unsettled hex —</option>
+                            <template x-for="h in (domainHexesFor(selectedDomain)||[]).filter(x => !settlementAtHexG(x))" :key="h.id">
+                              <option :value="h.id" x-text="hexLabelFor(h)"></option>
+                            </template>
+                          </select>
+                        </label>
+                        <label class="block">Settlement name
+                          <input x-model="foundName" placeholder="Settlement name" class="w-full text-sm mt-1">
+                        </label>
+                        <label class="block">Initial peasant families (75–249)
+                          <input type="number" min="75" max="249" x-model.number="foundCount" class="w-24 text-sm mt-1">
+                        </label>
+                      </div>
+                    </template>
+                    <p class="text-sm" :class="(selectedDomain.treasury.gp||0) < 10000 ? 'accent-red' : 'opacity-70'">Treasury: <span class="font-semibold" x-text="(selectedDomain.treasury.gp||0).toLocaleString()"></span> gp <span class="opacity-60">(need 10,000)</span></p>
+                    <p class="text-sm" :class="(selectedDomain.demographics.peasantFamilies||0) < foundCount ? 'accent-red' : 'opacity-70'">Rural families: <span class="font-semibold" x-text="(selectedDomain.demographics.peasantFamilies||0).toLocaleString()"></span> <span class="opacity-60">(need <span x-text="foundCount"></span>)</span></p>
+                  </div>
+                  <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+                    <button @click="showFoundModal=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+                    <button @click="foundSettlementById(selectedDomain, foundHexId, foundName, foundCount); showFoundModal=false; foundHexId=''; foundName=''; foundCount=100"
+                            :disabled="!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount"
+                            :class="(!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                            :title="!foundHexId ? 'Pick a hex' : (!foundName ? 'Name the settlement' : (foundCount < 75 ? 'Need at least 75 peasant families' : (foundCount > 249 ? 'Max 249 peasant families (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury' : ((selectedDomain.demographics.peasantFamilies||0) < foundCount ? 'Not enough rural families' : 'Found this settlement')))))"
+                            class="px-3 py-1 border border-ink rounded font-semibold">🏘 Found · 10,000gp + <span x-text="foundCount"></span>p</button>
                   </div>
                 </div>
               </div>
@@ -6020,32 +6134,13 @@ document.addEventListener('alpine:init', () => {
                     </td>
                     <td x-show="isHouseRuleEnabled('families-per-hex-tracking')" class="font-mono" x-text="((h.families||0)*effectiveHexValue(h)).toLocaleString() + ' gp'"></td>
                     <td>
-                      <template x-if="!settlementAtHexG(h)">
-                        <div x-data="{showFound:false, name:'', count:100}">
-                          <button @click="showFound = !showFound" class="text-sm underline" :disabled="(selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < 75" :title="(selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp treasury' : (selectedDomain.demographics.peasantFamilies||0) < 75 ? 'Need 75+ peasants' : 'Found a settlement here'">
-                            <span x-show="!showFound">+ found settlement</span>
-                            <span x-show="showFound">cancel</span>
-                          </button>
-                          <div x-show="showFound" class="mt-1 p-2 border border-ink rounded" style="background:#f4ecd2; min-width:14rem">
-                            <input x-model="name" placeholder="Settlement name" class="w-full text-sm mb-1">
-                            <label class="text-sm block">Peasants (75-249): <input type="number" min="75" max="249" x-model.number="count" class="w-16"></label>
-                            <button @click="foundSettlementOnHex(selectedDomain, h, name, count); showFound=false"
-                                    class="mt-1 px-2 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
-                                    :class="(!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
-                                    :disabled="!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count"
-                                    :title="!name ? 'Type a settlement name first' : (count < 75 ? 'Need at least 75 peasants' : (count > 249 ? 'Max 249 peasants (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury (have ' + (selectedDomain.treasury.gp||0).toLocaleString() + 'gp)' : ((selectedDomain.demographics.peasantFamilies||0) < count ? 'Domain has only ' + (selectedDomain.demographics.peasantFamilies||0).toLocaleString() + ' rural families — need ' + count : 'Found this settlement'))))">
-                              Found · 10,000gp + <span x-text="count"></span>p
-                            </button>
-                          </div>
-                        </div>
-                      </template>
+                      <!-- Settlement name is read-only here (2026-06-24, agent-3): rename on the settlement
+                           sheet. Founding moved to Domain ▸ Investment ▸ 🏛 Urban investment ▸ 🏘 Found settlement. -->
                       <template x-if="settlementAtHexG(h)">
-                        <div class="font-semibold">
-                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:settlementAtHexG(h), fieldPath:'name', label:'Settlement name', kind:'text'})">
-                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                          </span>
-                        </div>
+                        <span class="font-semibold" x-text="settlementAtHexG(h).name || '(unnamed)'"></span>
+                      </template>
+                      <template x-if="!settlementAtHexG(h)">
+                        <span class="opacity-50">—</span>
                       </template>
                     </td>
                   </tr>
@@ -19781,6 +19876,7 @@ document.addEventListener('alpine:init', () => {
     <script src="domain-app-chronicle.js?v=2026-06-23-t5-features"></script>
     <script src="domain-app-syndicates.js?v=2026-06-23-t5-features"></script>
     <script src="domain-app-banking.js?v=2026-06-23-t5-features"></script>
+    <script src="domain-app-worldio.js?v=2026-06-24-world-excel"></script>
 
 <style>
   /* Tail style block intentionally minimal — main styles live in <head>. */

@@ -5227,19 +5227,23 @@ function commitTurn(campaign, proposal, options){
       }
     } catch(e){ /* swallow per original */ }
 
-    // Award XP to ruler (RR p.423; henchman rulers get half). While occupied, the
-    // owner's XP basis is the net HE actually kept (_ownerNet — the occupier's share
-    // earned the occupier gp, not the deposed lord XP).
-    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, _ownerNet - totalInvestmentSpent - totalAgriculturalSpent);
+    // Award XP to ruler from domain income (RR p.342 / p.423). Domain income is the EXPLICIT
+    // exception to the henchman ½-share: a henchman vassal subtracts their wage (inside
+    // domainXpFromNet → domainRulerXpAward) but does NOT reduce domain XP by 50% — RR p.342:
+    // "they do not reduce earned XP from domains by 50%." So NO ×0.5 here, henchman or PC vassal
+    // alike. (audit 2026-06-24 / acks-authority C1 — the old ×0.5 double-penalized henchman rulers.)
+    // While occupied, the owner's XP basis is the net HE actually kept (_ownerNet — the occupier's
+    // share earned the occupier gp, not the deposed lord XP).
+    const _xpBasisNet = _ownerNet - totalInvestmentSpent - totalAgriculturalSpent;
+    const _rulerXpEarned = global.ACKS.domainRulerXpAward(campaign, d, _xpBasisNet);
     let rulerXpAwarded = 0;
-    if(xpEarned && xpEarned > 0){
+    if(_rulerXpEarned > 0){
       const rulerCh = global.ACKS.rulerCharacter(campaign, d);
       if(rulerCh){
-        const henchPenalty = rulerCh.liegeCharacterId ? 0.5 : 1.0;
-        rulerXpAwarded = Math.round(xpEarned * henchPenalty);
+        rulerXpAwarded = _rulerXpEarned;
         rulerCh.xp = (rulerCh.xp || 0) + rulerXpAwarded;
         addCharacterHistory(campaign, rulerCh, 'xp',
-          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (_ownerNet - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
+          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + _xpBasisNet.toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp)',
           { xp: rulerXpAwarded, source: 'domain', domainId: d.id }
         );
       }
