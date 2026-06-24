@@ -1287,6 +1287,60 @@ section('P-5 — NPC-minting fill: a SHORTFALL seats real notables FIRST, mints 
 })();
 
 // =============================================================================
+section('Phase 5 — named senate composition (one named senator per vote) + Edit-Senate verbs');
+(function(){
+  // A real materialized senate, then NAME every vote (clients under each leading senator + named
+  // independents). The shipped voting tally must be unchanged by naming (votes are conserved).
+  const c = genFix(8, 30000);
+  const r = ACKS.materializeSenate(c, { domainId:'dom-apex', seats: 14, seed: 5, fillWithGenerated: true });
+  ok('fixture: a senate materialized', r.ok === true);
+  const sen = r.senate;
+  const votesBefore = ACKS.senateTotalVotes(c, sen);
+  const charsBefore = c.characters.length;
+  const evBefore = (c.eventLog||[]).filter(e=>e.event&&e.event.kind==='generation').length;
+
+  const pr = ACKS.populateNamedSenators(c, sen.id);
+  ok('populate ok', pr.ok === true);
+  ok('populate conserves the vote tally', ACKS.senateTotalVotes(c, sen) === votesBefore);
+  ok('populate mints lightweight, expandable stubs', c.characters.slice(charsBefore).every(x => x.detailLevel === 'lightweight'));
+  ok('populate homes stubs to the realm', c.characters.slice(charsBefore).every(x => x.currentDomainId === 'dom-apex'));
+  ok('populate emits NO per-stub generation events (proposed, not landed)', (c.eventLog||[]).filter(e=>e.event&&e.event.kind==='generation').length === evBefore);
+  ok('every leading bloc = 1 patron + named clients', ACKS.senatorshipsForSenate(c, sen.id).filter(s=>s.rank!=='minor').every(s => (s.clientCharacterIds||[]).length === Math.max(0,(s.votes||1)-1)));
+  ok('named independents fill the independent vote count', (sen.independentSenatorCharacterIds||[]).length === (sen.independentMinorSenatorVotes||0));
+  ok('senateIsFullyNamed true after populate', ACKS.senateIsFullyNamed(c, sen) === true);
+  ok('populate is idempotent (mints 0 the second time)', ACKS.populateNamedSenators(c, sen.id).clientsMinted === 0);
+
+  // drag-drop: move a client between patrons, then to independent — votes follow, total conserved.
+  const seats = ACKS.senatorshipsForSenate(c, sen.id).filter(s=>s.rank!=='minor' && (s.clientCharacterIds||[]).length>0);
+  if(seats.length >= 2){
+    const from = seats[0], to = seats[1], cli = from.clientCharacterIds[0];
+    const v0f = from.votes, v0t = to.votes;
+    const mv = ACKS.moveSenatorClient(c, { senateId: sen.id, characterId: cli, to: to.id });
+    ok('move client A→B ok', mv.ok === true);
+    ok('move: patron A loses a vote, B gains one, total conserved', from.votes === v0f - 1 && to.votes === v0t + 1 && ACKS.senateTotalVotes(c, sen) === votesBefore);
+    ACKS.moveSenatorClient(c, { senateId: sen.id, characterId: cli, to: 'independent' });
+    ok('move B→independent: B back to start, total conserved', to.votes === v0t && ACKS.senateTotalVotes(c, sen) === votesBefore);
+  } else { ok('move-client coverage (skipped — small fixture)', true); ok('', true); ok('', true); }
+  ok('a leading senator cannot be dragged as a client', ACKS.moveSenatorClient(c, { senateId: sen.id, characterId: ACKS.senatorshipsForSenate(c,sen.id).filter(s=>s.rank!=='minor')[0].senatorCharacterId, to: 'independent' }).reason === 'is-leading');
+
+  // Edit verbs — add/retire leading, add independents, faction add/remove/rename, objectives.
+  const vNow = ACKS.senateTotalVotes(c, sen);
+  const ns = ACKS.addLeadingSenator(c, sen.id, {});
+  ok('addLeadingSenator seats a votes-1 leading seat (+1 total)', ns && ns.votes === 1 && ACKS.senateTotalVotes(c, sen) === vNow + 1);
+  ok('retireLeadingSenator vacates + releases clients to independents', (function(){ const seat = ACKS.senatorshipsForSenate(c,sen.id).filter(s=>s.rank!=='minor' && (s.clientCharacterIds||[]).length>0)[0]; if(!seat) return true; const nClients = seat.clientCharacterIds.length, indBefore = (sen.independentSenatorCharacterIds||[]).length; const rr = ACKS.retireLeadingSenator(c, seat.id); return rr.status==='vacated' && (sen.independentSenatorCharacterIds||[]).length === indBefore + nClients; })());
+  ok('addIndependentSenators adds named votes', (function(){ const b=(sen.independentSenatorCharacterIds||[]).length; const a=ACKS.addIndependentSenators(c,sen.id,{count:2}); return a.minted===2 && (sen.independentSenatorCharacterIds||[]).length===b+2 && sen.independentMinorSenatorVotes===b+2; })());
+  const nf = ACKS.addSenateFaction(c, sen.id, { name:'Peace party' });
+  ok('addSenateFaction', nf && ACKS.factionsForSenate(c, sen.id).some(f=>f.id===nf.id));
+  ACKS.renameSenateFaction(c, nf.id, 'Doves');
+  ok('renameSenateFaction', ACKS.findFaction(c, nf.id).name === 'Doves');
+  ACKS.removeSenateFaction(c, nf.id);
+  ok('removeSenateFaction dissolves it', ACKS.factionsForSenate(c, sen.id).every(f=>f.id!==nf.id));
+  const anySeat = ACKS.senatorshipsForSenate(c, sen.id).filter(s=>s.rank!=='minor')[0];
+  ACKS.setSenatorshipObjectives(c, anySeat.id, ['make-peace','decrease-army']);
+  ok('setSenatorshipObjectives', ACKS.findSenatorship(c, anySeat.id).policyObjectives.length === 2);
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

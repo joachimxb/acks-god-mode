@@ -73,7 +73,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-24-tribal"></script>
+<script src="acks-engine-politics.js?v=2026-06-24-named-senate"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-21-b12-lifecycle"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
@@ -7404,30 +7404,111 @@ document.addEventListener('alpine:init', () => {
 
   <template x-if="senateSelected()">
     <div class="space-y-4">
-      <!-- Composition + the derived tally -->
-      <div class="vellum border border-ink rounded p-4">
-        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
-          <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
-            <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateKindLabel(senateSelected()) + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
-          <div class="flex items-center gap-2">
-            <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
-            <button @click="openSenateGen(selectedDomain && selectedDomain.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll / replace this senate via the generator (RR pp.355–360)">⟳ Regenerate</button>
+      <!-- Phase 5 (2026-06-24): ONE "[Domain] Senate" box — the tally + leading senators (each listing
+           their clients) + independent minor senators + factions, all together. ⟳ Regenerate → ✎ Edit Senate. -->
+      <div class="vellum border border-ink rounded p-4 space-y-4">
+        <!-- header + tally -->
+        <div>
+          <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
+            <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
+              <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateKindLabel(senateSelected()) + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
+            <div class="flex items-center gap-2">
+              <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
+              <button @click="openSenateEdit(senateSelected().id)" class="text-xs px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold" title="Edit this senate — retire/add senators, edit factions + objectives, drag clients (RR pp.355–360)">✎ Edit Senate</button>
+            </div>
+          </div>
+          <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+            <div>Total votes (the majority denominator): <strong x-text="senateReadout().totalVotes"></strong>
+              <span class="opacity-60" x-text="'(majority needs ' + (Math.floor(senateReadout().totalVotes/2)+1) + ')'"></span></div>
+            <div>Independent minor votes: <strong x-text="senateReadout().independentVotes"></strong></div>
+            <div>Ruling faction:
+              <span x-text="senateFactionName(senateReadout().rulingFactionId)" :class="senateReadout().rulingFactionId ? 'font-semibold text-green-800' : 'opacity-60'"></span>
+              <span class="opacity-60" x-show="!senateReadout().rulingFactionId">(no majority)</span></div>
+            <div>Leading faction:
+              <span x-text="senateFactionName(senateReadout().leadingFactionId)" :class="senateReadout().leadingFactionId ? 'font-semibold' : 'opacity-60'"></span></div>
+          </div>
+          <!-- Phase 5 — the "one named senator per vote" nudge for a legacy / under-populated senate -->
+          <div x-show="!senateFullyNamed()" class="mt-2 text-xs p-1.5 bg-amber-50 border border-amber-300 rounded flex flex-wrap items-center justify-between gap-2">
+            <span>Not every vote is a named senator yet — some clients / independents are anonymous.</span>
+            <button @click="openSenateEdit(senateSelected().id)" class="px-2 py-0.5 border border-ink rounded bg-amber-200 hover:bg-amber-300 font-semibold">✎ Edit ▸ Populate</button>
           </div>
         </div>
-        <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
-          <div>Total votes (the majority denominator): <strong x-text="senateReadout().totalVotes"></strong>
-            <span class="opacity-60" x-text="'(majority needs ' + (Math.floor(senateReadout().totalVotes/2)+1) + ')'"></span></div>
-          <div>Independent minor votes: <strong x-text="senateReadout().independentVotes"></strong></div>
-          <div>Ruling faction:
-            <span x-text="senateFactionName(senateReadout().rulingFactionId)" :class="senateReadout().rulingFactionId ? 'font-semibold text-green-800' : 'opacity-60'"></span>
-            <span class="opacity-60" x-show="!senateReadout().rulingFactionId">(no majority)</span></div>
-          <div>Leading faction:
-            <span x-text="senateFactionName(senateReadout().leadingFactionId)" :class="senateReadout().leadingFactionId ? 'font-semibold' : 'opacity-60'"></span></div>
+
+        <!-- Leading senators — each card lists the patron + their named clients (RR p.357 patron/client) -->
+        <div class="border-t border-ink/20 pt-3">
+          <h4 class="font-semibold mb-2">Leading senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateLeadingSenatorRows().length"></span></h4>
+          <template x-if="senateLeadingSenatorRows().length === 0">
+            <p class="text-sm italic opacity-60 py-2 text-center">No leading senators seated. Use ✎ Edit Senate ▸ + Leading senator, author one via 🔍 Inspector, or grant an Office favor on this realm.</p>
+          </template>
+          <div class="space-y-2">
+            <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
+              <div class="border border-ink/30 rounded p-2 bg-white/40">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <div class="text-sm">
+                    <span class="font-semibold" x-text="s.name"></span>
+                    <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded bg-amber-200" title="Seated by an Office favor (RR p.355)">📜 office</span>
+                    <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦ bewitched</span>
+                    <span class="text-xs opacity-70 ml-1" x-text="'· ' + s.factionName"></span>
+                    <span class="text-xs ml-1 px-1 rounded bg-stone-200" x-text="s.votes + (s.votes===1 ? ' vote' : ' votes')"></span>
+                    <span class="text-xs opacity-60 ml-1" x-text="'· attitude ' + s.attitude"></span>
+                  </div>
+                  <!-- @b8-politics P-3: standing-influence chips + the 🎯 action + the −5 turn -->
+                  <div class="flex flex-wrap items-center gap-1">
+                    <template x-for="chip in senateSenatorChips(s.id)" :key="chip.key">
+                      <span class="text-xs px-1 rounded" :class="chip.cls" x-text="chip.label"></span>
+                    </template>
+                    <span x-show="senateSenatorChips(s.id).length && senateSenatorSecret(s.id)" class="text-xs opacity-60" title="Secret until revealed (RR p.357)">🤫</span>
+                    <button @click="senateOpenInfluence(s.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Bribe / intimidate / seduce (RR p.358)">🎯</button>
+                    <button x-show="senateSenatorChips(s.id).some(c => c.key==='intimidated')" @click="senateFlipInfluence(s.id, 'intimidated')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The senator escapes the ruler's dominance → −5 (RR p.358)">−5 escaped</button>
+                    <button x-show="senateSenatorChips(s.id).some(c => c.key==='seduced')" @click="senateFlipInfluence(s.id, 'seduced')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The seduced senator is later ill-treated → −5 (RR p.359)">−5 ill-treated</button>
+                  </div>
+                </div>
+                <div class="text-xs opacity-80 mt-0.5" x-show="s.objectives !== '—'"><span class="opacity-60">Objectives:</span> <span x-text="s.objectives.replace(/-/g,' ')"></span></div>
+                <div class="text-xs mt-1">
+                  <span class="opacity-60">Clients:</span>
+                  <template x-if="s.clients.length === 0 && s.unnamedClients === 0"><span class="italic opacity-50 ml-1">none — votes alone</span></template>
+                  <template x-for="cl in s.clients" :key="cl.id"><span class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-200" x-text="cl.name"></span></template>
+                  <span x-show="s.unnamedClients > 0" class="text-amber-700 ml-1" x-text="'+' + s.unnamedClients + ' unnamed'"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Independent minor senators (named, one vote each) -->
+        <div class="border-t border-ink/20 pt-3">
+          <h4 class="font-semibold mb-1">Independent minor senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateIndependentRows().length + senateUnnamedIndependents())"></span></h4>
+          <div class="text-sm">
+            <template x-if="senateIndependentRows().length === 0 && senateUnnamedIndependents() === 0"><span class="italic opacity-50">none — every vote is aligned with a leading senator</span></template>
+            <template x-for="ind in senateIndependentRows()" :key="ind.id"><span class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-stone-100 border border-stone-300 text-xs" x-text="ind.name"></span></template>
+            <span x-show="senateUnnamedIndependents() > 0" class="text-xs text-stone-500 ml-1" x-text="'+' + senateUnnamedIndependents() + (senateUnnamedIndependents()===1 ? ' unnamed vote' : ' unnamed votes')"></span>
+          </div>
+        </div>
+
+        <!-- Factions roster (derived influence + standing) -->
+        <div class="border-t border-ink/20 pt-3">
+          <h4 class="font-semibold mb-2">Factions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateReadout().factions.length"></span></h4>
+          <template x-if="senateReadout().factions.length === 0">
+            <p class="text-sm italic opacity-60 py-1">No factions — every senator votes independently. Add them via ✎ Edit Senate.</p>
+          </template>
+          <template x-if="senateReadout().factions.length > 0">
+            <table class="bookkeeping text-sm w-full">
+              <thead><tr><th>Faction</th><th class="text-right">Influence</th><th>Standing</th></tr></thead>
+              <tbody>
+                <template x-for="f in senateReadout().factions" :key="f.id">
+                  <tr>
+                    <td class="font-semibold" x-text="f.name"></td>
+                    <td class="text-right" x-text="f.influence"></td>
+                    <td><span x-text="f.standing" :class="f.standing === 'ruling' ? 'text-green-800 font-semibold' : f.standing === 'leading' ? 'font-semibold' : 'opacity-60'"></span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
         </div>
       </div>
 
-      <!-- Phase 5 (2026-06-24): the Benefits box was removed; the dispute-resolution controls (RR p.359)
-           are kept here as a standalone card, shown only when the realm is in dispute. -->
+      <!-- Phase 5 (2026-06-24): the dispute-resolution controls (RR p.359), shown only when in dispute. -->
       <template x-if="senateBenefitsView().inDispute">
         <div class="border border-red-400 bg-red-50 rounded p-2 mb-2 text-sm">
           ⚠ The realm is <strong>in dispute</strong> over <em x-text="senateSelected().dispute.defiedTopic"></em>
@@ -7442,66 +7523,6 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
       </template>
-
-      <!-- Leading senators (the dossier — where an Office-seated senator appears) -->
-      <div class="vellum border border-ink rounded p-4">
-        <h3 class="font-bold text-lg mb-2">Leading senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateLeadingSenatorRows().length"></span></h3>
-        <template x-if="senateLeadingSenatorRows().length === 0">
-          <p class="text-sm italic opacity-60 py-2 text-center">No leading senators seated. Author them via 🔍 Inspector ▸ Create ▸ Senatorship, or grant an Office favor on this realm.</p>
-        </template>
-        <template x-if="senateLeadingSenatorRows().length > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th><th>Influence</th></tr></thead>
-            <tbody>
-              <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
-                <tr>
-                  <td class="font-semibold"><span x-text="s.name"></span>
-                    <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded bg-amber-200" title="Seated by an Office favor (RR p.355)">📜 office</span>
-                    <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦ bewitched</span></td>
-                  <td x-text="s.factionName"></td>
-                  <td class="text-right" x-text="s.votes"></td>
-                  <td class="text-xs opacity-80" x-text="s.objectives"></td>
-                  <td x-text="s.attitude"></td>
-                  <!-- @b8-politics P-3: standing-influence chips + the 🎯 action + the −5 turn -->
-                  <td>
-                    <div class="flex flex-wrap items-center gap-1">
-                      <template x-for="chip in senateSenatorChips(s.id)" :key="chip.key">
-                        <span class="text-xs px-1 rounded" :class="chip.cls" x-text="chip.label"></span>
-                      </template>
-                      <span x-show="senateSenatorChips(s.id).length && senateSenatorSecret(s.id)" class="text-xs opacity-60" title="Secret until revealed (RR p.357)">🤫</span>
-                      <button @click="senateOpenInfluence(s.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Bribe / intimidate / seduce (RR p.358)">🎯</button>
-                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='intimidated')" @click="senateFlipInfluence(s.id, 'intimidated')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The senator escapes the ruler's dominance → −5 (RR p.358)">−5 escaped</button>
-                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='seduced')" @click="senateFlipInfluence(s.id, 'seduced')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The seduced senator is later ill-treated → −5 (RR p.359)">−5 ill-treated</button>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
-
-      <!-- Factions roster (derived influence + standing) -->
-      <div class="vellum border border-ink rounded p-4">
-        <h3 class="font-bold text-lg mb-2">Factions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateReadout().factions.length"></span></h3>
-        <template x-if="senateReadout().factions.length === 0">
-          <p class="text-sm italic opacity-60 py-2 text-center">No factions. Add them via 🔍 Inspector ▸ Create ▸ Faction (senateId = this senate), then seat leading senators in them.</p>
-        </template>
-        <template x-if="senateReadout().factions.length > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th>Faction</th><th class="text-right">Influence</th><th>Standing</th></tr></thead>
-            <tbody>
-              <template x-for="f in senateReadout().factions" :key="f.id">
-                <tr>
-                  <td class="font-semibold" x-text="f.name"></td>
-                  <td class="text-right" x-text="f.influence"></td>
-                  <td><span x-text="f.standing" :class="f.standing === 'ruling' ? 'text-green-800 font-semibold' : f.standing === 'leading' ? 'font-semibold' : 'opacity-60'"></span></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
 
 
       <!-- @b9-politics P-5 (burst9): the 📜 Motions card — the guided Senate Wizard launcher + the
@@ -18495,6 +18516,135 @@ document.addEventListener('alpine:init', () => {
     </template>
   </div>
 </div>
+
+<!-- ═══════════ Phase 5 (2026-06-24) — ✎ EDIT SENATE modal (in-place editor; replaces ⟳ Regenerate) ═══════════
+     Edits the LIVE senate: retire/add leading senators, edit their factions + policy objectives, add/remove/
+     rename factions, add independent minor senators, and DRAG-AND-DROP a client/independent between patrons
+     and the independent pool. All over the canonical engine verbs (votes mirrors stay in sync). -->
+<div x-show="senateEdit.open" @keydown.escape.window="if(senateEdit.open && !$event.defaultPrevented){ closeSenateEdit(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSenateEdit()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">✎ Edit <span x-text="senateEditName()"></span> <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <button @click="closeSenateEdit()" class="text-xl px-2">×</button>
+    </div>
+    <p class="text-sm opacity-70">Each vote is a named senator. A leading senator's bloc is the patron plus their <strong>clients</strong>; the rest are <strong>independent minor senators</strong>. Drag a client or independent between leading senators (or to/from the independent pool) to re-align them; the vote tallies follow.</p>
+
+    <template x-if="senateEditSenate()">
+      <div class="space-y-3">
+        <!-- Populate (legacy / under-populated senate → name every vote) -->
+        <div x-show="!senateEditFullyNamed()" class="text-xs p-2 bg-amber-50 border border-amber-300 rounded flex flex-wrap items-center justify-between gap-2">
+          <span>Some votes are still anonymous (unnamed clients / independents). Populate them into named senators to enable drag-and-drop.</span>
+          <button @click="senateEditPopulate()" class="px-2 py-0.5 border border-ink rounded bg-amber-200 hover:bg-amber-300 font-semibold whitespace-nowrap">👥 Populate named senators</button>
+        </div>
+
+        <!-- Leading senators -->
+        <div class="border border-ink rounded p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold text-sm">Leading senators <span class="opacity-60 font-normal" x-text="'· ' + senateEditLeadingRows().length"></span></div>
+            <button @click="senateEditAddLeading()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">+ Leading senator</button>
+          </div>
+          <template x-if="senateEditLeadingRows().length === 0"><p class="text-xs italic opacity-50 py-1">none — add one above</p></template>
+          <div class="space-y-2">
+            <template x-for="s in senateEditLeadingRows()" :key="s.id">
+              <div class="border border-ink/40 rounded p-2 bg-white/50"
+                   @dragover.prevent @drop="senateDropOnPatron(s.id)"
+                   :class="senateEdit.dragCharId ? 'ring-2 ring-green-400 ring-offset-1' : ''">
+                <div class="flex flex-wrap items-center gap-2 mb-1">
+                  <input type="text" :value="s.name" @change="senateEditRenameSenator(s.characterId, $event.target.value)" class="w-36 border border-ink rounded px-1 py-0.5 text-sm font-semibold" title="Rename this senator">
+                  <span class="text-xs px-1 rounded bg-stone-200" x-text="s.votes + (s.votes===1 ? ' vote' : ' votes')"></span>
+                  <select class="border border-ink rounded px-1 py-0.5 text-xs" @change="senateEditSetFaction(s.id, $event.target.value)">
+                    <option value="" :selected="!s.factionId">(no faction)</option>
+                    <template x-for="f in senateEditFactions()" :key="f.id"><option :value="f.id" :selected="s.factionId === f.id" x-text="f.name"></option></template>
+                  </select>
+                  <button @click="senateEditRetire(s.id)" class="ml-auto text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-red-100" title="Retire this senator — their clients become independents">retire</button>
+                </div>
+                <!-- objectives -->
+                <div class="text-xs mb-1 flex flex-wrap items-center gap-1">
+                  <span class="opacity-60">Objectives:</span>
+                  <template x-for="o in s.objectives" :key="o">
+                    <span class="inline-flex items-center gap-1 px-1 rounded bg-blue-50 border border-blue-200">
+                      <span x-text="senObjLabel(o)"></span>
+                      <button @click="senateEditToggleObjective(s.id, o)" class="opacity-60 hover:opacity-100" title="remove">×</button>
+                    </span>
+                  </template>
+                  <select class="border border-ink rounded px-1 text-xs" @change="if($event.target.value){ senateEditToggleObjective(s.id, $event.target.value); $event.target.value=''; }">
+                    <option value="">+ add…</option>
+                    <template x-for="o in senateEditObjectiveOptions()" :key="o"><option x-show="s.objectives.indexOf(o) < 0" :value="o" x-text="senObjLabel(o)"></option></template>
+                  </select>
+                </div>
+                <!-- clients drop zone -->
+                <div class="text-xs">
+                  <span class="opacity-60">Clients (drag here):</span>
+                  <template x-if="s.clients.length === 0 && s.unnamedClients === 0"><span class="italic opacity-50 ml-1">none</span></template>
+                  <template x-for="cl in s.clients" :key="cl.id">
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-300 cursor-grab"
+                          draggable="true" @dragstart="senateDragStart(cl.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', cl.id)" @dragend="senateDragEnd()">
+                      <span x-text="cl.name"></span>
+                      <button @click="senateEditRemoveSenator(cl.id)" class="opacity-60 hover:opacity-100" title="remove from the senate">×</button>
+                    </span>
+                  </template>
+                  <span x-show="s.unnamedClients > 0" class="text-amber-700 ml-1" x-text="'+' + s.unnamedClients + ' unnamed'"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Independent minor senators (drop zone) -->
+        <div class="border border-ink rounded p-3"
+             @dragover.prevent @drop="senateDropOnIndependent()"
+             :class="senateEdit.dragCharId ? 'ring-2 ring-green-400 ring-offset-1' : ''">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div class="font-semibold text-sm">Independent minor senators <span class="opacity-60 font-normal" x-text="'· ' + (senateEditIndependentRows().length + senateEditUnnamedIndependents())"></span></div>
+            <div class="flex items-center gap-1">
+              <input type="number" min="1" max="20" x-model.number="senateEdit.addIndepCount" class="w-14 border border-ink rounded px-1 py-0.5 text-sm">
+              <button @click="senateEditAddIndependents()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">+ Independent(s)</button>
+            </div>
+          </div>
+          <div>
+            <template x-if="senateEditIndependentRows().length === 0 && senateEditUnnamedIndependents() === 0"><span class="text-xs italic opacity-50">none — drag a client here to free them</span></template>
+            <template x-for="ind in senateEditIndependentRows()" :key="ind.id">
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-stone-100 border border-stone-300 text-xs cursor-grab"
+                    draggable="true" @dragstart="senateDragStart(ind.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', ind.id)" @dragend="senateDragEnd()">
+                <span x-text="ind.name"></span>
+                <button @click="senateEditRemoveSenator(ind.id)" class="opacity-60 hover:opacity-100" title="remove from the senate">×</button>
+              </span>
+            </template>
+            <span x-show="senateEditUnnamedIndependents() > 0" class="text-xs text-stone-500 ml-1" x-text="'+' + senateEditUnnamedIndependents() + ' unnamed — Populate to name'"></span>
+          </div>
+        </div>
+
+        <!-- Factions -->
+        <div class="border border-ink rounded p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold text-sm">Factions <span class="opacity-60 font-normal" x-text="'· ' + senateEditFactions().length"></span></div>
+            <button @click="senateEditAddFaction()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-green-100">+ Add faction</button>
+          </div>
+          <template x-for="f in senateEditFactions()" :key="f.id">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-0.5">
+              <span class="inline-flex items-center gap-2">
+                <input type="text" :value="f.name" @change="senateEditRenameFaction(f.id, $event.target.value)" class="w-44 border border-ink rounded px-1 py-0.5 text-sm" placeholder="faction name">
+                <span class="text-xs opacity-60" x-text="'(' + f.members + ' leading · ' + f.influence + ' votes)'"></span>
+              </span>
+              <span class="inline-flex items-center gap-2 text-xs">
+                <span class="px-1 rounded" :class="f.standing==='ruling'?'bg-purple-200':(f.standing==='leading'?'bg-blue-100':'bg-stone-100')" x-text="f.standing"></span>
+                <button @click="senateEditRemoveFaction(f.id)" class="px-1.5 py-0.5 border border-ink rounded hover:bg-red-100" title="remove this faction (its senators become independent-of-faction)">×</button>
+              </span>
+            </div>
+          </template>
+          <template x-if="senateEditFactions().length === 0"><div class="text-xs italic opacity-50">no factions — all senators vote independently</div></template>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <button @click="openSenateGen(senateEditSenate().realmDomainId)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Discard and re-roll this senate from scratch via the generator">↻ Regenerate from scratch…</button>
+          <button @click="closeSenateEdit()" class="px-4 py-1.5 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-sm">Done</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- === @b11-delves     (team) — D5 settlement off-screen: the SettlementVisit launcher/result modal + the urban-incident panel (World ▸ 🕳️ Dungeons / a settlement view) === -->
 <!-- A floating launcher on the World ▸ 🕳️ Dungeons sub-view (the lane extends that view via this marker
      region; it adds no top-level tab). Opens the off-screen Settlement-Visit panel (JJ ch.3). -->
@@ -19562,8 +19712,8 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<script src="domain-app.js?v=2026-06-24-motion-split"></script>
-<script src="domain-app-burst5.js?v=2026-06-23-t5-burst5"></script>
+<script src="domain-app.js?v=2026-06-24-named-senate"></script>
+<script src="domain-app-burst5.js?v=2026-06-24-named-senate"></script>
 <script src="domain-app-military-w7.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-mounts.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-voyages.js?v=2026-06-23-t5-tail"></script>

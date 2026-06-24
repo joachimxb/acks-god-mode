@@ -95,6 +95,11 @@
         bribeCostDay: 0, bribeCostWeek: 0, bribeCostMonth: 0, bribeCostYear: 0
       },
       independentMinorSenatorVotes: (opts.independentMinorSenatorVotes != null) ? opts.independentMinorSenatorVotes : 0,
+      // Phase 5 (2026-06-24) — the NAMED independent minor senators (Character refs, one vote each).
+      // independentMinorSenatorVotes (above) stays the canonical vote count; this is its named backing
+      // list, kept in sync by _reconcileSenateIndependents (rule #10) once the senate is "populated".
+      // Absent / shorter than the count ⇒ the unnamed remainder is anonymous (legacy / not yet populated).
+      independentSenatorCharacterIds: Array.isArray(opts.independentSenatorCharacterIds) ? opts.independentSenatorCharacterIds.slice() : [],
       establishedAtTurn: (opts.establishedAtTurn != null) ? opts.establishedAtTurn : null,
       honeymoonUntilTurn: (opts.honeymoonUntilTurn != null) ? opts.honeymoonUntilTurn : null, // RR p.357 1d6-mo all-vote-for window
       dispute: opts.dispute || null,                             // null | { defiedTopic, sinceTurn, attempts }
@@ -134,6 +139,11 @@
       rank: opts.rank || 'leading',                             // leading (named NPC) | minor
       votes: (opts.votes != null) ? opts.votes : 0,             // influence (the votes this seat controls)
       factionId: opts.factionId || null,                        // nullable (independent leading senator)
+      // Phase 5 (2026-06-24) — the NAMED clients (Character refs) who vote with this leading senator
+      // (RR's patron/client model). Once populated, votes = 1 (the patron) + clientCharacterIds.length,
+      // kept in sync by _reconcileLeadingVotes (rule #10). Absent / shorter than votes-1 ⇒ the bloc has
+      // an unnamed remainder (legacy / hand-authored / not yet populated). Only 'leading' seats bear clients.
+      clientCharacterIds: Array.isArray(opts.clientCharacterIds) ? opts.clientCharacterIds.slice() : [],
       policyObjectives: Array.isArray(opts.policyObjectives) ? opts.policyObjectives.slice() : [], // 1d3 objective keys
       attitudeTowardRuler: (opts.attitudeTowardRuler != null) ? opts.attitudeTowardRuler : 7,      // 2–12 running disposition
       isSecretInfluence: (opts.isSecretInfluence != null) ? !!opts.isSecretInfluence : true,       // RAW: secret until revealed
@@ -2193,6 +2203,292 @@
       senatorships, plan };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Phase 5 (2026-06-24) — the NAMED senate composition: one named senator per vote.
+  //   A leading senator's bloc = the patron (1 vote) + their clients (the patron/client
+  //   model, RR p.357 "influence"). Each vote is a real Character; the non-leading voters
+  //   are either a leading senator's clients or independent minor senators. The shipped
+  //   voting engine is untouched — `votes` stays the bloc size and `independentMinorSenator-
+  //   Votes` stays the anonymous count; these verbs name the bodies behind those numbers and
+  //   keep the two mirrors in sync (rule #10). Stub senators are minted lightweight + expandable
+  //   (ACKS.expandCharacterToFull) — a senate can be many bodies, and a minor senator is a name.
+  //   NO new entity/prefix/collection/event/house-rule/migration (the two named lists are
+  //   additive defensive-read fields on the existing senate/senatorship factories).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Canonical setters (rule #10) — call ONLY once the named list is authoritative (post-populate):
+  // a leading seat's votes = 1 (patron) + its named clients; the senate's independent vote count = its
+  // named independents. Move/add/remove/retire reconcile through these; populate fills the lists to the
+  // existing counts (so it does NOT call these — it leaves the rolled vote counts as authoritative).
+  function _reconcileLeadingVotes(seat){
+    if(!seat) return seat;
+    if(!Array.isArray(seat.clientCharacterIds)) seat.clientCharacterIds = [];
+    seat.votes = 1 + seat.clientCharacterIds.length;
+    return seat;
+  }
+  function _reconcileSenateIndependents(senate){
+    if(!senate) return senate;
+    if(!Array.isArray(senate.independentSenatorCharacterIds)) senate.independentSenatorCharacterIds = [];
+    senate.independentMinorSenatorVotes = senate.independentSenatorCharacterIds.length;
+    return senate;
+  }
+
+  // A senate is "fully named" when every leading seat's clients fill its bloc (votes-1) AND the named
+  // independents fill the independent vote count — i.e. one named senator per vote. The UI gates client-
+  // level editing (drag-drop / add / retire) on this; a legacy/under-populated senate shows Populate first.
+  function senateIsFullyNamed(campaign, senate){
+    if(!senate) return false;
+    const seats = senatorshipsForSenate(campaign, senate.id).filter(s => s.rank !== 'minor');
+    for(const s of seats){
+      const clients = Array.isArray(s.clientCharacterIds) ? s.clientCharacterIds.length : 0;
+      if(clients < Math.max(0, (Number(s.votes) || 1) - 1)) return false;
+    }
+    const named = Array.isArray(senate.independentSenatorCharacterIds) ? senate.independentSenatorCharacterIds.length : 0;
+    return named >= (Number(senate.independentMinorSenatorVotes) || 0);
+  }
+
+  // A small fallback name pool (only used in a headless context with no generator loaded; the live app
+  // always has acks-engine-generators.js by call time → real generated names).
+  const _STUB_SENATOR_NAMES = Object.freeze(['Aelius','Brenna','Cassia','Doran','Elara','Faustus','Gaius','Hella',
+    'Ildric','Junia','Karis','Lucan','Mara','Nerio','Ovidia','Petra','Quentin','Rufus','Sabina','Tullia','Varro','Wynne']);
+  function _stubName(seed){
+    const h = (typeof _polHash32 === 'function') ? _polHash32(String(seed || 'senator')) : 0;
+    return _STUB_SENATOR_NAMES[Math.abs(h) % _STUB_SENATOR_NAMES.length] + ' the Younger';
+  }
+
+  // Mint ONE minor senator (a client or an independent) as a lightweight, expandable Character homed to
+  // the realm. Prefers the SHIPPED NPC generator (real name/class/level) but PROPOSES + pushes WITHOUT
+  // landing — so it emits NO per-stub `generation` event (a senate of N would otherwise flood the log).
+  // Late-bound off global.ACKS (generators.js loads after politics.js). Falls back to a bare blankCharacter
+  // (entities.js) in a headless context. Returns the Character or null.
+  function _mintSenatorStub(campaign, apex, opts){
+    opts = opts || {};
+    const A = _A();
+    if(!Array.isArray(campaign.characters)) campaign.characters = [];
+    let ch = null;
+    if(typeof A.generateNPC === 'function'){
+      try {
+        const prop = A.generateNPC(campaign,
+          { targetLevel: Math.max(1, Number(opts.level) || 1), domainId: apex ? apex.id : null,
+            socialTier: 'independent', controlledBy: 'gm', placementRole: 'domain-npc' },
+          { detailLevel: 'lightweight', seed: opts.seed });
+        if(prop && prop.character) ch = prop.character;
+      } catch(e){ ch = null; }
+    }
+    if(!ch && typeof A.blankCharacter === 'function'){
+      ch = A.blankCharacter({ name: _stubName(opts.seed), level: Math.max(1, Number(opts.level) || 1),
+        detailLevel: 'lightweight', socialTier: 'independent', controlledBy: 'gm' });
+    }
+    if(!ch || !ch.id) return null;
+    if(opts.name) ch.name = opts.name;
+    if(apex && !ch.currentDomainId) ch.currentDomainId = apex.id;
+    ch.placementRole = ch.placementRole || 'domain-npc';
+    if(!campaign.characters.some(x => x && x.id === ch.id)) campaign.characters.push(ch);
+    return ch;
+  }
+
+  // POPULATE — name every vote (idempotent; fills only the gap). For each leading senator mint (votes-1
+  // − existing clients) client stubs; mint (independentMinorSenatorVotes − existing named) independent
+  // stubs. Leaves the rolled vote COUNTS authoritative (does not reconcile down on a mint shortfall — a
+  // shortfall just leaves an unnamed remainder the UI shows). Returns { ok, clientsMinted, independentsMinted }.
+  function populateNamedSenators(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = (opts.senate && opts.senate.id) ? opts.senate : findSenate(campaign, senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const base = (typeof _polHash32 === 'function') ? _polHash32((apex ? apex.id : 'x') + '|pop|' + senate.id) : 1;
+    let clientsMinted = 0, independentsMinted = 0;
+    senatorshipsForSenate(campaign, senate.id).filter(s => s.rank !== 'minor').forEach((seat, si) => {
+      if(!Array.isArray(seat.clientCharacterIds)) seat.clientCharacterIds = [];
+      const want = Math.max(0, (Number(seat.votes) || 1) - 1);
+      for(let k = seat.clientCharacterIds.length; k < want; k++){
+        const ch = _mintSenatorStub(campaign, apex, { level: senate.minSenatorLevel, seed: base + '|c|' + si + '|' + k });
+        if(ch){ seat.clientCharacterIds.push(ch.id); clientsMinted++; }
+      }
+    });
+    if(!Array.isArray(senate.independentSenatorCharacterIds)) senate.independentSenatorCharacterIds = [];
+    const wantInd = Math.max(0, Number(senate.independentMinorSenatorVotes) || 0);
+    for(let k = senate.independentSenatorCharacterIds.length; k < wantInd; k++){
+      const ch = _mintSenatorStub(campaign, apex, { level: senate.minSenatorLevel || 1, seed: base + '|i|' + k });
+      if(ch){ senate.independentSenatorCharacterIds.push(ch.id); independentsMinted++; }
+    }
+    if(clientsMinted || independentsMinted){
+      if(!Array.isArray(senate.history)) senate.history = [];
+      senate.history.push({ turn: campaign.currentTurn || 1, type: 'senators-named', clientsMinted, independentsMinted });
+    }
+    return { ok:true, clientsMinted, independentsMinted };
+  }
+
+  // Where does a character currently sit in a senate? → { where:'client', seat } | { where:'independent' }
+  // | { where:'leading', seat } | null. The drag-drop / remove primitives resolve the source via this.
+  function _locateSenator(campaign, senate, characterId){
+    if(!senate || !characterId) return null;
+    for(const s of senatorshipsForSenate(campaign, senate.id)){
+      if(s.senatorCharacterId === characterId && s.rank !== 'minor') return { where:'leading', seat: s };
+      if(Array.isArray(s.clientCharacterIds) && s.clientCharacterIds.indexOf(characterId) >= 0) return { where:'client', seat: s };
+    }
+    if(Array.isArray(senate.independentSenatorCharacterIds) && senate.independentSenatorCharacterIds.indexOf(characterId) >= 0)
+      return { where:'independent' };
+    return null;
+  }
+
+  // MOVE a client/independent senator (the drag-drop primitive): detach from wherever they are and attach
+  // to the destination — `to` = a leading senatorship id (becomes its client) | 'independent'. Reconciles
+  // the affected vote mirrors. Refuses to move a LEADING senator (use retireLeadingSenator). Idempotent
+  // (a no-op move returns ok). Returns { ok, from, to } | { ok:false, reason }.
+  function moveSenatorClient(campaign, opts){
+    opts = opts || {};
+    const senate = (opts.senate && opts.senate.id) ? opts.senate : findSenate(campaign, opts.senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const charId = opts.characterId;
+    const loc = _locateSenator(campaign, senate, charId);
+    if(!loc) return { ok:false, reason:'not-in-senate' };
+    if(loc.where === 'leading') return { ok:false, reason:'is-leading' };   // retire, don't drag
+    const toIndependent = (opts.to === 'independent' || opts.toIndependent === true);
+    const destSeat = toIndependent ? null : (findSenatorship(campaign, opts.to || opts.toPatronSeatId));
+    if(!toIndependent && (!destSeat || destSeat.senateId !== senate.id || destSeat.rank === 'minor'))
+      return { ok:false, reason:'bad-destination' };
+    // detach from source
+    if(loc.where === 'client'){
+      loc.seat.clientCharacterIds = (loc.seat.clientCharacterIds || []).filter(id => id !== charId);
+      _reconcileLeadingVotes(loc.seat);
+    } else { // independent
+      senate.independentSenatorCharacterIds = (senate.independentSenatorCharacterIds || []).filter(id => id !== charId);
+    }
+    // attach to destination
+    if(toIndependent){
+      if(!Array.isArray(senate.independentSenatorCharacterIds)) senate.independentSenatorCharacterIds = [];
+      if(senate.independentSenatorCharacterIds.indexOf(charId) < 0) senate.independentSenatorCharacterIds.push(charId);
+    } else {
+      if(!Array.isArray(destSeat.clientCharacterIds)) destSeat.clientCharacterIds = [];
+      if(destSeat.clientCharacterIds.indexOf(charId) < 0) destSeat.clientCharacterIds.push(charId);
+      _reconcileLeadingVotes(destSeat);
+    }
+    _reconcileSenateIndependents(senate);
+    return { ok:true, from: loc.where, to: toIndependent ? 'independent' : destSeat.id };
+  }
+
+  // ADD a fresh leading senator (Edit Senate ▸ + Leading senator): mint a lightweight, expandable senator
+  // Character + seat them (votes 1, no clients yet) in the optional faction. Returns the senatorship | null.
+  function addLeadingSenator(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, senateId);
+    if(!senate) return null;
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const turn = campaign.currentTurn || 1;
+    let charId = opts.characterId || null;
+    if(!charId){
+      const ch = _mintSenatorStub(campaign, apex, { level: senate.minSenatorLevel || 1, name: opts.name || null,
+        seed: ((typeof _polHash32==='function')?_polHash32(senate.id+'|add-leading|'+((senate.history||[]).length)):1) });
+      if(!ch) return null;
+      charId = ch.id;
+    }
+    const seat = blankSenatorship({ senatorCharacterId: charId, senateId: senate.id, rank: 'leading', votes: 1,
+      factionId: opts.factionId || null, policyObjectives: Array.isArray(opts.policyObjectives) ? opts.policyObjectives.slice() : [],
+      seatedAtTurn: turn, history: [{ turn, type: 'added-leading' }] });
+    if(!Array.isArray(campaign.senatorships)) campaign.senatorships = [];
+    campaign.senatorships.push(seat);
+    return seat;
+  }
+
+  // RETIRE a leading senator (Edit Senate ▸ retire): vacate the seat; its clients become independent minor
+  // senators (they keep voting; the patron's own vote leaves the senate). Returns the vacated seat | null.
+  function retireLeadingSenator(campaign, seatId, opts){
+    opts = opts || {};
+    const seat = findSenatorship(campaign, seatId);
+    if(!seat || seat.rank === 'minor') return null;
+    const senate = findSenate(campaign, seat.senateId);
+    const turn = campaign.currentTurn || 1;
+    const clients = Array.isArray(seat.clientCharacterIds) ? seat.clientCharacterIds.slice() : [];
+    if(senate && clients.length){
+      if(!Array.isArray(senate.independentSenatorCharacterIds)) senate.independentSenatorCharacterIds = [];
+      clients.forEach(id => { if(senate.independentSenatorCharacterIds.indexOf(id) < 0) senate.independentSenatorCharacterIds.push(id); });
+      _reconcileSenateIndependents(senate);
+    }
+    seat.clientCharacterIds = [];
+    seat.status = 'vacated';
+    seat.vacatedAtTurn = turn;
+    if(!Array.isArray(seat.history)) seat.history = [];
+    seat.history.push({ turn, type: 'retired', clientsReleased: clients.length });
+    return seat;
+  }
+
+  // ADD independent minor senators (Edit Senate ▸ + Independent): mint `count` lightweight senators into
+  // the named-independent list + reconcile the count. Returns { ok, minted }.
+  function addIndependentSenators(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const count = Math.max(1, Math.round(Number(opts.count) || 1));
+    if(!Array.isArray(senate.independentSenatorCharacterIds)) senate.independentSenatorCharacterIds = [];
+    let minted = 0;
+    const base = (typeof _polHash32==='function') ? _polHash32(senate.id+'|add-ind|'+senate.independentSenatorCharacterIds.length) : 1;
+    for(let k = 0; k < count; k++){
+      const ch = _mintSenatorStub(campaign, apex, { level: senate.minSenatorLevel || 1, seed: base + '|' + k });
+      if(ch){ senate.independentSenatorCharacterIds.push(ch.id); minted++; }
+    }
+    _reconcileSenateIndependents(senate);
+    return { ok:true, minted };
+  }
+
+  // REMOVE a client/independent senator from the senate entirely (Edit Senate ▸ ×). Un-seats the vote;
+  // the Character persists (a realm NPC — delete via Inspector if unwanted). Refuses a leading senator.
+  function removeSenatorFromSenate(campaign, opts){
+    opts = opts || {};
+    const senate = (opts.senate && opts.senate.id) ? opts.senate : findSenate(campaign, opts.senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const loc = _locateSenator(campaign, senate, opts.characterId);
+    if(!loc || loc.where === 'leading') return { ok:false, reason: loc ? 'is-leading' : 'not-in-senate' };
+    if(loc.where === 'client'){
+      loc.seat.clientCharacterIds = (loc.seat.clientCharacterIds || []).filter(id => id !== opts.characterId);
+      _reconcileLeadingVotes(loc.seat);
+    } else {
+      senate.independentSenatorCharacterIds = (senate.independentSenatorCharacterIds || []).filter(id => id !== opts.characterId);
+      _reconcileSenateIndependents(senate);
+    }
+    return { ok:true, from: loc.where };
+  }
+
+  // ── Faction edits (Edit Senate) — add / remove (members go independent-of-faction) / rename ──
+  function addSenateFaction(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, senateId);
+    if(!senate) return null;
+    const fac = blankFaction({ name: opts.name || 'New faction', platform: opts.platform || '',
+      senateId: senate.id, realmDomainId: senate.realmDomainId || null,
+      policyObjectives: Array.isArray(opts.policyObjectives) ? opts.policyObjectives.slice() : [] });
+    if(!Array.isArray(campaign.factions)) campaign.factions = [];
+    campaign.factions.push(fac);
+    return fac;
+  }
+  function removeSenateFaction(campaign, factionId){
+    const fac = findFaction(campaign, factionId);
+    if(!fac) return null;
+    senatorshipsInFaction(campaign, factionId).forEach(s => { s.factionId = null; });
+    fac.status = 'dissolved';
+    return fac;
+  }
+  function renameSenateFaction(campaign, factionId, name){
+    const fac = findFaction(campaign, factionId);
+    if(!fac) return null;
+    fac.name = (name == null) ? fac.name : String(name);
+    return fac;
+  }
+  // Thin senatorship setters (Edit Senate) — faction reassignment + the policy-objective edit.
+  function setSenatorshipFaction(campaign, seatId, factionId){
+    const seat = findSenatorship(campaign, seatId);
+    if(!seat) return null;
+    seat.factionId = factionId || null;
+    return seat;
+  }
+  function setSenatorshipObjectives(campaign, seatId, objectives){
+    const seat = findSenatorship(campaign, seatId);
+    if(!seat) return null;
+    seat.policyObjectives = Array.isArray(objectives) ? objectives.slice() : [];
+    return seat;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
@@ -2228,7 +2524,11 @@
     // === Politics P-7 wizard (burst11) === — the generative Senate-Materialization Wizard
     SENATE_SIZE_BANDS, SENATE_CHARACTERISTICS, REQUIREMENTS_OF_OFFICE,
     senateSizeBandForFamilies, senateCharacteristicsForSeats, requirementsOfOfficeForLevel,
-    senateMaterializeCandidates, proposeSenateMaterialization, materializeSenate
+    senateMaterializeCandidates, proposeSenateMaterialization, materializeSenate,
+    // Phase 5 (2026-06-24) — the named-senator composition (one named senator per vote) + Edit Senate verbs
+    senateIsFullyNamed, populateNamedSenators,
+    moveSenatorClient, addLeadingSenator, retireLeadingSenator, addIndependentSenators, removeSenatorFromSenate,
+    addSenateFaction, removeSenateFaction, renameSenateFaction, setSenatorshipFaction, setSenatorshipObjectives
   });
 
 })(typeof window !== 'undefined' ? window : global);

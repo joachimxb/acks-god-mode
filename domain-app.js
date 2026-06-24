@@ -1971,12 +1971,17 @@ const _component = {
     const A = window.ACKS, c = this.currentCampaign;
     if(!c || !this.senGen.plan){ this.showToast('No senate plan to materialize.', 4000, 'warn'); return; }
     const r = A.materializeSenate(c, { domainId: this.senGen.apexId, plan: this.senGen.plan, replace: this.senGen.replace });
+    // Phase 5 — name every vote: mint the client + independent senator stubs so each vote is a named
+    // Character (the patron/client model). New senates land fully named; legacy ones use Edit ▸ Populate.
+    let named = null;
+    if(r && r.ok && A.populateNamedSenators) named = A.populateNamedSenators(c, r.senate.id);
     this.markDirty(); this.schedulePersist();
     if(r && r.ok){
       this.senGen.open = false;
       this.currentView = 'domains'; this.domainsSubView = 'domains'; this.selectedDomainId = this.senGen.apexId; this.activeTab = 'senate';   // Phase 5 — jump to the apex's Senate tab
       this.senateSelectedId = r.senate.id;
-      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + '.', 6000);
+      const extra = (named && (named.clientsMinted || named.independentsMinted)) ? (' · ' + ((named.clientsMinted||0) + (named.independentsMinted||0)) + ' minor senators named') : '';
+      this.showToast('🏛 A ' + r.senate.seats + '-seat senate is convened — ' + r.senatorships.length + ' leading senators in ' + r.factions.length + ' faction' + (r.factions.length===1?'':'s') + extra + '.', 6000);
     } else {
       const why = (r && r.reason) === 'senate-exists' ? 'a senate already governs this realm (tick Replace to convene a new one)' : ((r && r.reason) || 'error');
       this.showToast('Could not materialize the senate: ' + why, 5000, 'warn');
@@ -1991,6 +1996,91 @@ const _component = {
     const fams = (typeof A.realmFamiliesForDomain === 'function') ? (Number(A.realmFamiliesForDomain(c, apex)) || 0) : 0;
     const band = A.senateSizeBandForFamilies(fams) || {};
     return { families: fams, minSeats: band.minSeats || 0, maxSeats: band.maxSeats || 0 };
+  },
+
+  // ════════ Phase 5 (2026-06-24) — Edit Senate (the in-place editor that replaces ⟳ Regenerate) ════════
+  // Edits the LIVE senate entities (not a generator plan): retire/add leading senators, add/remove/rename
+  // factions, edit a leading senator's policy objectives + faction, add independent minor senators, and
+  // drag-and-drop a client/independent between patrons + the independent pool. All over the canonical
+  // engine verbs (acks-engine-politics.js) so the vote mirrors stay in sync.
+  senateEdit: { open:false, senateId:null, dragCharId:null, addIndepCount:1, objSeatId:null },
+  openSenateEdit(senateId){
+    const s = senateId ? window.ACKS.findSenate(this.currentCampaign, senateId) : this.senateSelected();
+    if(!s){ this.showToast('No senate to edit.', 3500, 'warn'); return; }
+    this.senateEdit = { open:true, senateId:s.id, dragCharId:null, addIndepCount:1, objSeatId:null };
+  },
+  closeSenateEdit(){ this.senateEdit.open = false; this.senateEdit.dragCharId = null; this.senateEdit.objSeatId = null; },
+  senateEditSenate(){ const A=window.ACKS,c=this.currentCampaign; return (A&&c&&this.senateEdit.senateId)?A.findSenate(c,this.senateEdit.senateId):null; },
+  senateEditName(){ const s=this.senateEditSenate(); return s?(s.name||s.id):'—'; },
+  // the live leading senators (with named clients) for the editor
+  senateEditLeadingRows(){
+    const A=window.ACKS, c=this.currentCampaign, sen=this.senateEditSenate(); if(!A||!c||!sen) return [];
+    return (A.senatorshipsForSenate(c,sen.id)||[]).filter(s=>s.rank!=='minor').sort((a,b)=>(b.votes||0)-(a.votes||0)).map(s=>{
+      const f = s.factionId ? A.findFaction(c,s.factionId) : null;
+      return { id:s.id, characterId:s.senatorCharacterId, name:this._senCharName(s.senatorCharacterId),
+        factionId:s.factionId||null, factionName:f?(f.name||f.id):'—', votes:s.votes||0,
+        objectives:Array.isArray(s.policyObjectives)?s.policyObjectives.slice():[],
+        clients:(Array.isArray(s.clientCharacterIds)?s.clientCharacterIds:[]).map(id=>({id,name:this._senCharName(id)})),
+        unnamedClients: Math.max(0,(s.votes||1)-1-(Array.isArray(s.clientCharacterIds)?s.clientCharacterIds.length:0)) };
+    });
+  },
+  senateEditIndependentRows(){
+    const sen=this.senateEditSenate(); if(!sen) return [];
+    return (Array.isArray(sen.independentSenatorCharacterIds)?sen.independentSenatorCharacterIds:[]).map(id=>({id,name:this._senCharName(id)}));
+  },
+  senateEditUnnamedIndependents(){
+    const sen=this.senateEditSenate(); if(!sen) return 0;
+    const named=Array.isArray(sen.independentSenatorCharacterIds)?sen.independentSenatorCharacterIds.length:0;
+    return Math.max(0,(Number(sen.independentMinorSenatorVotes)||0)-named);
+  },
+  senateEditFactions(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return [];
+    return (A.factionsForSenate(c,sen.id)||[]).map(f=>({ id:f.id, name:f.name||f.id, members:(A.senatorshipsInFaction(c,f.id)||[]).filter(s=>s.rank!=='minor').length, influence:A.factionTotalInfluence(c,f), standing:A.factionStanding(c,f) }));
+  },
+  senateEditFullyNamed(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); return !!(A&&c&&sen&&A.senateIsFullyNamed&&A.senateIsFullyNamed(c,sen)); },
+  senateEditObjectiveOptions(){ return (window.ACKS && window.ACKS.POLICY_OBJECTIVES) || []; },
+  senObjLabel(o){ return String(o||'').replace(/-/g,' '); },
+  _senEditCommit(){ this.markDirty(); this.schedulePersist(); },
+  // populate — name every vote (legacy / under-populated senate → fully named)
+  senateEditPopulate(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return;
+    const r=A.populateNamedSenators(c,sen.id); this._senEditCommit();
+    if(r&&r.ok) this.showToast('👥 Named '+((r.clientsMinted||0)+(r.independentsMinted||0))+' minor senator(s).', 4000);
+  },
+  senateEditAddLeading(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; if(A.addLeadingSenator(c,sen.id,{})) this._senEditCommit(); },
+  senateEditRetire(seatId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.retireLeadingSenator(c,seatId); this._senEditCommit(); },
+  senateEditAddIndependents(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return;
+    const r=A.addIndependentSenators(c,sen.id,{count:Math.max(1,Number(this.senateEdit.addIndepCount)||1)}); this._senEditCommit();
+    if(r&&r.ok) this.showToast('➕ Added '+r.minted+' independent minor senator(s).',3500);
+  },
+  senateEditRemoveSenator(charId){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; A.removeSenatorFromSenate(c,{senateId:sen.id,characterId:charId}); this._senEditCommit(); },
+  senateEditAddFaction(){ const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(); if(!A||!c||!sen) return; A.addSenateFaction(c,sen.id,{name:'New faction'}); this._senEditCommit(); },
+  senateEditRemoveFaction(facId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.removeSenateFaction(c,facId); this._senEditCommit(); },
+  senateEditRenameFaction(facId,name){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.renameSenateFaction(c,facId,name); this._senEditCommit(); },
+  senateEditSetFaction(seatId,facId){ const A=window.ACKS,c=this.currentCampaign; if(!A||!c) return; A.setSenatorshipFaction(c,seatId,facId||null); this._senEditCommit(); },
+  senateEditToggleObjective(seatId,obj){
+    const A=window.ACKS,c=this.currentCampaign; const seat=A&&c&&A.findSenatorship(c,seatId); if(!seat) return;
+    const cur=Array.isArray(seat.policyObjectives)?seat.policyObjectives.slice():[];
+    const i=cur.indexOf(obj); if(i>=0) cur.splice(i,1); else cur.push(obj);
+    A.setSenatorshipObjectives(c,seatId,cur); this._senEditCommit();
+  },
+  senateEditRenameSenator(charId,name){
+    const c=this.currentCampaign; const ch=c&&(c.characters||[]).find(x=>x&&x.id===charId); if(!ch) return;
+    ch.name=(name==null||name==='')?ch.name:String(name); this._senEditCommit();
+  },
+  // drag-and-drop: a client/independent moves between patrons + the independent pool (the move verb).
+  senateDragStart(charId){ this.senateEdit.dragCharId = charId; },
+  senateDragEnd(){ this.senateEdit.dragCharId = null; },
+  senateDropOnPatron(seatId){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(),id=this.senateEdit.dragCharId;
+    this.senateEdit.dragCharId=null; if(!A||!c||!sen||!id) return;
+    A.moveSenatorClient(c,{senateId:sen.id,characterId:id,to:seatId}); this._senEditCommit();
+  },
+  senateDropOnIndependent(){
+    const A=window.ACKS,c=this.currentCampaign,sen=this.senateEditSenate(),id=this.senateEdit.dragCharId;
+    this.senateEdit.dragCharId=null; if(!A||!c||!sen||!id) return;
+    A.moveSenatorClient(c,{senateId:sen.id,characterId:id,to:'independent'}); this._senEditCommit();
   },
   // === @b11-delves     (team) — D5 settlement off-screen (SettlementVisit + urban incidents): state + methods ===
   // Thin UI over the D5 engine (acks-engine-delves.js): start/depart a SettlementVisit, roll urban
