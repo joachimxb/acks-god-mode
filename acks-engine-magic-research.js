@@ -1131,7 +1131,7 @@
         project.kindResult = { notableItemId: item.id };
         _recordResearchEvent(campaign, 'magic-item-created',
           { projectId: project.id, notableItemId: item.id, makerCharacterId: researcher ? researcher.id : null, itemKind: item.kind },
-          { narrative: (researcher && researcher.name || 'A mage') + ' crafts ' + (item.name || 'a magic item'), relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }, { kind: 'notableItem', id: item.id, role: 'produced' }] });
+          { narrative: (researcher && researcher.name || 'A mage') + ' crafts ' + (item.name || 'a magic item'), relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }, { kind: 'notable-item', id: item.id, role: 'produced' }] });
       }
     } else if(project.kind === 'construct-design'){
       // RR p.395 — design produces a construct FORMULA (manufacture it later from the formula).
@@ -1195,7 +1195,7 @@
         _recordResearchEvent(campaign, 'ritual-cast',
           { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'stored', notableItemId: it ? it.id : null, storedForm: cfg.storedForm || 'scroll', name },
           { narrative: (researcher && researcher.name || 'A mage') + ' casts ' + name + ' and binds it into ' + ((!cfg.storedForm || cfg.storedForm === 'scroll') ? 'a scroll' : ('a ' + cfg.storedForm)),
-            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(it ? [{ kind: 'notableItem', id: it.id, role: 'produced' }] : []) });
+            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(it ? [{ kind: 'notable-item', id: it.id, role: 'produced' }] : []) });
       } else {
         const entry = ritualCatalogEntry(cfg.ritualKey);
         project.kindResult = { ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'immediate', note: (entry && entry.gloss) ? ('Takes effect now (GM resolves): ' + entry.gloss) : 'The ritual takes effect now (GM resolves).' };

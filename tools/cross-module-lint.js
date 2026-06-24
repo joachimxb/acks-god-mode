@@ -124,7 +124,91 @@ function lintSources(sources) {
   return { findings, privateCount: owners.size, fileCount: files.length };
 }
 
-module.exports = { lintSources, definedNames, stripCommentsAndStrings };
+// ─────────────────────────────────────────────────────────────────────────────
+// relatedEntities[].kind registry-membership lint (audit 2026-06-24, lane D3).
+//
+// An event's context.relatedEntities[] entries — `{kind, id, role}` — drive the per-entity history
+// index (acks-engine.js `_filterByRelatedEntity` / `entityChronicle`): an entity E's chronicle lists
+// exactly the events whose relatedEntities carry E's kind+id. So a relatedEntities `kind` that ISN'T
+// the form the history accessors key on makes the entity INVISIBLE in its own chronicle — a silent bug
+// no test necessarily exercises (the 2026-06-24 finding: magic research tagged a crafted artifact
+// `notableItem` (camelCase) while `notableItemHistory` filters `notable-item` (kebab) → the artifact
+// never appeared in its chronicle). This lint fails CI on any relatedEntities kind not in the canonical
+// event-context kind set, so the next camel/kebab slip (or a typo'd kind) can't ship.
+//
+// The canonical set = the entity-registry kinds, with a small OVERRIDE map for the few kinds whose
+// event-context tag intentionally differs from the registry kind. Today there is exactly one: the
+// registry kind `notableItem` is tagged `notable-item` in relatedEntities (that's the kebab form the
+// history index keys on — see `notableItemHistory` + the acks-engine-sages.js emitter). The valid set
+// therefore contains `notable-item` and NOT `notableItem`, so a `notableItem` tag in a relatedEntities
+// slot (the bug) FAILS while `notable-item` passes.
+
+// registry kind → event-context relatedEntities tag, for the kebab/camel divergences.
+const RELATED_ENTITY_KIND_OVERRIDES = { notableItem: 'notable-item' };
+
+// Build the canonical event-context kind set from the registry's kind list (applies the overrides).
+function buildValidRelatedKinds(registryKinds) {
+  return new Set((registryKinds || []).map(k => RELATED_ENTITY_KIND_OVERRIDES[k] || k));
+}
+
+// Strip `//` and `/* */` comments but KEEP string interiors (we must read the `kind` value) and every
+// newline (so line numbers stay exact). Mirrors stripCommentsAndStrings, except strings pass through.
+function stripCommentsKeepStrings(src) {
+  let out = '', i = 0; const n = src.length;
+  let state = 'code'; // code | line | block | sq | dq | tpl
+  while (i < n) {
+    const c = src[i], c2 = src[i + 1];
+    if (state === 'code') {
+      if (c === '/' && c2 === '/') { out += '  '; i += 2; state = 'line'; continue; }
+      if (c === '/' && c2 === '*') { out += '  '; i += 2; state = 'block'; continue; }
+      if (c === "'") { out += c; i++; state = 'sq'; continue; }
+      if (c === '"') { out += c; i++; state = 'dq'; continue; }
+      if (c === '`') { out += c; i++; state = 'tpl'; continue; }
+      out += c; i++; continue;
+    }
+    if (state === 'line') { if (c === '\n') { out += '\n'; i++; state = 'code'; continue; } out += ' '; i++; continue; }
+    if (state === 'block') { if (c === '*' && c2 === '/') { out += '  '; i += 2; state = 'code'; continue; } out += (c === '\n' ? '\n' : ' '); i++; continue; }
+    // string / template interior: keep it verbatim (incl. quotes + value) until the closing quote.
+    if (c === '\\') { out += c + (c2 || ''); i += 2; continue; }
+    if ((state === 'sq' && c === "'") || (state === 'dq' && c === '"') || (state === 'tpl' && c === '`')) { out += c; i++; state = 'code'; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+
+// Pure core: `sources` = { filename → rawContent }, `validKinds` = Set of canonical event-context kinds.
+// A relatedEntities entry is an inline `{…}` literal (no nested braces) carrying a STRING `kind:'X'`
+// plus an `id:` and a `role:` key — the {kind,id,role} signature distinguishes it from a registry
+// definition ({kind,label,…}, no id:/role:) and a stationing pointer ({kind,id}, no role:). A finding =
+// { file, line, kind }. Suppress one with `// cross-module-lint-ignore` on its line.
+function lintRelatedEntityKinds(sources, validKinds) {
+  const files = Object.keys(sources).sort();
+  const SPAN = /\{[^{}]*\}/g;
+  const KIND = /\bkind:\s*'([^']+)'/;
+  const findings = [];
+  let entryCount = 0;
+  for (const f of files) {
+    const stripped = stripCommentsKeepStrings(sources[f]);
+    const rawLines = sources[f].split(/\r?\n/);
+    let m; SPAN.lastIndex = 0;
+    while ((m = SPAN.exec(stripped))) {
+      const span = m[0];
+      if (!/\brole:/.test(span) || !/\bid:/.test(span)) continue;   // not a relatedEntities entry
+      const km = span.match(KIND);
+      if (!km) continue;                                            // computed kind — out of scope
+      entryCount++;
+      const kind = km[1];
+      if (validKinds.has(kind)) continue;
+      const line = stripped.slice(0, m.index).split('\n').length;
+      if (/cross-module-lint-ignore/.test(rawLines[line - 1] || '')) continue;
+      findings.push({ file: f, line, kind });
+    }
+  }
+  return { findings, entryCount };
+}
+
+module.exports = { lintSources, definedNames, stripCommentsAndStrings,
+  lintRelatedEntityKinds, stripCommentsKeepStrings, buildValidRelatedKinds, RELATED_ENTITY_KIND_OVERRIDES };
 
 // CLI: lint the real engine modules from the repo root.
 if (require.main === module) {
@@ -132,11 +216,27 @@ if (require.main === module) {
   const FILES = fs.readdirSync(REPO).filter(f => /^acks-engine.*\.js$/.test(f)).sort();   // the tests/_engine.js glob
   const sources = {};
   for (const f of FILES) sources[f] = fs.readFileSync(path.join(REPO, f), 'utf8');
+  // (1) the bare cross-module private-call lint.
   const { findings, privateCount, fileCount } = lintSources(sources);
   for (const x of findings) {
     console.log(`CROSS-MODULE ${x.file}:${x.line}  bare \`${x.name}(\` — \`${x.name}\` is a module-private of ${x.owners.join(', ')}; call it as \`ACKS.${x.name}\` (it is not in this module's scope)`);
   }
   console.log(`cross-module-lint: scanned ${fileCount} engine module(s) · ${privateCount} leading-underscore private name(s) · ${findings.length} bare cross-module call(s).`);
-  console.log(findings.length === 0 ? 'PASS.' : "FAIL — a module calls another module's private helper by its bare name (latent ReferenceError).");
-  process.exit(findings.length === 0 ? 0 : 1);
+
+  // (2) the relatedEntities[].kind registry-membership lint. The canonical kind set comes from the
+  // RUNTIME entity registry (so self-registered kinds like `dynasty` are included), built via the
+  // same loader the tests use.
+  const ACKS = require('../tests/_engine.js').load();
+  const registryKinds = (typeof ACKS.entityKinds === 'function' ? ACKS.entityKinds() : []).map(k => k.kind);
+  const validKinds = buildValidRelatedKinds(registryKinds);
+  const rel = lintRelatedEntityKinds(sources, validKinds);
+  for (const x of rel.findings) {
+    const fix = RELATED_ENTITY_KIND_OVERRIDES[x.kind] || (validKinds.has(x.kind) ? null : 'a registered entity kind');
+    console.log(`RELATED-ENTITY-KIND ${x.file}:${x.line}  relatedEntities kind '${x.kind}' is not a canonical event-context kind — the entity will be invisible in its own chronicle. Use ${fix ? "'" + fix + "'" : 'a registered entity kind'} (registry kinds${Object.keys(RELATED_ENTITY_KIND_OVERRIDES).length ? ', with the documented override(s): ' + JSON.stringify(RELATED_ENTITY_KIND_OVERRIDES) : ''}).`);
+  }
+  console.log(`related-entity-kind-lint: ${rel.entryCount} relatedEntities entr(y/ies) · ${registryKinds.length} registry kind(s) · ${rel.findings.length} invalid kind(s).`);
+
+  const total = findings.length + rel.findings.length;
+  console.log(total === 0 ? 'PASS.' : "FAIL — see findings above (latent ReferenceError and/or a relatedEntities kind that won't chronicle).");
+  process.exit(total === 0 ? 0 : 1);
 }
