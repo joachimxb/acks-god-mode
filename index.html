@@ -440,6 +440,9 @@ document.addEventListener('alpine:init', () => {
 </head>
 <body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
 
+<!-- Skip-link (H2-e a11y, audit 2026-06-24) — keyboard/SR users tab here first to jump past the header to the main view tabs. Hidden until focused. -->
+<a href="#main-nav" class="sr-only focus:not-sr-only focus:fixed focus:top-1 focus:left-1 focus:z-[200] focus:px-3 focus:py-1 focus:bg-yellow-100 focus:border focus:border-ink focus:rounded focus:text-sm">Skip to navigation</a>
+
 <!-- HEADER — three layered sections with visible dividers:
      Row 1: title + file ops
      Row 2: campaign state (name, turn, pending events, advance month)
@@ -496,14 +499,14 @@ document.addEventListener('alpine:init', () => {
      No bottom border on the nav itself: the line below the tabs would be a third
      divider Joachim explicitly didn't want. Content below the tabs has its own
      padding so the gap reads cleanly without a rule. -->
-<nav class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
+<nav id="main-nav" role="tablist" aria-label="Main views" class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
      style="margin-top: 0.75rem; padding-top:0.5rem; padding-bottom:0.5rem;">
   <template x-for="v in topViews" :key="v.id">
     <!-- The turn-running tabs (📜 Events / 🏰 Domain Turn / ⚙ House Rules) float to the RIGHT end
          of the bar — ml-auto on the first of the group (Events, alignRight in topViews) pushes it
          and the two after it flush right, so they sit under the advance-day clock at the top-right;
          the world-content tabs stay left. -->
-    <button @click="currentView = v.id"
+    <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
             :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '')"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
       <span x-text="v.label"></span>
@@ -520,16 +523,16 @@ document.addEventListener('alpine:init', () => {
      Domain-Review content blocks live further down (their large markup stayed put — only the
      x-show gates flipped, the #225 World-hub pattern). -->
 <div x-show="currentCampaign && currentView === 'review'" class="px-4 pt-3" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="Events sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in reviewSubTabs" :key="tab.id">
-      <button @click="reviewSubView=tab.id"
+      <button @click="reviewSubView=tab.id" role="tab" :aria-selected="reviewSubView===tab.id ? 'true' : 'false'"
               :class="reviewSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="reviewSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
     <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
-    <button @click="reviewSubView='annals'"
+    <button @click="reviewSubView='annals'" role="tab" :aria-selected="reviewSubView==='annals' ? 'true' : 'false'"
             :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
             class="px-3 py-1 text-sm border-b-2"
             :style="reviewSubView==='annals' ? 'border-color:#2a1f12' : 'border-color:transparent'">📖 Annals</button>
@@ -917,9 +920,9 @@ document.addEventListener('alpine:init', () => {
     </template>
   </div>
 
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="World sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in worldSubTabs" :key="tab.id">
-      <button @click="worldSubView=tab.id"
+      <button @click="worldSubView=tab.id" role="tab" :aria-selected="worldSubView===tab.id ? 'true' : 'false'"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="worldSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
@@ -4653,6 +4656,8 @@ document.addEventListener('alpine:init', () => {
     <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
     <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
     <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
+    <!-- Keyboard-accessible alternative (H2-d a11y, audit 2026-06-24) — the map is a visual mouse surface; the Hexes list reaches every hex by keyboard / screen reader. -->
+    <button @click="worldSubView='hexes'" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Switch to the keyboard-accessible Hexes list — every hex is reachable by keyboard and screen reader there.">⌨ List view</button>
   </div>
 
   <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select
@@ -4969,9 +4974,9 @@ document.addEventListener('alpine:init', () => {
      sub-view). The sub-tab strip drives domainsSubView: Domains | Governance/Senate. The strip only
      appears when a senate exists or rule-of-the-few makes governance available (dormant-until-used). ═══════════ -->
 <div x-show="currentCampaign && currentView === 'domains' && domainsSubTabs.length > 1" class="px-4 pt-3" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="Domains sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in domainsSubTabs" :key="tab.id">
-      <button @click="domainsSubView=tab.id"
+      <button @click="domainsSubView=tab.id" role="tab" :aria-selected="domainsSubView===tab.id ? 'true' : 'false'"
               :class="domainsSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="domainsSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
@@ -12536,9 +12541,9 @@ document.addEventListener('alpine:init', () => {
       </div>
     </template>
     <!-- Sub-tab bar inside the modal -->
-    <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+    <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
-        <button @click="characterEditorTab=tab.id" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
+        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
     <div class="p-4 space-y-3" x-show="characterEditing">
@@ -20078,6 +20083,45 @@ document.addEventListener('alpine:init', () => {
   <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" class="underline hover:opacity-90">AGPL-3.0</a> ·
   <a href="https://github.com/joachimxb/acks-god-mode" target="_blank" rel="noopener" class="underline hover:opacity-90">Source on GitHub</a>
 </footer>
+
+<!-- a11y semantics (H2-a, audit 2026-06-24) — every [role="dialog"] gets aria-labelledby → its first
+     heading, so screen readers announce the dialog's name on open. Done generically (one pass after
+     load + a debounced MutationObserver for the x-if modals that mount on open) rather than ~56 hand
+     edits; dialogs that already declare aria-labelledby / aria-label are skipped. Idempotent + cheap. -->
+<script>
+(function(){
+  'use strict';
+  var uid = 0;
+  function wireDialogs(){
+    var dialogs = document.querySelectorAll('[role="dialog"]:not([aria-labelledby]):not([aria-label])');
+    for(var i = 0; i < dialogs.length; i++){
+      var d = dialogs[i];
+      var h = d.querySelector('h1,h2,h3,h4');
+      if(!h) continue;
+      if(!h.id){ h.id = 'a11y-dlg-' + (++uid); }
+      d.setAttribute('aria-labelledby', h.id);
+    }
+  }
+  var pending = false;
+  function schedule(){
+    if(pending) return;
+    pending = true;
+    setTimeout(function(){ pending = false; wireDialogs(); }, 200);
+  }
+  function start(){
+    wireDialogs();
+    try {
+      var mo = new MutationObserver(function(muts){
+        for(var i = 0; i < muts.length; i++){ if(muts[i].addedNodes && muts[i].addedNodes.length){ schedule(); return; } }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch(e){}
+  }
+  if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', start); }
+  else { start(); }
+  document.addEventListener('alpine:initialized', wireDialogs);
+})();
+</script>
 
 </body>
 </html>
