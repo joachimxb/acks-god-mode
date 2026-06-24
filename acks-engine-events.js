@@ -1346,8 +1346,11 @@ Object.entries({
     O: { reason: 'string', narrative: 'string' }
   },
   'arcane-power-extracted': {
-    R: { dungeonId: 'string', characterId: 'string', gpValue: 'number' },
-    O: { subjugatedXp: 'number', narrative: 'string' }
+    // AD-F: a usurped settlement extracts arcane power too (RR p.388 #3) — so the SOURCE is dungeonId OR
+    // settlementId (both optional; the constant is the caster + the gp yield). Backward-compatible: existing
+    // dungeon events carry dungeonId (now in O) + characterId + gpValue (the new R set), so they still validate.
+    R: { characterId: 'string', gpValue: 'number' },
+    O: { dungeonId: 'string', settlementId: 'string', familiesXp: 'number', subjugatedXp: 'number', narrative: 'string' }
   },
   'dungeon-harvested': {
     R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
