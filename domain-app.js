@@ -2876,24 +2876,38 @@ const _component = {
   },
   // Grand total over the whole garrison as displayed — mercenaries (standing) + conscripts + militia,
   // each summed by living count (count - casualties) so the foot row equals the sum of the rows above.
-  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
+  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia'), ...this.domainLevyRows(domain,'clanhold') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
   openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
   closeUnitSheet(){ this.unitSheetUnitId = null; },
   // Levy modal — count + home hex (RR pp.430–433). Materializes the levy, then sets its home.
-  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1 }; },
+  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1, troopTypeKey: source === 'clanhold' ? ((window.ACKS && window.ACKS.clanWarriorDefaultTroopTypeKey) ? window.ACKS.clanWarriorDefaultTroopTypeKey(domain) : 'light-infantry') : null }; },
   closeLevyModal(){ this.levyModal.open = false; },
   levyModalDomain(){ const id = this.levyModal && this.levyModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   levyModalAvailable(){ const d = this.levyModalDomain(); return d ? this.domainLevyAvailable(d, this.levyModal.source) : 0; },
   levyModalCanSubmit(){ const d = this.levyModalDomain(); if(!d) return false; const n = Math.floor(Number(this.levyModal.count) || 0); return this.domainCanLevy(d) && n >= 1 && n <= this.levyModalAvailable(); },
+  // Troop-type options for the ⚔ clan-warrior levy modal (RR p.433 — "trained and equipped as customary
+  // for their tribe"). The dominant race's trainable types (the conscript catalog), GM-picked; falls back
+  // to the human set when the race tag isn't a catalog race. Conscripts/militia don't use this (they levy
+  // as an untrained levy and are trained later).
+  clanWarriorTypeRows(){
+    const A = window.ACKS; const d = this.levyModalDomain();
+    const race = (d && (A.dominantRaceOf ? A.dominantRaceOf(d) : d.dominantRace)) || 'man';
+    let keys = (A.trainableTroopTypes ? A.trainableTroopTypes(race) : null) || [];
+    if(!keys.length) keys = (A.trainableTroopTypes ? A.trainableTroopTypes('man') : null) || ['light-infantry'];
+    return keys.map(key => { const row = A.findTroopType ? A.findTroopType(key, { race }) : null; return { key, label: row ? row.label : key }; });
+  },
   submitLevy(){
     const d = this.levyModalDomain(); if(!d || !this.levyModalCanSubmit()) return;
     const n = Math.floor(Number(this.levyModal.count) || 0); const src = this.levyModal.source; const A = window.ACKS;
-    const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n }) : A.levyConscripts(this.currentCampaign, d.id, { count: n });
-    if(!u){ this.showToast && this.showToast('No room to levy more ' + src + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
+    const srcLabel = src === 'clanhold' ? 'clan warriors' : src;
+    const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n })
+            : src === 'clanhold' ? A.levyClanWarriors(this.currentCampaign, d.id, { count: n, troopTypeKey: this.levyModal.troopTypeKey })
+            : A.levyConscripts(this.currentCampaign, d.id, { count: n });
+    if(!u){ this.showToast && this.showToast('No room to levy more ' + srcLabel + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(u.musterState
-      ? 'Began levying ' + u.musterState.total + ' ' + src + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
-      : 'Levied ' + u.count + ' ' + src + ' from ' + (d.name || d.id) + '.');
+      ? 'Began levying ' + u.musterState.total + ' ' + srcLabel + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
+      : 'Levied ' + u.count + ' ' + srcLabel + ' from ' + (d.name || d.id) + '.');
     this.closeLevyModal();
   },
 
@@ -3047,7 +3061,7 @@ const _component = {
   // = cap − ever-raised (sticky casualties, RR p.430); casualties recover 5%/yr in commitTurn. This
   // replaces the old army Troop-depth levy panel (levy is a DOMAIN act; armies call them up via muster).
   domainLevyRows(domain, source){ return (domain && window.ACKS.domainLevyUnits) ? window.ACKS.domainLevyUnits(this.currentCampaign, domain, source) : []; },
-  domainLevyCap(domain, source){ return source === 'militia' ? window.ACKS.militiaLevyMax(domain) : window.ACKS.conscriptLevyMax(domain); },
+  domainLevyCap(domain, source){ return source === 'militia' ? window.ACKS.militiaLevyMax(domain) : source === 'clanhold' ? window.ACKS.clanholdWarriorLevyMax(this.currentCampaign, domain) : window.ACKS.conscriptLevyMax(domain); },
   domainLevyEverRaised(domain, source){ return window.ACKS.levyEverRaised(this.currentCampaign, domain, source); },
   domainLevyAvailable(domain, source){ return window.ACKS.levyAvailable(this.currentCampaign, domain, source); },
   domainCanLevy(domain){ return !!domain && window.ACKS.canLevyFromDomain(domain); },
@@ -3055,8 +3069,10 @@ const _component = {
     const n = Math.max(1, Math.floor(Number(count) || 0));
     const u = source === 'militia'
       ? window.ACKS.levyMilitia(this.currentCampaign, domain.id, { count: n })
+      : source === 'clanhold'
+      ? window.ACKS.levyClanWarriors(this.currentCampaign, domain.id, { count: n })
       : window.ACKS.levyConscripts(this.currentCampaign, domain.id, { count: n });
-    if(!u){ this.showToast && this.showToast('No room to levy more ' + source + ' (available ' + this.domainLevyAvailable(domain, source) + ', or the realm is too unhappy).', 4000); return; }
+    if(!u){ this.showToast && this.showToast('No room to levy more ' + (source === 'clanhold' ? 'clan warriors' : source) + ' (available ' + this.domainLevyAvailable(domain, source) + ', or the realm is too unhappy).', 4000); return; }
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(u.musterState
       ? 'Began levying ' + u.musterState.total + ' ' + source + ' from ' + (domain.name || domain.id) + ' — they arrive over 3 weeks (RR p.430).'
@@ -3204,9 +3220,9 @@ const _component = {
     const camp = this.currentCampaign; if(!domain) return [];
     const A = window.ACKS; const byId = new Map();
     if(camp && Array.isArray(camp.units) && A && A.unitOwnerDomainId){
-      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitOwnerDomainId(camp, u) === domain.id) byId.set(u.id, u); }
+      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && u.source !== 'clanhold' && A.unitOwnerDomainId(camp, u) === domain.id) byId.set(u.id, u); }
     }
-    for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
+    for(const u of (A && A.domainGarrisonUnits ? A.domainGarrisonUnits(camp, domain) : [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && u.source !== 'clanhold' && !byId.has(u.id)) byId.set(u.id, u); }
     return [...byId.values()];
   },
   removeGarrisonUnit(domain, u){
@@ -7168,7 +7184,7 @@ const _component = {
     this.showHexDetailModal = false;
     this.worldHexEditing = null;
   },
-  levyModal: { open: false, domainId: null, source: 'conscript', count: 1 },  // ⚒/🛡 Levy modal
+  levyModal: { open: false, domainId: null, source: 'conscript', count: 1, troopTypeKey: null },  // ⚒/🛡/⚔ Levy modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   followerArrival: { open: false, domainId: '', proposal: null },  // 🎺 Follower Arrival modal (Domain ▸ Stronghold — RR p.334)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)

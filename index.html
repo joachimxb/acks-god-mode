@@ -46,7 +46,7 @@
 <script src="acks-engine.js?v=2026-06-20-burst11"></script>
 <script src="acks-engine-lairs.js?v=2026-06-23-t5-lairs"></script>
 <script src="acks-engine-stash.js?v=2026-06-23-t5-stash"></script>
-<script src="acks-engine-military.js?v=2026-06-24-tribal"></script>
+<script src="acks-engine-military.js?v=2026-06-24-clanwarriors"></script>
 <script src="acks-engine-entities.js?v=2026-06-24-tribal"></script>
 <script src="acks-engine-economy.js?v=2026-06-24-tribal"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-20-burst11"></script>
@@ -2603,12 +2603,18 @@ document.addEventListener('alpine:init', () => {
     <template x-if="levyModalDomain()">
       <div>
         <div class="flex justify-between items-start p-4 border-b border-ink/30">
-          <h3 class="font-bold text-lg" x-text="(levyModal.source==='militia' ? '🛡 Levy militia' : '⚒ Levy conscripts') + ' — ' + (levyModalDomain().name || '')"></h3>
+          <h3 class="font-bold text-lg" x-text="(levyModal.source==='militia' ? '🛡 Levy militia' : levyModal.source==='clanhold' ? '⚔ Levy clan warriors' : '⚒ Levy conscripts') + ' — ' + (levyModalDomain().name || '')"></h3>
           <button @click="closeLevyModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-3 text-sm">
-          <p class="text-xs opacity-70" x-text="levyModal.source==='militia' ? '≤2 per 10 families. Each called-up militiaman costs 1 family of revenue + domain morale −1/−2 until sent home (RR pp.432–433).' : '≤1 per 10 families; no morale or revenue cost (RR pp.430–431).'"></p>
-          <p class="text-xs opacity-70 italic">Levying takes time — ½ arrive the first week, ¼ the second, the rest the third (RR p.430). Advance the Day Clock to muster them in; you can train them once fully assembled.</p>
+          <p class="text-xs opacity-70" x-text="levyModal.source==='militia' ? '≤2 per 10 families. Each called-up militiaman costs 1 family of revenue + domain morale −1/−2 until sent home (RR pp.432–433).' : levyModal.source==='clanhold' ? '≤1 per family — a clanhold\'s only levy. Pre-trained & equipped; no wages (spoils expected); no morale or revenue cost; ⅓ veterans (RR p.433).' : '≤1 per 10 families; no morale or revenue cost (RR pp.430–431).'"></p>
+          <p class="text-xs opacity-70 italic" x-text="'Levying takes time — ½ arrive the first week, ¼ the second, the rest the third (RR p.430). Advance the Day Clock to muster them in.' + (levyModal.source==='clanhold' ? ' Clan warriors arrive already trained and equipped.' : ' You can train them once fully assembled.')"></p>
+          <label class="flex items-center gap-2 flex-wrap" x-show="levyModal.source==='clanhold'">Troop type:
+            <select x-model="levyModal.troopTypeKey" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <template x-for="row in clanWarriorTypeRows()" :key="'cwt-'+row.key"><option :value="row.key" x-text="row.label"></option></template>
+            </select>
+            <span class="text-xs opacity-60">customary for the tribe (RR p.433)</span>
+          </label>
           <label class="flex items-center gap-2 flex-wrap">Number to levy:
             <input type="number" min="1" :max="levyModalAvailable()" x-model.number="levyModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
             <span class="text-xs opacity-60" x-text="'(available ' + levyModalAvailable() + ' / cap ' + domainLevyCap(levyModalDomain(), levyModal.source) + ')'"></span>
@@ -2617,7 +2623,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeLevyModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
-          <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
+          <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : levyModal.source==='clanhold' ? '⚔ Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
         </div>
       </div>
     </template>
@@ -6333,14 +6339,15 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="garrisonStandingUnits(selectedDomain).length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No mercenary units. Recruit or + add one.</td></tr></template>
               </tbody>
 
-              <!-- ⚒ Conscripts (RR pp.430–431) — sticky casualties + 5%/yr replenish -->
-              <tbody>
+              <!-- ⚒ Conscripts (RR pp.430–431) — sticky casualties + 5%/yr replenish. Hidden for a clanhold
+                   (RR p.433 — it cannot conscript); still shown if leftover units remain, so the GM can release them. -->
+              <tbody x-show="domainTypeInfo(selectedDomain)?.allowsConscription || domainLevyRows(selectedDomain,'conscript').length">
                 <tr style="background:#ece0c0"><td colspan="11" class="py-1">
                   <span class="font-semibold">⚒ Conscripts</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'conscript') + ' / cap ' + domainLevyCap(selectedDomain,'conscript') + ' (raised ' + domainLevyEverRaised(selectedDomain,'conscript') + ')'"></span>
                   <button @click="openLevyModal(selectedDomain,'conscript')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Conscript peasants — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Levy conscripts</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— the realm is too unhappy to levy (RR p.432)</span>
-                  <span x-show="domainLevyEverRaised(selectedDomain,'conscript') > domainLevyCap(selectedDomain,'conscript')" class="text-xs accent-red ml-1">⚠ over cap — the population fell; release some</span>
+                  <span x-show="domainLevyEverRaised(selectedDomain,'conscript') > domainLevyCap(selectedDomain,'conscript')" class="text-xs accent-red ml-1" x-text="domainTypeInfo(selectedDomain)?.allowsConscription ? '⚠ over cap — the population fell; release some' : '⚠ Clanholds cannot field conscripts (RR p.433) — release them'"></span>
                   <div class="text-xs opacity-60 font-normal mt-0.5">≤1 per 10 families; no morale/revenue cost. Casualties are sticky and recover 5%/yr of cap (RR pp.430–431).</div>
                 </td></tr>
                 <template x-for="u in domainLevyRows(selectedDomain,'conscript')" :key="u.id">
@@ -6371,15 +6378,16 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="domainLevyRows(selectedDomain,'conscript').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No conscripts levied.</td></tr></template>
               </tbody>
 
-              <!-- 🛡 Militia (RR pp.432–433) — −1 family + morale each while called up; trained value counts vs garrison (p.341) -->
-              <tbody>
+              <!-- 🛡 Militia (RR pp.432–433) — −1 family + morale each while called up; trained value counts vs garrison (p.341).
+                   Hidden for a clanhold (RR p.433 — it cannot levy militia); still shown if leftover units remain, so the GM can release them. -->
+              <tbody x-show="domainTypeInfo(selectedDomain)?.allowsMilitia || domainLevyRows(selectedDomain,'militia').length">
                 <tr style="background:#ece0c0"><td colspan="11" class="py-1">
                   <span class="font-semibold">🛡 Militia</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'militia') + ' / cap ' + domainLevyCap(selectedDomain,'militia') + ' (raised ' + domainLevyEverRaised(selectedDomain,'militia') + ')'"></span>
                   <button @click="openLevyModal(selectedDomain,'militia')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
                   <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline ml-2" title="Stand all militia down to the rolls — no wages while home (RR p.432); trained+equipped credit the garrison (RR p.341); call up again without re-levying; ends the penalty">🏠 Send all home</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— too unhappy to levy (RR p.432)</span>
-                  <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red ml-1">⚠ over cap</span>
+                  <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red ml-1" x-text="domainTypeInfo(selectedDomain)?.allowsMilitia ? '⚠ over cap' : '⚠ Clanholds cannot field militia (RR p.433) — release them'"></span>
                   <div class="text-xs font-normal mt-0.5">
                     <span x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="accent-red" x-text="'Called up: ' + domainMilitiaCalledUp(selectedDomain) + ' — revenue −' + domainMilitiaRevenuePenalty(selectedDomain) + ' families, morale ' + domainMilitiaMoralePenalty(selectedDomain)"></span>
                     <span class="opacity-60" x-show="domainTrainedMilitiaCreditText(selectedDomain)" x-text="(domainMilitiaCalledUp(selectedDomain) > 0 ? ' · ' : '') + domainTrainedMilitiaCreditText(selectedDomain)"></span>
@@ -6416,11 +6424,48 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="domainLevyRows(selectedDomain,'militia').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No militia levied.</td></tr></template>
               </tbody>
 
-              <!-- Grand total — the whole garrison (mercenaries + conscripts + militia), each summed by
-                   living count to match the rows above. Replaces the old standalone "Full garrison" line. -->
+              <!-- ⚔ Clan warriors (RR p.433) — a clanhold's ONLY levy: ≤1/family, pre-trained & equipped, no
+                   wages (spoils expected), no morale/revenue cost, ⅓ veterans. Shown only for a clanhold (or
+                   if leftover clan-warrior units remain). No 🎓 Train — they arrive ready. -->
+              <tbody x-show="domainTypeInfo(selectedDomain)?.isClanhold || domainLevyRows(selectedDomain,'clanhold').length">
+                <tr style="background:#ece0c0"><td colspan="11" class="py-1">
+                  <span class="font-semibold">⚔ Clan warriors</span>
+                  <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'clanhold') + ' / cap ' + domainLevyCap(selectedDomain,'clanhold') + ' (raised ' + domainLevyEverRaised(selectedDomain,'clanhold') + ')'"></span>
+                  <button @click="openLevyModal(selectedDomain,'clanhold')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy clan warriors — ≤1 per family; pre-trained & equipped; no wages, no morale/revenue cost (RR p.433)">⚔ Levy clan warriors</button>
+                  <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— the realm is too unhappy to levy (RR p.432)</span>
+                  <span x-show="domainLevyEverRaised(selectedDomain,'clanhold') > domainLevyCap(selectedDomain,'clanhold')" class="text-xs accent-red ml-1">⚠ over cap — the population fell; release some</span>
+                  <div class="text-xs opacity-60 font-normal mt-0.5">≤1 per family; no wages (spoils expected) and no morale/revenue cost; ⅓ veterans; arrive pre-trained and equipped (RR p.433). Casualties are sticky and recover 5%/yr of cap.</div>
+                </td></tr>
+                <template x-for="u in domainLevyRows(selectedDomain,'clanhold')" :key="u.id">
+                  <tr>
+                    <td><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet — detail & edit" x-text="u.displayName || 'Clan Warriors'"></button></td>
+                    <td x-text="unitTypeLabelFor(u)"></td>
+                    <td x-text="levyUnitLiving(u).toLocaleString()"></td>
+                    <td x-text="(u.monthlyWage||0)"></td>
+                    <td x-text="levyUnitCurrentCost(u).toLocaleString()"></td>
+                    <td x-text="(u.brPerSoldier||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td x-text="unitMoraleText(u)"></td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs">
+                        <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N warriors into a new unit">Split</button>
+                        <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
+                        <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.433 (warriors return to the clanhold, freeing the levy slot)">Release</button>
+                        <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
+                        <template x-if="unitInArmy(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
+                      <template x-if="!unitIsMustering(u) && !unitInArmy(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Muster this unit to a hex — a sortie / relocation over ~1 week (RR p.434)">🚶 Muster to…</button></template>
+                      <template x-if="unitMoveMustering(u)"><button @click="cancelUnitMusterUi(u)" class="px-1 underline accent-red" title="Cancel the muster — the unit returns to its garrison">✖ Cancel muster</button></template>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="domainTypeInfo(selectedDomain)?.isClanhold && domainLevyRows(selectedDomain,'clanhold').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No clan warriors levied.</td></tr></template>
+              </tbody>
+
+              <!-- Grand total — the whole garrison (mercenaries + conscripts + militia + clan warriors), each
+                   summed by living count to match the rows above. Replaces the old standalone "Full garrison" line. -->
               <tbody>
-                <template x-if="garrisonStandingUnits(selectedDomain).length || domainLevyRows(selectedDomain,'conscript').length || domainLevyRows(selectedDomain,'militia').length">
-                  <tr class="total" title="All garrison forces — mercenaries, conscripts and militia (living counts)">
+                <template x-if="garrisonStandingUnits(selectedDomain).length || domainLevyRows(selectedDomain,'conscript').length || domainLevyRows(selectedDomain,'militia').length || domainLevyRows(selectedDomain,'clanhold').length">
+                  <tr class="total" title="All garrison forces — mercenaries, conscripts, militia and clan warriors (living counts)">
                     <td class="pl-2">— full garrison</td><td></td>
                     <td x-text="garrisonAllTotals(selectedDomain).count.toLocaleString()"></td><td></td>
                     <td x-text="garrisonAllTotals(selectedDomain).cost.toLocaleString()+' gp'"></td><td></td>
@@ -19455,7 +19500,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<script src="domain-app.js?v=2026-06-24-tribal"></script>
+<script src="domain-app.js?v=2026-06-24-clanwarriors"></script>
 <script src="domain-app-burst5.js?v=2026-06-23-t5-burst5"></script>
 <script src="domain-app-military-w7.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-mounts.js?v=2026-06-23-t5-tail"></script>

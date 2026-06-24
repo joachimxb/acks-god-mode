@@ -1114,6 +1114,21 @@ function militiaLevyMax(d){
   const A = global.ACKS; if(A && typeof A.domainAllowsMilitia === 'function' && !A.domainAllowsMilitia(d)) return 0;
   return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10) * 2;
 }
+// RR p.433 — Clanhold Warriors: a clanhold's ONLY levy (it cannot conscript or raise militia). Up to 1
+// warrior per peasant family, with no morale/revenue cost. Late-binds clanholdWarriorCapacity (domain-
+// variants.js, which loads after this module) via global.ACKS; 0 for non-clanholds, so the levy path is
+// inert unless the domain is a clanhold. Demchi nomad warriors (PT-C) will reuse this seam.
+function clanholdWarriorLevyMax(campaign, d){
+  const A = global.ACKS;
+  return (A && typeof A.clanholdWarriorCapacity === 'function') ? A.clanholdWarriorCapacity(campaign, d) : 0;
+}
+// RR p.433 — clan warriors arrive "trained and equipped as customary for their tribe". The fallback
+// customary troop type (the GM picks per levy in the Levy modal). 🔧 v1: light infantry — the universal
+// baseline (RR p.431's Conscript-Qualifying table gives every race Light Infantry at 120/120). Race-
+// specific defaults (orc/gnoll/…) are an optional follow-on; the d param is the forward hook.
+function clanWarriorDefaultTroopTypeKey(d){
+  return 'light-infantry';
+}
 
 // Levy units raised from a domain (ownerDomainId match), optionally filtered by source.
 function domainLevyUnits(campaign, domainOrId, source){
@@ -1142,7 +1157,7 @@ function levyEverRaised(campaign, d, source){
 }
 // RR p.430/432 — how many more conscripts/militia a domain can still levy now (cap − ever-raised, ≥0).
 function levyAvailable(campaign, d, source){
-  const cap = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+  const cap = source === 'militia' ? militiaLevyMax(d) : source === 'clanhold' ? clanholdWarriorLevyMax(campaign, d) : conscriptLevyMax(d);
   return Math.max(0, cap - levyEverRaised(campaign, d, source));
 }
 
@@ -1257,7 +1272,8 @@ function _createLevyUnit(campaign, d, source, count, opts){
   if(!campaign || !d) return null;
   if(!canLevyFromDomain(d)) return null;                          // RR p.432 — morale ≤ −2 blocks levying
   if(!Array.isArray(campaign.units)) campaign.units = [];
-  const max = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+  const isClan = source === 'clanhold';                          // RR p.433 — a clanhold's only levy
+  const max = source === 'militia' ? militiaLevyMax(d) : isClan ? clanholdWarriorLevyMax(campaign, d) : conscriptLevyMax(d);
   const existing = levyEverRaised(campaign, d, source);          // RR p.430 — sticky casualties + still-mustering count against the cap
   const room = Math.max(0, max - existing);
   const n = Math.min(Math.max(0, Math.floor(count || 0)), room);
@@ -1265,25 +1281,32 @@ function _createLevyUnit(campaign, d, source, count, opts){
   const race = opts.race || 'man';
   const A = global.ACKS;
   const staged = !opts.instant;
-  const u = A.blankUnit({ unitTypeKey: 'untrained-levy', race, count: staged ? 0 : n, source,
-    displayName: (d.name ? d.name + ' ' : '') + (source === 'militia' ? 'Militia' : 'Conscripts') });
+  // RR p.433 — clan warriors arrive ALREADY TRAINED & EQUIPPED (a real troop type, not an untrained levy),
+  // so there's no Train step; conscripts/militia arrive as untrained peasant rabble (RR pp.430–432).
+  const typeKey = isClan ? (opts.troopTypeKey || clanWarriorDefaultTroopTypeKey(d)) : 'untrained-levy';
+  const noun = source === 'militia' ? 'Militia' : isClan ? 'Clan Warriors' : 'Conscripts';
+  const nounLc = source === 'militia' ? 'militia' : isClan ? 'clan warriors' : 'conscripts';
+  const u = A.blankUnit({ unitTypeKey: typeKey, race, count: staged ? 0 : n, source,
+    displayName: (d.name ? d.name + ' ' : '') + noun });
   // lazy instance fields (blankUnit doesn't emit them — additive, no migration)
   u.ownerDomainId = d.id;
   u.calledUp = true;                                             // freshly levied = called up (in the garrison)
+  if(isClan) u.monthlyWage = 0;                                  // RR p.433 — clan warriors serve without wages (they expect spoils)
   const adj = levyMoraleAdjustmentForDomain(d);
   u.moraleAdjustment = (u.moraleAdjustment || 0) + adj;
   u.loyalty = (u.loyalty || 0) + adj;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
   const moraleNote = adj ? ' (' + (adj > 0 ? '+' : '') + adj + ' morale from domain morale)' : '';
+  const vetNote = isClan ? ' · ⅓ veterans, pre-trained & equipped (RR p.433)' : '';
   if(staged){
     // RR p.430 — the troops arrive over 3 weeks; `count` starts at 0 (none have shown up yet) and the
     // 'levy-muster' day-consumer tops it up at each batch. musterPending reserves the cap meanwhile.
     const startOrd = _levyDayOrd(campaign);
     u.musterPending = n;
     u.musterState = { total: n, startedAtOrd: startOrd, arrivedSoFar: 0, schedule: _levyMusterSchedule(n, startOrd) };
-    u.history.push({ turn, type: 'levied', text: 'Levying ' + n + ' ' + (source === 'militia' ? 'militia' : 'conscripts') + ' — arriving over 3 weeks (½/¼/remainder, RR p.430)' + moraleNote });
+    u.history.push({ turn, type: 'levied', text: 'Levying ' + n + ' ' + nounLc + ' — arriving over 3 weeks (½/¼/remainder, RR p.430)' + moraleNote + vetNote });
   } else {
-    u.history.push({ turn, type: 'levied', text: 'Levied as ' + (source === 'militia' ? 'militia' : 'conscripts') + moraleNote });
+    u.history.push({ turn, type: 'levied', text: 'Levied as ' + nounLc + moraleNote + vetNote });
   }
   stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
   return u;
@@ -1295,6 +1318,11 @@ function levyConscripts(campaign, domainOrId, opts){
 // RR p.432 — levy a peasant militia (≤2 per 10 families; −1 family of revenue each + domain morale −1/−2).
 function levyMilitia(campaign, domainOrId, opts){
   return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'militia', (opts || {}).count, opts);
+}
+// RR p.433 — levy clan warriors from a clanhold (≤1 per family; pre-trained & equipped; no wages; no
+// morale/revenue cost). opts.troopTypeKey picks the tribe's customary troop type (default: light infantry).
+function levyClanWarriors(campaign, domainOrId, opts){
+  return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'clanhold', (opts || {}).count, opts);
 }
 
 // ─── Military W7-continuation — realm-scale mercenary recruitment (RR p.428) ──────────────────────────
@@ -1705,11 +1733,11 @@ function processLevyReplenishmentForTurn(campaign){
   for(const d of campaign.domains){
     if(!d) continue;
     if(!d.levyReplenishCarry || typeof d.levyReplenishCarry !== 'object') d.levyReplenishCarry = { conscript: 0, militia: 0 };
-    for(const source of ['conscript', 'militia']){
+    for(const source of ['conscript', 'militia', 'clanhold']){   // RR p.433 — clan-warrior casualties replenish on the same 5%/yr rule
       const units = domainLevyUnits(campaign, d, source);
       const casualties = units.reduce((s, u) => s + Math.max(0, (u.casualties || 0)), 0);
       if(casualties <= 0){ d.levyReplenishCarry[source] = 0; continue; }   // nothing to heal — reset the carry
-      const cap = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+      const cap = source === 'militia' ? militiaLevyMax(d) : source === 'clanhold' ? clanholdWarriorLevyMax(campaign, d) : conscriptLevyMax(d);
       if(cap <= 0) continue;
       const carry = (d.levyReplenishCarry[source] || 0) + (cap * 0.05) / 12;
       let heal = Math.min(casualties, Math.floor(carry));
@@ -2192,7 +2220,7 @@ Object.assign(ACKS, {
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
   domainMilitiaTroopRow, domainTrainedMilitiaPool,
-  levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
+  levyConscripts, levyMilitia, levyClanWarriors, clanholdWarriorLevyMax, clanWarriorDefaultTroopTypeKey, trainLevyUnit, sendMilitiaHome,
   levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
   // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
   unitTrainingDaysLeft,

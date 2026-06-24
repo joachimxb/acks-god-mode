@@ -99,6 +99,57 @@ console.log('--- (B) clanhold rules + the Military W7 levy-cap integration ---')
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+console.log('--- (B2) clan-warrior LEVY path (RR p.433 — PT-A1) ---');
+{
+  const c = mkCampaign([clan({ demographics:{ peasantFamilies:240, urbanFamilies:30, morale:0 }, garrison:{ units:[] } })], []);
+  c.units = [];
+  const d = c.domains[0];
+  check('clanholdWarriorLevyMax = families (240)', ACKS.clanholdWarriorLevyMax(c, d) === 240);
+  check('ordinary clanholdWarriorLevyMax 0', ACKS.clanholdWarriorLevyMax(c, civ()) === 0);
+  check('clan-warrior levyAvailable = 240 initially', ACKS.levyAvailable(c, d, 'clanhold') === 240);
+  check('default clan-warrior troop type = light-infantry', ACKS.clanWarriorDefaultTroopTypeKey(d) === 'light-infantry');
+
+  const u = ACKS.levyClanWarriors(c, d.id, { count: 100, instant: true });
+  check('levyClanWarriors mints a unit', !!u);
+  check('  source = clanhold', u && u.source === 'clanhold');
+  check('  pre-trained (not untrained-levy)', u && u.unitTypeKey === 'light-infantry');
+  check('  no wages (RR p.433)', u && u.monthlyWage === 0);
+  check('  battle-ready (brPerSoldier > 0, from the troop row)', u && (u.brPerSoldier || 0) > 0);
+  check('  count = 100 (instant)', u && u.count === 100);
+  check('  stationed to the clanhold', u && u.ownerDomainId === d.id);
+  check('ever-raised reflects the levy (100)', ACKS.levyEverRaised(c, d, 'clanhold') === 100);
+  check('available now 140', ACKS.levyAvailable(c, d, 'clanhold') === 140);
+
+  // opts.troopTypeKey picks the tribe's customary type
+  const u2 = ACKS.levyClanWarriors(c, d.id, { count: 50, troopTypeKey: 'heavy-infantry', instant: true });
+  check('opts.troopTypeKey honored (heavy-infantry)', u2 && u2.unitTypeKey === 'heavy-infantry');
+  check('available now 90 (240 − 150)', ACKS.levyAvailable(c, d, 'clanhold') === 90);
+
+  // the cap clamps a too-large request to the remainder (sticky against the family count)
+  const u3 = ACKS.levyClanWarriors(c, d.id, { count: 999, instant: true });
+  check('over-cap levy clamps to remainder (90)', u3 && u3.count === 90);
+  check('available now 0 (at cap)', ACKS.levyAvailable(c, d, 'clanhold') === 0);
+  check('a further levy returns null (cap reached)', ACKS.levyClanWarriors(c, d.id, { count: 1, instant: true }) === null);
+
+  // an ordinary/transitional domain cannot levy clan warriors
+  const co = mkCampaign([civ({ demographics:{ peasantFamilies:300, morale:0 }, garrison:{ units:[] } })], []); co.units = [];
+  check('ordinary domain: levyClanWarriors → null', ACKS.levyClanWarriors(co, co.domains[0].id, { count: 10, instant: true }) === null);
+  const ct = mkCampaign([civ({ domainType:'transitional', demographics:{ peasantFamilies:300, morale:0 }, garrison:{ units:[] } })], []); ct.units = [];
+  check('transitional domain: levyClanWarriors → null (RR p.354)', ACKS.levyClanWarriors(ct, ct.domains[0].id, { count: 10, instant: true }) === null);
+  check('transitional domain: conscripts STILL allowed (30)', ACKS.conscriptLevyMax(ct.domains[0]) === 30);
+
+  // regression: the clanhold still cannot conscript or levy militia (the ban holds with the new path)
+  check('clanhold: levyConscripts → null (banned)', ACKS.levyConscripts(c, d.id, { count: 5, instant: true }) === null);
+  check('clanhold: levyMilitia → null (banned)', ACKS.levyMilitia(c, d.id, { count: 5, instant: true }) === null);
+
+  // the UI readout exposes the capacity + the clanhold flag
+  const info = ACKS.domainTypeInfo(c, d);
+  check('domainTypeInfo.isClanhold true', !!info && info.isClanhold === true);
+  check('domainTypeInfo.clanWarriorCapacity = 240', !!info && info.clanWarriorCapacity === 240);
+  check('domainTypeInfo.allowsConscription false', !!info && info.allowsConscription === false);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
 {
   const c = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:300, classification:'Borderlands', valuePerFamily:6 }]);
