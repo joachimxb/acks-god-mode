@@ -93,7 +93,7 @@ A hex, a settlement, and a unit each live in **exactly one place** — the top-l
 
 To join the data: a domain's hexes = `campaign.hexes` filtered by `hex.domainId`; a hex's settlement = the `campaign.settlements` entry whose `hexId` matches; a domain's garrison = `campaign.units` whose `stationedAt` is `{kind:'domain-garrison', id: domainId}` (the engine exposes these as `ACKS.hexesForDomain` / `settlementForHex` / `unitsStationedAt`).
 
-**Old files still load.** A pre-2026-06-21 `.acks.json` that carries the nested mirror is upgraded on load: the engine promotes each nested entry to the top-level collection (backfilling `domainId` / `hexId` / `stationedAt` from where it was nested), then strips the redundant mirror. So a third-party *reader* of an old file should still prefer the top-level collection (the nested copy may lag); a *writer* always writes only the top level. (A naive deep-equality diff of an old save vs. a new one will differ structurally — the nested mirror is simply absent in the new one.)
+**Old files still load.** A pre-2026-06-21 `.acks.json` that carries the nested mirror is upgraded on load: the engine promotes each nested entry to the top-level collection (backfilling `domainId` / `hexId` / `stationedAt` from where it was nested), then strips the redundant mirror. **Headless consumers must run this upgrade by loading through `ACKS.loadCampaign(raw)` (§5)** — `migrateCampaign` alone does the schema bump but not the lift, leaving the nested copy in place and `campaign.hexes` empty. So a third-party *reader* of an old file should still prefer the top-level collection (the nested copy may lag); a *writer* always writes only the top level. (A naive deep-equality diff of an old save vs. a new one will differ structurally — the nested mirror is simply absent in the new one.)
 
 ---
 
@@ -143,7 +143,7 @@ const { load } = require('./tests/_engine.js');   // loads all acks-engine-*.js 
 const ACKS = load();                              // → the ACKS namespace (1300+ functions)
 const fs = require('fs');
 
-const campaign = ACKS.migrateCampaign(JSON.parse(fs.readFileSync('campaign.acks.json', 'utf8')));
+const campaign = ACKS.loadCampaign(JSON.parse(fs.readFileSync('campaign.acks.json', 'utf8')));
 
 const proposal = ACKS.proposeMonthlyTurn(campaign);  // pure: compute the month's deltas
 ACKS.commitTurn(campaign, proposal);                 // apply them (income, morale, events, …)
@@ -151,6 +151,8 @@ ACKS.commitTurn(campaign, proposal);                 // apply them (income, mora
 const out = ACKS.stampCampaignForSave(campaign);     // save-ready clone, engineVersion stamped (§6)
 fs.writeFileSync('campaign.acks.json', JSON.stringify(out, null, 2));
 ```
+
+**Open a file with `ACKS.loadCampaign(raw)`, not `migrateCampaign` alone.** `loadCampaign` is the complete load entry: it runs `migrateCampaign` (the idempotent schema-forward reconcilers) **and then** the load-bearing lift/strip steps that populate the top-level collections — promoting any legacy nested mirrors (`domains[].geography.hexes[]`, `hexes[].settlement`, garrison units, stronghold components) up to `campaign.hexes` / `campaign.settlements` / `campaign.units` and stripping the redundant copies (§3). `migrateCampaign` on its own does the schema bump but **not** the lift, so a pre-2026-06-21 file opened with `migrateCampaign` alone can leave `campaign.hexes === undefined` — the data is still trapped in the nested mirror. `loadCampaign` returns a fully-populated campaign and is the same path the app loads through, so headless and in-app load behave identically. (`migrateCampaign` stays public for callers that specifically want only the schema-forward step.)
 
 `proposeMonthlyTurn(campaign, { rng })` / `commitTurn(campaign, proposal, { rng })` accept an injectable `rng` for deterministic, scriptable turns (defaults to `Math.random`). The whole ACKS economy ruleset (income/expense/morale/tribute) lives in `acks-engine-economy.js` and is pure `(campaign, domain)` — callable directly.
 
@@ -184,6 +186,8 @@ When you write a campaign back, go through `ACKS.stampCampaignForSave(campaign)`
 2. **Mutate the data directly** (for bulk authoring or fields without an event verb), then `ACKS.validateCampaign` before saving. Respect the canonical-home rule (§3): write top-level collections only.
 
 Either way, finish with `ACKS.stampCampaignForSave` (§6) before serializing.
+
+> **⚠ Treasury is dual-homed — don't write `domain.treasury.gp` directly.** A domain's gold is held in two places that must agree: the scalar `domain.treasury.gp` and a `domain-treasury` Stash (the canonical balance). The engine keeps them in sync through one writer — `ACKS._applyDomainTreasuryDelta` (and the `treasury-grant` event, the auditable path of choice). If you bypass that and assign `domain.treasury.gp` directly, the stash and the scalar diverge and downstream reads (income, banking, save) disagree. So: prefer a `treasury-grant` event; if you must mutate directly, update **both** homes, or set the scalar and then call `ACKS.reconcileTreasuryScalars(campaign)` before validating/saving (it re-derives the scalars from the canonical stashes).
 
 ---
 
