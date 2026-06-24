@@ -127,7 +127,7 @@ function computeDomainEconomy(camp, d){
 function makeRng(seed){ let s = seed >>> 0; return function(){ s = (s + 0x6D2B79F5)|0; let t = Math.imul(s ^ (s>>>15), 1|s); t = (t + Math.imul(t ^ (t>>>7), 61|t)) ^ t; return ((t ^ (t>>>14))>>>0)/4294967296; }; }
 
 console.log('--- Engine surface ---');
-['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
+['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','domainRulerXpAward','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
   .forEach(fn => check('ACKS.' + fn + ' is a function', typeof ACKS[fn] === 'function', 'got ' + typeof ACKS[fn]));
 
 console.log('--- (a) Characterization oracle: campaign-build fidelity (invariants) ---');
@@ -230,6 +230,15 @@ const hCamp = mkCampaign(hDom); hCamp.characters = [henchRuler];
 check('isHenchman(henchRuler) is true (sanity)', ACKS.isHenchman(henchRuler) === true);
 check('domainXpFromNet henchman SUBTRACTS the wage = max(0, 6000 − 500 − 5000) = 500', ACKS.domainXpFromNet(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainXpFromNet(hCamp, hDom, 6000));
 check('domainXpFromNet floors at 0 (net below threshold)', ACKS.domainXpFromNet(pcCamp, pcDom, 3000) === 0);
+
+// domainRulerXpAward (RR p.342): the XP a ruler ACTUALLY gains from domain income = the wage-adjusted
+// basis, with NO ½-share — domain income is the explicit exception ("they do not reduce earned XP
+// from domains by 50%"). Regression for the 2026-06-24 audit double-penalty (acks-authority C1): the
+// commit path used to ×0.5 a henchman ruler's domain XP ON TOP of the wage subtraction.
+check('domainRulerXpAward henchman ruler is NOT halved = wage-adjusted basis 500 (bug awarded 250)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainRulerXpAward(hCamp, hDom, 6000));
+check('domainRulerXpAward === domainXpFromNet for the henchman ruler (no extra ×0.5)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === ACKS.domainXpFromNet(hCamp, hDom, 6000));
+check('domainRulerXpAward non-henchman = full basis 1000', ACKS.domainRulerXpAward(pcCamp, pcDom, 6000) === 1000, 'got ' + ACKS.domainRulerXpAward(pcCamp, pcDom, 6000));
+check('domainRulerXpAward floors at 0 (net below threshold)', ACKS.domainRulerXpAward(pcCamp, pcDom, 3000) === 0);
 
 console.log('--- (c) Headless monthly turn (no DOM) ---');
 // No-rng default path runs without throwing — the 5-line "engine runs a turn headless" snippet.

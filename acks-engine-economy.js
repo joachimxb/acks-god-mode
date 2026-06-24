@@ -629,16 +629,29 @@ function incomeSum(p){ return (p.income||[]).reduce((s,r) => s + (r.gp||0), 0); 
 function expenseSum(p){ return (p.expenses||[]).reduce((s,r) => s + (r.gp||0), 0); }
 function moraleModSum(p){ return (p.moraleMods||[]).reduce((s,r) => s + (r.value||0), 0); }
 
-// Domain XP earned by the ruler this month: net income above the GP threshold (RR p.423). Errata §1.1
+// Domain XP BASIS for the ruler this month: net income above the GP threshold (RR p.423). Errata §1.1
 // (RR r10 p.425): a HENCHMAN ruler subtracts their expected monthly wage from the XP basis (the wage
 // already earns them XP via the patron — avoids double-counting). Magistrate salary counts as domain
-// income for XP. Per Joachim 2026-05-28 this is RAW, applies to all henchman rulers.
+// income for XP. Per Joachim 2026-05-28 the WAGE SUBTRACTION is RAW and applies to all henchman rulers.
+// NOTE: this is ONLY the wage subtraction — domain income is NOT additionally halved for henchmen
+// (see domainRulerXpAward + RR p.342). Returns null when there is no GP threshold.
 function domainXpFromNet(campaign, d, net){
   const thr = effectiveRuler(campaign, d).gpThreshold || 0;
   if(thr <= 0) return null;
   const ch = rulerCharacter(campaign, d);
   const henchmanWage = (isHenchman(ch)) ? (ch.monthlyWage || 0) : 0;
   return Math.max(0, (net||0) - henchmanWage - thr);
+}
+
+// The campaign XP a ruler ACTUALLY earns from a domain's net income this month (the value awarded at
+// commit) = domainXpFromNet (the wage-adjusted, threshold-floored basis). Domain income is the
+// EXPLICIT exception to the henchman ½-share — RR p.342: "Henchmen vassals subtract their expected
+// monthly wage … However, they do not reduce earned XP from domains by 50%." So there is NO ×0.5
+// here, for a henchman vassal OR a PC vassal alike. (The ½-share DOES apply to adventuring RR p.311,
+// construction p.423, ventures p.424.) Returns 0 when no XP is earned. (audit 2026-06-24 / acks-authority C1)
+function domainRulerXpAward(campaign, d, net){
+  const xp = domainXpFromNet(campaign, d, net);
+  return (xp && xp > 0) ? Math.round(xp) : 0;
 }
 
 Object.assign(ACKS, {
@@ -667,7 +680,7 @@ Object.assign(ACKS, {
   scutagePaidThisMonth,
   // Income / expense / morale
   incomeFactor, incomeBreakdown, monthlyGrossIncome, expenseBreakdown, monthlyExpenses, monthlyNet, moraleModifiersFor,
-  incomeSum, expenseSum, moraleModSum, domainXpFromNet
+  incomeSum, expenseSum, moraleModSum, domainXpFromNet, domainRulerXpAward
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }
