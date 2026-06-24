@@ -213,7 +213,10 @@ console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
   check('pristine demo land row byte-identical (no domain-type annotation)', !/clanhold cap|transitional ½/.test(before.label || ''), before.label);
   check('pristine demo domain defaults to ordinary', ACKS.domainTypeOf(d) === 'ordinary');
   const beforeGp = before.gp || 0;
-  ACKS.setDomainType(camp, d.id, 'clanhold');
+  // Demo refresh (2026-06-24): the March of Saltspur now seats a Senate, and setDomainType correctly
+  // refuses to flip a senatorial apex to clanhold (RR p.354 — a senate cannot sit on a clanhold). This
+  // block only exercises the clanhold land-revenue cap on a demo domain, so force past the senate gate.
+  ACKS.setDomainType(camp, d.id, 'clanhold', { force: true });
   check('demo domain flipped to clanhold', ACKS.domainTypeOf(d) === 'clanhold');
   check('clanhold flip emitted a domain-type-changed event', camp.eventLog.some(e => e.event.kind === 'domain-type-changed'));
   check('clanhold land revenue ≤ ordinary (the cap never raises it)', (landOf().gp || 0) <= beforeGp, beforeGp + ' → ' + (landOf().gp || 0));

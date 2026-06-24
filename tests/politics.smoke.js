@@ -896,9 +896,16 @@ const DEMO = global.ACKS_DEMO_TEMPLATE;
 ok('demo template loaded', DEMO && DEMO.kind === 'campaign');
 ok('migrate(demo) is a TRUE no-op (JSON-identical)', JSON.stringify(ACKS.migrateCampaign(clone(DEMO))) === JSON.stringify(clone(DEMO)));
 (function(){
+  // Demo refresh (2026-06-24): the demo now SHIPS a Senate of the March (Politics P-5 showcase). The real
+  // invariant is that migrate never LAZY-INJECTS the importer-only senate collections — test that on a fresh
+  // blankCampaign (which, per this section's note, does not seed them), and assert migrate leaves the demo's
+  // presence unchanged (the no-op above already proves it; this guards these specific keys against injection).
+  const blank = ACKS.migrateCampaign(ACKS.blankCampaign());
+  ok('migrate does NOT lazy-inject senates/factions/senatorships (blankCampaign stays clean)',
+    !('senates' in blank) && !('factions' in blank) && !('senatorships' in blank));
   const migrated = ACKS.migrateCampaign(clone(DEMO));
-  ok('migrate(demo) did NOT inject senates/factions/senatorships',
-    !('senates' in migrated) && !('factions' in migrated) && !('senatorships' in migrated));
+  ok('migrate leaves the demo senate-collection presence unchanged',
+    ['senates','factions','senatorships'].every(k => (k in migrated) === (k in DEMO)));
 })();
 (function(){
   const dir = path.join(REPO, 'Templates');
@@ -910,7 +917,10 @@ ok('migrate(demo) is a TRUE no-op (JSON-identical)', JSON.stringify(ACKS.migrate
     try { raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch(e){ ok('template parses: ' + f, false, e.message); continue; }
     const migrated = ACKS.migrateCampaign(clone(raw));
     ok('template is a TRUE migrate-no-op: ' + f, JSON.stringify(migrated) === JSON.stringify(raw));
-    ok('template did NOT gain senate collections: ' + f, !('senates' in migrated) && !('factions' in migrated) && !('senatorships' in migrated));
+    // The demo template (v2-established-march) now ships senate collections; every other template lacks them.
+    // The invariant is that migrate doesn't CHANGE which senate collections are present (no lazy-inject).
+    ok('template senate-collection presence unchanged by migrate: ' + f,
+      ['senates','factions','senatorships'].every(k => (k in migrated) === (k in raw)));
   }
 })();
 

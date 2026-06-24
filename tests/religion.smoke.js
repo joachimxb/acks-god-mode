@@ -269,8 +269,15 @@ require(path.join(REPO, 'acks-demo-template.js'));
 const DEMO = global.ACKS_DEMO_TEMPLATE;
 ok('demo template loaded', DEMO && DEMO.kind === 'campaign');
 ok('migrate(demo) is a TRUE no-op (JSON-identical)', JSON.stringify(ACKS.migrateCampaign(clone(DEMO))) === JSON.stringify(clone(DEMO)));
-ok('migrated demo characters did NOT gain divinePower (no lazy-inject)',
-  (ACKS.migrateCampaign(clone(DEMO)).characters || []).every(ch => !('divinePower' in ch)));
+// Demo refresh (2026-06-24): the demo now ships religious characters carrying divinePower (Religion
+// showcase — a chaplain + a sea-priest). The real invariant is that migrate never LAZY-INJECTS divinePower
+// — assert migrate leaves each character's divinePower presence unchanged (a char that lacked it still
+// lacks it; the no-op above already proves it, this guards the specific field against injection).
+(function(){
+  const before = clone(DEMO), after = ACKS.migrateCampaign(clone(DEMO));
+  ok('migrate did NOT lazy-inject divinePower (per-character presence unchanged)',
+    after.characters.every((ch, i) => ('divinePower' in ch) === ('divinePower' in before.characters[i])));
+})();
 
 (function(){
   const dir = path.join(REPO, 'Templates');
@@ -283,7 +290,10 @@ ok('migrated demo characters did NOT gain divinePower (no lazy-inject)',
     const migrated = ACKS.migrateCampaign(clone(raw));
     ok('template is a TRUE migrate-no-op: ' + f, JSON.stringify(migrated) === JSON.stringify(raw));
     ok('template carries deities[] already: ' + f, Array.isArray(raw.deities));
-    ok('template characters did NOT gain divinePower: ' + f, (migrated.characters || []).every(ch => !('divinePower' in ch)));
+    // The demo template (v2-established-march) now ships characters with divinePower; every other template
+    // lacks it. The invariant is that migrate doesn't CHANGE a character's divinePower presence (no inject).
+    ok('template divinePower presence unchanged by migrate: ' + f,
+      migrated.characters.every((ch, i) => ('divinePower' in ch) === ('divinePower' in raw.characters[i])));
   }
 })();
 

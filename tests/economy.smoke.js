@@ -134,7 +134,10 @@ console.log('--- (a) Characterization oracle: campaign-build fidelity (invariant
 const demo = buildDemoCampaign();
 const byId = {};
 demo.domains.forEach(d => byId[d.id] = d);
-check('demo rebuilt with 4 domains', demo.domains.length === 4, 'got ' + demo.domains.length);
+// Demo refresh (2026-06-24, World-Layer): the demo now ships a 5th domain — the dom-gravewolf-clans
+// beastman clanhold (Tribal Domains showcase). The oracle was regenerated to match (March + Tidewrack
+// byte-identical; Northwatch/Saltcombe rulers bumped to L7 for Senate eligibility; clanhold added).
+check('demo rebuilt with 5 domains', demo.domains.length === 5, 'got ' + demo.domains.length);
 Object.keys(ORACLE.invariants).forEach(id => {
   const d = byId[id], inv = ORACLE.invariants[id];
   if(!d){ check('invariant domain present: ' + id, false); return; }
@@ -235,9 +238,9 @@ try {
   const c0 = buildDemoCampaign();
   const prop0 = ACKS.proposeMonthlyTurn(c0);
   const res0 = ACKS.commitTurn(c0, prop0);
-  snippetOk = !prop0.error && !res0.error && res0.committed === 4 && c0.currentTurn === 6;
+  snippetOk = !prop0.error && !res0.error && res0.committed === 5 && c0.currentTurn === 6;
 } catch(e){ snippetOk = false; console.log('  (snippet threw: ' + e.message + ')'); }
-check('default-rng headless turn runs: propose + commit, 4 committed, turn 5 → 6', snippetOk);
+check('default-rng headless turn runs: propose + commit, 5 committed, turn 5 → 6', snippetOk);
 
 // Seeded turn — deterministic + treasury deltas equal the monthly net.
 function runSeededTurn(seed){
@@ -248,8 +251,8 @@ function runSeededTurn(seed){
   return { camp, before, prop, res };
 }
 const r1 = runSeededTurn(424242);
-check('seeded propose has no error + 4 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 4);
-check('seeded commit: 4 committed, no error, turn advanced to 6', r1.res.committed === 4 && !r1.res.error && r1.camp.currentTurn === 6);
+check('seeded propose has no error + 5 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 5);
+check('seeded commit: 5 committed, no error, turn advanced to 6', r1.res.committed === 5 && !r1.res.error && r1.camp.currentTurn === 6);
 // Treasury delta == monthly net (incomeFactor 1, no construction queued) PLUS any passive-investment
 // payout credited to the domain (the demo's "Saltspur Distillery" pays 30,000 × 1% = 300/mo to
 // Saltspur — exercises the lifted processPassiveInvestmentsForTurn in the headless turn). So
