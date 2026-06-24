@@ -1423,13 +1423,16 @@ document.addEventListener('alpine:init', () => {
            the Religion subsystem — this only FLAGS it (record-only). Settlement-scoped, surfaced in the
            arcane hub. -->
       <div class="border border-red-300 rounded p-2 mt-2 text-sm" style="background:rgba(254,226,226,.35)">
-        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — the divine seam, a stub)</span></div>
-        <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power. The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem. This flags it for that consequence (record-only here).</p>
+        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — extract arcane power; the gods take notice)</span></div>
+        <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power — 2%/day of their families' XP, the same rate as a dungeon (RR p.388). An L9+ arcane caster draws this power to fund magic research (below L9, the act flags the settlement but extracts nothing). The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem.</p>
         <template x-if="arcaneUsurpedSettlements().length">
           <div class="mb-1 text-xs flex flex-col gap-1">
             <template x-for="u in arcaneUsurpedSettlements()" :key="u.id">
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span class="inline-flex items-center gap-1">⚖️ <span class="font-semibold" x-text="u.name"></span> — usurped by <span x-text="u.usurperName"></span> (<span class="font-mono" x-text="u.familiesXp.toLocaleString()"></span> XP)</span>
+                <!-- AD-F arcane REWARD — the gp/mo arcane power the usurper extracts (L9+ arcane); the L9 gate is made legible. -->
+                <span x-show="u.canExtract" class="inline-flex items-center gap-1 text-purple-800 font-semibold" x-text="'🔮 extracting ' + u.perMonth.toLocaleString() + ' gp/mo arcane power'"></span>
+                <span x-show="!u.canExtract" class="italic opacity-70">— (usurper is below L9; no extraction)</span>
                 <button @click="arcaneClearUsurp(u.id)" class="px-1 border border-ink rounded hover:bg-yellow-100" title="Release the settlement — the gods’ wrath then cools each monthly turn">Release</button>
                 <!-- Wave E — the mounting divine wrath (escalates each monthly turn the usurpation persists; RR p.388) -->
                 <span class="font-semibold" :class="u.wrathLevel >= 2 ? 'text-red-800' : 'text-red-700'" x-text="'· ⚖ ' + u.wrathLabel"></span>
@@ -1458,7 +1461,7 @@ document.addEventListener('alpine:init', () => {
         <span class="italic">Room-by-room stocking — the Dungeon Builder — arrives in Phase 4.8.</span>
       </div>
 
-      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E/AD-F). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. ⚖️ Usurping a settlement flags the arcane↔divine seam for the Religion subsystem. Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
+      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E/AD-F). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. ⚖️ Usurping a settlement extracts arcane power from its terrified peasants (2%/day, RR p.388) to fund the usurper's research AND provokes the divine response (wrath + co-extraction, the Religion subsystem). Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
     </div>
   </template>
 </div>

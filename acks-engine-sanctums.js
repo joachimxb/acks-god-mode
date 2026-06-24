@@ -437,6 +437,10 @@
     for(const d of dungeonsForArcaneCaster(campaign, charId, { requireVicinity: true })){
       sum += Math.max(0, dungeonArcanePowerPerMonth(campaign, d) - (Number(d.arcanePowerSpentThisMonth) || 0));
     }
+    // AD-F arcane reward — a usurped settlement is just another source for its usurper (RR p.388 #3).
+    for(const s of usurpedSettlementsForArcaneCaster(campaign, charId, { requireVicinity: true })){
+      sum += Math.max(0, settlementArcanePowerPerMonth(campaign, s) - (Number(s.arcanePowerSpentThisMonth) || 0));
+    }
     return sum;
   }
 
@@ -450,15 +454,24 @@
     if(want <= 0) return { ok: false, spent: 0, remaining: arcanePowerAvailable(campaign, charId) };
     const available = arcanePowerAvailable(campaign, charId);
     if(available < want) return { ok: false, spent: 0, remaining: available };
-    const eligible = dungeonsForArcaneCaster(campaign, charId, { requireVicinity: true })
-      .map(d => ({ d, free: Math.max(0, dungeonArcanePowerPerMonth(campaign, d) - (Number(d.arcanePowerSpentThisMonth) || 0)) }))
-      .filter(x => x.free > 0)
-      .sort((a, b) => a.free - b.free);
+    // Unified source list over dungeons + usurped settlements (RR p.388 #3 — a usurped town is a dungeon).
+    // Each source is a { free, commit(take) } closure over its own arcanePowerSpentThisMonth wallet; drawn
+    // lowest-free first (the existing "use the small wallets first" rule, now across both source types).
+    const sources = [];
+    for(const d of dungeonsForArcaneCaster(campaign, charId, { requireVicinity: true })){
+      const free = Math.max(0, dungeonArcanePowerPerMonth(campaign, d) - (Number(d.arcanePowerSpentThisMonth) || 0));
+      if(free > 0) sources.push({ free, commit: (take) => { d.arcanePowerSpentThisMonth = (Number(d.arcanePowerSpentThisMonth) || 0) + take; } });
+    }
+    for(const s of usurpedSettlementsForArcaneCaster(campaign, charId, { requireVicinity: true })){
+      const free = Math.max(0, settlementArcanePowerPerMonth(campaign, s) - (Number(s.arcanePowerSpentThisMonth) || 0));
+      if(free > 0) sources.push({ free, commit: (take) => { s.arcanePowerSpentThisMonth = (Number(s.arcanePowerSpentThisMonth) || 0) + take; } });
+    }
+    sources.sort((a, b) => a.free - b.free);
     let need = want;
-    for(const x of eligible){
+    for(const src of sources){
       if(need <= 0) break;
-      const take = Math.min(x.free, need);
-      x.d.arcanePowerSpentThisMonth = (Number(x.d.arcanePowerSpentThisMonth) || 0) + take;
+      const take = Math.min(src.free, need);
+      src.commit(take);
       need -= take;
     }
     return { ok: true, spent: want - need, remaining: arcanePowerAvailable(campaign, charId) };
@@ -532,7 +545,7 @@
   // spent) so extraction works mid-month before any commit; this just resets the per-month spend window.
   function processArcaneForTurn(campaign, options){
     const o = options || {};
-    const out = { ran: false, logEntries: [], dungeons: 0, totalGp: 0 };
+    const out = { ran: false, logEntries: [], dungeons: 0, settlements: 0, totalGp: 0 };
     if(!campaign) return out;
     out.ran = true;
     const A = _A();
@@ -553,6 +566,27 @@
           { primaryHexId: d.hexId, campaignLogHidden: true,
             narrative: (sov && sov.name || sovereign) + ' extracts ' + monthYield.toLocaleString() + 'gp arcane power from ' + (d.name || 'the dungeon'),
             relatedEntities: [{ kind: 'character', id: sovereign, role: 'subject' }, { kind: 'dungeon', id: d.id, role: 'site' }] });
+      }
+    }
+    // AD-F arcane reward — usurped settlements cache + reset exactly like dungeons (RR p.388 #3). The
+    // monthYield is 0 unless the usurper is L9+ arcane (settlementArcanePowerPerDay gates it), so a
+    // non-extracting usurpation just zeros the caches (mirrors the dungeon non-sovereign branch above).
+    for(const s of _settlements(campaign)){
+      if(!s || !s.arcaneUsurpedByCharacterId) continue;
+      const monthYield = settlementArcanePowerPerMonth(campaign, s);
+      s.arcanePowerThisMonth = monthYield;          // display cache
+      s.arcanePowerSpentThisMonth = 0;              // fresh month's budget (prior month's unspent is lost)
+      if(monthYield > 0){
+        out.settlements++; out.totalGp += monthYield;
+        const usurperId = s.arcaneUsurpedByCharacterId;
+        const usurper = _findChar(campaign, usurperId);
+        const familiesXp = settlementFamiliesXp(campaign, s);
+        out.logEntries.push('🔮 ' + ((usurper && usurper.name) || usurperId) + ' may extract ' + monthYield.toLocaleString() + 'gp of arcane power from ' + (s.name || 'a usurped settlement') + ' this month');
+        _recordArcaneEvent(campaign, 'arcane-power-extracted',
+          { settlementId: s.id, characterId: usurperId, gpValue: monthYield, familiesXp },
+          { primaryHexId: _settlementHexId(campaign, s), settlementId: s.id, campaignLogHidden: true,
+            narrative: ((usurper && usurper.name) || usurperId) + ' extracts ' + monthYield.toLocaleString() + 'gp arcane power from ' + (s.name || 'the settlement') + ' (RR p.388)',
+            relatedEntities: [{ kind: 'character', id: usurperId, role: 'subject' }, { kind: 'settlement', id: s.id, role: 'site' }] });
       }
     }
     return out;
@@ -1131,6 +1165,46 @@
   // All currently-usurped settlements (the surface Religion reads for the divine-wrath response).
   function usurpedSettlements(campaign){ return _settlements(campaign).filter(s => s && s.arcaneUsurpedByCharacterId); }
 
+  // ── AD-F arcane REWARD — extracting arcane power from a usurped settlement (RR p.388) ─────────────────
+  // RR p.388 #3: "Nothing prohibits a spellcaster from calling a local town his 'dungeon,' terrifying the
+  // peasants, and extracting arcane power from them." So a usurped town IS a dungeon and its peasant
+  // families ARE the "monsters inhabiting the dungeon" — the SAME 2%/day-of-XP rate (settlementFamiliesXp
+  // as the XP base, RR p.388 #1) feeding the SAME ephemeral/monthly/vicinity machinery. 0 unless the
+  // usurper is an L9+ arcane caster (canOperateDungeon — RR p.388 #2). Worked check: a 200-family town =
+  // 1,000 XP → floor(0.02×1000) = 20 gp/day → 600 gp/month (an 858-family town matches Quintus' 2,550/mo
+  // dungeon — RAW's intended "towns are a powerful but god-angering shortcut"). The divine CONSEQUENCE
+  // (wrath + the 10/10/80 co-extraction) stays Religion's (Wave E, shipped); the two power pools are
+  // independent + additive — RR p.388 #4 is a cosmological justification, not a shared-pool formula.
+  function settlementArcanePowerPerDay(campaign, settlement){
+    const s = (typeof settlement === 'string') ? _findSettlement(campaign, settlement) : settlement;
+    if(!s || !s.arcaneUsurpedByCharacterId) return 0;
+    if(!canOperateDungeon(_findChar(campaign, s.arcaneUsurpedByCharacterId))) return 0;   // arcane L9+ (RR p.388 #2)
+    return Math.floor(ARCANE_EXTRACT_PCT * settlementFamiliesXp(campaign, s));
+  }
+  function settlementArcanePowerPerMonth(campaign, settlement){ return settlementArcanePowerPerDay(campaign, settlement) * DAYS_PER_MONTH; }
+
+  // Vicinity for a usurped settlement — the dungeon rule (RR p.388 #2, the same 6-mile hex) over the
+  // settlement's embedding hex (_settlementHexId). Lenient (mirrors _inVicinity): satisfied unless BOTH the
+  // caster's currentHexId and the settlement's hex are set and differ.
+  function _inVicinitySettlement(campaign, caster, settlement){
+    const ch = caster && caster.currentHexId, sh = _settlementHexId(campaign, settlement);
+    if(ch == null || sh == null) return true;
+    return ch === sh;
+  }
+  // The usurped settlements a caster extracts arcane power from (mirror of dungeonsForArcaneCaster):
+  // flagged by him + he is an L9+ arcane caster (sovereignty established by terror, §4.2 — no reaction
+  // roll) + (when requireVicinity) co-located. The settlement eligibility surface.
+  function usurpedSettlementsForArcaneCaster(campaign, charId, opts){
+    opts = opts || {};
+    const caster = _findChar(campaign, charId);
+    if(!caster || !canOperateDungeon(caster)) return [];
+    return _settlements(campaign).filter(s => {
+      if(!s || s.arcaneUsurpedByCharacterId !== charId) return false;
+      if(opts.requireVicinity && !_inVicinitySettlement(campaign, caster, s)) return false;
+      return true;
+    });
+  }
+
   // Flag a human/demi-human settlement as arcane-usurped (RR p.388 — designate it a "dungeon," terrify the
   // peasants, extract arcane power). A GM-driven STUB: stamps the queryable flag (settlement.
   // arcaneUsurpedByCharacterId — defensive, no migration) + emits the rumor-grade `arcane-usurpation` event
@@ -1167,6 +1241,8 @@
     if(!settlement.arcaneUsurpedByCharacterId) return { ok: true, settlement, wasFlagged: false };
     const prior = settlement.arcaneUsurpedByCharacterId;
     settlement.arcaneUsurpedByCharacterId = null;
+    settlement.arcanePowerSpentThisMonth = 0;     // leave no stale spend/yield cache on a released settlement
+    settlement.arcanePowerThisMonth = 0;
     return { ok: true, settlement, wasFlagged: true, priorCharacterId: prior };
   }
 
@@ -1221,8 +1297,10 @@
     // AD-C — dungeon construction (the completion hook) + Vagaries auto-population + the JJ p.102 neighbour effect
     onDungeonConstructed, dungeonForArrival, dungeonLairBonus, settleBandIntoDungeon,
     noteDungeonInvaders, domainIsDungeonDangerousForNeighbours,
-    // AD-F — the arcane↔divine seam stub (RR p.388, D2 — Religion-consumed)
+    // AD-F — the arcane↔divine seam (RR p.388, D2): the arcane REWARD (extract arcane power from a usurped
+    // settlement) + the usurpation flag the Religion CONSEQUENCE consumes
     settlementFamiliesXp, settlementArcaneUsurperId, usurpedSettlements,
+    settlementArcanePowerPerDay, settlementArcanePowerPerMonth, usurpedSettlementsForArcaneCaster,
     flagArcaneUsurpation, clearArcaneUsurpation,
     // AD-B — Sanctum establishment + apprentices/companions
     SANCTUM_COMPANION_CAP, SANCTUM_APPRENTICE_CAP, FACILITY_KINDS,

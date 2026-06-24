@@ -2768,6 +2768,11 @@ const _component = {
       const uid = s.arcaneUsurpedByCharacterId;
       const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === uid);
       const familiesXp = window.ACKS.settlementFamiliesXp(this.currentCampaign, s);
+      // AD-F arcane REWARD — the gp/mo arcane power the usurper extracts (2%/day of familiesXp; 0 unless he
+      // is an L9+ arcane caster — RR p.388). canExtract makes the L9 gate legible in the readout.
+      const perMonth = window.ACKS.settlementArcanePowerPerMonth(this.currentCampaign, s);
+      const perDay = window.ACKS.settlementArcanePowerPerDay(this.currentCampaign, s);
+      const canExtract = !!(c && window.ACKS.canOperateDungeon(c));
       // Wave E — the divine wrath the usurpation has provoked (built monthly by processReligionForTurn).
       const w = window.ACKS.settlementDivineWrath ? window.ACKS.settlementDivineWrath(this.currentCampaign, s) : null;
       let wrathLabel = 'divine wrath gathers — the gods answer at the next monthly turn', wrathLevel = 0;
@@ -2779,7 +2784,7 @@ const _component = {
           ? 'divine wrath: dire portents (lvl 1) — a month’s grace'
           : 'divine wrath: the ' + sev + ' of the gods (lvl ' + w.level + ') — a ' + force.toLocaleString() + ' XP retribution, GM-staged';
       }
-      return { id: s.id, name: s.name || s.id, usurperName: c ? (c.name || c.id) : uid, familiesXp, wrathLevel, wrathLabel };
+      return { id: s.id, name: s.name || s.id, usurperName: c ? (c.name || c.id) : uid, familiesXp, perDay, perMonth, canExtract, wrathLevel, wrathLabel };
     });
   },
   arcaneUsurp(){
