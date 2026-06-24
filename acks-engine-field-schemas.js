@@ -56,9 +56,23 @@
     const tag = (ctx ? ctx + '.' : '') + (field.name || '(unnamed)');
     if(!field.name || typeof field.name !== 'string') errors.push(tag + ': missing or non-string name');
     if(!isValidFieldType(field.type)) errors.push(tag + ': invalid type "' + field.type + '" (must be one of: ' + Array.from(FIELD_TYPES).join(', ') + ')');
-    if((field.type === 'enum' || field.type === 'enumMulti') && (!Array.isArray(field.enumValues) || field.enumValues.length === 0)){
-      errors.push(tag + ': type "' + field.type + '" requires non-empty enumValues array');
+    if(field.type === 'enum' || field.type === 'enumMulti'){
+      // XLS-1 — an enum supplies its legal set EITHER as a static enumValues[] OR via a live
+      // enumSource (a window.ACKS catalog/accessor name; see resolveEnumSource), never both.
+      const hasValues = Array.isArray(field.enumValues) && field.enumValues.length > 0;
+      const hasSource = typeof field.enumSource === 'string' && field.enumSource.length > 0;
+      if(hasValues && hasSource) errors.push(tag + ': "' + field.type + '" sets BOTH enumValues and enumSource — use exactly one');
+      else if(!hasValues && !hasSource) errors.push(tag + ': type "' + field.type + '" requires a non-empty enumValues array or an enumSource string');
     }
+    // XLS-1 — the four additive import-projection attributes (see schemaToImportColumns). Optional;
+    // type-checked when present. enumSource is meaningful only on enum/enumMulti.
+    if(field.enumSource != null){
+      if(typeof field.enumSource !== 'string') errors.push(tag + ': enumSource must be a string (a window.ACKS catalog/accessor name)');
+      else if(field.type !== 'enum' && field.type !== 'enumMulti') errors.push(tag + ': enumSource is only valid on enum / enumMulti');
+    }
+    if(field.importHeader != null && typeof field.importHeader !== 'string') errors.push(tag + ': importHeader must be a string');
+    if(field.importColumn != null && typeof field.importColumn !== 'boolean') errors.push(tag + ': importColumn must be a boolean');
+    if(field.importable   != null && typeof field.importable   !== 'boolean') errors.push(tag + ': importable must be a boolean');
     if((field.type === 'id' || field.type === 'idArray') && !field.idKind){
       errors.push(tag + ': type "' + field.type + '" should specify idKind (any-kind ids are allowed but discouraged — leave a comment if intentional)');
     }
@@ -1419,6 +1433,196 @@
   };
   Object.entries(FIELD_SCHEMAS_SEED).forEach(([kind, schema]) => registerFieldSchema(kind, schema));   // seed byte-identically (insertion order preserved)
 
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  // XLS-1 FOUNDATION (Phase_2.5_Excel_Import_Plan.md §3) — the hex + domain field-schemas + the
+  // import-column projection. ONE source drives the Inspector form, a future Hex/Domain Wizard
+  // (Inspector Wave-F), AND the Excel importer/exporter (template, columns, validation, reference).
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+
+  // ─── 3b. enumSource resolution ───
+  // Resolve an enumSource token to its LIVE legal-value array, read from window.ACKS catalogs/
+  // accessors AT CALL TIME (never inlined — so terrain/Köppen/biome/classification can't drift from
+  // the catalogs). `arg` parameterizes a DEPENDENT enum (e.g. subtypesForTerrain(base)). An unknown /
+  // not-yet-loaded source resolves to [] (the caller reads an empty legal-set as "don't enum-validate").
+  function resolveEnumSource(source, arg){
+    if(!source || typeof source !== 'string') return [];
+    if(source === 'subtypesForTerrain'){
+      if(arg != null && ACKS.TERRAIN_SUBTYPES) return (ACKS.TERRAIN_SUBTYPES[arg] || []).slice();
+      return typeof ACKS.allTerrainSubtypes === 'function' ? ACKS.allTerrainSubtypes() : [];
+    }
+    if(source === 'KOPPEN_CODES') return ACKS.KOPPEN_CLIMATE ? Object.keys(ACKS.KOPPEN_CLIMATE) : [];
+    const v = ACKS[source];
+    if(Array.isArray(v)) return v.slice();
+    if(typeof v === 'function'){ try { const r = v(arg); return Array.isArray(r) ? r.slice() : []; } catch(_e){ return []; } }
+    if(v && typeof v === 'object') return Object.keys(v);
+    return [];
+  }
+  // The legal values for an enum/enumMulti field — static enumValues, else the live enumSource.
+  function enumValuesForField(field, arg){
+    if(!field) return [];
+    if(Array.isArray(field.enumValues) && field.enumValues.length) return field.enumValues.slice();
+    if(field.enumSource) return resolveEnumSource(field.enumSource, arg);
+    return [];
+  }
+
+  // ─── 3c. schemaToImportColumns — the schema → flat-column projection (plan §3.3) ───
+  // The ONE place "flat spreadsheet" meets "entity-shaped schema". The same ordered column set feeds
+  // the template headers, the export order, the header→field map, import validation, and the reference
+  // sheet — so import + export can never disagree. Each column descriptor:
+  //   { header, field (dotted path), type, role, idKind?, enumSource?, enumValues?, multi?,
+  //     required?, axis? ('col'|'row' on a coord pair), lazy? (a schema importExtraColumns entry) }
+  // role ∈ id | scalar | enum | coord | hexRef | idRef.  coord + hexRef each emit TWO columns (Col/Row).
+  const _PROJECT_LEAF = new Set(['string','longText','number','boolean','gp','date','enum','enumMulti','id','coord']);
+  function _defaultHeader(f){ return f.importHeader || (f.name.charAt(0).toUpperCase() + f.name.slice(1)); }
+  function _columnsForField(f, parentName){
+    const path = parentName ? parentName + '.' + f.name : f.name;
+    if(f.type === 'coord'){
+      // bare top-level `coord` → Col/Row; an importHeader'd / named coord → {Base}Col/{Base}Row.
+      const base = f.importHeader || (f.name === 'coord' ? '' : (f.name.charAt(0).toUpperCase() + f.name.slice(1)));
+      return [
+        { header: base + 'Col', field: path, type:'coord', role:'coord', axis:'col', required: !!f.required },
+        { header: base + 'Row', field: path, type:'coord', role:'coord', axis:'row', required: !!f.required }
+      ];
+    }
+    if(f.type === 'id' && f.idKind === 'hex'){
+      // a hex reference is addressed by COORDINATE in the workbook (not by hex id) → a Col/Row pair.
+      const base = f.importHeader || 'Hex';
+      return [
+        { header: base + 'Col', field: path, type:'id', idKind:'hex', role:'hexRef', axis:'col', required: !!f.required },
+        { header: base + 'Row', field: path, type:'id', idKind:'hex', role:'hexRef', axis:'row', required: !!f.required }
+      ];
+    }
+    if(f.type === 'id'){
+      return [{ header: _defaultHeader(f), field: path, type:'id', idKind: f.idKind || null, role:'idRef', required: !!f.required }];
+    }
+    if(f.type === 'enum' || f.type === 'enumMulti'){
+      return [{ header: _defaultHeader(f), field: path, type: f.type, role:'enum', enumSource: f.enumSource || null, enumValues: f.enumValues || null, multi: f.type === 'enumMulti', required: !!f.required }];
+    }
+    return [{ header: _defaultHeader(f), field: path, type: f.type, role:'scalar', required: !!f.required }];
+  }
+  function schemaToImportColumns(kind){
+    const schema = (typeof kind === 'string') ? FIELD_SCHEMAS[kind] : kind;
+    if(!schema || !Array.isArray(schema.fields)) return [];
+    const out = [];
+    // Id is always column 1 — the create/upsert key (blank ⇒ create a fresh id; present ⇒ upsert).
+    // The schema's `id` field is readonly (so the main loop skips it); the column is universal (§4.0).
+    if(schema.fields.some(f => f && f.name === 'id')) out.push({ header:'Id', field:'id', type:'string', role:'id' });
+    for(const f of schema.fields){
+      if(!f || !f.name || f.name === 'id') continue;
+      if(f.readonly || f.type === 'computed' || f.type === 'history') continue;
+      if(f.importable === false) continue;                 // hard-exclude (engine-managed: parentHexId, accrual counters)
+      if(f.type === 'object'){
+        // recurse — a nested leaf is projected ONLY when explicitly importColumn:true (plan §3.3 rule 6)
+        for(const sub of (f.fields || [])){
+          if(!sub || !sub.name || sub.importColumn !== true) continue;
+          if(sub.readonly || sub.type === 'computed' || sub.importable === false) continue;
+          if(!_PROJECT_LEAF.has(sub.type)) continue;
+          out.push.apply(out, _columnsForField(sub, f.name));
+        }
+        continue;
+      }
+      if(!_PROJECT_LEAF.has(f.type)) continue;             // array / idArray → a separate sheet, not a column (rule 7)
+      if(f.importColumn === false) continue;               // a top-level leaf is projected unless importColumn:false
+      out.push.apply(out, _columnsForField(f, null));
+    }
+    // Lazy / non-factory columns declared at SCHEMA level — e.g. hex.domainId, the canonical hex→domain
+    // link that is set by assignment but NOT emitted by blankHex, so it cannot live in fields[] without
+    // breaking the schema⊆factory invariant. Declaring it here keeps the single-source principle.
+    for(const f of (schema.importExtraColumns || [])){
+      if(!f || !f.name) continue;
+      _columnsForField(f, null).forEach(c => { c.lazy = true; out.push(c); });
+    }
+    return out;
+  }
+
+  // ─── 3d. The hex field-schema (plan §3.4) — authored ⊆ blankHex keys (the schema⊆factory invariant).
+  // adminCreate:'schemaForm' unblocks the Inspector hex Admin-Create (Inspector Wave-F). The importable
+  // projection (§4.2) drops the derived classification (D5) + the domain-level families/value (D4) +
+  // the engine-managed accrual counters. Deep/brush/contents fields (roadSides/riverSides/crossingSides
+  // geometry; settlement/lairs/dungeons/pointsOfInterest — their own sheets, §3.3 rule 7;
+  // terrainTransformationState; the landImprovementProjects log) are OMITTED (schema ⊆ factory permits
+  // a subset; raw-JSON / map-brush edited). domainId is in importExtraColumns (a lazy non-factory link).
+  registerFieldSchema('hex', {
+    factory: 'blankHex',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Terrain','Geography','Economy','Contents'],
+    fields: [
+      { name:'id',             type:'string', readonly:true, group:'Identity' },
+      { name:'coord',          type:'coord',  required:true, group:'Identity' },                 // → Col / Row
+      { name:'classification', type:'enum', enumSource:'DOMAIN_CLASSIFICATIONS', importColumn:false, group:'Identity', description:'Derived from the owning domain (D5) — Inspector-shown, never an Excel column; domainless ⇒ unsettled' },
+      { name:'explored',       type:'boolean', group:'Identity' },
+      { name:'terrain',        type:'enum', enumSource:'TERRAIN_BASES', group:'Terrain' },
+      { name:'terrainSubtype', type:'enum', enumSource:'subtypesForTerrain', importHeader:'Subtype', group:'Terrain', description:'A sub-type of the chosen base (validated against it on import)' },
+      { name:'koppen',         type:'enum', enumSource:'KOPPEN_CODES', group:'Terrain', description:'Köppen climate code — the weather key + biome source; the lever: set Koppen + leave Terrain blank ⇒ filled from koppenSuggestions' },
+      { name:'biomeOverride',  type:'enum', enumSource:'BIOMES', importHeader:'BiomeOverride', group:'Terrain', description:'Override the Köppen-derived biome (biome itself is derived, never stored)' },
+      { name:'elevationFt',    type:'number', group:'Geography' },
+      { name:'groundCondition',type:'enum', enumValues:['clear','mud','snow'], group:'Geography' },
+      { name:'hasRoad',        type:'boolean', group:'Geography' },
+      { name:'hasTrail',       type:'boolean', group:'Geography' },
+      { name:'hasLake',        type:'boolean', group:'Geography', description:'A freshwater lake on this land hex' },
+      { name:'freshWater',     type:'boolean', group:'Geography', description:'For terrain:water — a genuine freshwater body (else salt sea)' },
+      { name:'seaZone',        type:'enum', enumValues:['lake','river','coast','open-sea'], group:'Geography', description:'Sea-navigation zone (terrain:water only)' },
+      { name:'hexScale',       type:'enum', enumValues:['local','regional','continental'], group:'Geography' },
+      { name:'parentHexId',    type:'id', idKind:'hex', importable:false, group:'Geography', description:'Coord-derived coarser-hex parent (HW-4) — engine-managed, never imported' },
+      { name:'families',       type:'number', importColumn:false, group:'Economy', description:'Domain-level (D4); never an Excel column — the rural census distributes the domain total' },
+      { name:'valuePerFamily', type:'number', importColumn:false, group:'Economy', description:'Derived from the owning domain (D4)' },
+      { name:'landImprovementBonus',    type:'number', importable:false, group:'Economy', description:'Accrual counter (RR p.341) — engine-managed' },
+      { name:'landImprovementInvested', type:'number', importable:false, group:'Economy', description:'Accrual counter — engine-managed' },
+      { name:'queuedImprovementGp',     type:'number', importable:false, group:'Economy', description:'Accrual counter — engine-managed' },
+      { name:'improvementBudgetGp',     type:'gp',     importable:false, group:'Economy', description:'Drip budget — engine-managed' },
+      { name:'economyType',    type:'string', group:'Economy', description:"Land-revenue discriminator (default 'agricultural')" },
+      { name:'primaryStructure',type:'string', group:'Contents' },
+      { name:'monsterNotes',   type:'longText', group:'Contents' },
+      { name:'notes',          type:'longText', group:'Contents' }
+    ],
+    importExtraColumns: [
+      { name:'domainId', type:'id', idKind:'domain', importHeader:'Domain', description:'Claiming domain (blank = unclaimed ⇒ unsettled). A LAZY hex field — set by assignment, not emitted by blankHex — so it is declared here, not in fields[], to keep the schema⊆factory invariant. Resolved by Name-or-Id (OQ2: unresolved ⇒ skip + report).' }
+    ]
+  });
+
+  // ─── 3e. The domain field-schema (plan §3.5) — authored ⊆ blankDomain keys. The importable projection
+  // (§4.1) promotes object leaves to flat columns (demographics.peasantFamilies → PeasantFamilies, the
+  // geography.primaryHex coord seat → PrimaryHexCol/Row) and keeps the derived classification (OQ8) +
+  // the RAW income-rate constants (OQ5) + domainType/dominantRace Inspector-only. Deep engine-managed
+  // objects (income/expenses/stronghold/urban/warfare/magistrates/council/specialists/…) are OMITTED
+  // (schema ⊆ factory permits a subset; raw-JSON / subsystem-managed).
+  registerFieldSchema('domain', {
+    factory: 'blankDomain',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Vassalage','Population','Economy','Geography','History'],
+    fields: [
+      { name:'id',              type:'string', readonly:true, group:'Identity' },
+      { name:'name',            type:'string', required:true, group:'Identity' },
+      { name:'type',            type:'string', group:'Identity', default:'rural' },
+      { name:'classification',  type:'enum', enumSource:'DOMAIN_CLASSIFICATIONS', importColumn:false, group:'Identity', description:'Derived (override + permanence floor); Inspector-editable, never an Excel column (OQ8)' },
+      { name:'domainType',      type:'enum', enumValues:['ordinary','clanhold','transitional','demchi'], importColumn:false, group:'Identity', description:'RAW domain type (RR pp.353–354) — Inspector field; not a v1 Excel column' },
+      { name:'dominantRace',    type:'string', importColumn:false, group:'Identity', description:'Beastman / demi-human population tag — Inspector field' },
+      { name:'rulerCharacterId',type:'id', idKind:'character', group:'Identity', description:'The ruler — referenced by id (characters are out of the v1 workbook, §4.7)' },
+      { name:'liegeId',         type:'id', idKind:'domain', importHeader:'Liege', group:'Vassalage', description:'Suzerain domain; resolved by Name-or-Id in a two-pass commit so a vassal listed before its liege still links' },
+      { name:'isRealm',         type:'boolean', group:'Vassalage' },
+      { name:'vassalIds',       type:'idArray', idKind:'domain', importColumn:false, group:'Vassalage', description:'Reconciled from each vassal’s liegeId (derived); never an Excel column' },
+      { name:'demographics',    type:'object', group:'Population', fields:[
+        { name:'peasantFamilies', type:'number', importColumn:true, importHeader:'PeasantFamilies' },
+        { name:'urbanFamilies',   type:'number', importColumn:true, importHeader:'UrbanFamilies' },
+        { name:'morale',          type:'number', importColumn:true, importHeader:'Morale' },
+        { name:'moraleNotes',     type:'longText' }
+      ] },
+      { name:'treasury',        type:'object', group:'Economy', fields:[
+        { name:'gp', type:'gp', importColumn:true, importHeader:'TreasuryGp' }
+      ] },
+      { name:'taxPolicy',       type:'object', group:'Economy', fields:[
+        { name:'rate',         type:'string', importColumn:true, importHeader:'TaxRate' },
+        { name:'moraleImpact', type:'number' }
+      ] },
+      { name:'geography',       type:'object', group:'Geography', fields:[
+        { name:'primaryHex', type:'coord', importColumn:true, importHeader:'PrimaryHex' }      // → PrimaryHexCol / PrimaryHexRow
+      ] },
+      { name:'roadToTownOverride', type:'boolean', importColumn:false, group:'Geography', description:'GM override for the road-to-small-town completion check (map-less campaigns)' },
+      { name:'notes',           type:'longText', group:'History' },
+      { name:'history',         type:'history', readonly:true, group:'History' }
+    ]
+  });
+
   // ─── 4. Public API ───
 
   function fieldSchemaFor(kind){ return FIELD_SCHEMAS[kind] || null; }
@@ -1469,7 +1673,11 @@
     fieldSchemaFor,
     kindsWithSchema,
     entityFieldGroups,
-    entityFieldsInGroup
+    entityFieldsInGroup,
+    // XLS-1 foundation
+    resolveEnumSource,
+    enumValuesForField,
+    schemaToImportColumns
   });
 
 })(typeof window !== 'undefined' ? window : global);
