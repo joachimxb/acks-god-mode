@@ -8516,9 +8516,8 @@ const _component = {
   // total investment, and 1d10 families immigrate for every 1,000gp actually paid (RR p.351/p.353).
   beginUrbanInvestment(d, amounts){
     const c = this.currentCampaign; if(!c || !d) return;
-    // RR p.353 — a clanhold's settlements cannot be increased by urban investment (hard block).
-    const _ti = this.domainTypeInfo(d);
-    if(_ti && _ti.allowsUrbanInvestment === false){ this.showToast && this.showToast('A clanhold cannot grow its settlements by urban investment (RR p.353) — decree it transitional first.', 5500); return; }
+    // RR p.353 — a clanhold MAY invest in its settlements; the family cap (computeUrbanInvestmentDrip
+    // clamps to min(249, 12.5% of peasants) ⇒ Class VI) limits the result. Investment is capped, not forbidden.
     const ordered = [];
     for(const { settlement } of (this.hexSettlements(d) || [])){
       const amt = Math.floor((amounts && amounts[settlement.id]) || 0);

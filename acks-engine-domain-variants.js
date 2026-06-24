@@ -82,7 +82,8 @@ const CLANHOLD_HEX_FAMILY_CAP = 125;
 const CLANHOLD_HEX_FAMILY_CAP_24MILE = 2000;
 
 // Clanhold settlement limits (RR p.353): urban families < 250, Market Class VI max, never > 12.5%
-// of the clanhold's peasant population, and NOT raisable by urban investment.
+// of the clanhold's peasant population. Urban investment is CAPPED at that ceiling (RAW: settlements
+// "cannot be increased ... with urban investment" beyond it) — allowed up to the cap, not forbidden.
 const CLANHOLD_URBAN_FAMILY_HARD_CAP = 250;
 const CLANHOLD_URBAN_FRACTION = 0.125;
 
@@ -157,8 +158,9 @@ function clanholdWarriorCapacity(campaign, d) {
 function domainAllowsConscription(d) { return !isClanhold(d); }
 function domainAllowsMilitia(d)      { return !isClanhold(d); }
 
-// The clanhold urban-family hard cap (RR p.353): min(249, 12.5% of peasants). A clanhold may not
-// raise urban families by investment, and its market is Class VI max. Returns null for non-clanholds
+// The clanhold urban-family cap (RR p.353): min(249, 12.5% of peasants) — the ceiling investment can
+// raise urban families UP TO (not past); its market is Class VI max (≤249 families ⇒ Class VI via the
+// MARKET_CLASS_TABLE, so the family cap enforces the market-class cap too). Returns null for non-clanholds
 // (no special cap). 0 peasants ⇒ 0 urban allowed.
 function clanholdMaxUrbanFamilies(d) {
   if (!isClanhold(d)) return null;
@@ -310,7 +312,8 @@ function domainTypeInfo(campaign, d) {
     allowsConscription: domainAllowsConscription(d), allowsMilitia: domainAllowsMilitia(d),
     clanWarriorCapacity: clanholdWarriorCapacity(campaign, d),
     maxUrbanFamilies: clanholdMaxUrbanFamilies(d),
-    allowsUrbanInvestment: !clanhold,
+    allowsUrbanInvestment: true,   // RR p.353 — a clanhold MAY invest in its settlements; the cap (maxUrbanFamilies → <250/Class VI/12.5%) limits the RESULT, investment isn't forbidden
+    urbanInvestmentCapped: clanhold,   // …but a clanhold's urban growth is capped at maxUrbanFamilies (the UI shows the advisory)
     favorDutyTable: domainFavorDutyTable(d),
     excludedFavorDutyKinds: clanhold ? CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS.slice() : [],
     allowsSenate: domainTypeAllowsSenate(type),

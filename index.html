@@ -114,7 +114,7 @@
 <script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
 <!-- @b13-domvariants — Domain Variants: Pastoralist economics (Phase 5 §3, JJ pp.436–438). Loads after acks-engine-economy.js (its incomeBreakdown hook is late-bound) + catalogs (terrainBase) + events (registerEventKind); before player-view. -->
-<script src="acks-engine-domain-variants.js?v=2026-06-24-tribal"></script>
+<script src="acks-engine-domain-variants.js?v=2026-06-24-clanwarriors"></script>
 <!-- @b13-construction (team) — Phase 4 Construction Wave D (vessels / war machines). The WAR_MACHINE_CATALOG + the war-machine materializer + the siege feed; self-registers war-machine-built. Late-binds the construction/voyages/sieges core, so load order is irrelevant (it reads global.ACKS at call time); placed before player-view (which must stay last). -->
 <script src="acks-engine-construction.js?v=2026-06-21-wave-ehi"></script>
 <!-- Garrison Patrols — the garrison-patrols house rule (default OFF; MM p.226 + RR p.341): grounds a "Man, Patroller" civilized encounter to the hex domain's actual garrison + writes slain patrollers back to it. Self-registers the rule; late-binds findHex/domainGarrisonUnits/findTroopType/isHouseRuleEnabled, so load order is irrelevant; placed before player-view (which must stay last). -->
@@ -5542,7 +5542,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-if="domainTypeInfo(selectedDomain).isClanhold">
                     <div class="space-y-1">
                       <div><span class="opacity-70">Military:</span> clan warriors only — up to <span class="font-mono" x-text="domainTypeInfo(selectedDomain).clanWarriorCapacity.toLocaleString()"></span> (1/family); <strong>no conscripts or militia</strong> (RR p.433).</div>
-                      <div><span class="opacity-70">Settlement:</span> urban ≤ <span class="font-mono" x-text="(domainTypeInfo(selectedDomain).maxUrbanFamilies||0).toLocaleString()"></span> families (12.5% of peasants, Class VI max); no urban investment.</div>
+                      <div><span class="opacity-70">Settlement:</span> urban ≤ <span class="font-mono" x-text="(domainTypeInfo(selectedDomain).maxUrbanFamilies||0).toLocaleString()"></span> families (12.5% of peasants, Class VI max); investment may grow them up to that ceiling, not past it (RR p.353).</div>
                       <div><span class="opacity-70">Favors &amp; Duties:</span> restricted — no councils (except war), loans, charters, titles, or land grants; call-to-arms only.</div>
                       <div><span class="opacity-70">Vassals:</span> ordinary domains under clanhold rule take −2 base morale (RR p.354).</div>
                       <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" :checked="domainTypeInfo(selectedDomain).chiefRaidedThisMonth" @change="toggleChiefRaided(selectedDomain)"> <span>Chief raided this month <span class="opacity-60">(faster growth, RR p.340)</span></span></label>
@@ -5787,11 +5787,10 @@ document.addEventListener('alpine:init', () => {
                 </table>
                 <div class="flex items-center justify-between flex-wrap gap-2 mt-3">
                   <span class="text-sm opacity-70">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></span>
-                  <span x-show="domainTypeInfo(selectedDomain)?.allowsUrbanInvestment === false" class="text-sm accent-red">🚫 A clanhold cannot grow its settlements by urban investment (RR p.353) — decree it transitional first.</span>
+                  <span x-show="domainTypeInfo(selectedDomain)?.urbanInvestmentCapped" class="text-xs opacity-70" x-text="'ℹ Clanhold — investment can grow urban families only up to ' + (domainTypeInfo(selectedDomain).maxUrbanFamilies||0).toLocaleString() + ' (<250 / Class VI / 12.5% of peasants, RR p.353); spend past that is wasted.'"></span>
                   <button @click="showOrderModal = true"
-                          x-show="domainTypeInfo(selectedDomain)?.allowsUrbanInvestment !== false"
                           class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold"
-                          title="Order urban investment — opens a dialog to enter gp per settlement. It builds at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp built (RR p.351).">🏗 Order investment…</button>
+                          title="Order urban investment — opens a dialog to enter gp per settlement. It builds at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp built (RR p.351). A clanhold may invest, but its urban families are capped at <250 / Class VI / 12.5% of peasants.">🏗 Order investment…</button>
                 </div>
               </div>
             </template>

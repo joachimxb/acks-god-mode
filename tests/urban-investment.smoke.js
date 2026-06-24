@@ -132,15 +132,17 @@ let fam4 = null;
   check('computeUrbanInvestmentDrip: 0 paid + blockReason when no budget', calc.paid === 0 && calc.blockReason === 'no budget');
 }
 
-// --- clanhold urban cap (RR p.353 — urban families ≤ min(249, 12.5% of peasants), defence-in-depth) -----
+// --- clanhold urban cap (RR p.353 — investment CAPPED at <250/Class VI/12.5%, not forbidden) -----------
 {
-  const { campaign, d, s } = fixture({ budget: 50000, gp: 100000, fam: 0, inv: 30000 });
+  const { campaign, d, s } = fixture({ budget: 50000, gp: 100000, fam: 100, inv: 30000 });
   d.demographics.peasantFamilies = 200;                       // clanhold cap = min(249, 12.5%·200) = 25
-  const ordCap = ACKS.computeUrbanInvestmentDrip(campaign, d, s, 1).cap;   // ordinary: the investment cap (high)
-  check('ordinary domain: urban cap is the investment cap (>25 at 30k investment)', ordCap > 25, 'got ' + ordCap);
+  const ordDrip = ACKS.computeUrbanInvestmentDrip(campaign, d, s, 1);   // ordinary: cap is the investment cap (499)
+  check('ordinary domain: urban cap is the investment cap (>25 at 30k investment)', ordDrip.cap > 25, 'got ' + ordDrip.cap);
   d.domainType = 'clanhold';
   const drip = ACKS.computeUrbanInvestmentDrip(campaign, d, s, 1);
-  check('clanhold: urban-investment cap clamped to 12.5% of peasants (25)', drip.cap === 25, 'got ' + drip.cap);
+  check('clanhold: urban cap clamped to 12.5% of peasants (25), enforcing <250 / Class VI', drip.cap === 25, 'got ' + drip.cap);
+  check('clanhold: investment still PAYS — capped, NOT forbidden (RR p.353)', drip.paid > 0, 'got ' + drip.paid);
+  check('clanhold over the cap (100 > 25): drip adds no families + flags capped', drip.families === 0 && drip.capped === true);
 }
 
 console.log('\n=============================================');
