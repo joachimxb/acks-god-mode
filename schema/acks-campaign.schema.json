@@ -568,12 +568,189 @@
     },
     "hex": {
       "title": "Hex",
-      "description": "\"hex\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"hex\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coord": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "hex coordinate",
+          "properties": {
+            "q": {
+              "type": "number"
+            },
+            "r": {
+              "type": "number"
+            }
+          }
+        },
+        "classification": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "explored": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "terrain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terrainSubtype": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "koppen": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "biomeOverride": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "elevationFt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "groundCondition": {
+          "enum": [
+            "clear",
+            "mud",
+            "snow",
+            null
+          ]
+        },
+        "hasRoad": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hasTrail": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hasLake": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "freshWater": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "seaZone": {
+          "enum": [
+            "lake",
+            "river",
+            "coast",
+            "open-sea",
+            null
+          ]
+        },
+        "hexScale": {
+          "enum": [
+            "local",
+            "regional",
+            "continental",
+            null
+          ]
+        },
+        "parentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "families": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "valuePerFamily": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "landImprovementBonus": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "landImprovementInvested": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "queuedImprovementGp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "improvementBudgetGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "economyType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "primaryStructure": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "monsterNotes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -582,12 +759,60 @@
     },
     "settlement": {
       "title": "Settlement",
-      "description": "\"settlement\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"settlement\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "families": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "totalInvestment": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "foundedTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "foundedByCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -596,12 +821,192 @@
     },
     "domain": {
       "title": "Domain",
-      "description": "\"domain\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"domain\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classification": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domainType": {
+          "enum": [
+            "ordinary",
+            "clanhold",
+            "transitional",
+            "demchi",
+            null
+          ]
+        },
+        "dominantRace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rulerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "liegeId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "isRealm": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "vassalIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "domain id — prefix \"dom-\""
+          }
+        },
+        "demographics": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "peasantFamilies": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "urbanFamilies": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "morale": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "moraleNotes": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "treasury": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "gp": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            }
+          }
+        },
+        "taxPolicy": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "rate": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "moraleImpact": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "geography": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "primaryHex": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "hex coordinate",
+              "properties": {
+                "q": {
+                  "type": "number"
+                },
+                "r": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "roadToTownOverride": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
         }
       },
       "required": [
@@ -7099,7 +7504,7 @@
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
     "entityKinds": 59,
-    "typedKinds": 43,
+    "typedKinds": 46,
     "eventKinds": 190,
     "nestedSubEntityKinds": [
       "mount",

@@ -1623,6 +1623,27 @@
     ]
   });
 
+  // ─── 3f. The settlement field-schema (XLS-3, plan §4.3) — authored ⊆ blankSettlement keys. The
+  // workbook addresses the home hex by COORDINATE (hexId, idKind:'hex' → HexCol/HexRow); the domain is
+  // INHERITED from that hex, never authored here (T6 single-home). Also advances the Inspector for
+  // settlements (adminCreate:'schemaForm'). Deep/freeform fields (demandModifiers/placesOfPower/rumors/
+  // entryways/regulatedAssets/demographicOverrides + the engine investment-drip counters) are OMITTED.
+  registerFieldSchema('settlement', {
+    factory: 'blankSettlement',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Population','Economy','History'],
+    fields: [
+      { name:'id',               type:'string', readonly:true, group:'Identity' },
+      { name:'hexId',            type:'id', idKind:'hex', importHeader:'Hex', group:'Identity', description:'The hex this settlement sits on — the domain is inherited from the hex (T6)' },  // → HexCol/HexRow
+      { name:'name',             type:'string', required:true, group:'Identity' },
+      { name:'families',         type:'number', group:'Population' },
+      { name:'totalInvestment',  type:'gp', group:'Economy' },
+      { name:'foundedTurn',      type:'number', group:'History' },
+      { name:'foundedByCharacterId', type:'id', idKind:'character', importColumn:false, group:'History' },
+      { name:'notes',            type:'longText', group:'History' }
+    ]
+  });
+
   // ─── 4. Public API ───
 
   function fieldSchemaFor(kind){ return FIELD_SCHEMAS[kind] || null; }
