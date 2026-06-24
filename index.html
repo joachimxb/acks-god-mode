@@ -43,7 +43,7 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-20-burst11"></script>
+<script src="acks-engine.js?v=2026-06-24-clanwarriors"></script>
 <script src="acks-engine-lairs.js?v=2026-06-23-t5-lairs"></script>
 <script src="acks-engine-stash.js?v=2026-06-23-t5-stash"></script>
 <script src="acks-engine-military.js?v=2026-06-24-clanwarriors"></script>
@@ -5787,7 +5787,9 @@ document.addEventListener('alpine:init', () => {
                 </table>
                 <div class="flex items-center justify-between flex-wrap gap-2 mt-3">
                   <span class="text-sm opacity-70">Monthly revenue cap: <span class="font-semibold" x-text="urbanInvestmentRevenueCap(selectedDomain).toLocaleString()"></span> gp <span class="opacity-60">(RR p.351 — advisory)</span></span>
+                  <span x-show="domainTypeInfo(selectedDomain)?.allowsUrbanInvestment === false" class="text-sm accent-red">🚫 A clanhold cannot grow its settlements by urban investment (RR p.353) — decree it transitional first.</span>
                   <button @click="showOrderModal = true"
+                          x-show="domainTypeInfo(selectedDomain)?.allowsUrbanInvestment !== false"
                           class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold"
                           title="Order urban investment — opens a dialog to enter gp per settlement. It builds at 500gp/day on the Day Clock (RR p.353), drawing 1d10 families per 1,000gp built (RR p.351).">🏗 Order investment…</button>
                 </div>
@@ -6703,7 +6705,7 @@ document.addEventListener('alpine:init', () => {
                           <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="isFavor ? 'Grant a favor' : 'Demand a duty'"></div>
                           <select x-model="kind" @change="amount = (kind==='custom' || !fdKindHasGp(kind)) ? '' : (kind==='scutage' ? 1 : fdDefaultAmount(v.id, kind)); councilHexId = (kind==='call-to-council') ? (fdLiegeRulerCurrentHex() || (fdCouncilHexOptions()[0]?.id || '')) : ''" class="w-full text-sm border border-ink rounded px-1 py-0.5">
                             <option value="">— choose —</option>
-                            <template x-for="e in (isFavor ? fdFavorKinds() : fdDutyKinds())" :key="'k-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
+                            <template x-for="e in (isFavor ? fdFavorKinds(v) : fdDutyKinds(v))" :key="'k-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
                             <option value="custom">✏️ Custom…</option>
                           </select>
                           <template x-if="kind==='call-to-council'">
@@ -19505,7 +19507,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-military-w7.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-mounts.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-voyages.js?v=2026-06-23-t5-tail"></script>
-<script src="domain-app-favors-duties.js?v=2026-06-23-t5-fd"></script>
+<script src="domain-app-favors-duties.js?v=2026-06-24-clanwarriors"></script>
     <script src="domain-app-recruit.js?v=2026-06-23-t5-features"></script>
     <script src="domain-app-map.js?v=2026-06-23-t5-features"></script>
     <script src="domain-app-encounters.js?v=2026-06-23-t5-features"></script>

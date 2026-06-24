@@ -150,6 +150,21 @@ console.log('--- (B2) clan-warrior LEVY path (RR p.433 — PT-A1) ---');
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+console.log('--- (B3) clanhold raid-growth bonus (RR p.353 — chief raids → grows faster) ---');
+{
+  const rng1 = () => 0;   // deterministic: each d10 → 1, so rollD10x(familiesK=1) → 1
+  const draid = clan({ demographics:{ peasantFamilies:1000, morale:0 } }); draid.chiefRaidedThisMonth = true;
+  const c = mkCampaign([draid], []);
+  check('clanhold + chief raided → raid-growth bonus > 0', ACKS.clanholdRaidGrowth(c, draid, 1, 0, rng1) > 0);
+  check('clanhold + chief raided → exactly rollD10x(familiesK) (1 @ rng0)', ACKS.clanholdRaidGrowth(c, draid, 1, 0, rng1) === 1);
+  const dq = clan({ demographics:{ peasantFamilies:1000, morale:0 } });   // chiefRaidedThisMonth unset → falsy
+  check('clanhold + NOT raided → 0', ACKS.clanholdRaidGrowth(mkCampaign([dq],[]), dq, 1, 0, rng1) === 0);
+  const ord = civ({ demographics:{ peasantFamilies:1000, morale:0 } }); ord.chiefRaidedThisMonth = true;
+  check('ordinary + raided → 0 (not a clanhold)', ACKS.clanholdRaidGrowth(mkCampaign([ord],[]), ord, 1, 0, rng1) === 0);
+  check('clanhold + raided + morale −4 (collapse) → 0', ACKS.clanholdRaidGrowth(c, draid, 1, -4, rng1) === 0);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
 {
   const c = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:300, classification:'Borderlands', valuePerFamily:6 }]);

@@ -956,6 +956,26 @@ function mkOfficeChain(){
   ok('schema has the officeTitle field', fdSchema.fields.some(f=>f.name==='officeTitle'));
 }
 
+// =============================================================================
+section('Clanhold F&D restriction (RR p.354 — only the restricted set on a clanhold vassal)');
+{
+  const c = mkCampaign();
+  c.domains.find(d => d.id === 'dom-vassal').domainType = 'clanhold';   // the vassal is now a clanhold
+  // Excluded kinds are refused (the engine guard in _applyFavorDutyEdict — both manual + auto-roll).
+  ok('clanhold vassal: loan refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }) === null);
+  ok('clanhold vassal: office/title refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'office', officeTitle:'Thane' }) === null);
+  ok('clanhold vassal: call-to-council refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }) === null);
+  ok('clanhold vassal: charter-of-monopoly refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'charter-of-monopoly' }) === null);
+  ok('clanhold vassal: nothing was created by the refused edicts', (c.favorDutyObligations||[]).length === 0);
+  // Allowed: a gift (favor), a call to arms (duty), a custom edict (the Judge's freeform device, RR p.345).
+  ok('clanhold vassal: gift allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }) || {}).obligation);
+  ok('clanhold vassal: call-to-arms allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-arms' }) || {}).obligation);
+  ok('clanhold vassal: custom edict allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Tribute of horses', isFavor:false }) || {}).obligation);
+  // Regression — an ORDINARY vassal is unrestricted.
+  const c2 = mkCampaign();
+  ok('ordinary vassal: loan allowed (regression)', !!(ACKS.applyFavorDutyEdictByKind(c2, { vassalDomainId:'dom-vassal', kind:'loan' }) || {}).obligation);
+}
+
 console.log('\n=============================================');
 console.log('favors-and-duties.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');

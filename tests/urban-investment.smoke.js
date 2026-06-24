@@ -132,6 +132,17 @@ let fam4 = null;
   check('computeUrbanInvestmentDrip: 0 paid + blockReason when no budget', calc.paid === 0 && calc.blockReason === 'no budget');
 }
 
+// --- clanhold urban cap (RR p.353 — urban families ≤ min(249, 12.5% of peasants), defence-in-depth) -----
+{
+  const { campaign, d, s } = fixture({ budget: 50000, gp: 100000, fam: 0, inv: 30000 });
+  d.demographics.peasantFamilies = 200;                       // clanhold cap = min(249, 12.5%·200) = 25
+  const ordCap = ACKS.computeUrbanInvestmentDrip(campaign, d, s, 1).cap;   // ordinary: the investment cap (high)
+  check('ordinary domain: urban cap is the investment cap (>25 at 30k investment)', ordCap > 25, 'got ' + ordCap);
+  d.domainType = 'clanhold';
+  const drip = ACKS.computeUrbanInvestmentDrip(campaign, d, s, 1);
+  check('clanhold: urban-investment cap clamped to 12.5% of peasants (25)', drip.cap === 25, 'got ' + drip.cap);
+}
+
 console.log('\n=============================================');
 console.log('urban-investment.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
