@@ -455,28 +455,57 @@ function _acksApplyAppMixins(component){
 
 function domainApp(){
 const _component = {
-  // === @b13-domvariants   (team) — Domain Variants: Pastoralist economics (economyType density): state + methods ===
-  // Pastoralist economics readouts + the economyType setter. Logic lives in acks-engine-domain-variants.js;
-  // these are thin pass-throughs (Phase 5 §3, JJ pp.436–438). domainPastoralistInfo recomputes on read,
-  // so flipping a hex's economy re-renders the panel AND the income breakdown's Land revenue row live.
-  domainPastoralistInfo(d){
-    return (d && window.ACKS && window.ACKS.domainPastoralistInfo)
-      ? window.ACKS.domainPastoralistInfo(this.currentCampaign, d)
-      : { hasPastoralist:false, hexes:[], factor:1, densityPct:100, ruralHexCount:0, pastoralistHexCount:0 };
+  // === Tribal Domains (Phase 5; RR pp.353–354) — the domain-TYPE picker + clanhold/transitional panel ===
+  // Thin pass-throughs over acks-engine-domain-variants.js. domainTypeInfo recomputes on read, so changing
+  // the type re-renders the panel AND the income breakdown's Land revenue row (the clanhold/transitional cap)
+  // live. (Demchi is reserved for PT-C — not offered in the picker yet, but the field/accessors accept it.)
+  domainTypeInfo(d){
+    return (d && window.ACKS && window.ACKS.domainTypeInfo) ? window.ACKS.domainTypeInfo(this.currentCampaign, d) : null;
   },
-  pastoralistEconomyOptions(){
-    const A = window.ACKS;
-    const opts = [{ value:'agricultural', label:'Agricultural (default)' }];
-    if(A && A.pastoralistEconomyTypes) (A.pastoralistEconomyTypes()||[]).forEach(k => opts.push({ value:k, label:A.pastoralistEconomyLabel(k) }));
-    return opts;
+  domainTypeOptions(){
+    return [{ value:'civilized', label:'Civilized' }, { value:'clanhold', label:'Barbarian Clanhold' }, { value:'transitional', label:'Transitional' }];
   },
-  setHexEconomy(hexId, value){
-    if(!hexId || !this.currentCampaign || !window.ACKS || !window.ACKS.setHexEconomyType) return;
-    const r = window.ACKS.setHexEconomyType(this.currentCampaign, hexId, value);
+  dominantRaceOptions(){
+    return [{ value:'', label:'Human / unset' }, { value:'beastman', label:'Beastman' }, { value:'dwarven', label:'Dwarven' }, { value:'elven', label:'Elven' }, { value:'halfling', label:'Halfling' }];
+  },
+  setDomainTypeUI(d, type){
+    if(!d || !this.currentCampaign || !window.ACKS || !window.ACKS.setDomainType) return;
+    const r = window.ACKS.setDomainType(this.currentCampaign, d.id, type);
     if(r && r.ok && !r.unchanged){
       if(this.markDirty) this.markDirty();
       if(this.schedulePersist) this.schedulePersist();
-      if(this.showToast) this.showToast('🐄 Economy: ' + window.ACKS.pastoralistEconomyLabel(r.from) + ' → ' + window.ACKS.pastoralistEconomyLabel(r.to));
+      if(this.showToast) this.showToast('🏷 Domain type → ' + (window.ACKS.domainTypeLabel ? window.ACKS.domainTypeLabel(type) : type));
+    } else if(r && r.reason === 'senate-on-apex'){
+      if(this.showToast) this.showToast('⚠ A senatorial apex cannot become a clanhold — dissolve the senate first.');
+    } else if(r && r.reason === 'transitional-irrevocable'){
+      if(this.showToast) this.showToast('⚠ Transitional is irrevocable (RR p.354) — it cannot revert to a clanhold.');
+    }
+  },
+  setDominantRaceUI(d, race){
+    if(!d) return;
+    d.dominantRace = race || null;
+    // RR p.354 — a beastman domain is normally a clanhold; auto-suggest it when currently civilized.
+    if(race === 'beastman' && window.ACKS && window.ACKS.domainTypeOf && window.ACKS.domainTypeOf(d) === 'civilized'){
+      this.setDomainTypeUI(d, 'clanhold');
+    } else {
+      if(this.markDirty) this.markDirty();
+      if(this.schedulePersist) this.schedulePersist();
+    }
+  },
+  toggleChiefRaided(d){
+    if(!d) return;
+    d.chiefRaidedThisMonth = !d.chiefRaidedThisMonth;
+    if(this.markDirty) this.markDirty();
+    if(this.schedulePersist) this.schedulePersist();
+  },
+  decreeTransitionalUI(d){
+    if(!d || !this.currentCampaign || !window.ACKS || !window.ACKS.decreeTransitional) return;
+    if(!window.confirm('Decree ' + (d.name || 'this domain') + ' a Transitional Domain (RR p.354)? This is IRREVOCABLE — it can no longer revert to a clanhold.')) return;
+    const r = window.ACKS.decreeTransitional(this.currentCampaign, d.id);
+    if(r && r.ok){
+      if(this.markDirty) this.markDirty();
+      if(this.schedulePersist) this.schedulePersist();
+      if(this.showToast) this.showToast('📜 ' + (d.name || 'Domain') + ' decreed Transitional.');
     }
   },
   // === @b13-lifecycle     (team) — Lifecycle CL-4b deepening (education / delegation / fertility): state + methods ===

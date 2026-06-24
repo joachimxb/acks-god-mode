@@ -5502,55 +5502,63 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </template>
             </div>
-            <!-- === @b13-domvariants (team) — Pastoralist economics panel (Phase 5 §3; JJ pp.436–438) === -->
+            <!-- === Tribal Domains (Phase 5; RR pp.353–354) — domain-type picker + clanhold/transitional panel === -->
+            <template x-if="domainTypeInfo(selectedDomain)">
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-1">🐄 Pastoralist economy <span class="text-xs font-normal opacity-60">(JJ pp.436–438)</span></h2>
-              <p class="text-sm opacity-70 mb-2">A herding hex feeds far fewer families per acre than farming (caloric efficiency 0.20–0.42) at roughly the same income per family — "land-rich, population-thin." Set a rural hex's economy below; its <strong>Land revenue</strong> (in Monthly Bookkeeping) reflects the lower carrying capacity. Income per family is unchanged. Agricultural is the RAW default — no house rule needed.</p>
-              <template x-if="domainPastoralistInfo(selectedDomain).ruralHexCount === 0">
-                <p class="text-sm italic opacity-60">No rural hexes in this domain.</p>
+              <h2 class="font-bold text-lg mb-1">🏷 Domain type <span class="text-xs font-normal opacity-60">(RR pp.353–354)</span></h2>
+              <p class="text-sm opacity-70 mb-2">The domain <strong>type</strong> sets the per-hex family cap, the military levy, the favors &amp; duties set, and whether a senate may sit. <em>Civilized</em> is the RAW default. A <em>clanhold</em> is a loose tribal realm (always outlands, ≤125 families/hex, clan-warrior levy only); a <em>transitional</em> domain is the liminal stage on the way to civilized. (Demchi — the AXIOMS nomad type — arrives in a later wave.)</p>
+              <div class="flex flex-wrap items-end gap-3 mb-2">
+                <label class="text-sm">Type
+                  <select class="block text-sm border border-ink rounded px-1 py-0.5" :value="domainTypeInfo(selectedDomain).type" @change="setDomainTypeUI(selectedDomain, $event.target.value)">
+                    <template x-for="opt in domainTypeOptions()" :key="opt.value">
+                      <option :value="opt.value" :selected="opt.value === domainTypeInfo(selectedDomain).type" x-text="opt.label"></option>
+                    </template>
+                  </select>
+                </label>
+                <label class="text-sm">Dominant race
+                  <select class="block text-sm border border-ink rounded px-1 py-0.5" :value="domainTypeInfo(selectedDomain).dominantRace || ''" @change="setDominantRaceUI(selectedDomain, $event.target.value)">
+                    <template x-for="opt in dominantRaceOptions()" :key="opt.value">
+                      <option :value="opt.value" :selected="opt.value === (domainTypeInfo(selectedDomain).dominantRace || '')" x-text="opt.label"></option>
+                    </template>
+                  </select>
+                </label>
+              </div>
+              <template x-if="domainTypeInfo(selectedDomain).beastmanAdvisory && domainTypeInfo(selectedDomain).beastmanAdvisory.level === 'advise'">
+                <p class="text-sm text-amber-800 mb-2">⚠ <span x-text="domainTypeInfo(selectedDomain).beastmanAdvisory.message"></span></p>
               </template>
-              <template x-if="domainPastoralistInfo(selectedDomain).ruralHexCount > 0">
-                <div>
-                  <table class="text-sm w-full">
-                    <thead>
-                      <tr class="text-left opacity-70 border-b border-ink/30">
-                        <th class="pr-2 py-1">Hex</th>
-                        <th class="pr-2 py-1">Economy</th>
-                        <th class="pr-2 py-1 text-right">Families</th>
-                        <th class="pr-2 py-1 text-right" title="Agricultural carrying capacity (RR p.340)">Farm cap</th>
-                        <th class="pr-2 py-1 text-right" title="Herding carrying capacity = farm cap × caloric efficiency (JJ pp.436–438)">Herd cap</th>
-                        <th class="pr-2 py-1" title="RAW rearing-terrain hint — GM sovereignty, never a hard block">Rearable?</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="h in domainPastoralistInfo(selectedDomain).hexes" :key="h.hexId">
-                        <tr class="border-b border-ink/10" :class="h.overCap ? 'text-amber-800' : ''">
-                          <td class="pr-2 py-1" x-text="h.hexLabel"></td>
-                          <td class="pr-2 py-1">
-                            <select class="text-sm" :value="h.economyType" @change="setHexEconomy(h.hexId, $event.target.value)">
-                              <template x-for="opt in pastoralistEconomyOptions()" :key="opt.value">
-                                <option :value="opt.value" :selected="opt.value === h.economyType" x-text="opt.label"></option>
-                              </template>
-                            </select>
-                          </td>
-                          <td class="pr-2 py-1 text-right font-mono" x-text="h.families.toLocaleString()"></td>
-                          <td class="pr-2 py-1 text-right font-mono opacity-70" x-text="h.agriculturalCap.toLocaleString()"></td>
-                          <td class="pr-2 py-1 text-right font-mono" x-text="h.isPastoralist ? h.pastoralistCap.toLocaleString() : '—'"></td>
-                          <td class="pr-2 py-1" x-text="!h.isPastoralist ? '—' : (h.rearable ? '✓' : ('⚠ not ' + (h.terrainBase || '?')))"></td>
-                        </tr>
+              <template x-if="domainTypeInfo(selectedDomain).beastmanAdvisory && domainTypeInfo(selectedDomain).beastmanAdvisory.level === 'exception'">
+                <p class="text-sm opacity-70 mb-2">ⓘ <span x-text="domainTypeInfo(selectedDomain).beastmanAdvisory.message"></span></p>
+              </template>
+              <template x-if="domainTypeInfo(selectedDomain).isClanhold || domainTypeInfo(selectedDomain).isTransitional">
+                <div class="text-sm space-y-1 border-t border-ink/20 pt-2">
+                  <div><span class="opacity-70">Per-hex family cap:</span> <span class="font-mono" x-text="domainTypeInfo(selectedDomain).hexFamilyCap"></span><span class="opacity-60" x-show="domainTypeInfo(selectedDomain).isClanhold"> — always outlands; ≤2,000 / 24-mile hex</span><span class="opacity-60" x-show="domainTypeInfo(selectedDomain).isTransitional"> — families beyond 125 give half land value (RR p.354)</span></div>
+                  <div x-show="domainTypeInfo(selectedDomain).landRevenuePct < 100"><span class="opacity-70">Land-revenue factor:</span> <span class="font-mono" x-text="'×' + domainTypeInfo(selectedDomain).landRevenuePct + '%'"></span> <span class="opacity-60">— the cap reduces the over-cap families' land contribution (see Land revenue below).</span></div>
+                  <template x-if="domainTypeInfo(selectedDomain).isClanhold">
+                    <div class="space-y-1">
+                      <div><span class="opacity-70">Military:</span> clan warriors only — up to <span class="font-mono" x-text="domainTypeInfo(selectedDomain).clanWarriorCapacity.toLocaleString()"></span> (1/family); <strong>no conscripts or militia</strong> (RR p.433).</div>
+                      <div><span class="opacity-70">Settlement:</span> urban ≤ <span class="font-mono" x-text="(domainTypeInfo(selectedDomain).maxUrbanFamilies||0).toLocaleString()"></span> families (12.5% of peasants, Class VI max); no urban investment.</div>
+                      <div><span class="opacity-70">Favors &amp; Duties:</span> restricted — no councils (except war), loans, charters, titles, or land grants; call-to-arms only.</div>
+                      <div><span class="opacity-70">Vassals:</span> ordinary domains under clanhold rule take −2 base morale (RR p.354).</div>
+                      <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" :checked="domainTypeInfo(selectedDomain).chiefRaidedThisMonth" @change="toggleChiefRaided(selectedDomain)"> <span>Chief raided this month <span class="opacity-60">(faster growth, RR p.340)</span></span></label>
+                      <div class="pt-1"><button class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" @click="decreeTransitionalUI(selectedDomain)">📜 Decree Transitional…</button> <span class="opacity-60 text-xs">irrevocable</span></div>
+                    </div>
+                  </template>
+                  <template x-if="domainTypeInfo(selectedDomain).isTransitional">
+                    <div class="space-y-1">
+                      <div><span class="opacity-70">Military:</span> militia + conscripts (no clan warriors); full favors &amp; duties.</div>
+                      <template x-if="domainTypeInfo(selectedDomain).transitionalConversionReady">
+                        <div x-show="domainTypeInfo(selectedDomain).transitionalConversionReady.ready" class="text-amber-800">⏳ Transitional ≥20 years (<span x-text="domainTypeInfo(selectedDomain).transitionalConversionReady.yearsElapsed"></span>y) — the GM may ratify it civilized (set the type above).</div>
                       </template>
-                    </tbody>
-                  </table>
-                  <p class="text-sm mt-2" x-show="domainPastoralistInfo(selectedDomain).hasPastoralist">
-                    <span class="font-semibold">Land-revenue density:</span>
-                    <span class="font-mono" x-text="'×' + domainPastoralistInfo(selectedDomain).densityPct + '%'"></span>
-                    <span class="opacity-70" x-text="domainPastoralistInfo(selectedDomain).densityPct < 100 ? ' — herding land sustains fewer families; the Land revenue row below is reduced accordingly.' : ' — at or under carrying capacity (no reduction).'"></span>
-                  </p>
-                  <p class="text-sm italic opacity-60 mt-2" x-show="!domainPastoralistInfo(selectedDomain).hasPastoralist">All hexes agricultural — the RAW baseline (no change to land revenue).</p>
+                      <template x-if="domainTypeInfo(selectedDomain).transitionalConversionReady">
+                        <div x-show="!domainTypeInfo(selectedDomain).transitionalConversionReady.ready" class="opacity-60">Transitional <span x-text="domainTypeInfo(selectedDomain).transitionalConversionReady.yearsElapsed"></span> year(s) — convertible to civilized after 20 (RR p.354).</div>
+                      </template>
+                    </div>
+                  </template>
                 </div>
               </template>
             </div>
-            <!-- === end @b13-domvariants === -->
+            </template>
+            <!-- === end Tribal Domains === -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
@@ -16110,6 +16118,7 @@ document.addEventListener('alpine:init', () => {
       </label>
     </div>
     <p class="text-sm opacity-70 mt-1">A senatorial republic is a realm whose ruler is constrained by a senate he must consult before invading, taxing, conscripting, or changing his realm's religion (RR pp.355–360). Consulting rolls <strong>2d6 per leading senator</strong> in order of influence until a majority forms (RR p.358); defying or skipping a required consultation puts the realm <em>in dispute</em> and suspends its benefits. The ruling/leading faction is always derived from live influence — never stored.</p>
+    <p class="text-sm text-amber-800 mt-1">⚠ A senate cannot sit on a <strong>barbarian clanhold</strong> apex (RR p.354 — no call-to-council except for war, no grants of title). Decree such a realm <em>Transitional</em> first (its 🏷 Domain type lives on the domain's Economy tab).</p>
     <template x-if="senateAllRows().length === 0">
       <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (Once a senate exists, its <strong>📜 Motions</strong> card runs the guided motion wizard.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
     </template>
