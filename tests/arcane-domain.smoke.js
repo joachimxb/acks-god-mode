@@ -837,8 +837,142 @@ section('AD-F — the arcane↔divine seam stub (RR p.388, D2): the arcane-usurp
   ok('no stored settlement.history[] array was created (derived doctrine)', c.settlements[0].history === undefined);
 }
 
-// No save migration: blankSettlement carries no usurpation field (the flag is written only on usurp).
+// =============================================================================
+section('AD-F arcane REWARD — extracting arcane power from a usurped settlement (RR p.388)');
+// =============================================================================
+// RR p.388 #3 — a usurped town IS a dungeon: its peasant families are the "monsters," extracted at the
+// same 2%/day-of-XP rate, summed into the same arcanePowerAvailable/spend/process surface a dungeon uses.
+function usurpFixture(opts){
+  opts = opts || {};
+  const c = ACKS.blankCampaign(); c.currentTurn = 7;
+  const lvl = (opts.casterLevel != null ? opts.casterLevel : 9);
+  c.characters = [ ACKS.blankCharacter({ id:'chr-vex', name:'Vex', class:'Mage', level: lvl,
+    currentHexId: (opts.casterHex !== undefined ? opts.casterHex : 'hex-t') }) ];
+  c.hexes = [{ id:'hex-t', coord:{q:1,r:1}, terrain:'grassland', settlementId:'set-t' }];
+  c.settlements = [ ACKS.blankSettlement({ id:'set-t', name:'Tarrytown', families:(opts.families != null ? opts.families : 200), hexId:'hex-t' }) ];
+  if(opts.usurp !== false) ACKS.flagArcaneUsurpation(c, { characterId:'chr-vex', settlementId:'set-t' });
+  return { c, mage: c.characters[0], settlement: c.settlements[0] };
+}
+
+// Rate — 2%/day of familiesXp (RR p.388 #1+#3); per-month ×30. 200 families = 1,000 XP → 20/day → 600/mo.
+{
+  const { c, settlement } = usurpFixture({ families: 200 });
+  ok('settlementArcanePowerPerDay 20 (floor(0.02 × 200×5))', ACKS.settlementArcanePowerPerDay(c, settlement) === 20);
+  ok('settlementArcanePowerPerMonth 600 (20 × 30)', ACKS.settlementArcanePowerPerMonth(c, settlement) === 600);
+  ok('by-id resolves the same', ACKS.settlementArcanePowerPerMonth(c, 'set-t') === 600);
+  ok('a non-usurped settlement yields 0', ACKS.settlementArcanePowerPerDay(ACKS.blankCampaign(), ACKS.blankSettlement({ families: 200 })) === 0);
+}
+
+// L9 gate — extraction needs an L9+ arcane caster (RR p.388 #2); the flag still lands below L9, yields 0.
+{
+  const { c, mage, settlement } = usurpFixture({ families: 200, casterLevel: 8 });
+  ok('flag lands at L8 (usurpation is gated on arcane, not level)', settlement.arcaneUsurpedByCharacterId === 'chr-vex');
+  ok('L8 usurper → perDay 0', ACKS.settlementArcanePowerPerDay(c, settlement) === 0);
+  ok('L8 usurper → perMonth 0', ACKS.settlementArcanePowerPerMonth(c, settlement) === 0);
+  ok('L8 usurper → arcanePowerAvailable 0', ACKS.arcanePowerAvailable(c, 'chr-vex') === 0);
+  mage.level = 9;
+  ok('promoted to L9 → perDay 20 again', ACKS.settlementArcanePowerPerDay(c, settlement) === 20);
+  ok('promoted to L9 → available 600', ACKS.arcanePowerAvailable(c, 'chr-vex') === 600);
+}
+
+// Vicinity gate — same 6-mile hex (RR p.388 #2); lenient when the caster is unplaced.
+{
+  const { c, mage } = usurpFixture({ families: 200, casterHex: 'hex-t' });
+  ok('co-located → available 600', ACKS.arcanePowerAvailable(c, 'chr-vex') === 600);
+  mage.currentHexId = 'hex-far';
+  ok('out of vicinity → available 0', ACKS.arcanePowerAvailable(c, 'chr-vex') === 0);
+  ok('out of vicinity → spend refused', ACKS.spendArcanePower(c, 'chr-vex', 100).ok === false);
+  mage.currentHexId = null;
+  ok('unplaced caster → lenient, counted (600)', ACKS.arcanePowerAvailable(c, 'chr-vex') === 600);
+}
+
+// Surface fold-in — a usurped settlement sums alongside a dungeon for the same caster (one number to the consumer).
+{
+  const { c, dun } = fixture({ origin:'constructed' });
+  ACKS.attuneToDungeon(c, { dungeonId:'dun-1', mageCharacterId:'chr-q', method:'built' });
+  ACKS.establishSovereignty(c, { dungeonId:'dun-1', casterId:'chr-q', method:'gm-fiat' });
+  c.settlements = [ ACKS.blankSettlement({ id:'set-q', name:'Maze-town', families: 200, hexId:'hex-1' }) ];
+  ACKS.flagArcaneUsurpation(c, { characterId:'chr-q', settlementId:'set-q' });
+  ok('dungeon alone yields 2550', ACKS.dungeonArcanePowerPerMonth(c, dun) === 2550);
+  ok('settlement yields 600', ACKS.settlementArcanePowerPerMonth(c, 'set-q') === 600);
+  ok('arcanePowerAvailable sums dungeon + settlement (3150)', ACKS.arcanePowerAvailable(c, 'chr-q') === 3150);
+}
+
+// Spend — draws down settlement.arcanePowerSpentThisMonth; atomic over-spend moves nothing.
+{
+  const { c, settlement } = usurpFixture({ families: 200 });
+  const s1 = ACKS.spendArcanePower(c, 'chr-vex', 100);
+  ok('spend 100 ok (settlement source)', s1.ok === true && s1.spent === 100 && s1.remaining === 500);
+  ok('settlement.arcanePowerSpentThisMonth 100', settlement.arcanePowerSpentThisMonth === 100);
+  ok('available after spend 500', ACKS.arcanePowerAvailable(c, 'chr-vex') === 500);
+  const over = ACKS.spendArcanePower(c, 'chr-vex', 99999);
+  ok('over-spend refused atomically (nothing moved)', over.ok === false && over.spent === 0 && settlement.arcanePowerSpentThisMonth === 100);
+}
+
+// Monthly reset + the per-settlement record (settlementId + familiesXp, no dungeonId) + Event.context envelope.
+{
+  const { c, settlement } = usurpFixture({ families: 200 });
+  ACKS.spendArcanePower(c, 'chr-vex', 250);
+  ok('spent 250 before the monthly turn', settlement.arcanePowerSpentThisMonth === 250);
+  const before = c.eventLog.length;
+  const proc = ACKS.processArcaneForTurn(c, {});
+  ok('processArcaneForTurn counts 1 settlement, 600 gp', proc.ran && proc.settlements === 1 && proc.totalGp === 600);
+  ok('spent reset to 0 by the monthly turn', settlement.arcanePowerSpentThisMonth === 0);
+  ok('arcanePowerThisMonth cache = 600', settlement.arcanePowerThisMonth === 600);
+  ok('available back to 600', ACKS.arcanePowerAvailable(c, 'chr-vex') === 600);
+  const ev = c.eventLog.slice(before).find(e => e.event && e.event.kind === 'arcane-power-extracted');
+  ok('one arcane-power-extracted emitted for the settlement', !!ev);
+  ok('payload {characterId, gpValue, settlementId, familiesXp} + no dungeonId', ev && ev.event.payload
+    && ev.event.payload.characterId === 'chr-vex' && ev.event.payload.gpValue === 600
+    && ev.event.payload.settlementId === 'set-t' && ev.event.payload.familiesXp === 1000
+    && ev.event.payload.dungeonId === undefined);
+  ok('Event.context tags caster (subject) + settlement (site)', ev && ev.event.context && ev.event.context.relatedEntities
+    && ev.event.context.relatedEntities.some(re => re.kind === 'character' && re.role === 'subject')
+    && ev.event.context.relatedEntities.some(re => re.kind === 'settlement' && re.role === 'site'));
+  ok('the emitted event validates against the relaxed schema', (function(){ try { ACKS.validateEvent(ev.event); return true; } catch(_e){ return false; } })());
+}
+
+// Clear — releasing a usurped settlement zeros the spend caches + drops it from availability.
+{
+  const { c, settlement } = usurpFixture({ families: 200 });
+  ACKS.spendArcanePower(c, 'chr-vex', 100);
+  const rc = ACKS.clearArcaneUsurpation(c, 'set-t');
+  ok('clearArcaneUsurpation releases the flag', rc.ok === true && rc.wasFlagged === true && settlement.arcaneUsurpedByCharacterId == null);
+  ok('clear zeros arcanePowerSpentThisMonth', settlement.arcanePowerSpentThisMonth === 0);
+  ok('clear zeros arcanePowerThisMonth', settlement.arcanePowerThisMonth === 0);
+  ok('released settlement drops from arcanePowerAvailable (0)', ACKS.arcanePowerAvailable(c, 'chr-vex') === 0);
+}
+
+// Additivity / no Religion regression — a divine co-extraction over the same settlement does NOT reduce the
+// arcane draw (RR p.388 #4 is a cosmological justification, not a shared pool — the two pools are additive; §3).
+{
+  const { c, settlement } = usurpFixture({ families: 200 });
+  ok('arcane perMonth 600 before any divine co-extraction', ACKS.settlementArcanePowerPerMonth(c, settlement) === 600);
+  const cong = ACKS.blankCongregation({ name:'Wrathful Choir' });
+  cong.usurpedSettlementId = 'set-t';
+  (c.congregations = c.congregations || []).push(cong);
+  ok('divine co-extraction is independently positive (Wave E, RR p.388)', ACKS.congregationUsurpedSettlementWeeklyGp(c, cong) > 0);
+  ok('arcane perMonth UNCHANGED by the divine draw (additive pools)', ACKS.settlementArcanePowerPerMonth(c, settlement) === 600);
+  ok('arcanePowerAvailable also unchanged (600)', ACKS.arcanePowerAvailable(c, 'chr-vex') === 600);
+}
+
+// Event-schema relaxation — the settlement form (no dungeonId) validates; the dungeon form still validates.
+{
+  const sc = ACKS.EVENT_SCHEMAS['arcane-power-extracted'];
+  ok('schema R = {characterId, gpValue} (dungeonId no longer required)',
+    sc && sc.R && sc.R.characterId === 'string' && sc.R.gpValue === 'number' && sc.R.dungeonId === undefined);
+  ok('schema O carries dungeonId + settlementId + familiesXp',
+    sc && sc.O && sc.O.dungeonId === 'string' && sc.O.settlementId === 'string' && sc.O.familiesXp === 'number');
+  const evS = ACKS.newEvent('arcane-power-extracted', { submittedBy:'engine', targetTurn:1, payload:{ characterId:'chr-x', gpValue:600, settlementId:'set-x', familiesXp:1000 } });
+  ok('settlement arcane-power-extracted (no dungeonId) validates', (function(){ try { ACKS.validateEvent(evS); return true; } catch(_e){ return false; } })());
+  const evD = ACKS.newEvent('arcane-power-extracted', { submittedBy:'engine', targetTurn:1, payload:{ characterId:'chr-x', gpValue:2550, dungeonId:'dun-x', subjugatedXp:4290 } });
+  ok('dungeon arcane-power-extracted (with dungeonId) still validates', (function(){ try { ACKS.validateEvent(evD); return true; } catch(_e){ return false; } })());
+}
+
+// No save migration: blankSettlement carries no usurpation/arcane-cache fields (written only at runtime).
 ok('blankSettlement carries no arcaneUsurpedByCharacterId (additive flag, no migration)', ACKS.blankSettlement().arcaneUsurpedByCharacterId === undefined);
+ok('blankSettlement carries no arcanePowerSpentThisMonth (lazy, no migration)', ACKS.blankSettlement().arcanePowerSpentThisMonth === undefined);
+ok('blankSettlement carries no arcanePowerThisMonth (lazy, no migration)', ACKS.blankSettlement().arcanePowerThisMonth === undefined);
 
 // =============================================================================
 console.log('\n=============================================');
