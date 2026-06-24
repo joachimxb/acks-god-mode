@@ -362,10 +362,11 @@ ok('living-census registered (domain category, default OFF)', (() => {
 ok('blankCharacter carries homeDomainId (null)', ACKS.blankCharacter().homeDomainId === null);
 
 // title → ruler level
-ok('realmRulerLevel: count = 8',         ACKS.realmRulerLevel('count')   === 8);
-ok('realmRulerLevel: baron = 6',         ACKS.realmRulerLevel('baron')   === 6);
+// RAW band floors — JJ p.197 "Realms by Type" (County 7th–8th, Barony 3rd–4th, Empire 14th).
+ok('realmRulerLevel: count = 7',         ACKS.realmRulerLevel('count')   === 7);
+ok('realmRulerLevel: baron = 3',         ACKS.realmRulerLevel('baron')   === 3);
 ok('realmRulerLevel: emperor = 14',      ACKS.realmRulerLevel('emperor') === 14);
-ok('realmRulerLevel: unknown → baron 6', ACKS.realmRulerLevel('xyz')     === 6);
+ok('realmRulerLevel: unknown → baron 3', ACKS.realmRulerLevel('xyz')     === 3);
 
 // office-level scaling (relLevel off the ruler, clamped ≥1)
 const capOff = ACKS.REALM_OFFICES.find(o => o.key === 'captainOfGuard');
@@ -398,7 +399,7 @@ ACKS.createVassalage(rcm, { suzerainCharacterId:'chr-aelric', vassalRulerCharact
 const rcs = ACKS.realmCommandStructure(rcm, 'dom-march');
 const byKey = k => rcs.offices.find(o => o.key === k);
 ok('realm: title count (read from "March")',           rcs.title === 'count' && rcs.titleLabel === 'Count');
-ok('realm: ruler L8 lifts the court (≥ count floor 8)', rcs.rulerLevel === 8);
+ok('realm: ruler L8 lifts the court (≥ count floor 7)', rcs.rulerLevel === 8);
 ok('realm: ruler office filled by Aelric',             byKey('ruler').holder && byKey('ruler').holder.id === 'chr-aelric');
 ok('realm: captain expected L5, held by L4 → underLevel',
    byKey('captainOfGuard').expectedLevel === 5 && byKey('captainOfGuard').holder.level === 4 && byKey('captainOfGuard').underLevel === true);
@@ -429,9 +430,9 @@ ok('realm: a deceased homed NPC is excluded from the entourage',
 // a vacant baron realm uses the title floor
 const rcs4 = ACKS.realmCommandStructure(
   { domains:[{ id:'dom-b', name:'Barony of X', rulerCharacterId:null, magistrates:{} }], characters:[], vassalages:[] }, 'dom-b');
-ok('realm: a vacant baron realm uses the title floor (ruler level 6)',
-   rcs4.rulerLevel === 6 && rcs4.offices.find(o => o.key === 'ruler').filled === false);
-ok('realm: baron captain expected L3 (6−3)', rcs4.offices.find(o => o.key === 'captainOfGuard').expectedLevel === 3);
+ok('realm: a vacant baron realm uses the title floor (ruler level 3)',
+   rcs4.rulerLevel === 3 && rcs4.offices.find(o => o.key === 'ruler').filled === false);
+ok('realm: baron captain expected L1 (3−3, clamped ≥1)', rcs4.offices.find(o => o.key === 'captainOfGuard').expectedLevel === 1);
 ok('realm: unknown domainId → null', ACKS.realmCommandStructure(rcm, 'dom-nope') === null);
 
 // ── 12. SD-4 — the rural / countryside census (T2, "A Typical Hex") ────────────────────────────────
