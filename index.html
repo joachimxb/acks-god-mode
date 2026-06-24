@@ -28,7 +28,7 @@
          so the "no third-party script" guarantee is unchanged on the hosted HTTP site
          (an HTTP page can't load file: resources regardless). Do NOT remove file: — it is
          what keeps the single-file distribution alive. -->
-<meta http-equi???????v=2026-06-24-tribal"Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
 <!-- Tailwind — vendored locally (appsec audit, 2026-06-14). Was the floating runtime CDN
      (https://cdn.tailwindcss.com); now a pinned, self-hosted copy of the Tailwind Play 3.4.16
      bundle so the tool loads with no network (the "single file you own" pitch) and can never be
@@ -39,6 +39,16 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
+<!-- ⚠ CACHE-BUST RULE (audit A2, 2026-06-24). The `?v=<date-tag>` suffixes below are bumped BY HAND,
+     per module, each session that touches one — there is NO stamping script, and the tags are
+     deliberately heterogeneous (each reflects the session that last changed that file). When you bump
+     them, scope your find-replace to the `src="…"` / `href="…"` attribute ONLY. NEVER run a blind
+     file-wide replace of a bare `v=…` token: on 2026-06-24 exactly that spliced a `?v=` cache-bust
+     into the CSP `http-equiv` attribute above (seven 0x3f bytes), renaming the attribute and SILENTLY
+     VOIDING the entire Content-Security-Policy — it shipped green because nothing visibly broke.
+     Restored + guarded as audit A1/A2/A3: tests/index-parse.smoke.js now fails CI on a malformed
+     CSP, a run of question-mark bytes in the head, or a remote-origin script tag. Bump `src`/`href`,
+     never attribute names. -->
 <script src="acks-engine-catalogs.js?v=2026-06-24-tribal"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>

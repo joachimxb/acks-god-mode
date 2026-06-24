@@ -15,6 +15,26 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 ok('index.html is non-trivial in size (not truncated to nothing)', html.length > 500000, html.length + ' bytes');
 ok('index.html ends cleanly with </html>', /<\/html>\s*$/.test(html));
 
+// ── Head / CSP integrity guard (audit A3, 2026-06-24) ──────────────────────────────────────────
+// The flagship Content-Security-Policy shipped byte-corrupted: a cache-bust `?v=` token was spliced
+// into the `http-equiv` attribute NAME (`http-equi???????v=…"Content-Security-Policy"`), so the
+// browser never saw a CSP and silently ignored the whole policy. CI didn't catch it because this
+// suite only compiled <script> bodies — it never checked <meta> well-formedness (audit T1/A1/A2).
+// These four assertions are the net that would have caught it.
+const head = html.slice(0, 6144);   // the <head>'s security-critical region is well within the first ~6 KB
+ok('CSP <meta http-equiv="Content-Security-Policy"> is intact (not corrupted by a cache-bust splice)',
+   /<meta\s+http-equiv="Content-Security-Policy"\s+content="/.test(html));
+for (const directive of ["object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"]) {
+  ok('CSP policy locks down ' + directive, html.includes(directive), 'directive missing from the policy');
+}
+ok('no run of 3+ "?" bytes in the <head> (the cache-bust-into-attribute corruption signature)',
+   !/\?{3,}/.test(head), 'first 6 KB');
+// No remote <script src="http(s)://…"> — Alpine + Tailwind are vendored under vendor/ (appsec I-1).
+// A re-introduced CDN tag both breaks the offline guarantee and re-opens the supply-chain surface.
+const remoteScript = html.match(/<script\b[^>]*\bsrc=["']https?:\/\/[^"']*["']/i);
+ok('no remote <script src="http(s)://…"> (deps are vendored same-origin)',
+   !remoteScript, remoteScript ? remoteScript[0] : '');
+
 // T5 chip 4 (2026-06-23): the domainApp() Alpine component was extracted from index.html's main
 // inline <script> to an external domain-app.js (loaded via <script src>). It carries the bulk of the
 // app logic now, so guard it the same way — non-trivial size + a clean compile via vm.Script.
