@@ -184,6 +184,13 @@ section('XLS-5 — upsert preserves dependents · round-trip · coord uniqueness
   const fr = planF.sheets.find(s => s.kind === 'hex').rows[0];
   check('fuzzy: "Forrest" → corrected to forest + a warning', fr.values.terrain === 'forest' && fr.warnings.some(w => /Forrest/i.test(w)));
   check('unknown column "Bogus" → a warning (ignored, not an error)', planF.sheets.find(s => s.kind === 'hex').unknownColumns.includes('Bogus'));
+  // round-trip losslessness: a NON-CANONICAL enum value (legacy terrain 'coast'/'plains') is KEPT +
+  // warned, NEVER a dropped row (the engine aliases terrain; data must survive export→import).
+  const app4b = makeApp(blankCamp());
+  const planNC = app4b._worldPlanImport(MOCK_XLSX, wb({ Hexes: [ headers('hex'), row('hex', { Col:2, Row:2, Terrain:'coast' }) ] }));
+  const ncRow = planNC.sheets.find(s => s.kind === 'hex').rows[0];
+  check('non-canonical terrain "coast" → kept (no error) + a warning', ncRow.errors.length === 0 && ncRow.values.terrain === 'coast' && ncRow.warnings.some(w => /coast/i.test(w)), JSON.stringify({ e: ncRow.errors, t: ncRow.values.terrain }));
+  check('non-canonical row still classified create (not dropped)', app4b.worldRowAction(ncRow) === 'create');
 
   // (e) ROUND-TRIP: export the live campaign → re-import → same domain/hex/settlement counts + coords.
   const wbExport = makeApp(camp)._worldBuildWorkbook(MOCK_XLSX, { template: false });

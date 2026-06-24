@@ -72,7 +72,12 @@
     }
     return prev[n];
   }
-  // Validate/normalize a value against a legal enum set. Returns {value, warning?, error?}.
+  // Normalize a value against a legal enum set. Returns {value, warning?}. ADVISORY, never blocking:
+  // an exact (case/space-insensitive) match → canonical; a single fuzzy near-miss → auto-corrected +
+  // warned; anything else → the raw value is KEPT + warned. The schema's enum-typed fields (terrain,
+  // koppen, …) are free strings the engine aliases, and legacy/non-canonical values (e.g. terrain
+  // 'coast'/'plains') must survive a round-trip — so an unrecognised value is a warning, NOT a dropped
+  // row. (Genuine blockers — missing required, bad coord, unresolved reference — stay hard errors.)
   function _checkEnum(raw, legal){
     if(_blank(raw)) return { value: null };
     var s = String(raw).trim();
@@ -81,8 +86,8 @@
     if(hit) return { value: hit, warning: (hit === s) ? null : ('“' + s + '” → “' + hit + '”') };
     var near = legal.filter(function(l){ return _lev(_norm(l), _norm(s)) <= 2; });
     if(near.length === 1) return { value: near[0], warning: '“' + s + '” → “' + near[0] + '”' };
-    if(near.length > 1)   return { value: null, error: '“' + s + '” is ambiguous — did you mean ' + near.slice(0,3).map(function(x){return '“'+x+'”';}).join(' / ') + '?' };
-    return { value: null, error: '“' + s + '” is not a legal value (' + legal.slice(0,6).join(', ') + (legal.length > 6 ? ', …' : '') + ')' };
+    if(near.length > 1)   return { value: s, warning: '“' + s + '” is non-standard (closest: ' + near.slice(0,3).join(' / ') + ') — kept as entered' };
+    return { value: s, warning: '“' + s + '” is not a standard value (' + legal.slice(0,5).join(', ') + (legal.length > 5 ? ', …' : '') + ') — kept as entered' };
   }
 
   function _getPath(obj, path){
