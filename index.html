@@ -5423,11 +5423,11 @@ document.addEventListener('alpine:init', () => {
               <template x-if="hexSettlements(selectedDomain).length > 0">
                 <span class="font-mono" x-text="totalUrbanFamiliesFromHexes(selectedDomain).toLocaleString()"></span>
               </template>
+              <!-- Urban families is read-only (2026-06-24, agent-3): with settlements it derives from
+                   the hexes; with none it shows the stored fallback. Adjust urban population by founding
+                   a settlement (Investment ▸ 🏛 Urban investment ▸ 🏘 Found settlement). -->
               <template x-if="hexSettlements(selectedDomain).length === 0">
-                <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'demographics.urbanFamilies', label:'Urban families', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                </span>
+                <span class="font-mono" x-text="(selectedDomain.demographics.urbanFamilies||0).toLocaleString()"></span>
               </template>
             </div>
 
@@ -5470,7 +5470,7 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
             <template x-if="hexSettlements(selectedDomain).length === 0">
-              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want one.</p>
+              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Investment</strong> tab — <em>🏛 Urban investment ▸ 🏘 Found settlement</em>.</p>
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
@@ -5822,7 +5822,7 @@ document.addEventListener('alpine:init', () => {
                immigrate per 1,000gp actually paid (RR p.351 — the families follow the build). A GM may
                'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
-               x-data="{ amounts:{}, showOrderModal:false, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
+               x-data="{ amounts:{}, showOrderModal:false, showFoundModal:false, foundHexId:'', foundName:'', foundCount:100, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
             <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
               Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
@@ -5848,7 +5848,7 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length === 0">
-              <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Found one from the Hexes table on the Demographics tab, or via the Inspector.</p>
+              <p class="text-sm italic opacity-60">No urban settlements in this domain yet. Use <strong>🏘 Found settlement…</strong> below to establish one, or the Inspector.</p>
             </template>
             <template x-if="(hexSettlements(selectedDomain)||[]).length > 0">
               <div>
@@ -5885,6 +5885,17 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
             </template>
+            <!-- 🏘 Found a settlement — founding a settlement IS an urban investment, so it lives here
+                 (relocated from the Demographics ▸ Hexes table, 2026-06-24, agent-3). Always available so
+                 the FIRST settlement can be founded from here too. Opens a picker for an unsettled hex +
+                 name + initial peasants; defers to foundSettlementById → foundSettlementOnHex, which
+                 enforces the RAW 10,000gp + 75–249-family gates and confirms before committing. -->
+            <div class="mt-3 pt-3 border-t border-ink/20 flex items-center justify-between flex-wrap gap-2">
+              <span class="text-sm opacity-70">Found a new settlement on an unsettled hex — 10,000gp + 75–249 peasant families (RR p.353).</span>
+              <button @click="showFoundModal = true"
+                      class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold"
+                      title="Found a settlement — opens a dialog to pick an unsettled hex, name it, and transfer 75–249 peasant families (RR p.353). Costs 10,000gp from the treasury.">🏘 Found settlement…</button>
+            </div>
             <!-- 🏗 Order urban investment dialog — the per-settlement amounts, moved out of the status table. -->
             <template x-if="showOrderModal">
               <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
@@ -5923,6 +5934,52 @@ document.addEventListener('alpine:init', () => {
                             :disabled="total() <= 0"
                             :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
                             class="px-3 py-1 border border-ink rounded font-semibold">🏗 Order investment</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <!-- 🏘 Found settlement dialog — pick an unsettled hex, name it, set initial peasants. The
+                 commit defers to foundSettlementById (a thin wrapper adjacent to foundSettlementOnHex). -->
+            <template x-if="showFoundModal">
+              <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" @click.self="showFoundModal=false" @keydown.escape.window="showFoundModal=false">
+                <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
+                  <div class="flex justify-between items-start p-4 border-b border-ink/30">
+                    <h3 class="font-bold text-lg">🏘 Found a settlement</h3>
+                    <button @click="showFoundModal=false" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+                  </div>
+                  <div class="p-4 space-y-3 text-sm">
+                    <p class="text-xs opacity-70">Founding a settlement is an urban investment of <strong>10,000gp</strong> (RR p.353). Pick an unsettled hex, name the settlement, and transfer <strong>75–249</strong> peasant families to seed it. The cost leaves the treasury at once and the families move off the rural population.</p>
+                    <template x-if="(domainHexesFor(selectedDomain)||[]).filter(h => !settlementAtHexG(h)).length === 0">
+                      <p class="italic opacity-70">Every hex in this domain already has a settlement. Add a hex first (Demographics ▸ Hexes ▸ + add hex).</p>
+                    </template>
+                    <template x-if="(domainHexesFor(selectedDomain)||[]).filter(h => !settlementAtHexG(h)).length > 0">
+                      <div class="space-y-2">
+                        <label class="block">Hex
+                          <select x-model="foundHexId" class="w-full text-sm mt-1">
+                            <option value="">— pick an unsettled hex —</option>
+                            <template x-for="h in (domainHexesFor(selectedDomain)||[]).filter(x => !settlementAtHexG(x))" :key="h.id">
+                              <option :value="h.id" x-text="hexLabelFor(h)"></option>
+                            </template>
+                          </select>
+                        </label>
+                        <label class="block">Settlement name
+                          <input x-model="foundName" placeholder="Settlement name" class="w-full text-sm mt-1">
+                        </label>
+                        <label class="block">Initial peasant families (75–249)
+                          <input type="number" min="75" max="249" x-model.number="foundCount" class="w-24 text-sm mt-1">
+                        </label>
+                      </div>
+                    </template>
+                    <p class="text-sm" :class="(selectedDomain.treasury.gp||0) < 10000 ? 'accent-red' : 'opacity-70'">Treasury: <span class="font-semibold" x-text="(selectedDomain.treasury.gp||0).toLocaleString()"></span> gp <span class="opacity-60">(need 10,000)</span></p>
+                    <p class="text-sm" :class="(selectedDomain.demographics.peasantFamilies||0) < foundCount ? 'accent-red' : 'opacity-70'">Rural families: <span class="font-semibold" x-text="(selectedDomain.demographics.peasantFamilies||0).toLocaleString()"></span> <span class="opacity-60">(need <span x-text="foundCount"></span>)</span></p>
+                  </div>
+                  <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+                    <button @click="showFoundModal=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+                    <button @click="foundSettlementById(selectedDomain, foundHexId, foundName, foundCount); showFoundModal=false; foundHexId=''; foundName=''; foundCount=100"
+                            :disabled="!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount"
+                            :class="(!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                            :title="!foundHexId ? 'Pick a hex' : (!foundName ? 'Name the settlement' : (foundCount < 75 ? 'Need at least 75 peasant families' : (foundCount > 249 ? 'Max 249 peasant families (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury' : ((selectedDomain.demographics.peasantFamilies||0) < foundCount ? 'Not enough rural families' : 'Found this settlement')))))"
+                            class="px-3 py-1 border border-ink rounded font-semibold">🏘 Found · 10,000gp + <span x-text="foundCount"></span>p</button>
                   </div>
                 </div>
               </div>
@@ -6077,32 +6134,13 @@ document.addEventListener('alpine:init', () => {
                     </td>
                     <td x-show="isHouseRuleEnabled('families-per-hex-tracking')" class="font-mono" x-text="((h.families||0)*effectiveHexValue(h)).toLocaleString() + ' gp'"></td>
                     <td>
-                      <template x-if="!settlementAtHexG(h)">
-                        <div x-data="{showFound:false, name:'', count:100}">
-                          <button @click="showFound = !showFound" class="text-sm underline" :disabled="(selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < 75" :title="(selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp treasury' : (selectedDomain.demographics.peasantFamilies||0) < 75 ? 'Need 75+ peasants' : 'Found a settlement here'">
-                            <span x-show="!showFound">+ found settlement</span>
-                            <span x-show="showFound">cancel</span>
-                          </button>
-                          <div x-show="showFound" class="mt-1 p-2 border border-ink rounded" style="background:#f4ecd2; min-width:14rem">
-                            <input x-model="name" placeholder="Settlement name" class="w-full text-sm mb-1">
-                            <label class="text-sm block">Peasants (75-249): <input type="number" min="75" max="249" x-model.number="count" class="w-16"></label>
-                            <button @click="foundSettlementOnHex(selectedDomain, h, name, count); showFound=false"
-                                    class="mt-1 px-2 py-1 border border-ink rounded bg-yellow-200 text-sm font-semibold"
-                                    :class="(!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-300'"
-                                    :disabled="!name || count < 75 || count > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < count"
-                                    :title="!name ? 'Type a settlement name first' : (count < 75 ? 'Need at least 75 peasants' : (count > 249 ? 'Max 249 peasants (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury (have ' + (selectedDomain.treasury.gp||0).toLocaleString() + 'gp)' : ((selectedDomain.demographics.peasantFamilies||0) < count ? 'Domain has only ' + (selectedDomain.demographics.peasantFamilies||0).toLocaleString() + ' rural families — need ' + count : 'Found this settlement'))))">
-                              Found · 10,000gp + <span x-text="count"></span>p
-                            </button>
-                          </div>
-                        </div>
-                      </template>
+                      <!-- Settlement name is read-only here (2026-06-24, agent-3): rename on the settlement
+                           sheet. Founding moved to Domain ▸ Investment ▸ 🏛 Urban investment ▸ 🏘 Found settlement. -->
                       <template x-if="settlementAtHexG(h)">
-                        <div class="font-semibold">
-                          <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:settlementAtHexG(h), fieldPath:'name', label:'Settlement name', kind:'text'})">
-                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                          </span>
-                        </div>
+                        <span class="font-semibold" x-text="settlementAtHexG(h).name || '(unnamed)'"></span>
+                      </template>
+                      <template x-if="!settlementAtHexG(h)">
+                        <span class="opacity-50">—</span>
                       </template>
                     </td>
                   </tr>
