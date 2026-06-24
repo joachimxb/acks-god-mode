@@ -1,9 +1,12 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-18 — Phase 4 Construction Wave C: each domain stronghold lifted onto a
-// first-class Constructible mirror (campaign.constructibles[]) so the demo stays a migrate-no-op.
-// Content unchanged otherwise (the economy still reads the stronghold value — zero drift).
-// migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
+// Regenerated 2026-06-24 — demo refresh (World-Layer sweep): showcases the Senate of the March
+// (Politics P-5), the Gravewolf beastman Clanhold (Tribal Domains), Religion (Hearth-Warden +
+// Tide-cult), and the Arcane Domain (Magister Vale’s sanctum + apprentices + research + a dungeon),
+// plus a richer coastal/island map. Every showcase entity was minted by the engine factories +
+// mutators (materializeSenate / setDomainType / foundCongregation / onSanctumConstructed / …) so the
+// save matches the live wizards exactly. migrateCampaign is a no-op on this file (tests/smoke.js).
+// Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
 global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -11,7 +14,7 @@ global.ACKS_DEMO_TEMPLATE = {
   "id": "cmp-saltspur-march-demo",
   "name": "March of Saltspur (v2 demo)",
   "createdAt": "2026-05-26",
-  "lastModifiedAt": "2026-05-26",
+  "lastModifiedAt": "2026-06-24",
   "currentTurn": 5,
   "calendar": {
     "year": null,
@@ -28,7 +31,7 @@ global.ACKS_DEMO_TEMPLATE = {
     "theme": "Established march with vassal baronies",
     "tone": "Settled but still frontier-conscious — the march guards the realm's edge",
     "season": "",
-    "aiNotes": "Mid-tier vassalage demo. Marquis Aelric directly administers the March's heart and receives tribute from two vassal Barons (Yorick of Northwatch and Lady Mira of Saltcombe). Demonstrates one tier of vassalage with auto-tribute flow."
+    "aiNotes": "Mid-tier vassalage demo, broadened to exercise the world layer. Marquis Aelric governs the March through the Senate of the March (named senators, factions, vassalage). Across the Salt Sea the Gravewolf gnolls hold a beastman clanhold and raid the coast. The realm keeps the Hearth-Warden’s faith (with a heterodox Tide-cult at Tidewrack), and the court Magister Vale runs a sanctum, apprentices, a spell-research project, and a dungeon dig. Showcases Senate, Clanhold, Religion, and the Arcane Domain on one map."
   },
   "domains": [
     {
@@ -164,7 +167,24 @@ global.ACKS_DEMO_TEMPLATE = {
           "administersThisMonth": false
         }
       },
-      "treasuryStashId": "stash-zb8omrq"
+      "treasuryStashId": "stash-zb8omrq",
+      "governance": {
+        "mode": "senatorial",
+        "senateId": "sen-sd8lyhl",
+        "oligarchCharacterIds": [],
+        "oligarchyDecisionRule": "majority",
+        "landSeparated": false,
+        "governorCharacterId": null
+      },
+      "governanceHistory": [
+        {
+          "turn": 5,
+          "type": "senate-materialized",
+          "senateId": "sen-sd8lyhl",
+          "seats": 10,
+          "leadingSenators": 2
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -490,6 +510,128 @@ global.ACKS_DEMO_TEMPLATE = {
       "history": [],
       "notes": "An ancient, half-drowned Auran naval port at the far end of the salt coast, reached overland only by the Saltspur Pass — or by sea. Tidewrack never swore to the March; it kept its own customs after the Auran collapse and lives now on salt-fish, grey amber, and salvage from the Wrack. Ruled by the Tide-Warden, Sevrina Vael, who burns the Marquis’s letters unread.",
       "treasuryStashId": "stash-hvp1bkl"
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-gravewolf-clans",
+      "name": "Gravewolf Clans",
+      "createdAt": "2026-06-05",
+      "lastModifiedAt": "2026-06-05",
+      "type": "rural",
+      "classification": "Outlands",
+      "tags": [
+        "clanhold",
+        "beastman",
+        "raiders",
+        "outlands"
+      ],
+      "rulerCharacterId": "chr-grakka-gravewolf",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [],
+      "isRealm": true,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 3,
+          "r": 5
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 2,
+        "claimedHexes": 2,
+        "controlledHexList": [
+          "hex-tidewrack-strand",
+          "hex-tidewrack-cove"
+        ],
+        "terrain": "",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 90,
+        "urbanFamilies": 0,
+        "morale": -1,
+        "moraleNotes": "Proud and fiercely independent, but pressed: the pass-caravans come back short, the Deepwood and Saltmarsh things grow bold, and no help comes over the range."
+      },
+      "treasury": {
+        "gp": 2400
+      },
+      "income": {
+        "landRevenuePerFamily": 6,
+        "serviceRevenuePerFamily": 4,
+        "miscPerFamily": 0,
+        "miscFlat": 0,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 0,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "miscPerFamily": 0,
+        "miscFlat": 0,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": false,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "stronghold": {
+        "components": [],
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 0
+      },
+      "monthlyLaborCapGp": 0,
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "magistrates": {
+        "captainOfGuard": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "chaplain": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "munerator": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "steward": {
+          "characterId": null,
+          "administersThisMonth": false
+        }
+      },
+      "urban": {
+        "marketClass": "VI",
+        "totalInvestment": 12000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "An ancient, half-drowned Auran naval port at the far end of the salt coast, reached overland only by the Saltspur Pass — or by sea. Tidewrack never swore to the March; it kept its own customs after the Auran collapse and lives now on salt-fish, grey amber, and salvage from the Wrack. Ruled by the Tide-Warden, Sevrina Vael, who burns the Marquis’s letters unread.",
+      "treasuryStashId": "stash-3sekvnw",
+      "governance": null,
+      "domainType": "clanhold",
+      "dominantRace": "beastman"
     }
   ],
   "characters": [
@@ -708,12 +850,12 @@ global.ACKS_DEMO_TEMPLATE = {
       "alignment": "N",
       "race": "human",
       "class": "Fighter",
-      "level": 6,
-      "xp": 60000,
+      "level": 7,
+      "xp": 70000,
       "hp": {
-        "current": 36,
-        "max": 36,
-        "hitDice": "6d8"
+        "current": 41,
+        "max": 41,
+        "hitDice": "7d8"
       },
       "ac": 5,
       "attackThrow": 8,
@@ -817,12 +959,12 @@ global.ACKS_DEMO_TEMPLATE = {
       "alignment": "L",
       "race": "human",
       "class": "Cleric",
-      "level": 6,
+      "level": 7,
       "xp": 50000,
       "hp": {
-        "current": 28,
-        "max": 28,
-        "hitDice": "6d6"
+        "current": 32,
+        "max": 32,
+        "hitDice": "7d6"
       },
       "ac": 4,
       "attackThrow": 9,
@@ -958,7 +1100,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "inventory": [],
       "personalGp": 0,
       "constructionSupervisorCap": 0,
-      "currentHexId": null,
+      "currentHexId": "hex-saltspur-keep",
       "currentDomainId": "dom-march-of-saltspur",
       "partyId": null,
       "travelDestination": null,
@@ -1083,7 +1225,20 @@ global.ACKS_DEMO_TEMPLATE = {
         "sp": 0,
         "cp": 0
       },
-      "personalGp": 0
+      "personalGp": 0,
+      "divinePower": {
+        "entries": [
+          {
+            "accruedAtTurn": 5,
+            "accruedAtDay": 1,
+            "amountGp": 1320,
+            "source": "congregation",
+            "deityId": "dei-hearth-warden",
+            "expiresAtTurn": 6
+          }
+        ],
+        "reliquaryStoreGp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1255,8 +1410,8 @@ global.ACKS_DEMO_TEMPLATE = {
           "notes": ""
         }
       ],
-      "background": "A pass-village man, bow-legged from a lifetime on the switchbacks. Guides caravans over the Saltspur Pass for a fee and patches the Auran road each spring. Will not set foot in the Deepwood for any price.",
-      "currentHexId": "hex-the-pass",
+      "background": "A pass-village man, bow-legged from a lifetime on the switchbacks. Guides caravans over the Saltspur Pass for a fee and patches the Auran road each spring. Will not set foot in the Deepwood for any price. He now lodges in Saltcombe town between trips, the westernmost seat of the realm and the nearest hall to his pass.",
+      "currentHexId": "hex-saltcombe-shrine",
       "history": [],
       "loyaltyHistory": [],
       "alive": true,
@@ -1402,7 +1557,1902 @@ global.ACKS_DEMO_TEMPLATE = {
         "ep": 0,
         "sp": 0,
         "cp": 0
+      },
+      "divinePower": {
+        "entries": [
+          {
+            "accruedAtTurn": 5,
+            "accruedAtDay": 1,
+            "amountGp": 40,
+            "source": "congregation",
+            "deityId": "dei-tide-mother",
+            "expiresAtTurn": 6
+          }
+        ],
+        "reliquaryStoreGp": 0
       }
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-grakka-gravewolf",
+      "name": "Grakka Gravewolf, Clan-Chief",
+      "alignment": "C",
+      "race": "beastman",
+      "class": "Fighter",
+      "level": 6,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 15,
+        "INT": 9,
+        "DEX": 12,
+        "CON": 14,
+        "CHA": 13,
+        "WIL": 11
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-skarn-hold",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "War-chief of the Gravewolf gnolls who hold the seaward isle. His raiders cross the Salt Sea in hide-boats to burn the coast for cattle and captives. The March has wanted his head for a decade.",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-magister-vale",
+      "name": "Magister Orsina Vale",
+      "alignment": "L",
+      "race": "human",
+      "class": "Mage",
+      "level": 9,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 9,
+        "INT": 17,
+        "DEX": 12,
+        "CON": 11,
+        "CHA": 13,
+        "WIL": 15
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 17000,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 17000,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "The March’s court wizard, drawn to Saltspur by the old Auran ruins beneath the salt-marsh. She keeps a sanctum-tower in the Keep, schools a handful of apprentices, and is rumoured to be reading the dead Empire’s secrets.",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "isArcaneCaster": true
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-li5x5ev",
+      "name": "Xanthe",
+      "alignment": "L",
+      "race": "human",
+      "class": "Mage",
+      "level": 2,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 5,
+        "INT": 11,
+        "WIL": 14,
+        "DEX": 6,
+        "CON": 11,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-magister-vale",
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "isArcaneCaster": true,
+      "sanctumCompanionSanctumId": "cst-vale-sanctum"
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-ypcjhae",
+      "name": "Faustus",
+      "alignment": "L",
+      "race": "human",
+      "class": "",
+      "level": 0,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 9,
+        "INT": 10,
+        "WIL": 13,
+        "DEX": 10,
+        "CON": 9,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-magister-vale",
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-2twiqgd",
+      "name": "Ovid",
+      "alignment": "L",
+      "race": "human",
+      "class": "",
+      "level": 0,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 12,
+        "INT": 14,
+        "WIL": 9,
+        "DEX": 12,
+        "CON": 11,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-magister-vale",
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-4qeytgw",
+      "name": "Lucretia",
+      "alignment": "L",
+      "race": "human",
+      "class": "",
+      "level": 0,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 12,
+        "INT": 10,
+        "WIL": 3,
+        "DEX": 7,
+        "CON": 9,
+        "CHA": 3
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-magister-vale",
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "full",
+      "id": "chr-yy0t35t",
+      "name": "Phaedra",
+      "alignment": "L",
+      "race": "human",
+      "class": "",
+      "level": 0,
+      "xp": 0,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 10,
+      "abilities": {
+        "STR": 12,
+        "INT": 14,
+        "WIL": 10,
+        "DEX": 12,
+        "CON": 13,
+        "CHA": 4
+      },
+      "savingThrows": {
+        "paralysis": 15,
+        "death": 15,
+        "blast": 15,
+        "implements": 15,
+        "spells": 15
+      },
+      "proficiencies": [],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": null,
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": null,
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-magister-vale",
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": null,
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-398fpwg",
+      "name": "Halvard",
+      "alignment": "N",
+      "race": "human",
+      "class": "Explorer",
+      "level": 7,
+      "xp": 65000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 6,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 10,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        {
+          "key": "craft",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "adult",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Artisan",
+      "occupationCategory": "artisan",
+      "appearance": {
+        "build": "average",
+        "hair": "blond",
+        "eyes": "grey",
+        "skin": "fair",
+        "feature": "piercing eyes",
+        "summary": "A average human with blond hair and grey eyes — piercing eyes."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-zccf5gp",
+      "name": "Halvard",
+      "alignment": "C",
+      "race": "human",
+      "class": "Crusader",
+      "level": 7,
+      "xp": 50000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 10,
+        "implements": 11,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "naturalism",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-northwatch-tower",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "adult",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Specialist",
+      "occupationCategory": "specialist",
+      "appearance": {
+        "build": "average",
+        "hair": "brown",
+        "eyes": "dark",
+        "skin": "fair",
+        "feature": "cropped hair",
+        "summary": "A average human with brown hair and dark eyes — cropped hair."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-mup8191",
+      "name": "Iona",
+      "alignment": "L",
+      "race": "human",
+      "class": "Thief",
+      "level": 7,
+      "xp": 40000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 13,
+        "implements": 10,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "naturalism",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltcombe-shrine",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "adult",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Specialist",
+      "occupationCategory": "specialist",
+      "appearance": {
+        "build": "average",
+        "hair": "brown",
+        "eyes": "hazel",
+        "skin": "fair",
+        "feature": "an old tattoo",
+        "summary": "A average human with brown hair and hazel eyes — an old tattoo."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-h66kij6",
+      "name": "Corwin",
+      "alignment": "N",
+      "race": "human",
+      "class": "Thief",
+      "level": 7,
+      "xp": 40000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 13,
+        "implements": 10,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "craft",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "middle-aged",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Artisan",
+      "occupationCategory": "artisan",
+      "appearance": {
+        "build": "average",
+        "hair": "auburn",
+        "eyes": "hazel",
+        "skin": "fair",
+        "feature": "a heavy brow",
+        "summary": "A average human with auburn hair and hazel eyes — a heavy brow."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-0enyrfw",
+      "name": "Halvard",
+      "alignment": "L",
+      "race": "human",
+      "class": "Thief",
+      "level": 7,
+      "xp": 40000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 13,
+        "implements": 10,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "craft",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-northwatch-tower",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "middle-aged",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Artisan",
+      "occupationCategory": "artisan",
+      "appearance": {
+        "build": "average",
+        "hair": "red",
+        "eyes": "blue",
+        "skin": "fair",
+        "feature": "a quiet limp",
+        "summary": "A average human with red hair and blue eyes — a quiet limp."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-3fh18x2",
+      "name": "Yara",
+      "alignment": "C",
+      "race": "human",
+      "class": "Fighter",
+      "level": 7,
+      "xp": 65000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 6,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 10,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        {
+          "key": "bargaining",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltcombe-shrine",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "adult",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Merchant",
+      "occupationCategory": "merchant",
+      "appearance": {
+        "build": "average",
+        "hair": "grey",
+        "eyes": "amber",
+        "skin": "fair",
+        "feature": "a missing finger",
+        "summary": "A average human with grey hair and amber eyes — a missing finger."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-elugrru",
+      "name": "Wren",
+      "alignment": "N",
+      "race": "human",
+      "class": "Crusader",
+      "level": 7,
+      "xp": 50000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 10,
+        "implements": 11,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "craft",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-saltspur-keep",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "middle-aged",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Artisan",
+      "occupationCategory": "artisan",
+      "appearance": {
+        "build": "average",
+        "hair": "white",
+        "eyes": "brown",
+        "skin": "fair",
+        "feature": "a nervous tic",
+        "summary": "A average human with white hair and brown eyes — a nervous tic."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
+    },
+    {
+      "schemaVersion": 2,
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "detailLevel": "lightweight",
+      "id": "chr-z90k73u",
+      "name": "Lyssa",
+      "alignment": "L",
+      "race": "human",
+      "class": "Venturer",
+      "level": 7,
+      "xp": 50000,
+      "hp": {
+        "current": 0,
+        "max": 0,
+        "hitDice": ""
+      },
+      "ac": 0,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 10,
+        "INT": 10,
+        "WIL": 10,
+        "DEX": 10,
+        "CON": 10,
+        "CHA": 10
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 13,
+        "implements": 10,
+        "spells": 12
+      },
+      "proficiencies": [
+        {
+          "key": "craft",
+          "ranks": 1
+        }
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "coins": {
+        "pp": 0,
+        "gp": 76750,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 76750,
+      "recruitmentDrives": [],
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "constructionSupervisorCap": 0,
+      "currentHexId": "hex-northwatch-tower",
+      "currentDomainId": "dom-march-of-saltspur",
+      "homeSettlementId": null,
+      "homeDomainId": null,
+      "placementRole": "domain-npc",
+      "homeHexId": null,
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "waterDaysCarried": 0,
+      "foodDeficitDays": 0,
+      "waterDeficitDays": 0,
+      "underfed": false,
+      "starving": false,
+      "dehydrated": false,
+      "conLossHunger": 0,
+      "conLossThirst": 0,
+      "background": "",
+      "personality": "",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "lifestyleTargetLevel": null,
+      "effectiveSocialLevel": null,
+      "lastLivingExpensePaidGp": 0,
+      "payKeepFromTreasury": null,
+      "permanentWoundPenalty": 0,
+      "mortalityPenalty": 0,
+      "mortalWounds": [],
+      "divinePower": {
+        "entries": [],
+        "reliquaryStoreGp": 0
+      },
+      "ageMonths": 0,
+      "ageCategory": "middle-aged",
+      "agingDeathSave": null,
+      "reserveXp": 0,
+      "upkeepMonthly": 0,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "occupation": "Artisan",
+      "occupationCategory": "artisan",
+      "appearance": {
+        "build": "average",
+        "hair": "dark brown",
+        "eyes": "dark",
+        "skin": "fair",
+        "feature": "an old tattoo",
+        "summary": "A average human with dark brown hair and dark eyes — an old tattoo."
+      },
+      "generated": true,
+      "magicItemValue": 15250,
+      "magicItemAvailability": {
+        "common": "4",
+        "uncommon": "2",
+        "rare": "66%"
+      },
+      "isZerothLevel": false
     }
   ],
   "parties": [],
@@ -1466,7 +3516,34 @@ global.ACKS_DEMO_TEMPLATE = {
       "notes": "Brewery producing spirits under royal license — half-share split with the saltworks guildhouse. Steady output, modest risk; books are audited by the Marquis's chaplain each quarter."
     }
   ],
-  "deities": [],
+  "deities": [
+    {
+      "schemaVersion": 2,
+      "id": "dei-hearth-warden",
+      "name": "The Hearth-Warden",
+      "alignment": "Lawful",
+      "portfolio": "hearth, harvest, the protection of settled folk",
+      "codeOfBehavior": "Keep faith with kin and liege; shelter the traveller; never break a sworn oath.",
+      "acceptsBloodSacrifice": "none",
+      "sacrificeAsDevotion": false,
+      "notes": "The settled realm’s official faith — worshipped in every March hall.",
+      "status": "active",
+      "history": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "dei-tide-mother",
+      "name": "The Tide-Mother",
+      "alignment": "Neutral",
+      "portfolio": "the sea, storms, the drowned and the salvaged",
+      "codeOfBehavior": "Give the sea its due; what the tide brings is the finder’s to keep.",
+      "acceptsBloodSacrifice": "animals-only",
+      "sacrificeAsDevotion": false,
+      "notes": "A heterodox coast-cult the diocese frowns on — strong at Tidewrack.",
+      "status": "active",
+      "history": []
+    }
+  ],
   "banks": [],
   "loans": [],
   "pendingEvents": [
@@ -1905,6 +3982,691 @@ global.ACKS_DEMO_TEMPLATE = {
       },
       "appliedAtTurn": 4,
       "appliedAt": "2026-04-28T14:03:02.458Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-vm25nhc",
+        "kind": "domain-type-changed",
+        "submittedBy": "gm",
+        "submittedAt": "2026-06-24T16:02:32.520Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "domainId": "dom-gravewolf-clans",
+          "from": "ordinary",
+          "to": "clanhold",
+          "narrative": "Gravewolf Clans domain type: Ordinary → Barbarian Clanhold"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": "dom-gravewolf-clans",
+          "relatedEntities": []
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Gravewolf Clans domain type: Ordinary → Barbarian Clanhold"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.521Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-u3txuru",
+        "kind": "divine-favor-changed",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.522Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-brother-cassian",
+          "deityId": "dei-hearth-warden",
+          "standing": "good-standing",
+          "action": "established"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-brother-cassian",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-hearth-warden",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Brother Cassian takes up the faith"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.522Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-aix8flq",
+        "kind": "divine-favor-changed",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.522Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-saltwidow",
+          "deityId": "dei-tide-mother",
+          "standing": "good-standing",
+          "action": "established"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-saltwidow",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-tide-mother",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Mother Oye, the Saltwidow takes up the faith"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.522Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-3dwu5sb",
+        "kind": "divine-favor-changed",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.522Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-baroness-mira",
+          "deityId": "dei-hearth-warden",
+          "standing": "good-standing",
+          "action": "established"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-baroness-mira",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-hearth-warden",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Lady Mira of Saltcombe takes up the faith"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.522Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-wpscoqz",
+        "kind": "divine-favor-changed",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.522Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-baroness-mira",
+          "deityId": "dei-hearth-warden",
+          "standing": "lapsed",
+          "previousStanding": "good-standing",
+          "reason": "ceased tithing to the diocese (RR p.388 — lapsed standing suspends accrual)",
+          "action": "standing-change"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-baroness-mira",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-hearth-warden",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Lady Mira of Saltcombe standing: good-standing → lapsed"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.522Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-gpb7uxo",
+        "kind": "divine-power-accrued",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.531Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-brother-cassian",
+          "amountGp": 1320,
+          "source": "congregation",
+          "deityId": "dei-hearth-warden"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-brother-cassian",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-hearth-warden",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Brother Cassian receives 1 320gp of divine power (congregation)"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.531Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-68giu54",
+        "kind": "divine-power-accrued",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.531Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "characterId": "chr-saltwidow",
+          "amountGp": 40,
+          "source": "congregation",
+          "deityId": "dei-tide-mother"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-saltwidow",
+              "role": "subject"
+            },
+            {
+              "kind": "deity",
+              "id": "dei-tide-mother",
+              "role": "patron"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Mother Oye, the Saltwidow receives 40gp of divine power (congregation)"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.531Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-ca16bi1",
+        "kind": "sanctum-established",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.531Z",
+        "gameTimeAt": {
+          "year": 1,
+          "month": 1,
+          "day": 1
+        },
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "narrative": "Magister Orsina Vale establishes Magister Vale’s Sanctum",
+          "constructibleId": "cst-vale-sanctum",
+          "builderCharacterId": "chr-magister-vale"
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": "hex-saltspur-keep",
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-magister-vale",
+              "role": "subject"
+            },
+            {
+              "kind": "constructible",
+              "id": "cst-vale-sanctum",
+              "role": "site"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Magister Orsina Vale establishes Magister Vale’s Sanctum"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.531Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-lgugj8m",
+        "kind": "apprentice-attracted",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.532Z",
+        "gameTimeAt": {
+          "year": 1,
+          "month": 1,
+          "day": 1
+        },
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "narrative": "Magister Orsina Vale's sanctum attracts 1 companion + 4 apprentices",
+          "sanctumConstructibleId": "cst-vale-sanctum",
+          "masterCharacterId": "chr-magister-vale",
+          "companionCharacterIds": [
+            "chr-li5x5ev"
+          ],
+          "apprenticeCharacterIds": [
+            "chr-ypcjhae",
+            "chr-2twiqgd",
+            "chr-4qeytgw",
+            "chr-yy0t35t"
+          ],
+          "initial": true
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": "hex-saltspur-keep",
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-magister-vale",
+              "role": "subject"
+            },
+            {
+              "kind": "constructible",
+              "id": "cst-vale-sanctum",
+              "role": "site"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Magister Orsina Vale's sanctum attracts 1 companion + 4 apprentices"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.532Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-z9ov4vr",
+        "kind": "magic-research-started",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.532Z",
+        "gameTimeAt": {
+          "year": 1,
+          "month": 1,
+          "day": 1
+        },
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "narrative": "Magister Orsina Vale begins spell research — Research: Vale’s Salt-Ward",
+          "projectId": "rsp-kx2m9br",
+          "kind": "spell-research",
+          "researcherCharacterId": "chr-magister-vale",
+          "baseCost": 3000,
+          "materialCostGp": 3000
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": null,
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-magister-vale",
+              "role": "subject"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Magister Orsina Vale begins spell research — Research: Vale’s Salt-Ward"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.532Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-xz2ulgp",
+        "kind": "dungeon-established",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.532Z",
+        "gameTimeAt": {
+          "year": 1,
+          "month": 1,
+          "day": 1
+        },
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "narrative": "Magister Orsina Vale completes The Sunken Vault of Auran",
+          "dungeonId": "dun-564jg10",
+          "origin": "constructed",
+          "builtByProjectId": "prj-8e0nc2f",
+          "ownerCharacterId": "chr-magister-vale",
+          "buildValueGp": 24000
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": "hex-saltmarsh",
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-magister-vale",
+              "role": "subject"
+            },
+            {
+              "kind": "dungeon",
+              "id": "dun-564jg10",
+              "role": "site"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Magister Orsina Vale completes The Sunken Vault of Auran"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.532Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-0uibk6l",
+        "kind": "dungeon-attuned",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.533Z",
+        "gameTimeAt": {
+          "year": 1,
+          "month": 1,
+          "day": 1
+        },
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "narrative": "Magister Orsina Vale attunes to The Sunken Vault of Auran (built)",
+          "attunementId": "att-5526wbd",
+          "dungeonId": "dun-564jg10",
+          "mageCharacterId": "chr-magister-vale",
+          "method": "built",
+          "throwResult": null
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": 1,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": "hex-saltmarsh",
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": null,
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-magister-vale",
+              "role": "subject"
+            },
+            {
+              "kind": "dungeon",
+              "id": "dun-564jg10",
+              "role": "site"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "Magister Orsina Vale attunes to The Sunken Vault of Auran (built)"
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.533Z",
+      "cadence": "monthly-turn",
+      "subdayContext": null
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "id": "evt-a98xphb",
+        "kind": "senate-materialized",
+        "submittedBy": "engine",
+        "submittedAt": "2026-06-24T16:02:32.535Z",
+        "gameTimeAt": null,
+        "targetTurn": 5,
+        "status": "applied",
+        "payload": {
+          "senateId": "sen-sd8lyhl",
+          "apexDomainId": "dom-march-of-saltspur",
+          "seats": 10,
+          "leadingSenators": 2,
+          "factions": 2,
+          "independentMinorVotes": 4,
+          "realmFamilies": 1150,
+          "minSenatorLevel": 7,
+          "narrative": "A 10-seat senate is convened over March of Saltspur — 2 leading senators in 2 factions (RR pp.355–360)."
+        },
+        "gmNotes": "",
+        "appliedAtTurn": 5,
+        "appliedAtDay": null,
+        "parentEventId": null,
+        "supersededBy": null,
+        "cadence": "monthly-turn",
+        "context": {
+          "primaryHexId": "hex-saltspur-keep",
+          "involvedHexIds": [],
+          "settlementId": null,
+          "domainId": "dom-march-of-saltspur",
+          "relatedEntities": [
+            {
+              "kind": "character",
+              "id": "chr-marquis-aelric",
+              "role": "subject"
+            },
+            {
+              "kind": "domain",
+              "id": "dom-march-of-saltspur",
+              "role": "site"
+            },
+            {
+              "kind": "character",
+              "id": "chr-baron-yorick",
+              "role": "witness"
+            },
+            {
+              "kind": "character",
+              "id": "chr-baroness-mira",
+              "role": "witness"
+            }
+          ]
+        },
+        "subdayContext": null
+      },
+      "result": {
+        "narrativeSummary": "A 10-seat senate is convened over March of Saltspur — 2 leading senators in 2 factions (RR pp.355–360)."
+      },
+      "appliedAtTurn": 5,
+      "appliedAt": "2026-06-24T16:02:32.535Z",
       "cadence": "monthly-turn",
       "subdayContext": null
     }
@@ -3604,6 +6366,690 @@ global.ACKS_DEMO_TEMPLATE = {
       "terrainTransformationState": null,
       "name": "The Salt Sea",
       "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-w5",
+      "coord": {
+        "q": 0,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-1-5",
+      "coord": {
+        "q": 1,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-gravewolf-crag",
+      "coord": {
+        "q": 2,
+        "r": 5
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 50,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "hills",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 600,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "Gravewolf Crag",
+      "domainId": "dom-gravewolf-clans"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-skarn-hold",
+      "coord": {
+        "q": 3,
+        "r": 5
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 40,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "scrubland",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "Skarn-Hold",
+      "domainId": "dom-gravewolf-clans"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-4-5",
+      "coord": {
+        "q": 4,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-5-5",
+      "coord": {
+        "q": 5,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-wreckers-rock",
+      "coord": {
+        "q": 6,
+        "r": 5
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "mountains",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 900,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "Wreckers' Rock",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-7-5",
+      "coord": {
+        "q": 7,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-8-5",
+      "coord": {
+        "q": 8,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "The Salt Sea",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-0-6",
+      "coord": {
+        "q": 0,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "The Salt Sea",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-1-6",
+      "coord": {
+        "q": 1,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-2-6",
+      "coord": {
+        "q": 2,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-3-6",
+      "coord": {
+        "q": 3,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-4-6",
+      "coord": {
+        "q": 4,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-gull-isle",
+      "coord": {
+        "q": 5,
+        "r": 6
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "coast",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 80,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "Gull Isle",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-6-6",
+      "coord": {
+        "q": 6,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-7-6",
+      "coord": {
+        "q": 7,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "",
+      "domainId": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-sea-8-6",
+      "coord": {
+        "q": 8,
+        "r": 6
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "water",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "name": "The Salt Sea",
+      "domainId": null
     }
   ],
   "settlements": [
@@ -4076,6 +7522,26 @@ global.ACKS_DEMO_TEMPLATE = {
         }
       ],
       "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hen-74cp461",
+      "subjectCharacterId": "chr-li5x5ev",
+      "patronCharacterId": "chr-magister-vale",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 0,
+      "currentLoyalty": 0,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "sanctum-companion"
+        }
+      ],
+      "status": "active",
+      "endedAtTurn": null
     }
   ],
   "magistracies": [
@@ -4157,12 +7623,167 @@ global.ACKS_DEMO_TEMPLATE = {
     }
   ],
   "currentDayInMonth": 1,
-  "dungeons": [],
+  "dungeons": [
+    {
+      "schemaVersion": 2,
+      "id": "dun-564jg10",
+      "name": "The Sunken Vault of Auran",
+      "hexId": "hex-saltmarsh",
+      "precisePlacement": "",
+      "domainId": null,
+      "origin": "constructed",
+      "ownerCharacterId": "chr-magister-vale",
+      "knownToPlayers": true,
+      "status": "known",
+      "size": "small",
+      "dungeonLevel": 1,
+      "encountersTotal": 0,
+      "encountersRemaining": 0,
+      "encountersCleared": 0,
+      "sizeKnown": true,
+      "levelKnown": true,
+      "multiLevel": false,
+      "parentDungeonId": null,
+      "restockDie": null,
+      "lastForayAtDayInMonth": null,
+      "lastForayAtTurn": null,
+      "levels": 1,
+      "areaSqFtPerLevel": [
+        40000
+      ],
+      "areaCount": 16,
+      "builtByProjectId": "prj-8e0nc2f",
+      "buildValueGp": 24000,
+      "currentShp": null,
+      "maxShp": null,
+      "treasureSeededGp": 8000,
+      "isFull": false,
+      "sovereignCharacterId": null,
+      "subjugatedGroupIds": [],
+      "subjugatedLeaderCharacterIds": [],
+      "arcanePowerThisMonth": null,
+      "arcanePowerSpentThisMonth": null,
+      "monsterGarrisonHired": null,
+      "stockedEncounterIds": [],
+      "establishedAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "built",
+          "reason": "construction completed (24 000gp)"
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "journeys": [],
   "outposts": [],
-  "congregations": [],
-  "divineFavors": [],
-  "attunements": [],
+  "congregations": [
+    {
+      "schemaVersion": 2,
+      "id": "con-xypasrw",
+      "name": "Chapter of the Hearth-Warden",
+      "deityId": "dei-hearth-warden",
+      "highPriestCharacterId": "chr-brother-cassian",
+      "templeRef": {
+        "kind": "settlement",
+        "id": "set-saltspur-town"
+      },
+      "personalCongregants": 35,
+      "domainWorshipDomainId": "dom-march-of-saltspur",
+      "proselytizingValueThisMonthGp": 0,
+      "maintainedWeeksThisMonth": 0,
+      "lastMaintainedAtTurn": null,
+      "foundedAtTurn": 5,
+      "status": "active",
+      "history": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "con-4umg3km",
+      "name": "The Saltwidow’s Flock",
+      "deityId": "dei-tide-mother",
+      "highPriestCharacterId": "chr-saltwidow",
+      "templeRef": {
+        "kind": "settlement",
+        "id": "set-tidewrack"
+      },
+      "personalCongregants": 60,
+      "domainWorshipDomainId": null,
+      "proselytizingValueThisMonthGp": 0,
+      "maintainedWeeksThisMonth": 0,
+      "lastMaintainedAtTurn": null,
+      "foundedAtTurn": 5,
+      "status": "active",
+      "history": []
+    }
+  ],
+  "divineFavors": [
+    {
+      "schemaVersion": 2,
+      "id": "dfv-s5brrv9",
+      "characterId": "chr-brother-cassian",
+      "deityId": "dei-hearth-warden",
+      "standing": "good-standing",
+      "codeOfBehaviorAck": false,
+      "sinceTurn": 5,
+      "lastSacrificeAtTurn": null,
+      "lastWorshipAtTurn": null,
+      "transgressionsLog": [],
+      "status": "active",
+      "history": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "dfv-now0d42",
+      "characterId": "chr-saltwidow",
+      "deityId": "dei-tide-mother",
+      "standing": "good-standing",
+      "codeOfBehaviorAck": false,
+      "sinceTurn": 5,
+      "lastSacrificeAtTurn": null,
+      "lastWorshipAtTurn": null,
+      "transgressionsLog": [],
+      "status": "active",
+      "history": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "dfv-lfaf40t",
+      "characterId": "chr-baroness-mira",
+      "deityId": "dei-hearth-warden",
+      "standing": "lapsed",
+      "codeOfBehaviorAck": false,
+      "sinceTurn": 5,
+      "lastSacrificeAtTurn": null,
+      "lastWorshipAtTurn": null,
+      "transgressionsLog": [],
+      "status": "active",
+      "history": []
+    }
+  ],
+  "attunements": [
+    {
+      "schemaVersion": 2,
+      "id": "att-5526wbd",
+      "name": "",
+      "mageCharacterId": "chr-magister-vale",
+      "dungeonId": "dun-564jg10",
+      "method": "built",
+      "attunedAtTurn": 5,
+      "attunementThrow": null,
+      "ancillaryHoursPerDay": 2,
+      "status": "active",
+      "endedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "attuned",
+          "reason": "built"
+        }
+      ]
+    }
+  ],
   "settlementVisits": [],
   "oaths": [],
   "vagaryOfIncursionEvents": [],
@@ -4207,6 +7828,47 @@ global.ACKS_DEMO_TEMPLATE = {
         }
       ],
       "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "prj-8e0nc2f",
+      "constructibleKind": "dungeon",
+      "constructibleSubtype": "dungeon",
+      "name": "The Sunken Vault of Auran",
+      "siteHexId": "hex-saltmarsh",
+      "siteSettlementId": null,
+      "siteConstructibleId": null,
+      "ownerCharacterId": "chr-magister-vale",
+      "ownerDomainId": null,
+      "isRepair": false,
+      "repairTargetConstructibleId": null,
+      "totalCost": 24000,
+      "gpSpent": 0,
+      "laborInvested": 0,
+      "laborRequired": 0,
+      "workerCounts": {},
+      "workerCapPerDay": 0,
+      "supervisorCharacterIds": [],
+      "requiredSupervisorRating": 0,
+      "magicAssist": {
+        "ditches": false,
+        "mire": false,
+        "walls": false,
+        "multipliers": {}
+      },
+      "lifecycleState": "complete",
+      "startedAtTurn": null,
+      "completedAtTurn": 5,
+      "estimatedCompletionTurn": null,
+      "daysElapsed": 0,
+      "completionSpec": null,
+      "history": [],
+      "notes": "",
+      "areaSqFtPerLevel": [
+        40000
+      ],
+      "areaCount": 16,
+      "treasureSeededGp": 8000
     }
   ],
   "constructibles": [
@@ -4308,6 +7970,51 @@ global.ACKS_DEMO_TEMPLATE = {
         }
       ],
       "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-vale-sanctum",
+      "constructibleKind": "sanctum",
+      "constructibleSubtype": "sanctum",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "wilderness-hex",
+      "operationalState": "operational",
+      "name": "Magister Vale’s Sanctum",
+      "hexId": "hex-saltspur-keep",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": "chr-magister-vale",
+      "ownerDomainId": "dom-march-of-saltspur",
+      "buildValue": 15000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": 5,
+      "history": [],
+      "notes": "",
+      "kindSpecific": {
+        "builderCharacterId": "chr-magister-vale",
+        "researchFacilities": [
+          {
+            "kind": "library",
+            "valueGp": 14000,
+            "sharedByCharacterIds": []
+          },
+          {
+            "kind": "workshop",
+            "valueGp": 6000,
+            "sharedByCharacterIds": []
+          }
+        ],
+        "apprenticeYears": 0,
+        "lastApprenticeAttractionTurn": 5,
+        "sanctumEstablished": true
+      }
     }
   ],
   "favorDutyObligations": [],
@@ -4449,6 +8156,47 @@ global.ACKS_DEMO_TEMPLATE = {
       "items": [
         {
           "id": "si-1uszjnk",
+          "facets": [
+            "coin"
+          ],
+          "qty": 2400,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 2400
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-3sekvnw",
+      "name": "Gravewolf Clans Treasury",
+      "hexId": "hex-gravewolf-crag",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-gravewolf-clans",
+      "items": [
+        {
+          "id": "si-l4k7mnh",
           "facets": [
             "coin"
           ],
@@ -4812,11 +8560,324 @@ global.ACKS_DEMO_TEMPLATE = {
         "kind": "domain-garrison",
         "id": "dom-barony-saltcombe"
       }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "unit-kg0cppk",
+      "displayName": "Gravewolf Clans Clan Warriors",
+      "unitTypeKey": "light-infantry",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "count": 45,
+      "casualties": 0,
+      "monthlyWage": 0,
+      "brPerSoldier": 0.01,
+      "source": "clanhold",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "commanderCharacterId": null,
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-gravewolf-clans"
+      },
+      "ownerDomainId": "dom-gravewolf-clans",
+      "loyalty": -1,
+      "moraleAdjustment": -1,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [
+        {
+          "turn": 5,
+          "type": "levied",
+          "text": "Levied as clan warriors (-1 morale from domain morale) · ⅓ veterans, pre-trained & equipped (RR p.433)"
+        }
+      ],
+      "notes": "",
+      "calledUp": true
     }
   ],
   "armies": [],
   "battles": [],
-  "researchProjects": [],
-  "apprenticeships": []
+  "researchProjects": [
+    {
+      "schemaVersion": 2,
+      "id": "rsp-kx2m9br",
+      "kind": "spell-research",
+      "name": "Research: Vale’s Salt-Ward",
+      "magicDomain": "protection",
+      "config": {
+        "spellLevel": 3,
+        "targetName": "Vale’s Salt-Ward"
+      },
+      "researcherCharacterId": "chr-magister-vale",
+      "assistantCharacterIds": [],
+      "baseCost": 3000,
+      "componentCostGp": 0,
+      "materialCostGp": 3000,
+      "researchCostGp": 3000,
+      "materialPaid": true,
+      "researchInvestedGp": 0,
+      "componentPlan": null,
+      "componentPaid": false,
+      "substitutionPenalty": 0,
+      "needsThrow": true,
+      "fromFormula": false,
+      "fromSample": false,
+      "throwResult": null,
+      "experiment": null,
+      "breakthrough": null,
+      "mishap": null,
+      "facilityKind": "library",
+      "status": "in-progress",
+      "kindResult": {},
+      "startedOnTurn": 5,
+      "completedOnTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "started",
+          "reason": "Spell research — material 3000gp paid; research 3000gp to invest"
+        }
+      ]
+    }
+  ],
+  "apprenticeships": [
+    {
+      "schemaVersion": 2,
+      "id": "apr-0olg3pa",
+      "name": "",
+      "apprenticeCharacterId": "chr-ypcjhae",
+      "masterCharacterId": "chr-magister-vale",
+      "sanctumConstructibleId": "cst-vale-sanctum",
+      "enrolledAtTurn": 5,
+      "yearsStudied": 0,
+      "lastResearchThrow": null,
+      "status": "studying",
+      "endedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "enrolled",
+          "reason": "attracted to Magister Vale’s Sanctum"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "apr-mjt5zf8",
+      "name": "",
+      "apprenticeCharacterId": "chr-2twiqgd",
+      "masterCharacterId": "chr-magister-vale",
+      "sanctumConstructibleId": "cst-vale-sanctum",
+      "enrolledAtTurn": 5,
+      "yearsStudied": 0,
+      "lastResearchThrow": null,
+      "status": "studying",
+      "endedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "enrolled",
+          "reason": "attracted to Magister Vale’s Sanctum"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "apr-ujlgs3h",
+      "name": "",
+      "apprenticeCharacterId": "chr-4qeytgw",
+      "masterCharacterId": "chr-magister-vale",
+      "sanctumConstructibleId": "cst-vale-sanctum",
+      "enrolledAtTurn": 5,
+      "yearsStudied": 0,
+      "lastResearchThrow": null,
+      "status": "studying",
+      "endedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "enrolled",
+          "reason": "attracted to Magister Vale’s Sanctum"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "apr-ca57zks",
+      "name": "",
+      "apprenticeCharacterId": "chr-yy0t35t",
+      "masterCharacterId": "chr-magister-vale",
+      "sanctumConstructibleId": "cst-vale-sanctum",
+      "enrolledAtTurn": 5,
+      "yearsStudied": 0,
+      "lastResearchThrow": null,
+      "status": "studying",
+      "endedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "enrolled",
+          "reason": "attracted to Magister Vale’s Sanctum"
+        }
+      ]
+    }
+  ],
+  "senates": [
+    {
+      "schemaVersion": 2,
+      "id": "sen-sd8lyhl",
+      "realmDomainId": "dom-march-of-saltspur",
+      "name": "Senate of the March",
+      "kind": "senate",
+      "seats": 10,
+      "minSenatorLevel": 7,
+      "requirementsOfOffice": {
+        "minLevel": 7,
+        "title": "Count",
+        "netWorthGp": 75000,
+        "landDescription": "2 × 6-mi hexes",
+        "families": 550,
+        "bribeCostDay": 50,
+        "bribeCostWeek": 400,
+        "bribeCostMonth": 1600,
+        "bribeCostYear": 19200
+      },
+      "independentMinorSenatorVotes": 4,
+      "independentSenatorCharacterIds": [
+        "chr-0enyrfw",
+        "chr-3fh18x2",
+        "chr-elugrru",
+        "chr-z90k73u"
+      ],
+      "establishedAtTurn": 5,
+      "honeymoonUntilTurn": null,
+      "dispute": null,
+      "status": "active",
+      "history": [
+        {
+          "turn": 5,
+          "type": "materialized",
+          "seats": 10,
+          "leadingSenators": 2,
+          "generated": 0,
+          "families": 1150
+        },
+        {
+          "turn": 5,
+          "type": "senators-named",
+          "clientsMinted": 4,
+          "independentsMinted": 4
+        }
+      ]
+    }
+  ],
+  "factions": [
+    {
+      "schemaVersion": 2,
+      "id": "fac-x23jmno",
+      "name": "Maritime Trade Routes faction",
+      "platform": "Maritime Trade Routes",
+      "senateId": "sen-sd8lyhl",
+      "realmDomainId": "dom-march-of-saltspur",
+      "policyObjectives": [
+        "maritime-trade-routes"
+      ],
+      "kind": "leading",
+      "status": "active",
+      "history": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "fac-7a24vfm",
+      "name": "Build Border Strongholds faction",
+      "platform": "Build Border Strongholds",
+      "senateId": "sen-sd8lyhl",
+      "realmDomainId": "dom-march-of-saltspur",
+      "policyObjectives": [
+        "build-border-strongholds"
+      ],
+      "kind": "minor",
+      "status": "active",
+      "history": []
+    }
+  ],
+  "senatorships": [
+    {
+      "schemaVersion": 2,
+      "id": "snr-ek5l4e5",
+      "senatorCharacterId": "chr-baron-yorick",
+      "senateId": "sen-sd8lyhl",
+      "rank": "leading",
+      "votes": 4,
+      "factionId": "fac-x23jmno",
+      "clientCharacterIds": [
+        "chr-398fpwg",
+        "chr-zccf5gp",
+        "chr-mup8191"
+      ],
+      "policyObjectives": [
+        "maritime-trade-routes"
+      ],
+      "attitudeTowardRuler": 7,
+      "isSecretInfluence": true,
+      "bribeCostByPeriod": {
+        "day": 50,
+        "week": 400,
+        "month": 1600,
+        "year": 19200
+      },
+      "influenceModifiers": [],
+      "seatedAtTurn": 5,
+      "vacatedAtTurn": null,
+      "status": "active",
+      "history": [
+        {
+          "turn": 5,
+          "type": "materialized",
+          "source": "vassal lord of Barony of Northwatch",
+          "generated": false
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "snr-z87ewqb",
+      "senatorCharacterId": "chr-baroness-mira",
+      "senateId": "sen-sd8lyhl",
+      "rank": "leading",
+      "votes": 2,
+      "factionId": "fac-7a24vfm",
+      "clientCharacterIds": [
+        "chr-h66kij6"
+      ],
+      "policyObjectives": [
+        "build-border-strongholds"
+      ],
+      "attitudeTowardRuler": 7,
+      "isSecretInfluence": true,
+      "bribeCostByPeriod": {
+        "day": 50,
+        "week": 400,
+        "month": 1600,
+        "year": 19200
+      },
+      "influenceModifiers": [],
+      "seatedAtTurn": 5,
+      "vacatedAtTurn": null,
+      "status": "active",
+      "history": [
+        {
+          "turn": 5,
+          "type": "materialized",
+          "source": "vassal lord of Barony of Saltcombe",
+          "generated": false
+        }
+      ]
+    }
+  ]
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
