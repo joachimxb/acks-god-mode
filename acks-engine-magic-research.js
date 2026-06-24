@@ -56,8 +56,8 @@
  *   content would be a default-OFF disable-magic-experimentation opt-out (flagged for the operator).
  *
  * DEFERRED (later AD-M waves, stacked on this branch):
- * The PER-DAY day-tick grain for research accrual (the monthly model ships — the visible-planning-info path,
- * consistent with the arcane core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
+ * (SR-1, 2026-06-24 — SHIPPED) Research accrual now lands PER-DAY on the Day Clock via the slot-56 'magic-research'
+ * day consumer (RR p.388 — ⌈C/R⌉ days). Divine research (eligibility + divine-power-as-component) is the Religion plan’s
  * seam (plan §14 Q3). Facilities GATE softly until AD-B ships the Sanctum facility model. Per §6 polarity
  * NO house rule — necromancy is core RAW (the blood-sacrifice precedent); a default-OFF disable-necromancy
  * opt-out is the §6-correct way to add an off-switch if a table wants one.
@@ -758,54 +758,108 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // The MONTHLY accrual consumer (plan §5; the arcane/religion processX-ForTurn precedent)
-  // ════════════════════════════════════════════════════════════════════════════
+  // The per-PROJECT accrual step (SR-1, 2026-06-24; RR p.388 — the rate is a PER-DAY contribution).
+  // Advances ONE project by rate × `days` (capped at the remaining research cost), handling the awaiting-
+  // throw / auto-complete transition + its events, and folding the result into `out`. Shared by the monthly
+  // processResearchForTurn (days = 30) and the per-day day consumer (days = 1, quiet). When opts.quiet is
+  // set the routine progress event + log line are suppressed (the per-day path would otherwise spam) — the
+  // awaiting-throw / completed transition still fires.
+  function _accrueResearchProject(campaign, p, days, out, opts){
+    opts = opts || {};
+    out = out || { ran: true, logEntries: [], advanced: 0, awaitingThrow: 0, completed: 0 };
+    if(!p || p.status !== 'in-progress') return out;
+    const rate = totalResearchRate(campaign, p);
+    const before = Number(p.researchInvestedGp) || 0;
+    const remaining = Math.max(0, (Number(p.researchCostGp) || 0) - before);
+    const add = Math.min(remaining, rate * (days > 0 ? days : 0));
+    p.researchInvestedGp = before + add;
+    out.advanced++;
+    const researcher = _findChar(campaign, p.researcherCharacterId);
+    const who = (researcher && researcher.name) || p.researcherCharacterId || 'a researcher';
+    if(p.researchInvestedGp >= (Number(p.researchCostGp) || 0)){
+      // Research labor complete.
+      if(!p.needsThrow && (Number(p.componentCostGp) || 0) <= 0){
+        // No throw + no components → auto-complete (duplicate a common spell / from a formula).
+        _applyResearchResult(campaign, p);
+        p.status = 'completed'; p.completedOnTurn = _currentTurn(campaign);
+        p.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: 'auto (no throw required)' });
+        out.completed++;
+        out.logEntries.push('🔬 ' + who + ' completes ' + (p.name || p.kind) + ' (no throw required)');
+        _recordResearchEvent(campaign, 'magic-research-completed',
+          { projectId: p.id, kind: p.kind, researcherCharacterId: p.researcherCharacterId, kindResult: p.kindResult },
+          { narrative: who + ' completes ' + (p.name || p.kind), relatedEntities: [{ kind: 'character', id: p.researcherCharacterId, role: 'subject' }] });
+      } else {
+        p.status = 'awaiting-throw';
+        p.history.push({ turn: _currentTurn(campaign), type: 'awaiting-throw', reason: 'research invested; pay components + roll the magic research throw' });
+        out.awaitingThrow++;
+        out.logEntries.push('🔬 ' + who + '’s ' + (p.name || p.kind) + ' is ready — pay components + roll the research throw' + (p.needsThrow ? '' : ' (no throw; pay components)'));
+      }
+    } else if(add > 0 && !opts.quiet){
+      out.logEntries.push('🔬 ' + who + ' invests ' + _round(add).toLocaleString() + 'gp toward ' + (p.name || p.kind) + ' (' + _round(p.researchInvestedGp).toLocaleString() + '/' + _round(p.researchCostGp).toLocaleString() + 'gp)');
+      _recordResearchEvent(campaign, 'magic-research-progress',
+        { projectId: p.id, kind: p.kind, researcherCharacterId: p.researcherCharacterId, investedGp: _round(p.researchInvestedGp), researchCostGp: p.researchCostGp },
+        { campaignLogHidden: true, narrative: who + ' invests in ' + (p.name || p.kind), relatedEntities: [{ kind: 'character', id: p.researcherCharacterId, role: 'subject' }] });
+    }
+    return out;
+  }
 
-  // Hooked into commitTurn (after the arcane block). Each in-progress project accrues a month's research
-  // (totalRate × 30, capped at the remaining cost). When fully invested it moves to 'awaiting-throw'
-  // (the throw is a GM/player action — total loss on failure, never auto-rolled) OR auto-completes if
-  // !needsThrow (applying the result). No house rule (RAW core, dormant — no projects ⇒ a no-op).
-  // 🔧 v1: monthly grain (the per-day day-tick grain is deferred, consistent with the arcane core).
+  // The accrual entry point. Loops in-progress projects, accruing `days` days each (default 30 — preserves
+  // the original monthly direct-call semantics: processResearchForTurn(c, {}) still = one month). SR-1
+  // (2026-06-24): NO longer hooked into commitTurn — the slot-56 'magic-research' day consumer + runDayTick
+  // ToMonthEnd own accrual now. Kept for direct/scriptable callers (and the {days} tests).
   function processResearchForTurn(campaign, options){
     const out = { ran: false, logEntries: [], advanced: 0, awaitingThrow: 0, completed: 0 };
     if(!campaign) return out;
     out.ran = true;
+    const days = (options && options.days != null) ? options.days : DAYS_PER_MONTH;
     for(const p of _projects(campaign)){
       if(!p || p.status !== 'in-progress') continue;
+      _accrueResearchProject(campaign, p, days, out);
+    }
+    return out;
+  }
+
+  // ── The slot-56 'magic-research' day consumer (SR-1; the per-day accrual; RR p.388) ──
+  // Research advances on the Day Clock — ONE day’s rate per advanced day — so a project of cost C and total
+  // rate R completes on ⌈C/R⌉ days, both in day-by-day play and across an Advance Month (runDayTickToMonthEnd
+  // drives it at the monthly commit, the construction/gladiators precedent). PURE propose → idempotent commit:
+  // the guard project._lastResearchDayOrd vs record.dayOrd means re-opening a day’s review re-proposes but
+  // never double-accrues. The record carries researchProjectId (NOT projectId) so _mergeDayRecords leaves the
+  // per-day records un-collapsed (each must commit its own day). No pause trigger — silent accrual; routine
+  // daily progress is quiet (only the awaiting-throw/completed transition records its event, via the accrual).
+  function _researchDayOrd(campaign, ctx){
+    const dim = (ctx && ctx.dayInMonth) || (campaign && campaign.currentDayInMonth) || 1;
+    return (((campaign && campaign.currentTurn) || 1) - 1) * 30 + dim;
+  }
+  function proposeResearchDay(campaign, ctx){
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    if(!campaign || !Array.isArray(campaign.researchProjects)) return out;
+    const dayOrd = _researchDayOrd(campaign, ctx);
+    for(const p of _projects(campaign)){
+      if(!p || p.status !== 'in-progress') continue;
+      if((Number(p._lastResearchDayOrd) || 0) >= dayOrd) continue;          // already accrued for this day
       const rate = totalResearchRate(campaign, p);
       const before = Number(p.researchInvestedGp) || 0;
       const remaining = Math.max(0, (Number(p.researchCostGp) || 0) - before);
-      const add = Math.min(remaining, rate * DAYS_PER_MONTH);
-      p.researchInvestedGp = before + add;
-      out.advanced++;
+      const gain = Math.min(remaining, rate);
+      const willFill = (before + gain) >= (Number(p.researchCostGp) || 0);
       const researcher = _findChar(campaign, p.researcherCharacterId);
       const who = (researcher && researcher.name) || p.researcherCharacterId || 'a researcher';
-      if(p.researchInvestedGp >= (Number(p.researchCostGp) || 0)){
-        // Research labor complete.
-        if(!p.needsThrow && (Number(p.componentCostGp) || 0) <= 0){
-          // No throw + no components → auto-complete (duplicate a common spell / from a formula).
-          _applyResearchResult(campaign, p);
-          p.status = 'completed'; p.completedOnTurn = _currentTurn(campaign);
-          p.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: 'auto (no throw required)' });
-          out.completed++;
-          out.logEntries.push('🔬 ' + who + ' completes ' + (p.name || p.kind) + ' (no throw required)');
-          _recordResearchEvent(campaign, 'magic-research-completed',
-            { projectId: p.id, kind: p.kind, researcherCharacterId: p.researcherCharacterId, kindResult: p.kindResult },
-            { narrative: who + ' completes ' + (p.name || p.kind), relatedEntities: [{ kind: 'character', id: p.researcherCharacterId, role: 'subject' }] });
-        } else {
-          p.status = 'awaiting-throw';
-          p.history.push({ turn: _currentTurn(campaign), type: 'awaiting-throw', reason: 'research invested; pay components + roll the magic research throw' });
-          out.awaitingThrow++;
-          out.logEntries.push('🔬 ' + who + '’s ' + (p.name || p.kind) + ' is ready — pay components + roll the research throw' + (p.needsThrow ? '' : ' (no throw; pay components)'));
-        }
-      } else if(add > 0){
-        out.logEntries.push('🔬 ' + who + ' invests ' + _round(add).toLocaleString() + 'gp toward ' + (p.name || p.kind) + ' (' + _round(p.researchInvestedGp).toLocaleString() + '/' + _round(p.researchCostGp).toLocaleString() + 'gp)');
-        _recordResearchEvent(campaign, 'magic-research-progress',
-          { projectId: p.id, kind: p.kind, researcherCharacterId: p.researcherCharacterId, investedGp: _round(p.researchInvestedGp), researchCostGp: p.researchCostGp },
-          { campaignLogHidden: true, narrative: who + ' invests in ' + (p.name || p.kind), relatedEntities: [{ kind: 'character', id: p.researcherCharacterId, role: 'subject' }] });
-      }
+      const label = willFill
+        ? ('🔬 ' + who + '’s ' + (p.name || p.kind) + ' research is complete')
+        : ('🔬 ' + who + ' researches ' + (p.name || p.kind) + ' (+' + _round(gain).toLocaleString() + 'gp · ' + _round(before + gain).toLocaleString() + '/' + _round(p.researchCostGp).toLocaleString() + 'gp)');
+      out.pendingRecords.push({ kind: 'research-day', researchProjectId: p.id, dayOrd: dayOrd, gain: _round(gain), willFill: willFill, label: label });
     }
     return out;
+  }
+  function commitResearchDay(campaign, record){
+    if(!campaign || !record || record.kind !== 'research-day') return;
+    const p = findResearchProject(campaign, record.researchProjectId);
+    if(!p || p.status !== 'in-progress') return;
+    const dayOrd = Number(record.dayOrd) || 0;
+    if((Number(p._lastResearchDayOrd) || 0) >= dayOrd) return;              // idempotent — already accrued this day
+    p._lastResearchDayOrd = dayOrd;
+    _accrueResearchProject(campaign, p, 1, null, { quiet: true });
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1251,6 +1305,13 @@
       ...(opts.campaignLogHidden ? { campaignLogHidden: true } : {}) });
     return ev;
   }
+
+  // ── self-register the slot-56 'magic-research' day consumer (SR-1 — the per-day accrual) ──
+  (function _registerResearchDayConsumer(){
+    if(typeof ACKS.registerDayConsumer === 'function'){
+      ACKS.registerDayConsumer('magic-research', { handler: proposeResearchDay, order: 56, pauseTriggers: [], commit: commitResearchDay });
+    }
+  })();
 
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {

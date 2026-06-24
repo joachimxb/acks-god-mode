@@ -635,9 +635,49 @@ section('commitTurn hook (the demo — a real month accrues research)');
   const r = ACKS.startResearchProject(demo, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2, targetName: 'Knock' } });
   ok('project in-progress before the turn', r.project.status === 'in-progress');
   const p = ACKS.proposeMonthlyTurn(demo, { rng });
-  const res = ACKS.commitTurn(demo, p, { rng });
-  ok('commitTurn returns researchResult.ran', res.researchResult && res.researchResult.ran === true);
-  ok('the project advanced to awaiting-throw on the real month', r.project.status === 'awaiting-throw');
+  ACKS.commitTurn(demo, p, { rng });
+  ok('the project advanced to awaiting-throw on the real month (driven by the slot-56 day consumer)', r.project.status === 'awaiting-throw');
+}
+
+// =============================================================================
+section('SR-1 — per-day accrual on the Day Clock (RR p.388 — ⌈C/R⌉ days)');
+// =============================================================================
+{
+  // A solo L9 mage; an L2 spell-research is 2,000gp ÷ 600/day = ⌈4⌉ days.
+  const c = ACKS.blankCampaign();
+  const m = ACKS.blankCharacter({ id: 'chr-day-mage', name: 'Day Magus', class: 'Mage', level: 9, abilities: { STR:9, INT:16, WIL:12, DEX:10, CON:10, CHA:11 } });
+  m.coins = { pp:0, gp: 200000, ep:0, sp:0, cp:0 };
+  c.characters.push(m);
+  const r = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2, targetName: 'Knock' } });
+  const cost = r.project.researchCostGp;
+  const rate = ACKS.totalResearchRate(c, r.project);
+  const need = Math.ceil(cost / rate);
+  ok('a research project starts in-progress, cost > 0, L9 rate = 600', r.project.status === 'in-progress' && cost > 0 && rate === 600);
+  ok('the magic-research day consumer is registered at slot 56', ACKS.dayConsumersInOrder().some(x => x.name === 'magic-research' && x.order === 56));
+  // Advance the Day Clock one day at a time; it must NOT fill until the ⌈C/R⌉th day.
+  for(let i = 0; i < need - 1; i++) ACKS.tickDay(c, 1);
+  ok('still in-progress after ⌈C/R⌉−1 advanced days', r.project.status === 'in-progress' && r.project.researchInvestedGp < cost);
+  ACKS.tickDay(c, 1);
+  ok('fills on the ⌈C/R⌉th day → awaiting-throw', r.project.status === 'awaiting-throw' && r.project.researchInvestedGp >= cost);
+  // Idempotent: an awaiting-throw project proposes nothing — later ticks must not over-accrue.
+  const investedAfter = r.project.researchInvestedGp;
+  ACKS.tickDay(c, 1); ACKS.tickDay(c, 1);
+  ok('idempotent — a filled project does not over-accrue on later days', r.project.researchInvestedGp === investedAfter && r.project.status === 'awaiting-throw');
+}
+
+// =============================================================================
+section('SR-1 — processResearchForTurn({days}) direct math (default 30 preserved)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign();
+  const m = ACKS.blankCharacter({ id: 'chr-dir-mage', name: 'Direct Magus', class: 'Mage', level: 9, abilities: { STR:9, INT:16, WIL:12, DEX:10, CON:10, CHA:11 } });
+  m.coins = { pp:0, gp: 200000, ep:0, sp:0, cp:0 };
+  c.characters.push(m);
+  const r = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2, targetName: 'Knock' } });
+  ACKS.processResearchForTurn(c, { days: 1 });
+  ok('processResearchForTurn({days:1}) accrues exactly one day’s rate (600)', r.project.researchInvestedGp === Math.min(r.project.researchCostGp, 600));
+  ACKS.processResearchForTurn(c, {});   // default 30 → fills the rest
+  ok('processResearchForTurn({}) (default month) fills it → awaiting-throw', r.project.status === 'awaiting-throw');
 }
 
 // =============================================================================
