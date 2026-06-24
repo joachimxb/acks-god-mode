@@ -8533,6 +8533,17 @@ const _component = {
     this.showToast('Founded "'+trimmedName+'" with '+n+' families.');
   },
 
+  // Investment-tab "Found settlement" entry (agent-3, 2026-06-24): founding a settlement is an urban
+  // investment, so the 🏛 Urban-investment panel hosts it. Resolves the picked hex id to its hex object
+  // and defers to foundSettlementOnHex (which enforces the RAW 10,000gp + 75–249-family gates and
+  // confirms before committing). Kept adjacent to foundSettlementOnHex. Pure UI glue — no engine change.
+  foundSettlementById(d, hexId, name, peasantsToTransfer){
+    if(!d)return;
+    const hex = (domainHexesFor(d) || []).find(h => h && h.id === hexId);
+    if(!hex){alert('Pick a hex to found the settlement on.');return;}
+    this.foundSettlementOnHex(d, hex, name, peasantsToTransfer);
+  },
+
   promptAdjustTreasury(d,sign){
     if(!d)return;
     const label=sign>0?'Add gp to':'Withdraw gp from';
