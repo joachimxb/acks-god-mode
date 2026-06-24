@@ -397,6 +397,43 @@
         var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'acks-import-report.txt';
         document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 100);
       }
+    },
+
+    // ── Player export (B1-UI, audit 2026-06-24) — the project's first real player deliverable ──
+    // The redaction serializer ACKS.projectCampaignForPlayer was shipped + tested but had ZERO
+    // callers, so the only file a GM could hand a player was the UNREDACTED save (the secret-leak
+    // path). This wires the GM action: project the campaign to ONE player's view → download a
+    // redacted .acks.json. Fog-of-war is honoured through the same serializer's player-view world
+    // filter (B3's _publicWorld). Pairs with the assign-to-player control (sets ownerPlayerId).
+    playerExport: { pickerOpen: false, playerId: '' },
+    // The distinct player identifiers assigned across the campaign (characters' ownerPlayerId ∪
+    // domains' controllingPlayerId). No formal players[] collection — ownership is a field, so the
+    // roster is derived.
+    knownPlayerIds(){
+      const c = this.currentCampaign;
+      const set = new Set();
+      if(c){
+        for(const ch of (c.characters || [])){ const p = ch && ch.ownerPlayerId; if(p) set.add(p); }
+        for(const d of (c.domains || [])){ const p = d && d.controllingPlayerId; if(p) set.add(p); }
+      }
+      return Array.from(set).sort();
+    },
+    openPlayerExport(){ this.playerExport.pickerOpen = true; this.playerExport.playerId = this.knownPlayerIds()[0] || ''; },
+    // Export a redacted campaign for one player. playerId = a value from knownPlayerIds (or any id).
+    exportForPlayer(playerId){
+      const A = window.ACKS;
+      const c = this.currentCampaign;
+      if(!c){ this.showToast && this.showToast('No campaign loaded', 3500); return; }
+      if(!A || typeof A.projectCampaignForPlayer !== 'function'){ this.showToast && this.showToast('Player-view serializer not available', 4000); return; }
+      if(!playerId){ this.showToast && this.showToast('Pick (or type) a player first', 3500); return; }
+      let view;
+      try { view = A.projectCampaignForPlayer(c, playerId); }
+      catch(e){ console.error('projectCampaignForPlayer failed', e); this.showToast && this.showToast('Export failed: ' + e.message, 5000); return; }
+      const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'campaign';
+      const fname = slug(c.name) + '-' + slug(playerId) + '.acks.json';
+      if(typeof this.downloadJSON === 'function') this.downloadJSON(view, fname);
+      this.playerExport.pickerOpen = false;
+      this.showToast && this.showToast('Exported the player view for "' + playerId + '" → ' + fname, 4000);
     }
 
   });

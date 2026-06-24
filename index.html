@@ -456,6 +456,8 @@ document.addEventListener('alpine:init', () => {
     <button @click="openCampaign()" class="btn" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
     <button @click="saveCampaign()" class="btn btn-primary" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
     <button @click="saveCampaignAs()" class="btn text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
+    <!-- 📤 Export for player (B1-UI, audit 2026-06-24) — redacted, player-safe .acks.json (vs the unredacted save) -->
+    <button @click="openPlayerExport()" class="btn text-sm" :disabled="!currentCampaign" title="Export a redacted, player-safe copy of the campaign — one player's view only (their characters/domains + the discovered world). Closes the secret-leak path: a player never needs the full GM save.">📤 Export for player…</button>
     <input type="file" x-ref="campaignFileInput" accept=".json,.acks.json" class="hidden" @change="importCampaignFile($event.target.files[0])">
   </div>
 
@@ -981,6 +983,8 @@ document.addEventListener('alpine:init', () => {
           <template x-for="entry in filteredHexes()" :key="entry.hex.id">
             <tr>
               <td>
+                <!-- fog glyph (B3-UI, audit 2026-06-24) — at-a-glance hex.explored state -->
+                <span x-show="entry.hex.explored === false" title="Unexplored — hidden from a player's exported view" aria-label="Unexplored">🌫 </span>
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="hexLabelFor(entry.hex)"></button>
               </td>
               <td class="text-base">
@@ -1505,6 +1509,42 @@ document.addEventListener('alpine:init', () => {
     <div class="flex justify-end gap-2 mt-4">
       <button @click="newDomainModal.open=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50 text-sm">Cancel</button>
       <button @click="createDomainFromModal()" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-sm">🏰 Create domain</button>
+    </div>
+  </div>
+</div>
+
+<!-- 📤 Export-for-player picker (B1-UI, audit 2026-06-24) — the GM hands a player a redacted save -->
+<div x-show="playerExport.pickerOpen" @keydown.escape.window="if(playerExport.pickerOpen){ playerExport.pickerOpen=false; $event.preventDefault() }" role="dialog" aria-modal="true" aria-labelledby="playerExportTitle" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="playerExport.pickerOpen=false">
+  <div class="vellum border border-ink rounded shadow-lg p-4 my-6 w-full max-w-md">
+    <div class="flex justify-between items-start mb-3 gap-2">
+      <h3 id="playerExportTitle" class="font-bold text-lg">📤 Export for player</h3>
+      <button @click="playerExport.pickerOpen=false" class="text-2xl leading-none px-2 hover:opacity-60" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="space-y-3 text-sm">
+      <p class="opacity-70">Download a redacted, player-safe <span class="font-mono">.acks.json</span> — only this player's characters &amp; domains plus the discovered world. Hand it out instead of the GM save; secrets and unexplored hexes stay yours.</p>
+      <template x-if="knownPlayerIds().length > 0">
+        <div>
+          <div class="font-semibold mb-1">Assigned players</div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="pid in knownPlayerIds()" :key="pid">
+              <button @click="playerExport.playerId = pid"
+                      :class="playerExport.playerId===pid ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+                      class="px-2 py-0.5 border border-ink rounded" x-text="pid"></button>
+            </template>
+          </div>
+        </div>
+      </template>
+      <label class="block">Player id
+        <input type="text" x-model="playerExport.playerId" list="knownPlayersList" placeholder="e.g. alice" class="w-full">
+        <datalist id="knownPlayersList"><template x-for="pid in knownPlayerIds()" :key="pid"><option :value="pid"></option></template></datalist>
+      </label>
+      <template x-if="knownPlayerIds().length === 0">
+        <p class="text-xs opacity-60 italic">No players assigned yet. Open a character (or domain) and set “Controlled by player” first — then their id appears here. You can still type one to export against.</p>
+      </template>
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button @click="playerExport.pickerOpen=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50 text-sm">Cancel</button>
+      <button @click="exportForPlayer(playerExport.playerId)" :disabled="!playerExport.playerId" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-sm" :class="!playerExport.playerId ? 'opacity-40' : ''">📤 Export</button>
     </div>
   </div>
 </div>
@@ -5249,6 +5289,13 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="domainTypeInfo(selectedDomain)?.beastmanAdvisory?.level === 'exception'">
                       <span class="block text-xs opacity-70 mt-0.5" x-text="'ⓘ ' + domainTypeInfo(selectedDomain).beastmanAdvisory.message"></span>
                     </template>
+                  </td></tr>
+                <!-- Controlled by player — B2-UI, audit 2026-06-24: assign this domain to a player (drives the redacted 📤 Export-for-player). -->
+                <tr><td>Controlled by
+                  <span class="opacity-50 cursor-help" title="Assign this domain to a player — its data is included when you 📤 Export for that player (top menu). Leave blank for a GM-run domain.">ⓘ</span>
+                </td>
+                  <td class="text-right">
+                    <input type="text" x-model="selectedDomain.controllingPlayerId" list="knownPlayersList" placeholder="— GM-run —" class="text-sm text-right" style="width:10rem" aria-label="Controlling player">
                   </td></tr>
                 <tr x-show="domainTypeInfo(selectedDomain)?.dominantRace"><td>Special type
                   <span class="opacity-50 cursor-help" title="The domain's special character, chosen when it was created — Beastman (RR p.354) · Dwarven Vault · Elven Fastness.">ⓘ</span>
@@ -12513,6 +12560,19 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="gm">GM-controlled</option><option value="player">Player-controlled</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
+          <!-- Owner (player) — B2-UI, audit 2026-06-24: WHICH player owns this character (drives the redacted Export-for-player). Distinct from Control (gm vs player). -->
+          <div class="block text-sm flex items-center gap-2">
+            <span class="w-20">Player</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'ownerPlayerId', label:'Owning player', kind:'text', placeholder:'— unassigned —', formatter(v){ return v || '— unassigned —'; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Assign to a player (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" list="knownPlayersList" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+            </span>
+          </div>
+          <!-- Per-character export (B1-UI) — appears once the character has an owning player. -->
+          <div class="block text-sm flex items-center gap-2" x-show="characterEditing.ownerPlayerId">
+            <span class="w-20"></span>
+            <button @click="exportForPlayer(characterEditing.ownerPlayerId)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Download the redacted player-view .acks.json for this character's owning player">📤 Export <span x-text="characterEditing.ownerPlayerId"></span>'s view</button>
+          </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Tier</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'socialTier', label:'Social tier', kind:'select', formatter(v){ const map={independent:'Independent', henchman:'Henchman', specialist:'Specialist', follower:'Follower', hireling:'Hireling', mercenary:'Mercenary officer', slave:'Slave'}; return map[v] || '— unset —'; }})">
@@ -14565,6 +14625,19 @@ document.addEventListener('alpine:init', () => {
             <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().domainId)">Unclaimed wilderness</option>
             <template x-for="d in domains" :key="d.id"><option :value="d.id" :selected="worldHexEditingHex() && worldHexEditingHex().domainId === d.id" x-text="d.name"></option></template>
           </select>
+        </div>
+        <!-- Discovery / fog (B3-UI, audit 2026-06-24) — surface hex.explored. The real fog (hiding unexplored
+             hexes from a player's exported view) is the engine-side player-view filter; this is the visible
+             state + a GM reveal/hide. Default true (blankHex) → existing & GM hexes read "Discovered". -->
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Discovery</span>
+          <span class="flex items-center gap-2">
+            <span x-show="worldHexEditingHex().explored !== false" class="text-xs px-1.5 py-0.5 rounded border border-ink/40" style="background:#e8f3df">👁 Discovered</span>
+            <span x-show="worldHexEditingHex().explored === false" class="text-xs px-1.5 py-0.5 rounded border border-ink/40" style="background:#e7dcc4">🌫 Unexplored</span>
+            <button @click="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'explored', label:'Discovery', oldValue:(worldHexEditingHex().explored !== false), newValue:(worldHexEditingHex().explored === false)})"
+                    class="text-xs underline" x-text="worldHexEditingHex().explored === false ? 'mark discovered' : 'mark unexplored'"
+                    title="Toggle whether this hex has been discovered. Unexplored hexes are hidden from a player's exported view (📤 Export for player).">​</button>
+          </span>
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Terrain</span>
