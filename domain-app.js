@@ -463,7 +463,7 @@ const _component = {
     return (d && window.ACKS && window.ACKS.domainTypeInfo) ? window.ACKS.domainTypeInfo(this.currentCampaign, d) : null;
   },
   domainTypeOptions(){
-    return [{ value:'civilized', label:'Civilized' }, { value:'clanhold', label:'Barbarian Clanhold' }, { value:'transitional', label:'Transitional' }];
+    return [{ value:'ordinary', label:'Ordinary' }, { value:'clanhold', label:'Barbarian Clanhold' }, { value:'transitional', label:'Transitional' }];
   },
   dominantRaceOptions(){
     return [{ value:'', label:'Human / unset' }, { value:'beastman', label:'Beastman' }, { value:'dwarven', label:'Dwarven' }, { value:'elven', label:'Elven' }, { value:'halfling', label:'Halfling' }];
@@ -484,8 +484,8 @@ const _component = {
   setDominantRaceUI(d, race){
     if(!d) return;
     d.dominantRace = race || null;
-    // RR p.354 — a beastman domain is normally a clanhold; auto-suggest it when currently civilized.
-    if(race === 'beastman' && window.ACKS && window.ACKS.domainTypeOf && window.ACKS.domainTypeOf(d) === 'civilized'){
+    // RR p.354 — a beastman domain is normally a clanhold; auto-suggest it when currently ordinary.
+    if(race === 'beastman' && window.ACKS && window.ACKS.domainTypeOf && window.ACKS.domainTypeOf(d) === 'ordinary'){
       this.setDomainTypeUI(d, 'clanhold');
     } else {
       if(this.markDirty) this.markDirty();

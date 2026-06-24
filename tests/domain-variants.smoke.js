@@ -5,12 +5,12 @@
  *
  * Covers acks-engine-domain-variants.js:
  *   (A) domain-type accessors + the canonical hexFamilyCap (clanhold 125 / transitional 125 / demchi
- *       land-value curve / civilized 185·375·780) + the demchi cap table + agriculturalFamilyCapFor.
+ *       land-value curve / ordinary 185·375·780) + the demchi cap table + agriculturalFamilyCapFor.
  *   (B) clanhold rules — clan-warrior capacity (1/family), the conscript/militia ban (incl. the
  *       Military W7 levy-cap integration → 0), the urban cap, the F&D selector + excluded set.
  *   (C) the income hook applyDomainTypeLandRevenue — clanhold cap (Σ min(fam,125)·val exactly),
- *       transitional ½-overage, civilized/demchi/under-cap no-op (byte-identical), rural-only, the demo
- *       integration (pristine civilized byte-identical; a clanhold flip never raises land revenue).
+ *       transitional ½-overage, ordinary/demchi/under-cap no-op (byte-identical), rural-only, the demo
+ *       integration (pristine ordinary byte-identical; a clanhold flip never raises land revenue).
  *   (D) setDomainType + decreeTransitional + the record-only events (idempotent / guards / the senate +
  *       irrevocable gates / classification→Outlands / transitionalSince + the 20-yr clock / context envelope).
  *   (E) the senate gate (domainTypeAllowsSenate + materializeSenate refusing a clanhold apex) + the
@@ -44,15 +44,15 @@ const clan = (over) => Object.assign({ id:'dom-clan', name:'Wolf Clan', domainTy
 
 // ───────────────────────────────────────────────────────────────────────────
 console.log('--- (A) domain-type accessors + hexFamilyCap ---');
-check('domainTypeOf absent → civilized', ACKS.domainTypeOf({}) === 'civilized');
+check('domainTypeOf absent → ordinary', ACKS.domainTypeOf({}) === 'ordinary');
 check('domainTypeOf clanhold', ACKS.domainTypeOf({ domainType:'clanhold' }) === 'clanhold');
-check('domainTypeOf invalid → civilized', ACKS.domainTypeOf({ domainType:'bogus' }) === 'civilized');
+check('domainTypeOf invalid → ordinary', ACKS.domainTypeOf({ domainType:'bogus' }) === 'ordinary');
 check('dominantRaceOf absent → null', ACKS.dominantRaceOf({}) === null);
 check('isClanhold true', ACKS.isClanhold({ domainType:'clanhold' }) === true);
 check('isTransitional true', ACKS.isTransitional({ domainType:'transitional' }) === true);
 check('isDemchi true', ACKS.isDemchi({ domainType:'demchi' }) === true);
 check('isBeastman reads dominantRace', ACKS.isBeastman({ dominantRace:'beastman' }) === true);
-check('agri cap civilized 780', ACKS.agriculturalFamilyCapFor('Civilized') === 780);
+check('agri cap ordinary 780', ACKS.agriculturalFamilyCapFor('Civilized') === 780);
 check('agri cap borderlands 375', ACKS.agriculturalFamilyCapFor('Borderlands') === 375);
 check('agri cap outlands 185', ACKS.agriculturalFamilyCapFor('Outlands') === 185);
 check('agri cap unknown → outlands 185', ACKS.agriculturalFamilyCapFor('xyz') === 185);
@@ -66,7 +66,7 @@ check('demchi LV6+ → 100', ACKS.demchiMaxPopulationForLandValue(6) === 100 && 
   const cTrans = mkCampaign([civ({ id:'dom-t', domainType:'transitional', classification:'Borderlands' })], [{ id:'h', domainId:'dom-t', families:200, classification:'Borderlands', valuePerFamily:6 }]);
   check('transitional hex cap 125', ACKS.hexFamilyCap(cTrans, cTrans.hexes[0]) === 125);
   const cCiv = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:200, classification:'Borderlands', valuePerFamily:6 }]);
-  check('civilized hex cap = classification 375', ACKS.hexFamilyCap(cCiv, cCiv.hexes[0]) === 375);
+  check('ordinary hex cap = classification 375', ACKS.hexFamilyCap(cCiv, cCiv.hexes[0]) === 375);
   const cDem = mkCampaign([civ({ id:'dom-d', domainType:'demchi' })], [{ id:'h', domainId:'dom-d', families:50, classification:'Outlands', valuePerFamily:3 }]);
   check('demchi hex cap = land-value curve (LV3 → 10)', ACKS.hexFamilyCap(cDem, cDem.hexes[0]) === 10);
   check('unclaimed hex cap = classification (no domain)', ACKS.hexFamilyCap(mkCampaign([], []), { classification:'Civilized', families:0 }) === 780);
@@ -78,24 +78,24 @@ console.log('--- (B) clanhold rules + the Military W7 levy-cap integration ---')
   const c = mkCampaign([clan({ demographics:{ peasantFamilies:240, urbanFamilies:30 } })], []);
   const d = c.domains[0];
   check('clanhold warrior capacity = peasant families (240)', ACKS.clanholdWarriorCapacity(c, d) === 240);
-  check('civilized warrior capacity 0', ACKS.clanholdWarriorCapacity(c, civ()) === 0);
+  check('ordinary warrior capacity 0', ACKS.clanholdWarriorCapacity(c, civ()) === 0);
   check('clanhold disallows conscription', ACKS.domainAllowsConscription(d) === false);
   check('clanhold disallows militia', ACKS.domainAllowsMilitia(d) === false);
-  check('civilized allows conscription', ACKS.domainAllowsConscription(civ()) === true);
+  check('ordinary allows conscription', ACKS.domainAllowsConscription(civ()) === true);
   check('clanhold conscriptLevyMax 0 (W7 integration)', ACKS.conscriptLevyMax(d) === 0);
   check('clanhold militiaLevyMax 0 (W7 integration)', ACKS.militiaLevyMax(d) === 0);
-  check('civilized conscriptLevyMax = fam/10 (24)', ACKS.conscriptLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 24);
-  check('civilized militiaLevyMax = 2×fam/10 (48)', ACKS.militiaLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 48);
+  check('ordinary conscriptLevyMax = fam/10 (24)', ACKS.conscriptLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 24);
+  check('ordinary militiaLevyMax = 2×fam/10 (48)', ACKS.militiaLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 48);
   check('clanhold urban cap = 12.5% peasants (30)', ACKS.clanholdMaxUrbanFamilies(d) === 30);
   check('clanhold urban cap hard-capped at 249 for huge clanholds', ACKS.clanholdMaxUrbanFamilies(clan({ demographics:{ peasantFamilies:9000 } })) === 249);
-  check('civilized urban cap = null (no special cap)', ACKS.clanholdMaxUrbanFamilies(civ()) === null);
+  check('ordinary urban cap = null (no special cap)', ACKS.clanholdMaxUrbanFamilies(civ()) === null);
   check('clanhold F&D table = clanhold-restricted', ACKS.domainFavorDutyTable(d) === 'clanhold-restricted');
   check('demchi F&D table = nomad', ACKS.domainFavorDutyTable(civ({ domainType:'demchi' })) === 'nomad');
-  check('civilized F&D table = standard', ACKS.domainFavorDutyTable(civ()) === 'standard');
+  check('ordinary F&D table = standard', ACKS.domainFavorDutyTable(civ()) === 'standard');
   check('clanhold may NOT demand a loan', ACKS.favorDutyKindAllowedForDomain(d, 'loan') === false);
   check('clanhold may NOT grant an office/title', ACKS.favorDutyKindAllowedForDomain(d, 'office') === false);
   check('clanhold MAY call to arms (war)', ACKS.favorDutyKindAllowedForDomain(d, 'call-to-arms') === true);
-  check('civilized may demand anything', ACKS.favorDutyKindAllowedForDomain(civ(), 'loan') === true);
+  check('ordinary may demand anything', ACKS.favorDutyKindAllowedForDomain(civ(), 'loan') === true);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -104,8 +104,8 @@ console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
   const c = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:300, classification:'Borderlands', valuePerFamily:6 }]);
   const row = { label:'Land revenue', gp: 1800 };
   const out = ACKS.applyDomainTypeLandRevenue(c, c.domains[0], row, { hexes: c.hexes });
-  check('civilized income hook is a byte-identical no-op (same object)', out === row);
-  check('domainTypeLandFactor civilized = 1', ACKS.domainTypeLandFactor(c, c.domains[0]) === 1);
+  check('ordinary income hook is a byte-identical no-op (same object)', out === row);
+  check('domainTypeLandFactor ordinary = 1', ACKS.domainTypeLandFactor(c, c.domains[0]) === 1);
 }
 {
   const c = mkCampaign([clan()], [{ id:'h', domainId:'dom-clan', families:200, classification:'Outlands', valuePerFamily:6 }]);
@@ -145,12 +145,12 @@ console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
   const landOf = () => (ACKS.incomeBreakdown(camp, d).find(r => /Land revenue/.test(r.label)) || {});
   const before = landOf();
   check('pristine demo land row byte-identical (no domain-type annotation)', !/clanhold cap|transitional ½/.test(before.label || ''), before.label);
-  check('pristine demo domain defaults to civilized', ACKS.domainTypeOf(d) === 'civilized');
+  check('pristine demo domain defaults to ordinary', ACKS.domainTypeOf(d) === 'ordinary');
   const beforeGp = before.gp || 0;
   ACKS.setDomainType(camp, d.id, 'clanhold');
   check('demo domain flipped to clanhold', ACKS.domainTypeOf(d) === 'clanhold');
   check('clanhold flip emitted a domain-type-changed event', camp.eventLog.some(e => e.event.kind === 'domain-type-changed'));
-  check('clanhold land revenue ≤ civilized (the cap never raises it)', (landOf().gp || 0) <= beforeGp, beforeGp + ' → ' + (landOf().gp || 0));
+  check('clanhold land revenue ≤ ordinary (the cap never raises it)', (landOf().gp || 0) <= beforeGp, beforeGp + ' → ' + (landOf().gp || 0));
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -158,11 +158,11 @@ console.log('--- (D) setDomainType + decreeTransitional + events ---');
 {
   const c = mkCampaign([civ()], []);
   const d = c.domains[0];
-  check('setDomainType to same (civilized) → unchanged, no event', ACKS.setDomainType(c, 'dom-civ', 'civilized').unchanged === true && c.eventLog.length === 0);
+  check('setDomainType to same (ordinary) → unchanged, no event', ACKS.setDomainType(c, 'dom-civ', 'ordinary').unchanged === true && c.eventLog.length === 0);
   check('no-domain guard', ACKS.setDomainType(c, 'nope', 'clanhold').reason === 'no-domain');
   check('invalid-domain-type guard', ACKS.setDomainType(c, 'dom-civ', 'bogus').reason === 'invalid-domain-type');
   const r = ACKS.setDomainType(c, 'dom-civ', 'clanhold');
-  check('set clanhold ok', r.ok === true && r.from === 'civilized' && r.to === 'clanhold');
+  check('set clanhold ok', r.ok === true && r.from === 'ordinary' && r.to === 'clanhold');
   check('domainType written', d.domainType === 'clanhold');
   check('classification forced Outlands (RR p.353)', d.classification === 'Outlands');
   check('one domain-type-changed event logged', c.eventLog.length === 1 && c.eventLog[0].event.kind === 'domain-type-changed');
@@ -192,7 +192,7 @@ console.log('--- (D) setDomainType + decreeTransitional + events ---');
 console.log('--- (E) senate gate + beastman advisory ---');
 check('domainTypeAllowsSenate clanhold false', ACKS.domainTypeAllowsSenate('clanhold') === false);
 check('domainTypeAllowsSenate transitional true', ACKS.domainTypeAllowsSenate('transitional') === true);
-check('domainTypeAllowsSenate civilized true', ACKS.domainTypeAllowsSenate('civilized') === true);
+check('domainTypeAllowsSenate ordinary true', ACKS.domainTypeAllowsSenate('ordinary') === true);
 check('domainTypeAllowsSenate demchi true', ACKS.domainTypeAllowsSenate('demchi') === true);
 {
   const c = mkCampaign([clan({ id:'dom-apex', isRealm:true })], []);
@@ -205,10 +205,10 @@ check('domainTypeAllowsSenate demchi true', ACKS.domainTypeAllowsSenate('demchi'
   const c = mkCampaign([], []);
   check('non-beastman → advisory level ok', ACKS.beastmanDomainTypeAdvisory(c, civ()).level === 'ok');
   check('beastman clanhold → ok', ACKS.beastmanDomainTypeAdvisory(c, clan({ dominantRace:'beastman' })).level === 'ok');
-  check('beastman civilized (no special ruler) → advise', ACKS.beastmanDomainTypeAdvisory(c, civ({ dominantRace:'beastman' })).level === 'advise');
+  check('beastman ordinary (no special ruler) → advise', ACKS.beastmanDomainTypeAdvisory(c, civ({ dominantRace:'beastman' })).level === 'advise');
   const c2 = mkCampaign([civ({ id:'dom-b', dominantRace:'beastman', rulerCharacterId:'chr-r' })], []);
   c2.characters = [{ id:'chr-r', name:'Dread Sorcerer', race:'human', alignment:'Chaotic', level:11, abilities:{ int:16 } }];
-  check('beastman civilized + a Chaotic powerful non-beastman ruler → exception', ACKS.beastmanDomainTypeAdvisory(c2, c2.domains[0]).level === 'exception');
+  check('beastman ordinary + a Chaotic powerful non-beastman ruler → exception', ACKS.beastmanDomainTypeAdvisory(c2, c2.domains[0]).level === 'exception');
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -218,13 +218,13 @@ console.log('--- (F) vassal morale + PT-0 migration + registration ---');
   const vassal = ACKS.blankDomain({ id:'dom-vassal', name:'Vale', liegeId:'dom-liege' });
   const c = mkCampaign([liege, vassal], []);
   const row = ACKS.clanholdVassalMoraleRow(c, vassal);
-  check('civilized vassal under clanhold liege → −2 morale row', row && row.value === -2, JSON.stringify(row));
+  check('ordinary vassal under clanhold liege → −2 morale row', row && row.value === -2, JSON.stringify(row));
   const mods = ACKS.moraleModifiersFor(c, vassal) || [];
   check('the −2 row flows through moraleModifiersFor', mods.some(mm => mm.value === -2 && /clanhold/i.test(mm.label)));
   const c2 = mkCampaign([clan({ id:'dom-l2' }), clan({ id:'dom-v2', liegeId:'dom-l2' })], []);
   check('clanhold vassal under clanhold liege → no penalty', ACKS.clanholdVassalMoraleRow(c2, c2.domains[1]) === null);
   const c3 = mkCampaign([civ({ id:'dom-l3' }), civ({ id:'dom-v3', liegeId:'dom-l3' })], []);
-  check('civilized vassal under civilized liege → no penalty', ACKS.clanholdVassalMoraleRow(c3, c3.domains[1]) === null);
+  check('ordinary vassal under ordinary liege → no penalty', ACKS.clanholdVassalMoraleRow(c3, c3.domains[1]) === null);
 }
 {
   let camp = { schemaVersion:2, domains:[], characters:[], hexes:[

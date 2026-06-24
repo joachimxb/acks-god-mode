@@ -79,11 +79,13 @@ function blankDomain(opts={}){
     lastModifiedAt: new Date().toISOString().slice(0,10),
     type: opts.type || 'rural',
     classification: opts.classification || 'Borderlands',
-    // Phase 5 Tribal Domains — the RAW domain-TYPE (RR pp.353–354). 'civilized' (default) is byte-
+    // Phase 5 Tribal Domains — the RAW domain-TYPE (RR pp.353–354). 'ordinary' (default) is byte-
     // identical to today; clanhold/transitional/demchi own the per-hex family cap, the levy, the F&D
-    // set, and the senate gate. dominantRace tags a beastman (auto-clanhold) / demi-human population.
-    // Defensive-read on old saves (domainTypeOf ⇒ 'civilized', dominantRaceOf ⇒ null) — no migration.
-    domainType: opts.domainType || 'civilized',
+    // set, and the senate gate. ('ordinary' is the RAW word, and keeps the TYPE axis distinct from the
+    // Civilized/Borderlands/Outlands classification axis.) dominantRace tags a beastman (auto-clanhold)
+    // / demi-human population. Defensive-read on old saves (domainTypeOf ⇒ 'ordinary', dominantRaceOf
+    // ⇒ null) — no migration.
+    domainType: opts.domainType || 'ordinary',
     dominantRace: opts.dominantRace || null,
     tags: opts.tags || [],
     // Ruler — v2: ONLY the character ID. The legacy `ruler:{...}` struct is gone.

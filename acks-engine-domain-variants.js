@@ -6,9 +6,11 @@
  *     Clanhold (RR p.353) · Transitional (RR p.354) · Beastman (clanhold + race tag,
  *     RR p.354) · Demchi (AXIOMS, the cap/income accessors are forward-built here; the
  *     full demchi income ledger + nomad F&D table land in PT-C). On a first-class
- *     Domain.domainType field ('civilized' default | 'clanhold' | 'transitional' | 'demchi')
+ *     Domain.domainType field ('ordinary' default | 'clanhold' | 'transitional' | 'demchi')
  *     + Domain.dominantRace (the beastman tag). The field IS the switch — ZERO new house
- *     rules (core-RAW polarity; 'civilized' is byte-identical to today). Headline:
+ *     rules (core-RAW polarity; 'ordinary' is byte-identical to today; 'ordinary' is the RAW
+ *     word — and keeps the TYPE axis distinct from the Civilized/Borderlands/Outlands
+ *     CLASSIFICATION axis). Headline:
  *     **the domain type owns the per-hex family cap + the levy + the favors/duties set + the
  *     senate gate** (the survey's two-axis finding — pastoralism is a domain TYPE, not a
  *     per-hex economy).
@@ -30,7 +32,7 @@
  * per-hex land branch (landRow = Σ fam·val) the hook yields the EXACT capped sum:
  *   clanhold     → Σ min(fam,125)·val
  *   transitional → Σ [min(fam,125)·val + max(0,fam−125)·val·0.5]   (the RR p.354 half-overage)
- *   civilized    → unchanged (factor 1 ⇒ byte-identical — the economy oracle stays green).
+ *   ordinary     → unchanged (factor 1 ⇒ byte-identical — the economy oracle stays green).
  * The −2 vassal-morale-under-clanhold-rule penalty late-binds into moraleModifiersFor (the
  * militia/sanctum precedent). The clanhold conscript/militia ban late-binds into Military W7's
  * levy caps. The senate gate validates Politics' senate-establish path.
@@ -58,18 +60,20 @@ const hexNameOf         = (hex) => (typeof ACKS.hexName === 'function' ? ACKS.he
 
 // ── RAW reference data ───────────────────────────────────────────────────────
 
-// Per-6-mile-hex agricultural (civilized-type) family ceilings by classification (RR p.340).
+// Per-6-mile-hex agricultural (ordinary-domain) family ceilings by classification (RR p.340).
 // Mirrors the (module-local, unexported) HEX_POP_CEILING in subsystems.js — reference data, not a
 // fork. The CIVILIZED branch of the canonical hexFamilyCap (clanhold/transitional use the flat 125,
 // demchi the land-value curve).
 const AGRICULTURAL_FAMILY_CAP = Object.freeze({ civilized: 780, borderlands: 375, outlands: 185, unsettled: 185 });
 
 // The four RAW domain types (Phase_5_Tribal_Domains_Plan.md §3.1). The Domain.domainType field IS
-// the switch (decision 2 — zero new house rules); 'civilized' (the default) is byte-identical to
-// today. Demchi's cap/income accessors are forward-built; its full income ledger + nomad F&D table
-// land in PT-C.
-const DOMAIN_TYPES = Object.freeze(['civilized', 'clanhold', 'transitional', 'demchi']);
-const DOMAIN_TYPE_LABELS = Object.freeze({ civilized: 'Civilized', clanhold: 'Barbarian Clanhold', transitional: 'Transitional', demchi: 'Demchi (nomad)' });
+// the switch (decision 2 — zero new house rules); 'ordinary' (the default) is byte-identical to
+// today. ('ordinary' is the RAW word for a non-special domain, RR p.354 — and it keeps the TYPE axis
+// distinct from the orthogonal classification axis, whose values are Civilized/Borderlands/Outlands:
+// "an ordinary domain, classified civilized.") Demchi's cap/income accessors are forward-built; its
+// full income ledger + nomad F&D table land in PT-C.
+const DOMAIN_TYPES = Object.freeze(['ordinary', 'clanhold', 'transitional', 'demchi']);
+const DOMAIN_TYPE_LABELS = Object.freeze({ ordinary: 'Ordinary', clanhold: 'Barbarian Clanhold', transitional: 'Transitional', demchi: 'Demchi (nomad)' });
 
 // The clanhold flat per-6-mile-hex cap (RR p.353 — always-outlands, extensive subsistence; the
 // 24-mile aggregate is 2,000). Transitional uses the same 125 as the FULL-value threshold, with
@@ -96,14 +100,14 @@ const CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS = Object.freeze(['call-to-council', 'lo
 
 // ── Domain-type accessors (defensive reads — an absent field ⇒ the default) ───
 
-// The domain's type — defensive ('civilized' when absent ⇒ today's behaviour, byte-identical).
+// The domain's type — defensive ('ordinary' when absent ⇒ today's behaviour, byte-identical).
 function domainTypeOf(d) {
   const t = d && d.domainType;
-  return (t && DOMAIN_TYPES.indexOf(t) >= 0) ? t : 'civilized';
+  return (t && DOMAIN_TYPES.indexOf(t) >= 0) ? t : 'ordinary';
 }
 // The domain's dominant (majority-family) race tag — defensive (null = human/unset).
 function dominantRaceOf(d) { return (d && d.dominantRace) || null; }
-function domainTypeLabel(t) { return DOMAIN_TYPE_LABELS[t] || DOMAIN_TYPE_LABELS.civilized; }
+function domainTypeLabel(t) { return DOMAIN_TYPE_LABELS[t] || DOMAIN_TYPE_LABELS.ordinary; }
 function isClanhold(d)     { return domainTypeOf(d) === 'clanhold'; }
 function isTransitional(d) { return domainTypeOf(d) === 'transitional'; }
 function isDemchi(d)       { return domainTypeOf(d) === 'demchi'; }
@@ -127,7 +131,7 @@ function _domainForHex(campaign, hex) {
 
 // hexFamilyCap(campaign, hex) — THE canonical per-6-mile-hex family cap (plan §5.1). The DOMAIN TYPE
 // owns it: clanhold/transitional flat 125 (transitional's overage is handled at half value in the
-// income hook), demchi the land-value curve, civilized/unclaimed the RR p.340 classification cap.
+// income hook), demchi the land-value curve, ordinary/unclaimed the RR p.340 classification cap.
 // One source of truth for every consumer (the income land-revenue read + any growth/settlement
 // readout) ⇒ no double-count.
 function hexFamilyCap(campaign, hex) {
@@ -181,7 +185,7 @@ function favorDutyKindAllowedForDomain(d, kind) {
 // ── The Politics senate gate (plan §5.5) ─────────────────────────────────────
 
 // A senate (a realm-apex governance mode) cannot sit on a primitive clanhold (RR p.354 — no
-// call-to-council except war, no grants of title). Transitional / civilized / demchi may.
+// call-to-council except war, no grants of title). Transitional / ordinary / demchi may.
 function domainTypeAllowsSenate(domainType) {
   return domainType !== 'clanhold';
 }
@@ -192,7 +196,7 @@ function domainTypeAllowsSenate(domainType) {
 // great power + intelligence. Modelled as a SOFT advisory (GM override always wins, CLAUDE §5.1):
 // returns a {level, message, suggestedType} readout, never a hard block. level: 'ok' | 'advise' |
 // 'exception'. A beastman domain set to a non-clanhold type without the chaotic-ruler exception ⇒
-// 'advise' (suggest clanhold); the exception met ⇒ 'exception' (ok to be civilized/transitional).
+// 'advise' (suggest clanhold); the exception met ⇒ 'exception' (ok to be ordinary/transitional).
 function beastmanDomainTypeAdvisory(campaign, d) {
   if (!isBeastman(d)) return { level: 'ok', message: '', suggestedType: domainTypeOf(d) };
   const t = domainTypeOf(d);
@@ -235,14 +239,14 @@ function _hexEffectiveLandValue(type, fam, val) {
 
 // domainTypeLandFactor(campaign, d, hexList) ∈ (0,1] — the land-revenue factor for a clanhold /
 // transitional domain. Families-weighted across the domain's RURAL hexes (a hex bearing a settlement
-// is urban, not land). Returns 1.0 for civilized / demchi / a domain with no over-cap families
+// is urban, not land). Returns 1.0 for ordinary / demchi / a domain with no over-cap families
 // (byte-identical no-op). In the per-hex land branch (landRow = Σ fam·val), landRow × factor =
 // Σ effective EXACTLY. (Pure-aggregate domains with no per-hex families ⇒ 1.0 — the v1 boundary; the
 // cap readout still shows, the density bites once per-hex families exist.)
 function domainTypeLandFactor(campaign, d, hexList) {
   if (!campaign || !d) return 1;
   const type = domainTypeOf(d);
-  if (type !== 'clanhold' && type !== 'transitional') return 1;   // civilized / demchi: no cap-shadow here
+  if (type !== 'clanhold' && type !== 'transitional') return 1;   // ordinary / demchi: no cap-shadow here
   const hexes = (hexList || hexesForDomain(campaign, d.id) || []).filter(h => h && !settlementForHex(campaign, h.id));
   let num = 0, den = 0, anyOver = false;
   for (const h of hexes) {
@@ -261,7 +265,7 @@ function domainTypeLandFactor(campaign, d, hexList) {
 // applyDomainTypeLandRevenue(campaign, d, landRow, ctx) — the incomeBreakdown late-bind hook (the slot
 // the removed applyPastoralistLandRevenue held; called via the guarded one-liner in
 // acks-engine-economy.js). Scales + annotates the land row for a clanhold (125 cap) / transitional
-// (½-overage); returns the row UNCHANGED for civilized / demchi / under-cap (factor 1) — byte-identical.
+// (½-overage); returns the row UNCHANGED for ordinary / demchi / under-cap (factor 1) — byte-identical.
 function applyDomainTypeLandRevenue(campaign, d, landRow, ctx) {
   if (!landRow || !d) return landRow;
   const factor = domainTypeLandFactor(campaign, d, ctx && ctx.hexes);
@@ -275,7 +279,7 @@ function applyDomainTypeLandRevenue(campaign, d, landRow, ctx) {
 
 // ── The −2 vassal-morale-under-clanhold-rule penalty (RR p.354) ──────────────
 
-// A civilized / demi-human domain SUBJECTED TO clanhold rule takes −2 base morale (atop any alignment
+// An ordinary / demi-human domain SUBJECTED TO clanhold rule takes −2 base morale (atop any alignment
 // penalty). Returns the morale-modifier row (or null) for moraleModifiersFor (late-bound — the
 // militia/sanctum precedent). A clanhold / demchi / beastman vassal under a clanhold liege is NOT
 // penalised (it is its own kind); only an ordinary domain chafing under a barbarian overlord.
@@ -385,10 +389,10 @@ function _apexHasSenate(campaign, d) {
   return false;
 }
 
-// decreeTransitional(campaign, domainId, opts) — a clanhold/civilized domain is decreed transitional
+// decreeTransitional(campaign, domainId, opts) — a clanhold/ordinary domain is decreed transitional
 // (RR p.354): irrevocable, stamps transitionalSince (the 20-yr→ordinary clock). The RR criteria
 // (ruler is a non-beastman sapient · an urban settlement ≥150 families · adjacent to / in a realm with
-// a civilized-or-transitional domain) are returned as an ADVISORY (transitionalDecreeCriteria); GM
+// an ordinary-or-transitional domain) are returned as an ADVISORY (transitionalDecreeCriteria); GM
 // sovereignty — the decree proceeds unless opts.enforceCriteria. Emits `domain-decreed-transitional`.
 function decreeTransitional(campaign, domainId, opts) {
   opts = opts || {};
@@ -411,24 +415,25 @@ function transitionalDecreeCriteria(campaign, d) {
   const rulerOk = !isBeastman(d) && (!ruler || String(ruler.race || '').toLowerCase().indexOf('beastman') < 0);
   const urb = Math.max(0, Number(d && d.demographics && d.demographics.urbanFamilies) || 0);
   const urbanOk = urb >= 150;
-  // "Adjacent to / in a realm with / vassal to a civilized-or-transitional domain" — approximated by
-  // the realm/liege containing a civilized-or-transitional domain (a soft check; GM judgment, plan §6).
-  const neighbourOk = _hasCivilizedRealmNeighbour(campaign, d);
+  // "Adjacent to / in a realm with / vassal to an ordinary-or-transitional domain" — approximated by
+  // the realm/liege containing an ordinary-or-transitional (i.e. non-clanhold) domain (a soft check;
+  // GM judgment, plan §6).
+  const neighbourOk = _hasOrdinaryRealmNeighbour(campaign, d);
   return {
-    ruler: rulerOk, urbanSettlement: urbanOk, civilizedNeighbour: neighbourOk,
+    ruler: rulerOk, urbanSettlement: urbanOk, ordinaryNeighbour: neighbourOk,
     allMet: rulerOk && urbanOk && neighbourOk,
     note: 'RR p.354 — advisory; the GM may decree regardless (GM sovereignty).',
   };
 }
-function _hasCivilizedRealmNeighbour(campaign, d) {
+function _hasOrdinaryRealmNeighbour(campaign, d) {
   if (!campaign || !Array.isArray(campaign.domains)) return false;
   const liege = d.liegeId ? campaign.domains.find(x => x && x.id === d.liegeId) : null;
-  if (liege && (domainTypeOf(liege) === 'civilized' || domainTypeOf(liege) === 'transitional')) return true;
-  return campaign.domains.some(x => x && x.id !== d.id && x.liegeId === d.liegeId && (domainTypeOf(x) === 'civilized' || domainTypeOf(x) === 'transitional'));
+  if (liege && (domainTypeOf(liege) === 'ordinary' || domainTypeOf(liege) === 'transitional')) return true;
+  return campaign.domains.some(x => x && x.id !== d.id && x.liegeId === d.liegeId && (domainTypeOf(x) === 'ordinary' || domainTypeOf(x) === 'transitional'));
 }
 
 // transitionalConversionReady(campaign, d) — the 20-game-year clock (RR p.354): a transitional domain
-// that has been transitional ≥20 years MAY be ratified to civilized (a GM-prompted conversion, not
+// that has been transitional ≥20 years MAY be ratified to ordinary (a GM-prompted conversion, not
 // automatic). Returns { ready, yearsElapsed, since } | null (non-transitional). 12 turns = 1 year.
 function transitionalConversionReady(campaign, d) {
   if (!isTransitional(d) || d.transitionalSince == null) return null;
