@@ -343,7 +343,9 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
 // Tribal Domains (2026-06-24): −1 `economy-type-changed` (removed), +2 `domain-type-changed` +
 // `domain-decreed-transitional` (all wizard-opt-out) ⇒ net +1 kind / +1 schema / +1 opt-out.
-const EV_KINDS_COUNT = 190, EV_SCHEMAS_COUNT = 190, EV_OPTOUT_COUNT = 164;
+// Audit B3 fog-of-war (2026-06-24): +1 `hex-discovered` (wizard-opt-out — engine-emitted on hex
+// discovery from travel) ⇒ +1 kind / +1 schema / +1 opt-out.
+const EV_KINDS_COUNT = 191, EV_SCHEMAS_COUNT = 191, EV_OPTOUT_COUNT = 165;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',

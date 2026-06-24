@@ -60,7 +60,7 @@ function naiveByRel(c, kind, id){ return c.eventLog.filter(e => { const r = e.ev
   ok('an event with null context is excluded everywhere', !ACKS.characterHistory(c, 'chr-1').some(e => e.event.id === 'e4'));
 }
 
-// ── (2) memoization: built once, stable, non-enumerable, rebuilds on growth ───
+// ── (2) memoization: built once, stable, non-enumerable, extends in place on growth ───
 {
   const c = mkCampaign();
   const i1 = ACKS.eventLogIndexFor(c);
@@ -68,12 +68,14 @@ function naiveByRel(c, kind, id){ return c.eventLog.filter(e => { const r = e.ev
   ok('eventLogIndexFor returns the SAME memoized object on repeat', i1 === i2);
   ok('index.len matches eventLog length', i1.len === c.eventLog.length);
   ok('__eventLogIndex is NON-enumerable (never serializes)', Object.keys(c).indexOf('__eventLogIndex') === -1 && !('__eventLogIndex' in JSON.parse(JSON.stringify(c))));
-  // Append → the memo must rebuild (length changed).
+  // Append → the memo must reflect the new entry (length changed).
   c.eventLog.push(ev('e6', { primaryHexId: 'hex-a', involvedHexIds: [], relatedEntities: [{ kind: 'character', id: 'chr-1', role: 'subject' }] }));
   const i3 = ACKS.eventLogIndexFor(c);
-  ok('appending an entry rebuilds the index (new object)', i3 !== i1);
-  ok('the rebuilt index sees the new entry', ACKS.hexHistory(c, 'hex-a').some(e => e.event.id === 'e6') && i3.len === c.eventLog.length);
-  ok('fresh:true forces a rebuild even at the same length', ACKS.eventLogIndexFor(c, { fresh: true }) !== i3);
+  // F4 (audit 2026-06-24): an append now extends the cached index IN PLACE (O(new entries)) and returns
+  // the SAME object, rather than rebuilding it whole — the new entry is still queryable (next assertion).
+  ok('appending an entry extends the index in place (same object)', i3 === i1);
+  ok('the extended index sees the new entry', ACKS.hexHistory(c, 'hex-a').some(e => e.event.id === 'e6') && i3.len === c.eventLog.length);
+  ok('fresh:true forces a full rebuild (new object) even at the same length', ACKS.eventLogIndexFor(c, { fresh: true }) !== i3);
 }
 
 // ── (3) the activityCost subset holds only cost-tagged events ─────────────────
