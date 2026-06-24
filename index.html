@@ -526,6 +526,11 @@ document.addEventListener('alpine:init', () => {
               :style="reviewSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
+    <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
+    <button @click="reviewSubView='annals'"
+            :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+            class="px-3 py-1 text-sm border-b-2"
+            :style="reviewSubView==='annals' ? 'border-color:#2a1f12' : 'border-color:transparent'">📖 Annals</button>
   </div>
 </div>
 
@@ -2188,6 +2193,24 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- CHRONICLE (C1, audit 2026-06-24) — the battle's narrative history (created / joined / heroes / ended / resolved); distinct from the combat Turn log below -->
+        <div class="border-t border-ink/20 pt-2" x-data="{ get _chron(){ return entityChronicleMerged('', battlePanel()?.id, battlePanel()?.history); } }" x-show="_chron.length > 0">
+          <div class="flex justify-between items-baseline mb-1">
+            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
+          </div>
+          <div class="text-sm max-h-72 overflow-y-auto pr-1">
+            <template x-for="(row,ri) in _chron" :key="ri">
+              <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                <div class="flex justify-between items-baseline gap-2">
+                  <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                  <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- the turn log -->
         <template x-if="battlePanel().turnLog.length > 0">
           <div class="border-t border-ink/20 pt-2">
@@ -2637,14 +2660,19 @@ document.addEventListener('alpine:init', () => {
               </template>
             </ul>
           </div>
-          <!-- History -->
-          <div x-show="(lairDetailLair().history || []).length">
-            <h4 class="font-semibold mb-1">History</h4>
-            <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
-              <template x-for="(h,hi) in (lairDetailLair().history || []).slice().reverse()" :key="'ldh-'+hi">
-                <li><span class="opacity-60" x-text="'turn ' + (h.turn == null ? '—' : h.turn) + ' · '"></span><span class="font-semibold" x-text="h.type"></span><span class="opacity-70" x-text="h.reason && h.reason !== h.type ? (' — ' + h.reason) : ''"></span></li>
+          <!-- CHRONICLE (C1, audit 2026-06-24) — the lair's stored .history[] (∪ derived eventLog stream when one exists) -->
+          <div x-data="{ get _chron(){ return entityChronicleMerged('', lairDetailLair()?.id, lairDetailLair()?.history); } }" x-show="_chron.length">
+            <h4 class="font-semibold mb-1">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <div class="text-xs max-h-44 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
               </template>
-            </ul>
+            </div>
           </div>
           <p class="text-xs opacity-50 italic" x-text="'Established turn ' + (lairDetailLair().establishedAtTurn || '?') + ' (' + (lairDetailLair().establishedBy || '?') + ')' + (lairDetailLair().lastVisitedTurn ? ' · last visited turn ' + lairDetailLair().lastVisitedTurn : '')"></p>
         </div>
@@ -3870,13 +3898,21 @@ document.addEventListener('alpine:init', () => {
               <p class="text-xs opacity-50 mt-1">Item-kind-specific data — edit in the Inspector (Raw JSON).</p>
             </div>
           </template>
-          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">History</h4>
-          <template x-if="(notableModalItem().history||[]).length===0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
-          <ul class="text-sm space-y-1">
-            <template x-for="(h,hi) in [...(notableModalItem().history||[])].reverse()" :key="hi">
-              <li class="border-b border-ink/10 pb-1"><span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span><span x-text="h.reason ? (' — '+h.reason) : (h.narrative ? (' — '+h.narrative) : '')"></span></li>
-            </template>
-          </ul>
+          <!-- CHRONICLE (C1, audit 2026-06-24) — the item's stored .history[] ∪ its derived notable-item-tagged eventLog stream -->
+          <div x-data="{ get _chron(){ return entityChronicleMerged('notable-item', notableModalItem()?.id, notableModalItem()?.history); } }">
+            <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
+            <div class="text-sm max-h-56 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -7947,6 +7983,47 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Review ▸ 📖 Annals (C2, audit 2026-06-24) — the whole eventLog as a filterable narrative chronicle (df-lens "Legends" payoff) -->
+<div x-show="currentView === 'review' && reviewSubView === 'annals'" class="p-4" x-cloak>
+  <div class="max-w-screen-lg space-y-3">
+    <div class="vellum border border-ink rounded p-4">
+      <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+        <h3 class="font-bold text-lg">📖 Annals <span class="text-sm opacity-70 font-normal">· the chronicle of the whole realm</span></h3>
+        <label class="text-sm flex items-center gap-1" title="Hide routine / GM-only entries (the audit chatter the narrative log suppresses) — an approximation of what players would know.">
+          <input type="checkbox" x-model="annalsState.playersOnly"> Player-facing only
+        </label>
+      </div>
+      <p class="text-sm opacity-70 mb-3">Every recorded event, newest first — filter by the kind of thing that happened.</p>
+      <!-- filter chips -->
+      <div class="flex flex-wrap gap-1 mb-3">
+        <template x-for="chip in annalsChips()" :key="chip.key">
+          <button @click="annalsState.family = chip.key"
+                  :class="annalsState.family===chip.key ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+                  class="px-2 py-0.5 text-sm border border-ink rounded"
+                  x-text="chip.icon + ' ' + chip.label + ' · ' + chip.count"></button>
+        </template>
+      </div>
+      <p class="text-xs opacity-60 mb-2"
+         x-text="(() => { const t = annalsMatchTotal(); const shown = Math.min(t, annalsState.limit); return 'Showing ' + shown + (t > shown ? (' of ' + t + ' (latest)') : '') + ' event' + (t===1?'':'s'); })()"></p>
+      <div x-data="{ get _rows(){ return annalsRows(); } }">
+        <template x-if="_rows.length === 0">
+          <p class="text-sm italic opacity-60 py-6 text-center">No events match this filter yet.</p>
+        </template>
+        <div class="text-sm">
+          <template x-for="(row,ri) in _rows" :key="ri">
+            <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+              <div class="flex justify-between items-baseline gap-2">
+                <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div x-show="currentView === 'review' && reviewSubView === 'event-log'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
@@ -11280,6 +11357,26 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
         <p class="text-xs opacity-60 mt-2 italic">The Day Clock runs the campaign cycle (RR p.447): initiative and reconnaissance each day opposing armies stand in range, contact where columns collide (the battle proposes itself), invasion morale rolls, occupation flips, pillage progress. Standing GM levers — magic, spies, stratagems, allies, permitted ground — live on the army in the 🔍 Inspector.</p>
+        <!-- CHRONICLE (C1, audit 2026-06-24) — the army's stored .history[] ∪ its derived group-tagged eventLog stream -->
+        <div class="border-t border-ink/30 pt-2 mt-2" x-data="{ get _chron(){ return entityChronicleMerged('group', armySelected()?.id, armySelected()?.history); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
+          </div>
+          <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">Nothing recorded yet.</p></template>
+          <template x-if="_chron.length > 0">
+            <div class="text-sm max-h-72 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
       </div>
         </template>
 
@@ -14168,6 +14265,31 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
+        <!-- LORE (C4, audit 2026-06-24) — what this character knows: first-hand (witnessed) ∪ second-hand
+             (rumours / told). Fed by ACKS.loreKnownBy; the knowledge engine had zero UI until now. -->
+        <template x-if="characterEditing && characterEditing.id">
+          <div class="vellum border border-ink p-3 rounded" x-data="{ get _lore(){ return characterLoreKnown(characterEditing); } }">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="font-semibold">📚 Lore known</h4>
+              <span class="text-sm opacity-70" x-text="_lore.length + ' ' + (_lore.length===1?'thing known':'things known')"></span>
+            </div>
+            <template x-if="_lore.length === 0">
+              <p class="text-sm italic opacity-60">Nothing known yet. As this character witnesses events first-hand or hears rumours, what they know appears here — the campaign's knowledge layer.</p>
+            </template>
+            <div class="text-sm max-h-72 overflow-y-auto pr-1" x-show="_lore.length > 0">
+              <template x-for="(l,li) in _lore" :key="li">
+                <div class="border-l-2 pl-2 py-1 mb-1" :style="l.firstHand ? 'border-color:#2f5a2f' : 'border-color:#7a5a1f'">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="l.firstHand ? '👁' : '💬'"></span> <span x-text="l.text"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="l.firstHand ? (l.turn != null ? ('witnessed · Turn ' + l.turn) : 'witnessed') : (l.certainty || 'heard')"></span>
+                  </div>
+                  <p class="text-xs opacity-60" x-show="!l.firstHand && l.source" x-text="'— ' + (l.source||'')"></p>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
         <!-- CHRONICLE — the full per-entity world-memory (T3). Every eventLog entry that names this
              character in its context envelope (not just journey-* — recruitment, loyalty, calamities,
              survival, battles, wealth, level-ups …). The narrative Personal-history box above is the
@@ -15402,7 +15524,7 @@ document.addEventListener('alpine:init', () => {
       <table class="bookkeeping text-sm w-full">
         <thead><tr>
           <th>Name</th><th>Deity</th><th>High priest</th><th class="text-right">Personal</th><th>Domain worship</th>
-          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th>
+          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th><th>Chronicle</th>
         </tr></thead>
         <tbody>
           <template x-for="cong in religionCongregations()" :key="cong.id">
@@ -15420,6 +15542,8 @@ document.addEventListener('alpine:init', () => {
               <td class="text-right font-mono" x-text="religionMonthlyDP(cong).toLocaleString()+' gp'"></td>
               <td><button @click="religionToggleMaintain(cong.id)" class="text-sm underline" x-text="religionAutoMaintain(cong) ? '✓ tended' : '⚠ neglected'" :title="religionAutoMaintain(cong) ? 'Tended each week as a matter of course — full accrual. Click to mark neglected.' : 'Untended — accrues nothing and declines each monthly turn. Click to mark tended.'"></button></td>
               <td x-text="cong.status"></td>
+              <!-- CHRONICLE (C1, audit 2026-06-24) — congregations have no detail modal; deep-link to the Inspector, which renders entityChronicle('congregation', id) -->
+              <td><button @click="inspectorOpen('congregation', cong.id)" class="text-sm underline" :title="'Open this congregation in the 🔍 Inspector to read its chronicle (' + entityChronicleCount('congregation', cong.id) + ' events)'" x-text="'📜 ' + entityChronicleCount('congregation', cong.id)"></button></td>
             </tr>
           </template>
         </tbody>
@@ -16065,17 +16189,20 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
 
-            <!-- history -->
-            <template x-if="(currentSiege().history||[]).length">
-              <div class="mt-3">
-                <p class="font-semibold text-xs uppercase opacity-60 mb-1">History</p>
-                <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
-                  <template x-for="(h,i) in currentSiege().history" :key="'sh-'+i">
-                    <li class="opacity-80" x-text="'· ' + (h.narrative || h.type)"></li>
-                  </template>
-                </ul>
+            <!-- CHRONICLE (C1, audit 2026-06-24) — the siege's stored .history[] (∪ derived eventLog stream when one exists) -->
+            <div class="mt-3" x-data="{ get _chron(){ return entityChronicleMerged('', currentSiege()?.id, currentSiege()?.history); } }" x-show="_chron.length">
+              <p class="font-semibold text-xs uppercase opacity-60 mb-1">📜 Chronicle <span class="opacity-60 font-normal normal-case" x-text="'· ' + _chron.length"></span></p>
+              <div class="text-xs max-h-44 overflow-y-auto pr-1">
+                <template x-for="(row,ri) in _chron" :key="ri">
+                  <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                      <span class="opacity-70" style="white-space:nowrap" x-text="row.date"></span>
+                    </div>
+                  </div>
+                </template>
               </div>
-            </template>
+            </div>
           </div>
         </template>
       </div>
