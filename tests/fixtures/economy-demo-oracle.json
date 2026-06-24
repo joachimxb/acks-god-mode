@@ -83,7 +83,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 110,
       "garrisonCost": 1490,
-      "garrisonBR": 9.870000000000001,
+      "garrisonBR": 2.8099999999999996,
       "requiredGarrison": 1880,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
@@ -200,7 +200,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 35,
       "garrisonCost": 240,
-      "garrisonBR": 1.48,
+      "garrisonBR": 0.38,
       "requiredGarrison": 525,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
@@ -317,7 +317,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 20,
       "garrisonCost": 120,
-      "garrisonBR": 0.68,
+      "garrisonBR": 0.2,
       "requiredGarrison": 510,
       "effectiveClassification": "Civilized",
       "effectiveRuler": {
