@@ -7261,6 +7261,7 @@
                 "journey-encounter",
                 "journey-aborted",
                 "journey-rerouted",
+                "hex-discovered",
                 "provisioning-activity",
                 "survival-day",
                 "hex-search",
@@ -7505,7 +7506,7 @@
     "schemaVersion": 2,
     "entityKinds": 59,
     "typedKinds": 46,
-    "eventKinds": 190,
+    "eventKinds": 191,
     "nestedSubEntityKinds": [
       "mount",
       "bout",

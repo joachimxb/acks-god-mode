@@ -1124,6 +1124,53 @@ function migrateCampaign(raw){
   return current;
 }
 
+// finalizeCampaignLoad(campaign) — the post-migrate FINISH steps (G2, audit 2026-06-24). These ran
+// only in the UI's domain-app.js _finishLoad, so a headless integrator following INTEGRATION.md §5's
+// `migrateCampaign(raw)` recipe got a campaign with its hexes still trapped in the legacy nested
+// mirror (campaign.hexes === undefined) — the lift never ran. Lifting them into the engine makes one
+// code path for app + headless: array-ensure → the pre-lift lazy migrations (player-input → events,
+// stronghold → components, hex improvement/supervisor shapes, magistrate shape) → the #193 top-level
+// lift of hexes/settlements/rumors → agricultural-Project materialization → the T6 mirror strip.
+// Idempotent (every step is). Cross-module steps go through global.ACKS (guarded, so a partial-module
+// headless load degrades instead of throwing); the lift/strip/agri steps are in-file. Mutates + returns.
+function finalizeCampaignLoad(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.domains))      campaign.domains = [];
+  if(!Array.isArray(campaign.pendingEvents)) campaign.pendingEvents = [];
+  if(!Array.isArray(campaign.eventLog))     campaign.eventLog = [];
+  if(!Array.isArray(campaign.hexes))        campaign.hexes = [];
+  if(!Array.isArray(campaign.settlements))  campaign.settlements = [];
+  if(!Array.isArray(campaign.rumors))       campaign.rumors = [];
+  const A = global.ACKS || {};
+  const ds = campaign.domains;
+  if(A.migratePendingPlayerInputToEvents) A.migratePendingPlayerInputToEvents(campaign);
+  if(A.migrateStrongholdToComponents) ds.forEach(d => A.migrateStrongholdToComponents(d));
+  // #17/#18 read the NESTED hexes, so they must run BEFORE the lift empties domain.geography.hexes[].
+  if(A.migrateHexToAccumulatedImprovement) ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => A.migrateHexToAccumulatedImprovement(h)));
+  if(A.migrateHexToMultiSupervisor) ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => A.migrateHexToMultiSupervisor(h)));
+  if(A.ensureMagistratesShape) ds.forEach(d => A.ensureMagistratesShape(d));
+  // #193 — lift hexes/settlements/rumors to the top-level collections (empties the nested arrays).
+  const liftSynth = { domains: ds, hexes: campaign.hexes, settlements: campaign.settlements, rumors: campaign.rumors };
+  liftToTopLevelCollections(liftSynth);
+  campaign.hexes = liftSynth.hexes;
+  campaign.settlements = liftSynth.settlements;
+  campaign.rumors = liftSynth.rumors;
+  // Construction-B — materialize agricultural Projects now that hexes are lifted (templates ship nested).
+  migrateAgriculturalToProjects(campaign);
+  // T6 single-home — strip the nested hex/settlement mirror (the lift already promoted any legacy data).
+  stripHexSettlementMirrors(campaign);
+  return campaign;
+}
+
+// loadCampaign(raw) — the COMPLETE headless load entry (G2): migrate, then finalize, then return the
+// ready-to-use campaign. This is what INTEGRATION.md §5 should advertise instead of bare migrateCampaign
+// — a Node bot / companion tool gets a campaign with its hexes already lifted into campaign.hexes,
+// exactly as the app does. The UI's _finishLoad calls finalizeCampaignLoad (it already migrated), so
+// the two share one finish implementation.
+function loadCampaign(raw){
+  return finalizeCampaignLoad(migrateCampaign(raw));
+}
+
 // stampCampaignForSave(campaign, opts?) — return a SAVE-READY deep clone of a campaign with the
 // generation/version metadata stamped: engineVersion = ENGINE_VERSION, savedAt = today, and the
 // canonical lastModifiedAt (campaign + each domain). PURE — never mutates the input.
@@ -4669,37 +4716,20 @@ function proposeMonthlyTurn(campaign, options){
     }
   }).filter(p => !p._error);
 
-  // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun).
+  // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun). A
+  // direct in-file call (not late-bound), so it stays inline; the late-bound previews come from the
+  // monthly-consumer registry below (audit E2).
   const livingExpenseProposal = processLivingExpensesForTurn(campaign, { dryRun: true });
 
-  // CL-1 (burst4) — preview the monthly aging advance (age ticks, category crossings + their attribute
-  // deltas, death-from-old-age saves due/entering). Read-only (dryRun rolls no dice, mutates nothing);
-  // late-bound (the lifecycle module loads after this file). The propose half of the propose-ratify gate.
-  let agingProposal = { ran: false };
-  try {
-    if(typeof global.ACKS.processAgingForTurn === 'function'){
-      agingProposal = global.ACKS.processAgingForTurn(campaign, { dryRun: true }) || agingProposal;
-    }
-  } catch(e){ /* never let the aging preview fail the turn proposal */ }
-
-  // Banking B2 — preview the end-of-month interest accruals (read-only; dryRun moves no gp, mutates
-  // nothing). Late-bound (the banking module loads after this file). The propose half of the gate.
-  let bankingProposal = { ran: false };
-  try {
-    if(typeof global.ACKS.processBankingForTurn === 'function'){
-      bankingProposal = global.ACKS.processBankingForTurn(campaign, { dryRun: true }) || bankingProposal;
-    }
-  } catch(e){ /* never let the banking preview fail the turn proposal */ }
-
-  // HJ-2 (2026-06-20) — preview the end-of-month syndicate tribute auto-take (read-only; dryRun sums the
-  // would-be take + moves no gp, mutates nothing). Late-bound (the hijinks module loads after this file); the
-  // registry-default-ON gate lives inside the helper. The propose half of the propose-ratify gate.
-  let syndicateTributeProposal = { ran: false };
-  try {
-    if(typeof global.ACKS.processSyndicateTributeForTurn === 'function'){
-      syndicateTributeProposal = global.ACKS.processSyndicateTributeForTurn(campaign, { dryRun: true }) || syndicateTributeProposal;
-    }
-  } catch(e){ /* never let the syndicate-tribute preview fail the turn proposal */ }
+  // Late-bound monthly-consumer PREVIEWS (the dryRun half of the propose-ratify gate) — driven by the
+  // SAME registry commitTurn runs, so the propose + commit lists can't drift (audit E2). aging /
+  // banking / syndicate-tribute each registered a .preview; the rest have none (no meaningful dryRun).
+  const _previews = {};
+  for(const mc of monthlyConsumersInOrder()){
+    if(typeof mc.preview !== 'function') continue;
+    try { _previews[mc.name] = mc.preview(campaign, { rng }); }
+    catch(e){ /* never let a monthly-consumer preview fail the turn proposal */ }
+  }
 
   return {
     error: null,
@@ -4707,9 +4737,9 @@ function proposeMonthlyTurn(campaign, options){
     turnVentureProposals,
     turnProposal,
     livingExpenseProposal,
-    agingProposal,
-    bankingProposal,
-    syndicateTributeProposal
+    agingProposal: _previews['aging'] || { ran: false },
+    bankingProposal: _previews['banking'] || { ran: false },
+    syndicateTributeProposal: _previews['syndicate-tribute'] || { ran: false }
   };
 }
 
@@ -4730,54 +4760,75 @@ function commitTurn(campaign, proposal, options){
   if(!Array.isArray(campaign.pendingEvents)) campaign.pendingEvents = [];
   if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
 
-  // === EVENT APPLY PASS ===
-  // Per Decision 2 (locked): timed events sort by gameTimeAt; untimed by submittedAt.
-  // Domains live on the campaign (single home; the caller passes an attached campaign), so
-  // applyEvent handlers traverse campaign.domains directly — no swap/restore needed.
+  // === EVENT APPLY PASS ===  (F1 + F2 — pre-validate, then one batch snapshot for the apply)
+  // Per Decision 2 (locked): timed events sort by gameTimeAt; untimed by submittedAt. Domains live on
+  // the campaign (single home), so applyEvent handlers traverse campaign.domains directly.
+  //
+  // F2 (audit 2026-06-24): the GM's accepted-event batch is the transactional unit.
+  //  1. PRE-VALIDATE every accepted event. One that fails its own schema mutates nothing, so it is
+  //     rejected WITHOUT an apply attempt — exactly as the pre-F2 per-event flow did (validateEvent
+  //     threw before any snapshot). This keeps the common "malformed integrator event" case off the
+  //     rollback path entirely, so a caller holding a campaign.domains[i] reference across the commit
+  //     stays valid (the rollback only ever clones+swaps on a genuine handler throw).
+  //  2. Apply the VALID events on a FAST path with per-event rollback suppressed ({transactional:false})
+  //     — the whole batch costs ONE clone (cheap; F1 excludes the unbounded eventLog), not one-per-event.
+  //  3. Only if a VALID event's handler throws mid-run (rare) do we roll the whole batch back and RE-RUN
+  //     it resiliently (per-event rollback, reject-and-continue) — preserving exactly the pre-F2 outcome.
   {
-    const accepted = turnEventProposals.filter(ep => ep.decision === 'accept').map(ep => ep.event);
-    const rejected = turnEventProposals.filter(ep => ep.decision === 'reject');
-    const sortedAccepted = global.ACKS.sortEventsForApply(accepted);
+    const acceptedProposals = turnEventProposals.filter(ep => ep.decision === 'accept');
+    const rejectedProposals = turnEventProposals.filter(ep => ep.decision === 'reject');
 
-    sortedAccepted.forEach(ev => {
-      try {
-        const epProposal = turnEventProposals.find(ep => ep.eventId === ev.id);
-        if(epProposal && epProposal.gmNotes != null) ev.gmNotes = epProposal.gmNotes;
-        const applyResult = global.ACKS.applyEvent(campaign, ev);
-        ev.status = global.ACKS.EVENT_STATUS.APPLIED;
-        ev.appliedAtTurn = currentTurnNum;
-        campaign.eventLog.push({
-          event: ev,
-          result: applyResult.result,
-          appliedAtTurn: currentTurnNum,
-          appliedAt: new Date().toISOString()
-        });
-        logEntries.push('[event applied] ' + ev.kind + ' by ' + ev.submittedBy + ': ' + (applyResult.result?.narrativeSummary || ''));
-      } catch(e){
-        ev.status = global.ACKS.EVENT_STATUS.REJECTED;
-        ev.appliedAtTurn = currentTurnNum;
-        ev.gmNotes = (ev.gmNotes || '') + (ev.gmNotes ? ' · ' : '') + 'engine error: ' + e.message;
-        campaign.eventLog.push({
-          event: ev,
-          result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Engine error: ' + e.message },
-          appliedAtTurn: currentTurnNum,
-          appliedAt: new Date().toISOString()
-        });
-      }
+    const _applyOne = (ev, transactional) => {
+      const ep = turnEventProposals.find(x => x.eventId === ev.id);
+      if(ep && ep.gmNotes != null) ev.gmNotes = ep.gmNotes;
+      const applyResult = global.ACKS.applyEvent(campaign, ev, transactional ? undefined : { transactional: false });
+      ev.status = global.ACKS.EVENT_STATUS.APPLIED;
+      ev.appliedAtTurn = currentTurnNum;
+      campaign.eventLog.push({ event: ev, result: applyResult.result, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+      logEntries.push('[event applied] ' + ev.kind + ' by ' + ev.submittedBy + ': ' + (applyResult.result?.narrativeSummary || ''));
+    };
+    const _rejectErr = (ev, errMessage) => {
+      ev.status = global.ACKS.EVENT_STATUS.REJECTED;
+      ev.appliedAtTurn = currentTurnNum;
+      ev.gmNotes = (ev.gmNotes || '') + (ev.gmNotes ? ' · ' : '') + 'engine error: ' + errMessage;
+      campaign.eventLog.push({ event: ev, result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Engine error: ' + errMessage }, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+    };
+
+    // (1) pre-validate — split valid from malformed without applying anything.
+    const validIds = [], invalidIds = [];
+    acceptedProposals.forEach(ep => {
+      try { global.ACKS.validateEvent(ep.event); validIds.push(ep.eventId); }
+      catch(e){ invalidIds.push([ep.eventId, e.message]); }
     });
+    const _liveById = () => new Map((campaign.pendingEvents || []).map(e => [e.id, e]));
+    const _liveValid = () => { const byId = _liveById(); return global.ACKS.sortEventsForApply(validIds.map(id => byId.get(id)).filter(Boolean)); };
 
-    rejected.forEach(ep => {
-      const ev = ep.event;
+    // (2) FAST path — one batch snapshot, no per-event clone.
+    if(validIds.length){
+      const _batchSnap = global.ACKS.cloneCampaignForRollback(campaign);
+      const _logMark = logEntries.length;
+      let _fastFailed = false;
+      try { _liveValid().forEach(ev => _applyOne(ev, false)); }
+      catch(e){ _fastFailed = true; }
+      // (3) handler threw — roll the whole batch back, then re-run resiliently (per-event rollback).
+      if(_fastFailed){
+        global.ACKS.restoreCampaignForRollback(campaign, _batchSnap);
+        logEntries.length = _logMark;
+        _liveValid().forEach(ev => { try { _applyOne(ev, true); } catch(err){ _rejectErr(ev, err.message); } });
+      }
+    }
+
+    // Reject the pre-validation failures — AFTER the apply, so a slow-path restore can't truncate them.
+    { const byId = _liveById(); invalidIds.forEach(([id, msg]) => { const ev = byId.get(id); if(ev) _rejectErr(ev, msg); }); }
+
+    // GM-rejected events (decision === 'reject') — by id off the live pendingEvents.
+    { const byId = _liveById(); rejectedProposals.forEach(ep => {
+      const ev = byId.get(ep.eventId) || ep.event;
       if(ep.gmNotes != null) ev.gmNotes = ep.gmNotes;
       ev.status = global.ACKS.EVENT_STATUS.REJECTED;
       ev.appliedAtTurn = currentTurnNum;
-      campaign.eventLog.push({
-        event: ev,
-        result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Rejected by GM' + (ep.gmNotes ? ': ' + ep.gmNotes : '') },
-        appliedAtTurn: currentTurnNum,
-        appliedAt: new Date().toISOString()
-      });
-    });
+      campaign.eventLog.push({ event: ev, result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Rejected by GM' + (ep.gmNotes ? ': ' + ep.gmNotes : '') }, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+    }); }
 
     // Remove applied + rejected from pendingEvents; skip-this-turn stays.
     campaign.pendingEvents = campaign.pendingEvents.filter(e => e.status === global.ACKS.EVENT_STATUS.PENDING);
@@ -5327,212 +5378,27 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let Favors & Duties fail the monthly commit */ }
   }
 
-  // === BANKING — interest accrual (RR p.42 + p.313 — #148 B2) ===
-  // Bill monthly interest on active commercial/personal loans (3% / 1% RR p.42), capitalize the
-  // shortfall + flag disrepute / debt-over-XP, credit any deposit return, and reset each market's
-  // monthly capital pool. RAW-core, default-on, dormant-until-used (a no-op with no loans/accounts).
-  // Gated on committed > 0 (a real month rolled). Late-bound — the banking module loads after this
-  // file — and wrapped so a banking error never breaks the core monthly commit (cf. banditry/aging).
-  let bankingResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processBankingForTurn === 'function'){
-        bankingResult = global.ACKS.processBankingForTurn(campaign, { rng }) || bankingResult;
-        (bankingResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let Banking fail the monthly commit */ }
+  // === MONTHLY-TURN CONSUMERS (audit E2, 2026-06-24) ===
+  // The dozen late-bound monthly processors — banking · banditry (+ its one-shot W2/W4 morale-flag
+  // clear) · recruitment & commerce vagaries · classification advancement · religion · aging ·
+  // syndicate tribute · levy replenishment · construction vagaries · terrain transformation · the
+  // arcane-power refresh · sanctum apprentices — now run from the registerMonthlyConsumer registry
+  // (orders 10–130, the pre-refactor order — and thus the seeded RNG draw sequence — preserved
+  // exactly). Each closure owns its existence-guard + default result; the loop owns the committed>0
+  // gate, the per-consumer try (so one processor can never fail the core monthly commit), and the
+  // logEntries fan-out. agingResult is the one result the return surfaces (CL-1 propose-ratify).
+  const monthlyResults = {};
+  for(const mc of monthlyConsumersInOrder()){
+    if(mc.gateCommitted && !(committed > 0)) continue;
+    let r = null;
+    try { r = mc.run(campaign, { rng, committed }); }
+    catch(e){ /* never let a monthly consumer fail the core monthly commit */ }
+    if(r){
+      monthlyResults[mc.name] = r;
+      if(Array.isArray(r.logEntries)) r.logEntries.forEach(l => logEntries.push(l));
+    }
   }
-
-  // === DOMAIN BANDITRY (RR pp.350–351 — #476 E10) ===
-  // Morale at −2 or worse turns the domain's own men bandit. The processor (subsystems
-  // module) settles last month's casualties as population loss, reconciles the placed
-  // banditry bands to the RAW banditCount (rising / swelling / waning / disbanding), and
-  // advances the enemy-army occupation counter the morale roll reads (RR p.349 + p.351).
-  // Runs AFTER the per-domain morale + population resolution (it reads moraleAfter) and is
-  // gated on committed > 0 + the domain-morale-banditry rule (default ON) inside the helper.
-  let banditryResult = { ruleOn: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processBanditryForTurn === 'function'){
-        banditryResult = global.ACKS.processBanditryForTurn(campaign, { rng }) || banditryResult;
-        (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let banditry fail the monthly commit */ }
-    // Phase 3 Military W2 — the JJ p.103 peasant-unease flag is ONE-SHOT: it just fed
-    // this month's morale roll (the moraleModifiersFor row), so consume it. Clearing a
-    // stale flag is harmless + self-healing, so this runs unconditionally of the rule.
-    try {
-      (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
-    } catch(e){ /* never let the flag clear fail the monthly commit */ }
-    // W4 — RR p.458: the post-occupation −1/month penalty is likewise ONE-SHOT (the
-    // owner's NEXT morale roll). It just fed this month's roll — consume it.
-    try {
-      (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
-    } catch(e){ /* never let the flag clear fail the monthly commit */ }
-    // === Phase 3 Military W8 — the Vagaries of Recruitment (JJ pp.110–112) ===
-    // One 1d100 roll per domain ruler recruiting this month (mercenaries / conscripts / militia /
-    // vassal troops); each rolled vagary lands as a record-only GM-resolve event. Behind the
-    // vagaries-of-recruitment rule (default OFF) — the helper no-ops when the rule is off. Wrapped
-    // so a vagary error never breaks the monthly commit (the F&D / banditry pattern).
-    try {
-      if(typeof global.ACKS.processRecruitmentVagariesForTurn === 'function'){
-        const vr = global.ACKS.processRecruitmentVagariesForTurn(campaign, { rng }) || {};
-        (vr.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let a recruitment vagary fail the monthly commit */ }
-    // W8 — expire timed Commerce vagaries whose 1d6 months have run out (JJ p.111), restoring the
-    // affected settlement's market class. Runs every committed turn (the cached shift needs a
-    // campaign-aware tick to clear; the canonical read self-expires regardless). NOT rule-gated —
-    // a self-healing restore of a field only ever set while the vagary rule was on.
-    try {
-      if(typeof global.ACKS.processCommerceVagaryExpiryForTurn === 'function'){
-        const cx = global.ACKS.processCommerceVagaryExpiryForTurn(campaign) || {};
-        (cx.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let commerce expiry fail the monthly commit */ }
-  }
-
-  // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===
-  // DC-2 (RR p.340): classification advancement (Outlands→Borderlands→Civilized), checked at month-end,
-  // AFTER the per-domain morale + population resolution (reads the post-turn morale + family counts the
-  // loop just set) + after banditry, and BEFORE the turn counter advances. Auto-advance is the RAW
-  // default; the floor it sets (domain.classificationAdvancedTo) raises effectiveDomainClassification
-  // permanently, so next month's base morale eases (RR p.348) + the population cap rises.
-  // Religion R1 (RR pp.421–425, #146): congregations generate divine power for their high priest,
-  // proselytizing grows the faithful, untended congregations decline, faded power expires, and
-  // pray-and-sacrifice returns power for campaign XP. No house rule gates it (D2). Domain-worship reads
-  // the live post-turn morale.
-  // Both consumers live in modules that load after this file — late-bound via global.ACKS; each is
-  // try-guarded so neither can fail the core monthly commit.
-  let religionResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processClassificationAdvancement === 'function'){
-        const advResult = global.ACKS.processClassificationAdvancement(campaign, { rng });
-        (advResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let classification advancement fail the monthly commit */ }
-    try {
-      if(typeof global.ACKS.processReligionForTurn === 'function'){
-        religionResult = global.ACKS.processReligionForTurn(campaign, { rng }) || religionResult;
-        (religionResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let Religion fail the monthly commit */ }
-  }
-
-  // === CHARACTER LIFECYCLE CL-1 — AGING (RR p.19 — #7 / burst4) ===
-  // The monthly aging pass: advance each seeded character's age with the calendar, apply the RR p.19
-  // progressive attribute adjustment on a category crossing, and resolve the death-from-old-age Death
-  // saves in the 1d12-month window. Skips age:null + ageless races + the deceased. Gated on committed > 0
-  // (a real month rolled) — the GM reviewed the agingProposal in proposeMonthlyTurn (propose-ratify, Plan
-  // §7). Late-bound (acks-engine-lifecycle.js loads after this file) + try-guarded (the DC-2 / Religion
-  // precedent), so neither aging nor a missing module can fail the core monthly commit.
-  let agingResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processAgingForTurn === 'function'){
-        agingResult = global.ACKS.processAgingForTurn(campaign, { rng }) || agingResult;
-        (agingResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let aging fail the monthly commit */ }
-  }
-
-  // === HIJINKS HJ-2 — SYNDICATE MONTHLY TRIBUTE (RR p.362 — 2026-06-20) ===
-  // Auto-collect each active syndicate's monthly tribute into its boss's purse (the boss "sits back and
-  // collects his ill-gotten gains"). Gated on the syndicate-auto-tribute rule (default ON) inside the helper;
-  // idempotent (a manual collection earlier in the month is honored, never double-taken). Late-bound
-  // (acks-engine-hijinks.js loads after this file) + try-guarded (the F&D / banditry / aging precedent) so a
-  // tribute error can never fail the core monthly commit.
-  let syndicateTributeResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processSyndicateTributeForTurn === 'function'){
-        syndicateTributeResult = global.ACKS.processSyndicateTributeForTurn(campaign, { rng }) || syndicateTributeResult;
-        (syndicateTributeResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let syndicate tribute fail the monthly commit */ }
-  }
-
-  // === CONSCRIPT/MILITIA REPLENISHMENT (RR p.430 designer's note) ===
-  // Replenish levy casualties over time at 5%/yr of the recruitable cap (pro-rated monthly via a
-  // per-domain carry). Always on (no house rule). Defined in this file (not late-bound). Gated on
-  // committed > 0 (a real month rolled); try-guarded for parity with the other monthly processors.
-  if(committed > 0){
-    try {
-      const healed = ACKS.processLevyReplenishmentForTurn(campaign);
-      if(healed > 0) logEntries.push('Conscript/militia replenishment: ' + healed + ' recovered (RR p.430)');
-    } catch(e){ /* never let levy replenishment fail the monthly commit */ }
-  }
-
-  // === CONSTRUCTION VAGARIES + CRUDE-WEATHER (Phase 4 Construction, Wave I) ===
-  // Each monthly turn, in-progress projects may hit a vagary (delay + cost overrun) and crude field works
-  // weather one band worse — both house-rule-gated (construction-vagaries / crude-construction-weather, both
-  // default OFF). Late-bound (acks-engine-construction.js loads after this file) + try-guarded (the arcane /
-  // syndicate / aging precedent), so a construction setback can never fail the core monthly commit.
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processConstructionVagariesForTurn === 'function'){
-        const cv = global.ACKS.processConstructionVagariesForTurn(campaign, { rng }) || {};
-        (cv.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let construction vagaries fail the monthly commit */ }
-  }
-
-  // === TERRAIN TRANSFORMATION (Phase 5 Domain Variants, P5-TERR; JJ p.412) ===
-  // As a hex's human/halfling/beastman population crosses the RAW family thresholds (186 / 326), the
-  // LAND ITSELF transforms (desert→scrubland→grassland, forests cut, swamps dredged, hills/mountains
-  // terraced) — bidirectional (depopulation reverts a stage). Gated on the `terrain-transformation`
-  // house rule (default OFF) inside the helper; runs on the POST-growth hex.families (the per-domain
-  // population loop above already applied this month's growth via setPeasantPopulation). Late-bound
-  // (acks-engine-domain-variants.js loads after this file) + try-guarded (the aging / arcane / construction-
-  // vagaries precedent), so a terrain transformation can never fail the core monthly commit.
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processTerrainTransformationForTurn === 'function'){
-        const tt = global.ACKS.processTerrainTransformationForTurn(campaign, { rng }) || {};
-        (tt.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let terrain transformation fail the monthly commit */ }
-  }
-
-  // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
-  // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
-  // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior
-  // month's unspent power is lost — "cannot be stored", RR p.388). Late-bound (acks-engine-sanctums.js loads
-  // after this file) + try-guarded (the Religion/aging precedent), so it can never fail the core monthly
-  // commit. No house rule (RAW core, dormant — no dungeons ⇒ a no-op).
-  let arcaneResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processArcaneForTurn === 'function'){
-        arcaneResult = global.ACKS.processArcaneForTurn(campaign, { rng }) || arcaneResult;
-        (arcaneResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let the arcane domain fail the monthly commit */ }
-  }
-
-  // === MAGIC RESEARCH accrual — moved to the Day Clock (SR-1, 2026-06-24; RR p.388) ===
-  // Research now accrues PER-DAY via the slot-56 'magic-research' day consumer
-  // (acks-engine-magic-research.js). runDayTickToMonthEnd (below, the default-ON subsume) drives
-  // it across the month commit, and day-by-day play ticks it directly — so do NOT also call
-  // processResearchForTurn here (that would double-count the month).
-
-  // === THE ARCANE DOMAIN — sanctum apprentices (Phase 4 Sanctums, AD-B; RR p.386) ===
-  // The monthly sanctum consumer advances each apprentice's study clock (Q5: 12 monthly turns ≈ 1 year);
-  // a full year of study earns a research throw (18+ ± INT) — success → advance to an L1 companion (a
-  // henchman), an unmodified 1–3 → discouraged + leaves. Each year also draws +1d6 fresh L0 apprentices
-  // (to the cap). Late-bound (acks-engine-sanctums.js loads after this file) + try-guarded (the Religion/
-  // arcane precedent), so it can never fail the core monthly commit. No house rule (RAW core, dormant —
-  // no sanctums ⇒ a no-op).
-  let sanctumResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processSanctumsForTurn === 'function'){
-        sanctumResult = global.ACKS.processSanctumsForTurn(campaign, { rng }) || sanctumResult;
-        (sanctumResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let the sanctum apprentice tick fail the monthly commit */ }
-  }
+  const agingResult = monthlyResults['aging'] || { ran: false };
 
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
@@ -5696,6 +5562,123 @@ function dayConsumersInOrder(){
     .map(name => Object.assign({ name }, DAY_CONSUMERS[name]))
     .sort((a, b) => (a.order - b.order) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
+
+// ── Monthly-turn consumer registry (audit E2, 2026-06-24) ──
+// The registerDayConsumer pattern, generalized to the MONTHLY turn. Before this, commitTurn ran a
+// dozen copy-pasted `if(typeof global.ACKS.processXForTurn==='function'){…}` existence-guards and
+// proposeMonthlyTurn duplicated the dryRun half — adding a monthly consumer meant editing both lists
+// in this central file. Now each entry is a registered consumer; commitTurn iterates `.run` and
+// proposeMonthlyTurn iterates `.preview`, so the two lists can't drift and a future module can
+// self-register its own pass from its own file (the §15.5 north star) instead of editing here.
+//   run(campaign, ctx)     -> result (with optional .logEntries[]); ctx = { rng, committed }
+//   preview(campaign, ctx) -> the dryRun proposal surfaced by proposeMonthlyTurn (optional)
+//   order                  -> execution slot (lower first; preserves the pre-refactor order, hence
+//                             the RNG draw sequence the seeded-determinism tests pin)
+//   gateCommitted          -> default true: only run on a real month (committed > 0)
+const MONTHLY_CONSUMERS = {};
+function registerMonthlyConsumer(name, spec){
+  if(!name || !spec || typeof spec.run !== 'function') return;
+  MONTHLY_CONSUMERS[name] = {
+    order: (typeof spec.order === 'number') ? spec.order : 50,
+    run: spec.run,
+    preview: (typeof spec.preview === 'function') ? spec.preview : null,
+    gateCommitted: spec.gateCommitted !== false
+  };
+}
+function unregisterMonthlyConsumer(name){ if(name) delete MONTHLY_CONSUMERS[name]; }
+function monthlyConsumersInOrder(){
+  return Object.keys(MONTHLY_CONSUMERS)
+    .map(name => Object.assign({ name }, MONTHLY_CONSUMERS[name]))
+    .sort((a, b) => (a.order - b.order) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// The core monthly consumers. Each closure resolves its late-bound processor via global.ACKS at RUN
+// time (the modules load after this file), exactly as the inline existence-guards did — so registration
+// at load is safe even though the processors don't exist yet. Orders 10–130 reproduce the pre-refactor
+// execution order verbatim (and thus the seeded RNG sequence). All are gated on committed > 0.
+registerMonthlyConsumer('banking', {                          // RR p.42 + p.313 — #148 B2 (interest accrual)
+  order: 10,
+  run: (campaign, ctx) => (typeof global.ACKS.processBankingForTurn === 'function')
+    ? (global.ACKS.processBankingForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processBankingForTurn === 'function')
+    ? (global.ACKS.processBankingForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('banditry', {                         // RR pp.350–351 — #476 E10 (domain banditry)
+  order: 20,
+  run: (campaign, ctx) => (typeof global.ACKS.processBanditryForTurn === 'function')
+    ? (global.ACKS.processBanditryForTurn(campaign, { rng: ctx.rng }) || { ruleOn: false }) : { ruleOn: false }
+});
+registerMonthlyConsumer('banditry-flags-clear', {             // W2/W4 one-shot flags consumed after the morale roll
+  order: 25,
+  run: (campaign) => {
+    (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
+    (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
+    return null;
+  }
+});
+registerMonthlyConsumer('recruitment-vagaries', {             // W8 — JJ pp.110–112 (default-OFF rule, helper no-ops)
+  order: 30,
+  run: (campaign, ctx) => (typeof global.ACKS.processRecruitmentVagariesForTurn === 'function')
+    ? (global.ACKS.processRecruitmentVagariesForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('commerce-vagary-expiry', {           // W8 — JJ p.111 (timed commerce-vagary expiry; no rng)
+  order: 40,
+  run: (campaign) => (typeof global.ACKS.processCommerceVagaryExpiryForTurn === 'function')
+    ? (global.ACKS.processCommerceVagaryExpiryForTurn(campaign) || {}) : null
+});
+registerMonthlyConsumer('classification-advancement', {       // DC-2 — RR p.340 (Outlands→Borderlands→Civilized)
+  order: 50,
+  run: (campaign, ctx) => (typeof global.ACKS.processClassificationAdvancement === 'function')
+    ? (global.ACKS.processClassificationAdvancement(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('religion', {                         // R1 — RR pp.421–425, #146 (divine power / congregations)
+  order: 60,
+  run: (campaign, ctx) => (typeof global.ACKS.processReligionForTurn === 'function')
+    ? (global.ACKS.processReligionForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('aging', {                            // CL-1 — RR p.19, #7 (monthly aging; result surfaced)
+  order: 70,
+  run: (campaign, ctx) => (typeof global.ACKS.processAgingForTurn === 'function')
+    ? (global.ACKS.processAgingForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processAgingForTurn === 'function')
+    ? (global.ACKS.processAgingForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('syndicate-tribute', {                // HJ-2 — RR p.362 (monthly syndicate tribute)
+  order: 80,
+  run: (campaign, ctx) => (typeof global.ACKS.processSyndicateTributeForTurn === 'function')
+    ? (global.ACKS.processSyndicateTributeForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processSyndicateTributeForTurn === 'function')
+    ? (global.ACKS.processSyndicateTributeForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('levy-replenishment', {               // RR p.430 designer's note (in-file; always on; no rng)
+  order: 90,
+  run: (campaign) => {
+    const healed = global.ACKS.processLevyReplenishmentForTurn(campaign);
+    return (healed > 0) ? { logEntries: ['Conscript/militia replenishment: ' + healed + ' recovered (RR p.430)'] } : { ran: true };
+  }
+});
+registerMonthlyConsumer('construction-vagaries', {            // Construction Wave I (default-OFF rules, helper no-ops)
+  order: 100,
+  run: (campaign, ctx) => (typeof global.ACKS.processConstructionVagariesForTurn === 'function')
+    ? (global.ACKS.processConstructionVagariesForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('terrain-transformation', {           // P5-TERR — JJ p.412 (default-OFF rule, helper no-ops)
+  order: 110,
+  run: (campaign, ctx) => (typeof global.ACKS.processTerrainTransformationForTurn === 'function')
+    ? (global.ACKS.processTerrainTransformationForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('arcane', {                           // AD-E — RR p.388 (arcane-power refresh; dormant w/o dungeons)
+  order: 120,
+  run: (campaign, ctx) => (typeof global.ACKS.processArcaneForTurn === 'function')
+    ? (global.ACKS.processArcaneForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('sanctums', {                         // AD-B — RR p.386 (sanctum apprentices; dormant w/o sanctums)
+  order: 130,
+  run: (campaign, ctx) => (typeof global.ACKS.processSanctumsForTurn === 'function')
+    ? (global.ACKS.processSanctumsForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+// NOTE: Magic-Research accrual is NOT a monthly consumer — it moved to the Day Clock (SR-1, RR p.388;
+// the slot-56 'magic-research' day consumer + runDayTickToMonthEnd), so it must not run here too.
 
 // Build the per-day context handed to each consumer (Calendar §14).
 function dayTickContext(campaign, dayInMonth){
@@ -6908,33 +6891,36 @@ function _eventContextOf(e){ const ev = (e && e.event) || e; return (ev && ev.co
 //   activityCost   entry[]                     only entries whose payload carries an
 //                                              activityCost.slot (the tiny subset the
 //                                              activity budget scans for, RR p.272/#346)
-function _buildEventLogIndex(campaign){
-  const idx = { byHex: new Map(), bySettlement: new Map(), byRelated: new Map(), activityCost: [], len: 0 };
-  const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
-  idx.len = log.length;
-  const push = (map, key, entry) => { let a = map.get(key); if(!a){ a = []; map.set(key, a); } a.push(entry); };
-  for(const entry of log){
-    const ev = (entry && entry.event) || entry;
-    const c = (ev && ev.context) || null;
-    if(c){
-      if(c.primaryHexId) push(idx.byHex, c.primaryHexId, entry);
-      if(Array.isArray(c.involvedHexIds)){
-        for(const h of c.involvedHexIds){ if(h && h !== c.primaryHexId) push(idx.byHex, h, entry); }
-      }
-      if(c.settlementId) push(idx.bySettlement, c.settlementId, entry);
-      const rels = c.relatedEntities;
-      if(Array.isArray(rels)){
-        const seen = new Set();
-        for(const r of rels){
-          if(r && r.kind && r.id){
-            const k = r.kind + ':' + r.id;
-            if(!seen.has(k)){ seen.add(k); push(idx.byRelated, k, entry); }   // an entry that names an entity twice still lists once
-          }
+// Index ONE log entry into an (existing) index — factored out so _buildEventLogIndex (full) and
+// the F4 incremental append (tail-only) share the exact same per-entry logic.
+function _indexOneEventLogEntry(idx, entry){
+  const push = (map, key, e) => { let a = map.get(key); if(!a){ a = []; map.set(key, a); } a.push(e); };
+  const ev = (entry && entry.event) || entry;
+  const c = (ev && ev.context) || null;
+  if(c){
+    if(c.primaryHexId) push(idx.byHex, c.primaryHexId, entry);
+    if(Array.isArray(c.involvedHexIds)){
+      for(const h of c.involvedHexIds){ if(h && h !== c.primaryHexId) push(idx.byHex, h, entry); }
+    }
+    if(c.settlementId) push(idx.bySettlement, c.settlementId, entry);
+    const rels = c.relatedEntities;
+    if(Array.isArray(rels)){
+      const seen = new Set();
+      for(const r of rels){
+        if(r && r.kind && r.id){
+          const k = r.kind + ':' + r.id;
+          if(!seen.has(k)){ seen.add(k); push(idx.byRelated, k, entry); }   // an entry that names an entity twice still lists once
         }
       }
     }
-    if(ev && ev.payload && ev.payload.activityCost && ev.payload.activityCost.slot) idx.activityCost.push(entry);
   }
+  if(ev && ev.payload && ev.payload.activityCost && ev.payload.activityCost.slot) idx.activityCost.push(entry);
+}
+function _buildEventLogIndex(campaign){
+  const idx = { byHex: new Map(), bySettlement: new Map(), byRelated: new Map(), activityCost: [], len: 0 };
+  const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  for(const entry of log) _indexOneEventLogEntry(idx, entry);
+  idx.len = log.length;
   return idx;
 }
 
@@ -6948,9 +6934,22 @@ function _buildEventLogIndex(campaign){
 const _eventLogIndexCache = new WeakMap();   // campaign → { ...idx, len }
 function _eventLogIndexFor(campaign, opts){
   if(!campaign || typeof campaign !== 'object') return _buildEventLogIndex(campaign || null);
-  const len = Array.isArray(campaign.eventLog) ? campaign.eventLog.length : 0;
+  const log = Array.isArray(campaign.eventLog) ? campaign.eventLog : [];
+  const len = log.length;
   const cached = _eventLogIndexCache.get(campaign);
-  if(!(opts && opts.fresh) && cached && cached.len === len) return cached;
+  if(!(opts && opts.fresh) && cached){
+    if(cached.len === len) return cached;
+    // F4 (audit 2026-06-24): the eventLog is append-only between renders, so on a length INCREASE
+    // index just the new tail onto the cached maps (O(new entries)) rather than rebuilding the whole
+    // index (O(N)). During a turn's many pushes this turns repeated O(N) rebuilds into O(total
+    // appended). A DECREASE (an in-place edit / a truncation / an F1 rollback) can't be patched
+    // incrementally → fall through to a full rebuild.
+    if(len > cached.len){
+      for(let i = cached.len; i < len; i++) _indexOneEventLogEntry(cached, log[i]);
+      cached.len = len;
+      return cached;
+    }
+  }
   const idx = _buildEventLogIndex(campaign);
   try { _eventLogIndexCache.set(campaign, idx); } catch(e){ /* non-extensible/non-object key — skip caching */ }
   return idx;
@@ -7438,6 +7437,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
+  registerMonthlyConsumer, unregisterMonthlyConsumer, monthlyConsumersInOrder,   // audit E2 — monthly-turn consumer registry
   dayTickContext, isDayTickRuleOn, dayTickPauseReasons, dayTickActivityInFlight,
   dailyAdvanceBlockers,
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
@@ -7518,6 +7518,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Migration
   MIGRATIONS, migrateCampaign,
+  loadCampaign, finalizeCampaignLoad,   // audit G2 — the complete headless load entry (migrate → finalize)
   // §15.5 load-migration self-registration (slice 4) — the per-load pass registry + runner.
   registerLoadMigration, registeredLoadMigrations, runLoadMigrations,
   // Phase #440 stage 1 — additive five-axis classification migration (2026-05-29)

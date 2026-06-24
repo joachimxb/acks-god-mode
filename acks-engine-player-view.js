@@ -209,10 +209,19 @@ function _publicWorld(campaign){
     calendar: _clone(campaign.calendar),
     currentDayInMonth: campaign.currentDayInMonth
   };
-  world.hexes = (campaign.hexes || []).map(_projectHex);
-  world.settlements = (campaign.settlements || []).map(_projectSettlement);
-  // Lairs: only the discovered ones, GM hooks stripped.
-  world.lairs = (campaign.lairs || []).filter(l => l && l.knownToPlayers === true).map(_projectKnownLair);
+  // B3 fog-of-war (audit 2026-06-24): ship only the DISCOVERED map. A hex is visible when read as
+  // `explored !== false` (default true; explicit false = a fog / West-Marches hex the party hasn't
+  // reached — set true by travel, see tickJourneyDay/_commitJourneyDayAndEmit). A settlement or lair
+  // FLOATING on a fogged hex is hidden too; one with no/dangling hexId is not (no basis to hide). The
+  // previous code shipped EVERY hex (leaking the unexplored map despite the "discovered map" contract).
+  // Back-compat: with nothing marked explored:false, this hides nothing — prior behaviour holds.
+  const _foggedHexIds = new Set((campaign.hexes || []).filter(h => h && h.explored === false).map(h => h.id));
+  const _onFoggedHex = id => id != null && _foggedHexIds.has(id);
+  world.hexes = (campaign.hexes || []).filter(h => h && h.explored !== false).map(_projectHex);
+  world.settlements = (campaign.settlements || []).filter(s => s && !_onFoggedHex(s.hexId)).map(_projectSettlement);
+  // Lairs: only the discovered ones (knownToPlayers), GM hooks stripped, AND not on a fogged hex
+  // (a discovered lair can't float on an unexplored hex — reconcile the two axes).
+  world.lairs = (campaign.lairs || []).filter(l => l && l.knownToPlayers === true && !_onFoggedHex(l.hexId)).map(_projectKnownLair);
   // Rumors: drop the GM-fabricated false ones; strip the truth verdict from the rest.
   world.rumors = (campaign.rumors || []).filter(r => r && r.truthLevel !== 'false').map(_projectRumor);
   return world;
