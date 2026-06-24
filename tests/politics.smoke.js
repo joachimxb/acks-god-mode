@@ -441,10 +441,14 @@ section('P-2 — enactPolicy (the restriction → dispute gate, RR p.359)');
   const c2 = fixture();
   const r2 = ACKS.enactPolicy(c2, { senateId: 'sen-1', matter: 'change-taxes', consulted: true, approved: true });
   ok('restricted + approved → enacted, no dispute', r2.outcome === 'enacted' && r2.disputed === false && ACKS.findSenate(c2, 'sen-1').dispute == null);
-  // an unrestricted matter → always clean
+  // an unrestricted matter NOT consulted → clean (no consultation was required)
   const c3 = fixture();
   const r3 = ACKS.enactPolicy(c3, { senateId: 'sen-1', matter: 'throw-a-feast', consulted: false });
-  ok('unrestricted matter → enacted, never disputed', r3.outcome === 'enacted' && r3.disputed === false);
+  ok('unrestricted + not consulted → enacted, never disputed', r3.outcome === 'enacted' && r3.disputed === false);
+  // RR p.359 (generalized) — enacting ANY matter the senate VOTED AGAINST → dispute, restricted or not
+  const c3b = fixture();
+  const r3b = ACKS.enactPolicy(c3b, { senateId: 'sen-1', matter: 'throw-a-feast', consulted: true, approved: false });
+  ok('unrestricted matter enacted against the vote → defied + dispute', r3b.outcome === 'defied' && r3b.disputed === true && ACKS.findSenate(c3b, 'sen-1').dispute != null);
   // a retroactive-approval enactment clears an existing dispute
   const c4 = fixture();
   ACKS.setSenateDispute(c4, 'sen-1', { topic: 'change-taxes', turn: 1 });
@@ -796,6 +800,14 @@ section('P-5 — resolveSenateMotion (the terminal verb — enact / reject / def
   const v4 = ACKS.previewSenateMotionVote(c4, { senateId:'sen-1', motionId:m4.id, rng: rngConst(0.99) });
   const r4 = ACKS.resolveSenateMotion(c4, { senateId:'sen-1', motionId:m4.id, voteResult:v4 });
   ok('policy approved → enacted + objective recorded + no dispute', r4.motion.status==='enacted' && r4.motion.policyObjective==='make-peace' && ACKS.findSenate(c4,'sen-1').dispute == null);
+
+  // policy REJECTED + defy → defied + dispute (RR p.359 generalized — enacting against ANY vote disputes;
+  // the dispute topic is named from the policy objective since a policy motion carries no `matter`)
+  const c4b = fixture();
+  const m4b = ACKS.openSenateMotion(c4b, { senateId:'sen-1', kind:'policy', policyObjective:'increase-army' });
+  const v4b = ACKS.previewSenateMotionVote(c4b, { senateId:'sen-1', motionId:m4b.id, rng: rngConst(0.01) });
+  const r4b = ACKS.resolveSenateMotion(c4b, { senateId:'sen-1', motionId:m4b.id, voteResult:v4b, enactDespiteRejection:true, rulerCharacterId:'chr-r' });
+  ok('policy rejected + defy → defied + dispute (any matter)', r4b.motion.status==='defied' && r4b.motion.outcome==='rejected' && ACKS.findSenate(c4b,'sen-1').dispute != null);
 
   // resolve rolls its OWN vote when none is passed (the headless / convenience path)
   const c5 = fixture();

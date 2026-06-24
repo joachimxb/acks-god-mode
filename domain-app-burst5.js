@@ -265,13 +265,22 @@
     const ch = c && (c.characters || []).find(x => x && x.id === id);
     return ch ? (ch.name || ch.id) : id;
   },
-  // Phase 5 — a senator is "clickable" (opens its character sheet) only when its underlying Character is a
-  // FULL-FLEDGED character (not a lightweight minor-senator stub; an absent character is not clickable).
-  _senIsFull(id){
+  // Phase 5 — a senator is "clickable" (opens its character sheet) whenever it is backed by a defined
+  // Character in the campaign — INCLUDING a lightweight minor-senator stub (RR p.357: every senator,
+  // independent ones included, is a defined character). Only a dangling / vacant id is not clickable.
+  _senExists(id){
     if(!id) return false;
     const c = this.currentCampaign;
-    const ch = c && (c.characters || []).find(x => x && x.id === id);
-    return !!(ch && ch.detailLevel !== 'lightweight');
+    return !!(c && (c.characters || []).some(x => x && x.id === id));
+  },
+  // Name every remaining anonymous vote as a defined character (RR p.357) — the inline action beside the
+  // independents (and the legacy under-populated nudge). REUSES the engine's populateNamedSenators.
+  senatePopulateNamed(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || !A.populateNamedSenators) return;
+    const r = A.populateNamedSenators(c, senate.id);
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast('👥 Named ' + ((r.clientsMinted || 0) + (r.independentsMinted || 0)) + ' minor senator(s).', 4000);
   },
   senateLeadingSenatorRows(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
@@ -281,10 +290,10 @@
       const f = s.factionId ? A.findFaction(c, s.factionId) : null;
       // Phase 5 — the patron's NAMED clients (each with a clickable flag) + the unnamed remainder.
       const clientIds = Array.isArray(s.clientCharacterIds) ? s.clientCharacterIds : [];
-      const clients = clientIds.map(id => ({ id, name: this._senCharName(id), full: this._senIsFull(id) }));
+      const clients = clientIds.map(id => ({ id, name: this._senCharName(id), clickable: this._senExists(id) }));
       const unnamedClients = Math.max(0, (s.votes || 1) - 1 - clients.length);
       return {
-        id: s.id, characterId: s.senatorCharacterId, full: this._senIsFull(s.senatorCharacterId),
+        id: s.id, characterId: s.senatorCharacterId, clickable: this._senExists(s.senatorCharacterId),
         name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
         factionName: f ? (f.name || f.id) : '—', factionId: s.factionId || null, votes: s.votes || 0,
         objectives: (Array.isArray(s.policyObjectives) && s.policyObjectives.length) ? s.policyObjectives.join(', ') : '—',
@@ -300,7 +309,7 @@
     const senate = this.senateSelected();
     if(!senate) return [];
     return (Array.isArray(senate.independentSenatorCharacterIds) ? senate.independentSenatorCharacterIds : [])
-      .map(id => ({ id, name: this._senCharName(id), full: this._senIsFull(id) }));
+      .map(id => ({ id, name: this._senCharName(id), clickable: this._senExists(id) }));
   },
   senateUnnamedIndependents(){
     const senate = this.senateSelected();

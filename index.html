@@ -73,7 +73,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-24-named-senate"></script>
+<script src="acks-engine-politics.js?v=2026-06-24-senate-resolve"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-21-b12-lifecycle"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
@@ -7446,8 +7446,8 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
                   <tr>
                     <td class="align-top">
-                      <template x-if="s.full"><button @click="openCharacterById(s.characterId)" class="font-semibold text-blue-800 hover:underline text-left" title="Open this character's sheet" x-text="s.name"></button></template>
-                      <template x-if="!s.full"><span class="font-semibold" x-text="s.name"></span></template>
+                      <template x-if="s.clickable"><button @click="openCharacterById(s.characterId)" class="font-semibold text-blue-800 hover:underline text-left" title="Open this character's sheet" x-text="s.name"></button></template>
+                      <template x-if="!s.clickable"><span class="font-semibold" x-text="s.name"></span></template>
                       <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded bg-amber-200" title="Seated by an Office favor (RR p.355)">📜</span>
                       <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦</span>
                     </td>
@@ -7459,8 +7459,8 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="s.clients.length === 0 && s.unnamedClients === 0"><span class="italic opacity-50">—</span></template>
                       <template x-for="cl in s.clients" :key="cl.id">
                         <span>
-                          <template x-if="cl.full"><button @click="openCharacterById(cl.id)" class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-200 text-blue-800 hover:underline" title="Open this character's sheet" x-text="cl.name"></button></template>
-                          <template x-if="!cl.full"><span class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-200" x-text="cl.name"></span></template>
+                          <template x-if="cl.clickable"><button @click="openCharacterById(cl.id)" class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-200 text-blue-800 hover:underline" title="Open this character's sheet" x-text="cl.name"></button></template>
+                          <template x-if="!cl.clickable"><span class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-amber-100 border border-amber-200" x-text="cl.name"></span></template>
                         </span>
                       </template>
                       <span x-show="s.unnamedClients > 0" class="text-amber-700" x-text="'+' + s.unnamedClients + ' unnamed'"></span>
@@ -7484,18 +7484,16 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- Independent minor senators (named, one vote each) -->
+        <!-- Independent minor senators (named, one vote each) — shown as a regular comma-separated list of
+             clickable characters (RR p.357: each independent minor senator is a defined character). -->
         <div class="border-t border-ink/20 pt-3">
           <h4 class="font-semibold mb-1">Independent minor senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateIndependentRows().length + senateUnnamedIndependents())"></span></h4>
-          <div class="text-sm">
+          <div class="text-sm leading-relaxed">
             <template x-if="senateIndependentRows().length === 0 && senateUnnamedIndependents() === 0"><span class="italic opacity-50">none — every vote is aligned with a leading senator</span></template>
-            <template x-for="ind in senateIndependentRows()" :key="ind.id">
-              <span>
-                <template x-if="ind.full"><button @click="openCharacterById(ind.id)" class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-stone-100 border border-stone-300 text-xs text-blue-800 hover:underline" title="Open this character's sheet" x-text="ind.name"></button></template>
-                <template x-if="!ind.full"><span class="inline-block px-1.5 py-0.5 mr-1 mb-0.5 rounded bg-stone-100 border border-stone-300 text-xs" x-text="ind.name"></span></template>
-              </span>
-            </template>
-            <span x-show="senateUnnamedIndependents() > 0" class="text-xs text-stone-500 ml-1" x-text="'+' + senateUnnamedIndependents() + (senateUnnamedIndependents()===1 ? ' unnamed vote' : ' unnamed votes')"></span>
+            <!-- one line per item (no inter-element whitespace) so the commas hug the preceding name -->
+            <template x-for="(ind, i) in senateIndependentRows()" :key="ind.id"><span><template x-if="ind.clickable"><button @click="openCharacterById(ind.id)" class="text-blue-800 hover:underline" title="Open this character's sheet" x-text="ind.name"></button></template><template x-if="!ind.clickable"><span x-text="ind.name"></span></template><span x-show="i < senateIndependentRows().length - 1" class="opacity-50">, </span></span></template>
+            <span x-show="senateUnnamedIndependents() > 0" class="opacity-60" x-text="(senateIndependentRows().length ? ' · ' : '') + '+' + senateUnnamedIndependents() + (senateUnnamedIndependents()===1 ? ' unnamed vote' : ' unnamed votes')"></span>
+            <button x-show="senateUnnamedIndependents() > 0" @click="senatePopulateNamed()" class="ml-2 text-xs px-1.5 py-0.5 border border-ink rounded bg-amber-100 hover:bg-amber-200 align-middle" title="Mint a defined character for every remaining independent vote (RR p.357)">Name them</button>
           </div>
         </div>
 
@@ -18014,6 +18012,33 @@ document.addEventListener('alpine:init', () => {
         <button @click="motionWizardRoll()" :disabled="!motionWizardCanRoll()" :class="motionWizardCanRoll() ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm" x-text="motionWizard.vote ? '⟳ Re-roll the vote' : '🗳 Roll the vote'"></button>
         <span class="text-xs opacity-60" x-show="!motionWizardCanRoll()" x-text="motionWizardRollHint()"></span>
       </div>
+      <!-- Step 3 (pre-roll) — show WHO will vote + the modifiers each WOULD carry, before the dice (the
+           same view as clicking the motion). The roll then replaces this with the tally below. -->
+      <template x-if="!motionWizard.vote && !motionWizardInHoneymoon() && motionWizardCanRoll()">
+        <div class="border border-ink/30 rounded p-3 bg-stone-50" x-data="{ get p(){ return motionWizardPreview(); } }">
+          <template x-if="p">
+            <div class="text-sm space-y-2">
+              <div class="opacity-70" x-text="'Total votes ' + p.totalVotes + ' · majority ' + p.majorityThreshold + ' · independents ' + p.independentMinorVotes + (p.controlledIndependentVotes ? ' (' + p.controlledIndependentVotes + ' directed)' : '')"></div>
+              <table class="bookkeeping text-xs w-full">
+                <thead><tr><th x-text="p.mode === 'by-faction' ? 'Faction' : 'Senator'"></th><th>Faction</th><th class="text-right">Votes</th><th>Modifiers on the roll</th><th class="text-right">Net</th></tr></thead>
+                <tbody>
+                  <template x-for="(row, i) in p.rows" :key="'wmp'+i">
+                    <tr>
+                      <td x-text="senateRollWho(row)"></td>
+                      <td class="text-xs opacity-70" x-text="row.factionName ? '—' : senateFactionName(row.factionId)"></td>
+                      <td class="text-right" x-text="row.votes"></td>
+                      <td class="opacity-80" x-text="senateRollModifiers(row)"></td>
+                      <td class="text-right" x-text="(row.total >= 0 ? '+' : '') + row.total"></td>
+                    </tr>
+                  </template>
+                  <template x-if="p.rows.length === 0"><tr><td colspan="5" class="text-center italic opacity-50 py-1">no leading senators</td></tr></template>
+                </tbody>
+              </table>
+              <p class="text-xs opacity-60">Who will vote, and the modifiers each carries before the dice — press 🗳 Roll the vote to roll 2d6 per senator (RR p.358).</p>
+            </div>
+          </template>
+        </div>
+      </template>
       <template x-if="motionWizard.vote">
         <div class="vellum border-2 rounded p-3" :class="motionWizard.vote.approved ? 'border-green-500 bg-green-50' : motionWizard.vote.outcome === 'rejected' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'">
           <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
@@ -18047,14 +18072,24 @@ document.addEventListener('alpine:init', () => {
 
       <!-- Step 4 — resolve -->
       <div class="wizard-step-header"><span class="wizard-step-n">Step 4</span>Resolve</div>
-      <template x-if="motionWizard.vote && !motionWizard.vote.approved && motionWizardRestricted() && motionWizard.kind !== 'dispute'">
-        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="motionWizard.enactDespiteRejection"> Defy the senate — enact anyway (→ <strong>dispute</strong>, RR p.359)</label>
+      <!-- RR p.359 — the ruler is NOT bound by an adverse vote: he may stand down (default), enact anyway
+           (→ the realm goes into dispute, for ANY matter), or dissolve the senate outright. The two acts
+           are mutually exclusive; leaving both unticked stands down. -->
+      <template x-if="motionWizard.vote && !motionWizard.vote.approved && motionWizard.kind !== 'dispute'">
+        <div class="space-y-1.5 text-sm border border-ink/20 rounded p-2 bg-stone-50">
+          <div class="font-semibold text-xs opacity-70">The senate voted the ruler down — his options (RR p.359):</div>
+          <label class="flex items-start gap-2"><input type="checkbox" x-model="motionWizard.enactDespiteRejection" @change="if(motionWizard.enactDespiteRejection) motionWizard.abandonGovernment = false" class="mt-0.5">
+            <span>Defy the senate — enact anyway. The realm goes into <strong>dispute</strong> (all senate benefits suspended until the ruler wins the senate’s retroactive approval).</span></label>
+          <label class="flex items-start gap-2"><input type="checkbox" x-model="motionWizard.abandonGovernment" @change="if(motionWizard.abandonGovernment) motionWizard.enactDespiteRejection = false" class="mt-0.5">
+            <span>🏳 <strong>Abandon senatorial government</strong> — dissolve the senate. Permanent benefit loss, “replace-ruler” senators turn Hostile, no re-establishing for 2d6 months.</span></label>
+          <p class="text-xs opacity-60" x-show="!motionWizard.enactDespiteRejection && !motionWizard.abandonGovernment">Leave both unticked to abide by the vote and stand down (no dispute).</p>
+        </div>
       </template>
       <p class="text-xs opacity-70" x-text="motionWizardResolveHint()"></p>
       <div class="wizard-submit-gate">
         <span class="wizard-submit-disabled-reason" x-text="motionWizardCommitDisabledReason()"></span>
         <div class="flex gap-2">
-          <button @click="motionWizardCommit()" :disabled="!motionWizardCanCommit()" :class="motionWizardCanCommit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="motionWizardCommitLabel()"></button>
+          <button @click="motionWizardCommit()" :disabled="!motionWizardCanCommit()" :class="!motionWizardCanCommit() ? 'opacity-50 cursor-not-allowed' : (motionWizard.abandonGovernment ? 'bg-red-300 hover:bg-red-400' : 'bg-yellow-300 hover:bg-yellow-400')" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="motionWizardCommitLabel()"></button>
         </div>
       </div>
     </div>
@@ -19726,8 +19761,8 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<script src="domain-app.js?v=2026-06-24-named-senate"></script>
-<script src="domain-app-burst5.js?v=2026-06-24-named-senate-2"></script>
+<script src="domain-app.js?v=2026-06-24-senate-resolve"></script>
+<script src="domain-app-burst5.js?v=2026-06-24-senate-resolve"></script>
 <script src="domain-app-military-w7.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-mounts.js?v=2026-06-23-t5-tail"></script>
 <script src="domain-app-voyages.js?v=2026-06-23-t5-tail"></script>

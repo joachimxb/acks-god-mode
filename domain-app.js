@@ -1538,7 +1538,8 @@ const _component = {
   motionWizard: { open: false, senateId: '', motionId: null, kind: 'edict', matter: 'change-taxes',
     customMatter: '', policyObjective: '', title: '', mode: 'per-senator', domainMorale: 0,
     rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0, policyHelps: [],
-    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false },
+    policyHinders: [], gmOutcome: 'approved', vote: null, rolledSpec: null, enactDespiteRejection: false,
+    abandonGovernment: false },
   // the senate the wizard is operating on (its own id, else the tab-selected senate)
   motionWizardSenate(){
     const A = window.ACKS, c = this.currentCampaign;
@@ -1586,7 +1587,7 @@ const _component = {
       kind: inDispute ? 'dispute' : 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '',
       title: '', mode: 'per-senator', domainMorale: 0, rulerFactionId: '', militaryLoyalty: 'none',
       controlledIndependentVotes: 0, policyHelps: [], policyHinders: [], gmOutcome: 'approved',
-      vote: null, rolledSpec: null, enactDespiteRejection: false };
+      vote: null, rolledSpec: null, enactDespiteRejection: false, abandonGovernment: false };
     if(motionId){
       const m = A.findSenateMotion(c, sid, motionId);
       if(m){
@@ -1602,7 +1603,15 @@ const _component = {
       }
     }
   },
-  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; },
+  closeMotionWizard(){ this.motionWizard.open = false; this.motionWizard.vote = null; this.motionWizard.rolledSpec = null; this.motionWizard.enactDespiteRejection = false; this.motionWizard.abandonGovernment = false; },
+  // Step 3 (pre-roll) — the dice-free preview of the voting bloc + the modifiers each senator WOULD
+  // carry, shown BEFORE the roll (same view as clicking a motion → openMotionDetail). REUSES the engine's
+  // previewSenateMotionModifiers; pure, no mutation. Returns null in honeymoon (the motion auto-passes).
+  motionWizardPreview(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
+    if(!A || !c || !senate || !A.previewSenateMotionModifiers || !this.motionWizardCanRoll() || this.motionWizardInHoneymoon()) return null;
+    return A.previewSenateMotionModifiers(c, { senateId: senate.id, motion: this._motionWizardSpec() });
+  },
   // Step 3 — roll the votes (REUSE the engine's senateVote via previewSenateMotionVote; pure, no event).
   motionWizardRoll(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
@@ -1614,6 +1623,8 @@ const _component = {
       rng: Math.random, autoRoll: auto, gmOutcome: honeymoon ? 'approved' : w.gmOutcome });
     this.motionWizard.vote = res;
     this.motionWizard.rolledSpec = spec;
+    this.motionWizard.enactDespiteRejection = false;   // a fresh roll starts with no defiance / abandonment chosen
+    this.motionWizard.abandonGovernment = false;
   },
   motionWizardCanCommit(){ return !!this.motionWizard.vote; },
   motionWizardCommitDisabledReason(){ return this.motionWizard.vote ? '' : 'Roll the vote first (Step 3).'; },
@@ -1622,7 +1633,8 @@ const _component = {
     if(!v) return '✓ Resolve';
     if(w.kind === 'dispute') return v.approved ? '✓ Clear the dispute' : '⚠ Resolve (escalates)';
     if(v.approved) return '✓ Enact with the senate’s sanction';
-    if(this.motionWizardRestricted() && w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
+    if(w.abandonGovernment) return '🏳 Abandon senatorial government';
+    if(w.enactDespiteRejection) return '⚠ Defy the senate (→ dispute)';
     return '✗ Motion fails (stand down)';
   },
   motionWizardResolveHint(){
@@ -1632,28 +1644,33 @@ const _component = {
       ? 'A majority FOR grants retroactive approval — the dispute ends and benefits return (RR p.359).'
       : 'Without a majority the dispute deepens: the against-voters seek to replace the ruler (RR p.359).';
     if(v.approved) return 'The motion carries — it is enacted with the senate’s sanction.';
-    if(this.motionWizardRestricted()) return w.enactDespiteRejection
-      ? 'The ruler enacts a restricted matter against the senate — the realm goes into dispute (RR p.359).'
-      : 'The motion fails; the ruler stands down (no dispute).';
-    return 'The motion fails; nothing is enacted.';
+    // RR p.359 — when the senate votes the ruler down he is NOT bound by it: he may stand down, enact
+    // anyway (→ dispute), or dissolve the senate entirely.
+    if(w.abandonGovernment) return 'The ruler dissolves the senate and rules without it — all senate benefits are permanently lost, “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months (RR p.359).';
+    if(w.enactDespiteRejection) return 'The ruler enacts the matter against the senate’s vote — the realm goes into dispute until he wins the senate’s retroactive approval (RR p.359).';
+    return 'The ruler abides by the vote and stands down — the motion fails, but the senate keeps its benefits (no dispute). Or pick an option below to act against it.';
   },
   // commit — open the motion (if fresh) + resolve it with the shown tally (the two P-5 events fire here).
   motionWizardCommit(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.motionWizardSenate();
     if(!A || !c || !senate || !this.motionWizard.vote) return;
-    let motionId = this.motionWizard.motionId;
+    const w = this.motionWizard;
+    if(w.abandonGovernment && !confirm('Abandon senatorial government? The senate is dissolved, all benefits are permanently lost, influential “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months (RR p.359).')) return;
+    let motionId = w.motionId;
     if(!motionId){
-      const m = A.openSenateMotion(c, this.motionWizard.rolledSpec || this._motionWizardSpec());
+      const m = A.openSenateMotion(c, w.rolledSpec || this._motionWizardSpec());
       if(!m) return;
-      motionId = m.id; this.motionWizard.motionId = motionId;
+      motionId = m.id; w.motionId = motionId;
     }
-    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: this.motionWizard.vote,
-      enactDespiteRejection: this.motionWizard.enactDespiteRejection });
+    // resolve the motion with the shown tally; defy only when chosen (and never while abandoning — the
+    // motion just fails, then the senate is dissolved outright, RR p.359).
+    const r = A.resolveSenateMotion(c, { senateId: senate.id, motionId, voteResult: w.vote,
+      enactDespiteRejection: w.enactDespiteRejection && !w.abandonGovernment });
+    let abandoned = null;
+    if(w.abandonGovernment) abandoned = A.abandonSenatorialGovernment(c, { senateId: senate.id });   // engine resolves the ruler from the apex
     this.markDirty(); this.schedulePersist();
-    if(r && r.ok){
-      const m = r.motion;
-      this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000);
-    }
+    if(abandoned) this.showToast('🏳 Senatorial government abandoned — ' + abandoned.penalties.hostileSenators.length + ' senator(s) turn Hostile; re-establish on/after turn ' + abandoned.penalties.reestablishCooldownUntilTurn + '.', 7000);
+    else if(r && r.ok){ const m = r.motion; this.showToast('📜 Motion resolved — ' + m.status + (m.outcome ? ' (' + m.outcome + ')' : ''), 5000); }
     this.closeMotionWizard();
   },
   // table the motion (open it, resolve later) — only when fresh (no motionId yet)

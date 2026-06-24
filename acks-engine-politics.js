@@ -699,9 +699,12 @@
     const turn = (opts.turn != null) ? opts.turn : (campaign.currentTurn || 1);
     let outcome = 'enacted', disputed = false, cleared = false;
 
-    if(restricted && !(consulted && approved)){
-      // Defied / skipped consultation on a restricted matter → dispute (RR p.359).
-      setSenateDispute(campaign, senate.id, { topic: matter, turn });
+    // RR p.359 — the realm goes into dispute when the ruler either SKIPS a required consultation
+    // (a restricted matter, not consulted) OR enacts a policy the senate VOTED AGAINST (ANY matter,
+    // consulted but not approved). enactPolicy is only called to ENACT, so consulted && !approved is
+    // the ruler acting against the vote — a dispute regardless of whether the matter was restricted.
+    if(!approved && (consulted || restricted)){
+      setSenateDispute(campaign, senate.id, { topic: matter || 'a policy', turn });
       outcome = 'defied'; disputed = true;
     } else {
       // Clean enactment. A retroactive-approval enactment while in dispute clears it.
@@ -714,7 +717,7 @@
       const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
       const rulerId = opts.rulerCharacterId || (apex && apex.rulerCharacterId) || null;
       const narrative = disputed
-        ? 'The ruler defies the ' + (senate.name || 'senate') + ' on ' + (matter || 'a restricted matter') + ' — the realm is in dispute.'
+        ? 'The ruler defies the ' + (senate.name || 'senate') + ' on ' + (matter || 'a policy') + ' — the realm is in dispute.'
         : cleared
           ? 'The ruler wins the ' + (senate.name || 'senate') + '’s retroactive approval — the dispute ends.'
           : 'The ruler enacts ' + (matter || 'a policy') + ' with the ' + (senate.name || 'senate') + '’s sanction.';
@@ -1497,7 +1500,10 @@
         enact = enactPolicy(campaign, { senate, senateId: senate.id, matter: motion.matter, consulted: true, approved: true, rulerCharacterId: rulerId, turn, emit: false });
         motion.status = (enact && enact.cleared) ? 'dispute-cleared' : 'enacted';
       } else if(opts.enactDespiteRejection){
-        enact = enactPolicy(campaign, { senate, senateId: senate.id, matter: motion.matter, consulted: true, approved: false, rulerCharacterId: rulerId, turn, emit: false });
+        // RR p.359 — enacting against the vote (ANY matter) puts the realm in dispute. A policy motion
+        // carries no `matter`, so name the dispute topic from the policy objective / motion label.
+        const defyTopic = motion.matter || motion.policyObjective || _motionMatterLabel(motion);
+        enact = enactPolicy(campaign, { senate, senateId: senate.id, matter: defyTopic, consulted: true, approved: false, rulerCharacterId: rulerId, turn, emit: false });
         motion.status = (enact && enact.disputed) ? 'defied' : 'enacted';
       } else {
         motion.status = 'rejected';
