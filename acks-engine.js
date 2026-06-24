@@ -5511,23 +5511,11 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let the arcane domain fail the monthly commit */ }
   }
 
-  // === MAGIC RESEARCH — the monthly research accrual (Phase 4 AD-M1; RR pp.388–393) ===
-  // Each in-progress Research Project accrues a month's research labor (the researcher + aiding
-  // assistants' rate × 30); a fully-invested project moves to 'awaiting-throw' (the throw is a
-  // GM/player action — total loss on failure, never auto-rolled) or auto-completes if it needs no
-  // throw + no components. Late-bound (acks-engine-magic-research.js loads after this file) +
-  // try-guarded (the Religion/arcane precedent), so it can never fail the core monthly commit. No
-  // house rule (RAW core, dormant — no researchProjects ⇒ a no-op). 🔧 v1: monthly grain (the
-  // per-day day-tick grain is deferred, consistent with the arcane core).
-  let researchResult = { ran: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processResearchForTurn === 'function'){
-        researchResult = global.ACKS.processResearchForTurn(campaign, { rng }) || researchResult;
-        (researchResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let magic research fail the monthly commit */ }
-  }
+  // === MAGIC RESEARCH accrual — moved to the Day Clock (SR-1, 2026-06-24; RR p.388) ===
+  // Research now accrues PER-DAY via the slot-56 'magic-research' day consumer
+  // (acks-engine-magic-research.js). runDayTickToMonthEnd (below, the default-ON subsume) drives
+  // it across the month commit, and day-by-day play ticks it directly — so do NOT also call
+  // processResearchForTurn here (that would double-count the month).
 
   // === THE ARCANE DOMAIN — sanctum apprentices (Phase 4 Sanctums, AD-B; RR p.386) ===
   // The monthly sanctum consumer advances each apprentice's study clock (Q5: 12 monthly turns ≈ 1 year);
@@ -5636,7 +5624,6 @@ function commitTurn(campaign, proposal, options){
     livingExpenseResult,
     favorDutyResult,
     agingResult,                 // CL-1 (burst4) — the monthly aging pass result
-    researchResult,              // AD-M1 — the monthly magic-research accrual result
     loyaltyDrifts,
     rumorDrifts,
     newCurrentTurn: campaign.currentTurn,
@@ -5811,6 +5798,9 @@ function dayTickActivityInFlight(campaign){
   // Urban investment paid over time (RR p.353): a settlement with a committed investment budget is
   // day-aware activity in flight — its 500gp/day drip runs on the Day Clock (slot-51 consumer).
   if(Array.isArray(campaign.settlements) && campaign.settlements.some(s => s && (s.investmentBudgetGp || 0) > 0)) return true;
+  // Magic Research (SR-1) — an in-progress research project is day-aware activity in flight: the slot-56
+  // 'magic-research' consumer accrues its per-day rate on the Day Clock (RR p.388).
+  if(Array.isArray(campaign.researchProjects) && campaign.researchProjects.some(p => p && p.status === 'in-progress')) return true;
   return false;
 }
 

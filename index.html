@@ -13740,7 +13740,7 @@ document.addEventListener('alpine:init', () => {
 
                 <!-- in-progress: rate + days -->
                 <template x-if="p.status==='in-progress'">
-                  <div class="text-xs opacity-80">Researching at <span class="font-mono" x-text="researchProjectRate(p).toLocaleString()"></span> gp/day (researcher + assistants) · <span class="font-mono" x-text="researchProjectDays(p)"></span> day(s) of dedicated work left, credited at the monthly turn (~<span class="font-mono" x-text="researchProjectMonths(p)"></span>). Advance the month to progress.</div>
+                  <div class="text-xs opacity-80">Researching at <span class="font-mono" x-text="researchProjectRate(p).toLocaleString()"></span> gp/day (researcher + assistants) · <span class="font-mono" x-text="researchProjectDays(p)"></span> day(s) of dedicated work left. Advance the Day Clock (or commit the month) to research.</div>
                 </template>
 
                 <!-- awaiting-throw: the component plan + the throw + the stakes -->
@@ -13793,7 +13793,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </div>
             </template>
-            <p class="text-[11px] opacity-50 italic">Research advances each monthly turn (Advance Month) — the researcher (and any assistants) dedicate their days to it, so it shows on the 📋 Activities dashboard. A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
+            <p class="text-[11px] opacity-50 italic">Research advances day-by-day on the Day Clock (and across an Advance Month) — the researcher (and any assistants) dedicate their days to it, so it shows on the 📋 Activities dashboard. A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
           </div>
         </template>
       </div>
