@@ -135,6 +135,10 @@
   // Per-project reads + the throw flow
   researchProjectRate(p){ return p ? Math.round(window.ACKS.totalResearchRate(this.currentCampaign, p)) : 0; },
   researchProjectDays(p){ const d = p ? window.ACKS.researchDaysRemaining(this.currentCampaign, p) : 0; return (d === Infinity) ? '∞' : d; },
+  // Realistic completion ETA in MONTHLY turns (the accrual cadence): labour accrues rate×30/turn, so
+  // months = ceil(remaining ÷ (rate×30)). Pairs with researchProjectDays (days-of-dedicated-work) to
+  // resolve the "N days remaining but advances monthly" mismatch — this is when the pool actually fills.
+  researchProjectMonths(p){ if(!p) return '∞'; const A = window.ACKS; const rate = A.totalResearchRate(this.currentCampaign, p); if(!(rate > 0)) return '∞'; const remaining = Math.max(0, (p.researchCostGp||0) - (p.researchInvestedGp||0)); const m = Math.max(1, Math.ceil(remaining / (rate*30))); return m + ' monthly turn' + (m===1?'':'s'); },
   researchProjectThrow(p){ return p ? window.ACKS.researchThrowInfo(this.currentCampaign, p) : null; },
   researchArcaneAvailable(ch){ return (ch && window.ACKS.arcanePowerAvailable) ? window.ACKS.arcanePowerAvailable(this.currentCampaign, ch.id) : 0; },
   researchComponentsHeld(ch){ return (ch && window.ACKS.specialComponentsHeldBy) ? (window.ACKS.specialComponentsHeldBy(this.currentCampaign, ch.id) || []) : []; },

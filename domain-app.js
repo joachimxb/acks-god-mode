@@ -1090,6 +1090,7 @@ const _component = {
         if(this.currentView==='review' && this.reviewSubView==='construction'){ this.currentView='domain-turn'; this.monthlyTurnSubView='construction'; this.reviewSubView='pending-events'; }
         // 🛒 Market re-homed from Activities to the Settlement sheet (2026-06-22) — fall back to the dashboard.
         if(this.currentView==='activities' && this.activitiesSubView==='market') this.activitiesSubView='activities';
+        if(this.currentView==='activities' && this.activitiesSubView==='spell-research') this.activitiesSubView='activities';
         // Final safety net — land on the default if currentView is still unknown.
         if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='domains';
         // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
@@ -4307,8 +4308,7 @@ const _component = {
       { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
-      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' },
-      { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
+      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' }
     ];
     if(this.gladiatorsTabVisible())
       tabs.push({ id:'gladiators', label:'🏟 Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
@@ -4918,6 +4918,7 @@ const _component = {
       const inBout = (camp.bouts || []).some(b => b && b.status === 'scheduled' && [].concat(b.sideA?.combatantIds||[], b.sideB?.combatantIds||[]).includes(c.id));
       gladiating = !!(tInfo.inTraining || inBout);
     }
+    const researching = (camp.researchProjects || []).some(p => p && (p.researcherCharacterId === c.id || (p.assistantCharacterIds||[]).includes(c.id)) && (p.status === 'in-progress' || p.status === 'awaiting-throw'));
     const T = (ok, okText, reason) => ok ? okText : reason;
     return [
       { key:'market',         icon:'🛒', label:'Market',        active:false,     enabled:atSet, title:T(atSet, 'Buy or sell at ' + setName, setReason) },
@@ -4930,7 +4931,7 @@ const _component = {
       { key:'banking',        icon:'🏦', label:'Banking',        active:false,     enabled:atSet, title:T(atSet, 'Banking & loans (RR p.42)', setReason) },
       { key:'magic-items',    icon:'🪄', label:'Magic Items',    active:false,     enabled:atSet, title:T(atSet, 'Identify, buy, sell or commission magic items', setReason) },
       { key:'gladiators',     icon:'🏟', label:'Gladiators',     active:gladiating, enabled:this.gladiatorsTabVisible(), title: gladiating ? 'In the arena — go to the Gladiators view →' : T(this.gladiatorsTabVisible(), 'Arena games & gladiator schools', 'Enable the Gladiators house rule first.') },
-      { key:'spell-research', icon:'📜', label:'Spell Research', active:false,     enabled:false, title:'Coming soon (Phase 4.6).' }
+      { key:'spell-research', icon:'📜', label:'Spell Research', active:researching, enabled:this.characterIsArcaneCaster(c), title: researching ? 'Research under way — go to the ⚗ Research tab →' : T(this.characterIsArcaneCaster(c), 'Begin or manage magic research (RR pp.388–420)', 'Only an arcane caster can perform magic research (RR p.386).') }
     ];
   },
   runCharacterAction(act, c){
@@ -4944,6 +4945,7 @@ const _component = {
         case 'ventures':   this.openVenturesForCharacter(c); return;
         case 'hijinks':    this.currentView = 'activities'; this.activitiesSubView = 'hijinks'; return;
         case 'gladiators': this.currentView = 'activities'; this.activitiesSubView = 'gladiators'; return;
+        case 'spell-research': this.openCharacterEditor(c); this.characterEditorTab = 'research'; return;
         default: break;
       }
     }
@@ -4958,6 +4960,7 @@ const _component = {
       case 'banking':     this.currentView = 'activities'; this.activitiesSubView = 'banking'; break;
       case 'magic-items': this.currentView = 'activities'; this.activitiesSubView = 'magic-items'; break;
       case 'gladiators':  this.currentView = 'activities'; this.activitiesSubView = 'gladiators'; break;
+      case 'spell-research': this.openCharacterEditor(c); this.characterEditorTab = 'research'; break;
       default: break;
     }
   },

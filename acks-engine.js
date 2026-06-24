@@ -7165,6 +7165,24 @@ function characterActivityBudget(campaign, charId, opts){
     }
   }
 
+  // ── Magic research (Phase 4 AD-M1; budget plan §13 — "research = dedicated-ongoing") ──
+  // An in-progress research project DEDICATES the researcher's day (RR p.388 — 8 h/day at the full
+  // research rate). Each named ASSISTANT likewise dedicates their day. RAW research IS per-day
+  // downtime even though the engine ACCRUES the labour MONTHLY (processResearchForTurn; the per-day
+  // accrual grain is deferred, consistent with the arcane core) — so the budget tracks per-day
+  // OCCUPANCY: a researching mage reads as busy today (and is travel-capped), while the pool still
+  // fills at the monthly turn. 'awaiting-throw' = labour-complete, waiting on a discrete throw (not
+  // ongoing work) → not counted. Read from campaign.researchProjects (plain data) — no magic-research
+  // module call, so no load-order coupling (this accessor is engine-core; that module loads later).
+  for(const p of ((campaign && campaign.researchProjects) || [])){
+    if(!p || p.status !== 'in-progress') continue;
+    const isResearcher = p.researcherCharacterId === charId;
+    const isAssistant  = Array.isArray(p.assistantCharacterIds) && p.assistantCharacterIds.indexOf(charId) >= 0;
+    if(!isResearcher && !isAssistant) continue;
+    const rc = costFor('research');
+    activities.push({ kind:'research', label: (rc.label || 'Magic research') + (p.name ? (' — ' + p.name) : '') + (isResearcher ? '' : ' (assisting)'), cost: rc.cost, strenuous: !!rc.strenuous, sourceKind:'research-project', sourceId: p.id });
+  }
+
   // ── Entity-less errand store — cost-tagged daily events (OQ1 RESOLVED 2026-06-04, plan §9/§14) ──
   // The errand half of the hybrid: union the actor's cost-tagged events for THIS GAME DAY into the
   // budget. RAW refreshes the 1-dedicated-+-4-ancillary / 12-ancillary allowance each game DAY (not

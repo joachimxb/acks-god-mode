@@ -9978,17 +9978,6 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- Sub-panel: Spell Research (Phase 4.6 placeholder). -->
-<div x-show="currentView === 'activities' && activitiesSubView === 'spell-research'" class="p-4" x-cloak>
-  <div class="max-w-screen-2xl mx-auto space-y-4">
-    <div class="vellum border border-ink rounded p-6 text-center">
-      <h2 class="font-bold text-xl mb-2">📜 Spell Research</h2>
-      <p class="text-sm opacity-70 mb-3">Research new spells, ritual magic, custom spell creation (RR pp.388–420).</p>
-      <p class="text-sm italic opacity-60">Coming in Phase 4.6. Specs at <code>Phase_4.6_Spell_Research_Plan.md</code> (queued).</p>
-    </div>
-  </div>
-</div>
-
 <!-- ═══════════ VIEW: INSPECTOR (#555 Wave Inspector-B — 2026-05-31) ═══════════ -->
 <!-- Schema-driven Browse / Inspect / Edit / Create for any entity in the data layer.
      Reads the Entity Registry (#550) for kind enumeration + lookups, and the Field
@@ -13751,7 +13740,7 @@ document.addEventListener('alpine:init', () => {
 
                 <!-- in-progress: rate + days -->
                 <template x-if="p.status==='in-progress'">
-                  <div class="text-xs opacity-80">Investing <span class="font-mono" x-text="researchProjectRate(p).toLocaleString()"></span> gp/day (the researcher + assistants) · <span class="font-mono" x-text="researchProjectDays(p)"></span> day(s) of research remaining. Advances each monthly turn.</div>
+                  <div class="text-xs opacity-80">Researching at <span class="font-mono" x-text="researchProjectRate(p).toLocaleString()"></span> gp/day (researcher + assistants) · <span class="font-mono" x-text="researchProjectDays(p)"></span> day(s) of dedicated work left, credited at the monthly turn (~<span class="font-mono" x-text="researchProjectMonths(p)"></span>). Advance the month to progress.</div>
                 </template>
 
                 <!-- awaiting-throw: the component plan + the throw + the stakes -->
@@ -13804,7 +13793,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </div>
             </template>
-            <p class="text-[11px] opacity-50 italic">Research advances each monthly turn (Advance Month). A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
+            <p class="text-[11px] opacity-50 italic">Research advances each monthly turn (Advance Month) — the researcher (and any assistants) dedicate their days to it, so it shows on the 📋 Activities dashboard. A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
           </div>
         </template>
       </div>
