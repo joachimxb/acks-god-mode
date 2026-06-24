@@ -265,18 +265,26 @@
     const ch = c && (c.characters || []).find(x => x && x.id === id);
     return ch ? (ch.name || ch.id) : id;
   },
+  // Phase 5 — a senator is "clickable" (opens its character sheet) only when its underlying Character is a
+  // FULL-FLEDGED character (not a lightweight minor-senator stub; an absent character is not clickable).
+  _senIsFull(id){
+    if(!id) return false;
+    const c = this.currentCampaign;
+    const ch = c && (c.characters || []).find(x => x && x.id === id);
+    return !!(ch && ch.detailLevel !== 'lightweight');
+  },
   senateLeadingSenatorRows(){
     const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
     if(!A || !c || !senate) return [];
     return (A.senatorshipsForSenate(c, senate.id) || []).filter(s => s.rank !== 'minor').sort((a, b) => (b.votes || 0) - (a.votes || 0)).map(s => {
       const ch = (c.characters || []).find(x => x && x.id === s.senatorCharacterId);
       const f = s.factionId ? A.findFaction(c, s.factionId) : null;
-      // Phase 5 — the patron's NAMED clients + the unnamed remainder (legacy/under-populated bloc).
+      // Phase 5 — the patron's NAMED clients (each with a clickable flag) + the unnamed remainder.
       const clientIds = Array.isArray(s.clientCharacterIds) ? s.clientCharacterIds : [];
-      const clients = clientIds.map(id => ({ id, name: this._senCharName(id) }));
+      const clients = clientIds.map(id => ({ id, name: this._senCharName(id), full: this._senIsFull(id) }));
       const unnamedClients = Math.max(0, (s.votes || 1) - 1 - clients.length);
       return {
-        id: s.id, characterId: s.senatorCharacterId,
+        id: s.id, characterId: s.senatorCharacterId, full: this._senIsFull(s.senatorCharacterId),
         name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
         factionName: f ? (f.name || f.id) : '—', factionId: s.factionId || null, votes: s.votes || 0,
         objectives: (Array.isArray(s.policyObjectives) && s.policyObjectives.length) ? s.policyObjectives.join(', ') : '—',
@@ -287,12 +295,12 @@
       };
     });
   },
-  // Phase 5 — the NAMED independent minor senators + the unnamed remainder (one vote each).
+  // Phase 5 — the NAMED independent minor senators (each with a clickable flag) + the unnamed remainder.
   senateIndependentRows(){
     const senate = this.senateSelected();
     if(!senate) return [];
     return (Array.isArray(senate.independentSenatorCharacterIds) ? senate.independentSenatorCharacterIds : [])
-      .map(id => ({ id, name: this._senCharName(id) }));
+      .map(id => ({ id, name: this._senCharName(id), full: this._senIsFull(id) }));
   },
   senateUnnamedIndependents(){
     const senate = this.senateSelected();
