@@ -2040,6 +2040,11 @@
     opts = opts || {};
     const apex = realmApexDomain(campaign, opts.apexDomain || _findDomain(campaign, opts.domainId));
     if(!apex) return { ok:false, reason:'no-domain' };
+    // Tribal Domains gate (RR p.354): a senate cannot sit on a primitive clanhold apex (no call-to-
+    // council except war, no grants of title). Late-bound onto domain-variants; opts.force overrides
+    // (GM sovereignty). Transitional / civilized / demchi apexes pass.
+    if(!opts.force && typeof ACKS.domainTypeAllowsSenate === 'function' && typeof ACKS.domainTypeOf === 'function'
+       && !ACKS.domainTypeAllowsSenate(ACKS.domainTypeOf(apex))) return { ok:false, reason:'clanhold-no-senate' };
     const existing = senateForRealm(campaign, apex.id);
     if(existing && existing.status !== 'dissolved' && !opts.replace) return { ok:false, reason:'senate-exists', senateId: existing.id };
     const plan = (opts.plan && opts.plan.ok) ? opts.plan

@@ -1102,10 +1102,18 @@ function _isLevyUnit(u){ return !!u && (u.source === 'conscript' || u.source ===
 // A levy is TRAINED once it's been converted off the 'untrained-levy' type (RR p.431).
 function _isTrainedLevy(u){ return !!u && u.unitTypeKey && u.unitTypeKey !== 'untrained-levy'; }
 
-// RR p.430 — ≤1 conscript per 10 peasant families (no morale/revenue cost).
-function conscriptLevyMax(d){ return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10); }
-// RR p.432 — ≤2 additional militia per 10 peasant families.
-function militiaLevyMax(d){ return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10) * 2; }
+// RR p.430 — ≤1 conscript per 10 peasant families (no morale/revenue cost). Tribal Domains (RR p.433):
+// a clanhold CANNOT conscript or levy militia — only clan warriors — so its levy cap is 0 (late-bound
+// onto domainAllowsConscription/Militia from domain-variants; absent ⇒ true ⇒ no change).
+function conscriptLevyMax(d){
+  const A = global.ACKS; if(A && typeof A.domainAllowsConscription === 'function' && !A.domainAllowsConscription(d)) return 0;
+  return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10);
+}
+// RR p.432 — ≤2 additional militia per 10 peasant families (0 for a clanhold, RR p.433).
+function militiaLevyMax(d){
+  const A = global.ACKS; if(A && typeof A.domainAllowsMilitia === 'function' && !A.domainAllowsMilitia(d)) return 0;
+  return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10) * 2;
+}
 
 // Levy units raised from a domain (ownerDomainId match), optionally filtered by source.
 function domainLevyUnits(campaign, domainOrId, source){

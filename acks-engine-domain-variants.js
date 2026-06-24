@@ -1,47 +1,45 @@
 /* =============================================================================
  * acks-engine-domain-variants.js — ACKS God Mode Domain Variants (Module: domain-variants)
  *
- * Phase 5 — Domain Variants. v1 ships Pastoralist economics (P5-PAST,
- * Phase_5_Domain_Variants_Plan.md §3; JJ ch.21 pp.436–438). Terrain Transformation
- * (P5-TERR) and Transformations (P5-TRANS) are separate later waves.
+ * Phase 5 — Domain Variants. This module ships:
+ *   • TRIBAL DOMAINS (Phase_5_Tribal_Domains_Plan.md) — the RAW domain-TYPE layer:
+ *     Clanhold (RR p.353) · Transitional (RR p.354) · Beastman (clanhold + race tag,
+ *     RR p.354) · Demchi (AXIOMS, the cap/income accessors are forward-built here; the
+ *     full demchi income ledger + nomad F&D table land in PT-C). On a first-class
+ *     Domain.domainType field ('civilized' default | 'clanhold' | 'transitional' | 'demchi')
+ *     + Domain.dominantRace (the beastman tag). The field IS the switch — ZERO new house
+ *     rules (core-RAW polarity; 'civilized' is byte-identical to today). Headline:
+ *     **the domain type owns the per-hex family cap + the levy + the favors/duties set + the
+ *     senate gate** (the survey's two-axis finding — pastoralism is a domain TYPE, not a
+ *     per-hex economy).
+ *   • TERRAIN TRANSFORMATION (P5-TERR; JJ p.412) — unchanged (the lower half of this file).
  *
- * The load-bearing RAW finding (plan §3.1): JJ ch.21 is an econometric *justification
- * essay*, not a domain-revenue ruleset — so the domain-application math is a transparent
- * DERIVATION from the RAW caloric-efficiency + per-head figures, GM-overridable
- * ("cartography before mechanics"). A herding hex feeds far fewer families per acre
- * (caloric efficiency 0.20–0.42 vs farming) at ~the same income/family (94–100% of the
- * "secret ratio") — "a civilization can get rich on cattle but can't feed itself."
- * The structural shape: income/family ≈ same; families/hex ≈ much lower.
+ * REMOVED 2026-06-24 (Tribal Domains PT-0, Joachim's call): the shipped per-hex Pastoralist
+ * economics (the PASTORALIST_ECONOMICS caloric-efficiency catalog, the family-cap-×-efficiency
+ * accessors, the incomeBreakdown density late-bind, setHexEconomyType, the `economy-type-changed`
+ * event, the 🐄 panel). RAW puts pastoralism in the DOMAIN-TYPE cap (clanhold flat-125 / demchi
+ * land-value curve), not a per-hex caloric factor — so the economy layer is retired in favour of
+ * the clanhold. A load-migration rewrites any leftover `pastoralist-*`/`mixed` Hex.economyType →
+ * 'agricultural'. (The Hex.economyType field stays RESERVED for the still-reserved
+ * mining/fishing/forestry/magical markers owned by other subsystems.)
  *
- * Activation: the Hex.economyType discriminator (reserved on blankHex, default
- * 'agricultural'). Selecting a 'pastoralist-*' / 'mixed' economyType IS the opt-in —
- * NO master house rule (the §6 RAW-default polarity: agricultural is RAW, the variant
- * is "a component turned on", Architecture §2.2). Agricultural / absent / a reserved
- * non-pastoralist marker (mining/fishing/forestry/magical, owned by other subsystems)
- * ⇒ every accessor is a no-op ⇒ byte-identical (the economy oracle stays green).
+ * Integration (the canonical cap, hexFamilyCap): the domain type's per-hex family cap LATE-BINDS
+ * into incomeBreakdown's land row via ONE guarded hook in acks-engine-economy.js
+ * (applyDomainTypeLandRevenue — the slot the removed applyPastoralistLandRevenue held). gp/family
+ * is untouched (RAW); only the families the capped land sustains generate land revenue. In the
+ * per-hex land branch (landRow = Σ fam·val) the hook yields the EXACT capped sum:
+ *   clanhold     → Σ min(fam,125)·val
+ *   transitional → Σ [min(fam,125)·val + max(0,fam−125)·val·0.5]   (the RR p.354 half-overage)
+ *   civilized    → unchanged (factor 1 ⇒ byte-identical — the economy oracle stays green).
+ * The −2 vassal-morale-under-clanhold-rule penalty late-binds into moraleModifiersFor (the
+ * militia/sanctum precedent). The clanhold conscript/militia ban late-binds into Military W7's
+ * levy caps. The senate gate validates Politics' senate-establish path.
  *
- * Integration: the per-hex carrying-capacity density LATE-BINDS into incomeBreakdown's
- * land row via ONE guarded hook in acks-engine-economy.js (the moraleModifiersFor
- * late-bind precedent); the logic lives HERE. Land value/family is untouched — only the
- * families the herding land can feed generate land revenue (a hex over its pastoralist
- * cap loses the surplus's land contribution). In the per-hex land branch the
- * multiplicative factor [Σ min(fam,cap)·val / Σ fam·val] yields the *exact* per-hex
- * capped sum; in the aggregate branch it is a faithful density reduction of the
- * aggregate. The carrying-capacity CAP itself (the growth ceiling) lives in the
- * population-growth consumer (subsystems.js HEX_POP_CEILING) and is out of scope here;
- * this is the cap's current-revenue shadow (a hex below its pastoralist cap is unaffected
- * — RAW: income/family is the same, the difference is only at scale).
- *
- * Seams (pointers, NOT built here, per plan §3.6): the `vulnerability` tags (drought /
- * murrain) a future Calamity/Vagary event reads; the mounted-scout favorable-ratio that a
- * pastoralist economyType informs in Military's Conscript levy (W7). Neither is double-
- * implemented here.
- *
- * Load order: AFTER acks-engine-catalogs.js (terrainBase), acks-engine.js (bankersRound),
- * acks-engine-economy.js (effectiveHexValue / hexesForDomain / settlementForHex) and
- * acks-engine-events.js (newEvent / setEventContext / registerEventKind). All cross-module
- * references are call-time aliases onto global.ACKS, so the function bodies never depend on
- * sibling load order.
+ * Load order: AFTER acks-engine-catalogs.js (terrainBase), acks-engine.js (bankersRound /
+ * registerLoadMigration), acks-engine-economy.js (effectiveHexValue / hexesForDomain /
+ * settlementForHex) and acks-engine-events.js (newEvent / setEventContext / registerEventKind).
+ * All cross-module references are call-time aliases onto global.ACKS, so the function bodies
+ * never depend on sibling load order.
  * =============================================================================
  */
 (function(global){
@@ -60,219 +58,383 @@ const hexNameOf         = (hex) => (typeof ACKS.hexName === 'function' ? ACKS.he
 
 // ── RAW reference data ───────────────────────────────────────────────────────
 
-// Per-6-mile-hex agricultural family ceilings by classification (RR p.340). Mirrors the
-// (module-local, unexported) HEX_POP_CEILING in subsystems.js — reference data, not a fork;
-// the pastoralist cap is this × caloric efficiency.
+// Per-6-mile-hex agricultural (civilized-type) family ceilings by classification (RR p.340).
+// Mirrors the (module-local, unexported) HEX_POP_CEILING in subsystems.js — reference data, not a
+// fork. The CIVILIZED branch of the canonical hexFamilyCap (clanhold/transitional use the flat 125,
+// demchi the land-value curve).
 const AGRICULTURAL_FAMILY_CAP = Object.freeze({ civilized: 780, borderlands: 375, outlands: 185, unsettled: 185 });
 
-// PASTORALIST_ECONOMICS — the per-economy figures (plan §3.5; JJ pp.436–438). IP-clean: values +
-// page cites, no rulebook prose (§13.6). Keyed by the Hex.economyType enum value (plan §3.2).
-//   caloricEfficiency — caloric return on the same acreage vs farming (the families/hex density
-//                       factor; farming = 1.0 baseline).
-//   rearableTerrain   — the RAW per-terrain rearing constraint mapped to the 10 TERRAIN_BASES
-//                       (a GM hint, never a hard block — plan §3.5).
-//   revenuePerHeadGp / herdSize — display/reference only (the income spine is unchanged;
-//                       gp/family is untouched — RAW: pastoralist income/family ≈ farming).
-//   vulnerability     — reserved tags a future drought/murrain Calamity/Vagary event reads (§3.6).
-const PASTORALIST_ECONOMICS = Object.freeze({
-  'pastoralist-cattle': Object.freeze({ label: 'Cattle', caloricEfficiency: 0.30, revenuePerHeadGp: 10.41, herdSize: 16,
-    rearableTerrain: Object.freeze(['grassland', 'scrubland', 'forest', 'hills']),         // Clear/Grass · Scrub · Woods · Hills
-    vulnerability: Object.freeze(['drought', 'murrain']), cite: 'JJ p.436' }),
-  'pastoralist-goat':   Object.freeze({ label: 'Goat', caloricEfficiency: 0.37, revenuePerHeadGp: 1.90, herdSize: 16,
-    rearableTerrain: Object.freeze(['grassland', 'scrubland', 'forest', 'hills', 'mountains', 'barrens']),
-    vulnerability: Object.freeze(['drought', 'murrain']), cite: 'JJ p.437' }),
-  'pastoralist-sheep':  Object.freeze({ label: 'Sheep', caloricEfficiency: 0.20, revenuePerHeadGp: 1.58, herdSize: 16,
-    rearableTerrain: Object.freeze(['grassland', 'scrubland', 'forest', 'hills', 'mountains']),   // not Barrens
-    vulnerability: Object.freeze(['drought', 'murrain', 'wool-market']), cite: 'JJ p.437' }),
-  'pastoralist-swine':  Object.freeze({ label: 'Swine', caloricEfficiency: 0.42, revenuePerHeadGp: 1.14, herdSize: 11,
-    rearableTerrain: Object.freeze(['grassland', 'scrubland', 'forest', 'hills', 'swamp', 'jungle']),
-    vulnerability: Object.freeze(['murrain']), cite: 'JJ p.438' }),
-  // Mixed grazing (cattle + one goat/sheep per head on the same acreage — JJ p.436 "different
-  // forage niches"): the cattle base + half the small-stock yield (plan §3.4 — 0.30 + 0.5×0.20 ≈
-  // 0.40). v1 ships the single default blend; a per-hex mixedGrazingRatio refinement is reserved.
-  'mixed':              Object.freeze({ label: 'Mixed grazing', caloricEfficiency: 0.40, revenuePerHeadGp: 0, herdSize: 16,
-    rearableTerrain: Object.freeze(['grassland', 'scrubland', 'forest', 'hills']),
-    vulnerability: Object.freeze(['drought', 'murrain']), cite: 'JJ p.436' }),
-});
+// The four RAW domain types (Phase_5_Tribal_Domains_Plan.md §3.1). The Domain.domainType field IS
+// the switch (decision 2 — zero new house rules); 'civilized' (the default) is byte-identical to
+// today. Demchi's cap/income accessors are forward-built; its full income ledger + nomad F&D table
+// land in PT-C.
+const DOMAIN_TYPES = Object.freeze(['civilized', 'clanhold', 'transitional', 'demchi']);
+const DOMAIN_TYPE_LABELS = Object.freeze({ civilized: 'Civilized', clanhold: 'Barbarian Clanhold', transitional: 'Transitional', demchi: 'Demchi (nomad)' });
 
-// Reserved non-agricultural markers owned by OTHER subsystems (plan §3.2) — valid economyType
-// values, but this module is a no-op for them (caloric efficiency 1 ⇒ no density change).
-const RESERVED_ECONOMY_TYPES = Object.freeze(['mining', 'fishing', 'forestry', 'magical']);
+// The clanhold flat per-6-mile-hex cap (RR p.353 — always-outlands, extensive subsistence; the
+// 24-mile aggregate is 2,000). Transitional uses the same 125 as the FULL-value threshold, with
+// overage permitted at half land value (RR p.354).
+const CLANHOLD_HEX_FAMILY_CAP = 125;
+const CLANHOLD_HEX_FAMILY_CAP_24MILE = 2000;
 
-// ── Catalog accessors ────────────────────────────────────────────────────────
+// Clanhold settlement limits (RR p.353): urban families < 250, Market Class VI max, never > 12.5%
+// of the clanhold's peasant population, and NOT raisable by urban investment.
+const CLANHOLD_URBAN_FAMILY_HARD_CAP = 250;
+const CLANHOLD_URBAN_FRACTION = 0.125;
 
-function isPastoralistEconomy(economyType) { return !!PASTORALIST_ECONOMICS[economyType]; }
-function pastoralistEconomyInfo(economyType) { return PASTORALIST_ECONOMICS[economyType] || null; }
-function pastoralistEconomyTypes() { return Object.keys(PASTORALIST_ECONOMICS); }
-function pastoralistEconomyLabel(economyType) {
-  if (!economyType || economyType === 'agricultural') return 'Agricultural';
-  const e = PASTORALIST_ECONOMICS[economyType];
-  if (e) return e.label;
-  return economyType.charAt(0).toUpperCase() + economyType.slice(1);
+// Demchi land-value → MAXIMUM population per 6-mile hex (AXIOMS "What is Best in Life" II; the
+// inverse of the agricultural "land value → gp/family"). Poor steppe (LV 3) → 10 families/hex.
+// PT-C's demchi income ledger reads this; built now so hexFamilyCap is forward-complete.
+const DEMCHI_MAX_POP_BY_LAND_VALUE = Object.freeze({ 1: 3, 2: 5, 3: 10, 4: 25, 5: 50 }); // 6+ → 100
+
+// The clanhold restricted Favors & Duties set (RR p.354): a clanhold lord MAY NOT demand a
+// call-to-council (except for war), a loan, a charter of monopoly, an office/title, stationed
+// troops, scutage/construction, or grant land. He may only call to arms. The standard-table kinds
+// NOT in this excluded set remain available. (The full restricted-roll wiring + the demchi 'nomad'
+// table are PT-C; PT-A exposes the selector + the excluded set for the UI advisory.)
+const CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS = Object.freeze(['call-to-council', 'loan', 'charter-of-monopoly', 'office', 'troops', 'grant-of-land', 'scutage', 'construction']);
+
+// ── Domain-type accessors (defensive reads — an absent field ⇒ the default) ───
+
+// The domain's type — defensive ('civilized' when absent ⇒ today's behaviour, byte-identical).
+function domainTypeOf(d) {
+  const t = d && d.domainType;
+  return (t && DOMAIN_TYPES.indexOf(t) >= 0) ? t : 'civilized';
 }
-
-// caloric efficiency vs farming. Agricultural (the baseline) + reserved markers + unknown = 1.0
-// (a no-op multiplier); pastoralist = 0.20–0.42.
-function caloricEfficiencyFor(economyType) {
-  const e = PASTORALIST_ECONOMICS[economyType];
-  return e ? e.caloricEfficiency : 1;
-}
+// The domain's dominant (majority-family) race tag — defensive (null = human/unset).
+function dominantRaceOf(d) { return (d && d.dominantRace) || null; }
+function domainTypeLabel(t) { return DOMAIN_TYPE_LABELS[t] || DOMAIN_TYPE_LABELS.civilized; }
+function isClanhold(d)     { return domainTypeOf(d) === 'clanhold'; }
+function isTransitional(d) { return domainTypeOf(d) === 'transitional'; }
+function isDemchi(d)       { return domainTypeOf(d) === 'demchi'; }
+function isBeastman(d)     { return String(dominantRaceOf(d) || '').toLowerCase() === 'beastman'; }
 
 function agriculturalFamilyCapFor(classification) {
   return AGRICULTURAL_FAMILY_CAP[String(classification || '').trim().toLowerCase()] || AGRICULTURAL_FAMILY_CAP.outlands;
 }
 
-// pastoralistFamilyCap(classification, economyType) — RR p.340 cap × caloric efficiency, rounded
-// (plan §3.3a). Agricultural ⇒ the full agricultural cap. "Land-rich, population-thin."
-function pastoralistFamilyCap(classification, economyType) {
-  return Math.round(agriculturalFamilyCapFor(classification) * caloricEfficiencyFor(economyType));
+// demchiMaxPopulationForLandValue(lv) — AXIOMS WiBiL II (1→3 · 2→5 · 3→10 · 4→25 · 5→50 · 6+→100).
+function demchiMaxPopulationForLandValue(lv) {
+  const v = Math.max(1, Math.floor(Number(lv) || 1));
+  return v >= 6 ? 100 : (DEMCHI_MAX_POP_BY_LAND_VALUE[v] || 100);
 }
 
-function rearableTerrainFor(economyType) {
-  const e = PASTORALIST_ECONOMICS[economyType];
-  return e ? e.rearableTerrain.slice() : null;  // null = agricultural / reserved (no rearing constraint)
+// The domain a hex belongs to (by hex.domainId). Small local lookup (no shipped domainForHex).
+function _domainForHex(campaign, hex) {
+  if (!campaign || !hex || !hex.domainId || !Array.isArray(campaign.domains)) return null;
+  return campaign.domains.find(d => d && d.id === hex.domainId) || null;
 }
 
-// Rearability HINT only — GM sovereignty, never a hard block (plan §3.5). Agricultural / reserved
-// ⇒ always true (no constraint).
-function isTerrainRearable(economyType, terrain) {
-  const set = rearableTerrainFor(economyType);
-  if (!set) return true;
-  return set.indexOf(terrainBaseOf(terrain)) >= 0;
+// hexFamilyCap(campaign, hex) — THE canonical per-6-mile-hex family cap (plan §5.1). The DOMAIN TYPE
+// owns it: clanhold/transitional flat 125 (transitional's overage is handled at half value in the
+// income hook), demchi the land-value curve, civilized/unclaimed the RR p.340 classification cap.
+// One source of truth for every consumer (the income land-revenue read + any growth/settlement
+// readout) ⇒ no double-count.
+function hexFamilyCap(campaign, hex) {
+  if (!hex) return AGRICULTURAL_FAMILY_CAP.outlands;
+  const d = _domainForHex(campaign, hex);
+  switch (domainTypeOf(d)) {
+    case 'clanhold':
+    case 'transitional': return CLANHOLD_HEX_FAMILY_CAP;                                  // 125 (transitional permits overage)
+    case 'demchi':       return demchiMaxPopulationForLandValue(effectiveHexValue(hex));  // land-value curve (PT-C)
+    default:             return agriculturalFamilyCapFor(hex.classification);             // 185 / 375 / 780
+  }
 }
 
-// ── Derived per-hex / per-domain readouts (nothing stored beyond economyType) ──
+// ── Clanhold rules (RR pp.353–354) ───────────────────────────────────────────
 
-// Per-hex pastoralist readout for the UI + the density factor.
-function hexPastoralistInfo(campaign, hex) {
-  if (!hex) return null;
-  const economyType = hex.economyType || 'agricultural';
-  const isPast = isPastoralistEconomy(economyType);
-  const families = Math.max(0, Number(hex.families) || 0);
-  const cls = hex.classification;
-  const agriCap = agriculturalFamilyCapFor(cls);
-  const pastCap = isPast ? pastoralistFamilyCap(cls, economyType) : agriCap;
-  const effFamilies = Math.min(families, pastCap);
-  return {
-    hexId: hex.id, economyType, label: pastoralistEconomyLabel(economyType), isPastoralist: isPast,
-    hexLabel: hexNameOf(hex) || hex.name || (hex.terrain || 'hex') + (hex.id ? ' · ' + hex.id : ''),
-    classification: cls, families,
-    caloricEfficiency: caloricEfficiencyFor(economyType),
-    agriculturalCap: agriCap, pastoralistCap: pastCap, effectiveFamilies: effFamilies,
-    overCap: isPast && families > pastCap, surplus: Math.max(0, families - effFamilies),
-    terrainBase: terrainBaseOf(hex.terrain), rearable: isTerrainRearable(economyType, hex.terrain),
-    rearableTerrain: rearableTerrainFor(economyType),
-    cite: isPast ? PASTORALIST_ECONOMICS[economyType].cite : null,
-  };
+// clanholdWarriorCapacity — the clanhold's only levy: 1 clan warrior per peasant family (RR p.433).
+function clanholdWarriorCapacity(campaign, d) {
+  if (!isClanhold(d)) return 0;
+  return Math.max(0, Number(d && d.demographics && d.demographics.peasantFamilies) || 0);
+}
+// Clanholds CANNOT conscript or levy militia (RR p.433) — only clan warriors. Late-bound into the
+// Military W7 levy caps (which return 0 when this is false). Every other type ⇒ true (no change).
+function domainAllowsConscription(d) { return !isClanhold(d); }
+function domainAllowsMilitia(d)      { return !isClanhold(d); }
+
+// The clanhold urban-family hard cap (RR p.353): min(249, 12.5% of peasants). A clanhold may not
+// raise urban families by investment, and its market is Class VI max. Returns null for non-clanholds
+// (no special cap). 0 peasants ⇒ 0 urban allowed.
+function clanholdMaxUrbanFamilies(d) {
+  if (!isClanhold(d)) return null;
+  const peasants = Math.max(0, Number(d && d.demographics && d.demographics.peasantFamilies) || 0);
+  return Math.min(CLANHOLD_URBAN_FAMILY_HARD_CAP - 1, Math.floor(peasants * CLANHOLD_URBAN_FRACTION));
 }
 
-// The pastoralist land-revenue density factor for a domain ∈ (0,1]. Families-weighted across the
-// domain's RURAL hexes (rural = no settlement — a hex bearing a settlement is urban, not land): a
-// pastoralist hex's land contribution is capped at its carrying capacity (min(families,
-// pastoralistCap)); agricultural / reserved hexes contribute identically to numerator + denominator
-// (ratio 1). Returns 1.0 ⇒ no pastoralist hex over its cap ⇒ no-op ⇒ byte-identical.
-//   In the per-hex land branch of incomeBreakdown (landRow = Σ fam·val), landRow × factor =
-//   Σ min(fam,cap)·val EXACTLY. Requires per-hex families; a pure domain-aggregate domain (no
-//   per-hex families recorded) ⇒ 1.0 (the carrying-capacity readout still shows; the density bites
-//   once per-hex families exist — the v1 boundary, plan §3.3).
-function domainPastoralistLandFactor(campaign, d, hexList) {
+// ── Favors & Duties table selector (plan §5.2 / §7.5) ────────────────────────
+
+// Which F&D table a domain rolls on: clanhold → restricted; demchi → the nomad table (PT-C);
+// everything else → the standard RR p.348 table. (PT-A surfaces the selector + the clanhold excluded
+// set for the UI advisory; the actual restricted-roll filtering + the nomad table land in PT-C.)
+function domainFavorDutyTable(d) {
+  if (isClanhold(d)) return 'clanhold-restricted';
+  if (isDemchi(d))   return 'nomad';
+  return 'standard';
+}
+// favorDutyKindAllowedForDomain(d, kind) — false only for a clanhold's RR p.354 excluded kinds.
+function favorDutyKindAllowedForDomain(d, kind) {
+  if (!isClanhold(d)) return true;   // standard/nomad: every kind allowed (nomad detail is PT-C)
+  return CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS.indexOf(kind) < 0;
+}
+
+// ── The Politics senate gate (plan §5.5) ─────────────────────────────────────
+
+// A senate (a realm-apex governance mode) cannot sit on a primitive clanhold (RR p.354 — no
+// call-to-council except war, no grants of title). Transitional / civilized / demchi may.
+function domainTypeAllowsSenate(domainType) {
+  return domainType !== 'clanhold';
+}
+
+// ── Beastman advisory (RR p.354) ─────────────────────────────────────────────
+
+// Beastman domains are ALWAYS clanholds unless ruled by a Chaotic, non-beastman human/monster of
+// great power + intelligence. Modelled as a SOFT advisory (GM override always wins, CLAUDE §5.1):
+// returns a {level, message, suggestedType} readout, never a hard block. level: 'ok' | 'advise' |
+// 'exception'. A beastman domain set to a non-clanhold type without the chaotic-ruler exception ⇒
+// 'advise' (suggest clanhold); the exception met ⇒ 'exception' (ok to be civilized/transitional).
+function beastmanDomainTypeAdvisory(campaign, d) {
+  if (!isBeastman(d)) return { level: 'ok', message: '', suggestedType: domainTypeOf(d) };
+  const t = domainTypeOf(d);
+  if (t === 'clanhold' || t === 'demchi') return { level: 'ok', message: 'Beastman clanhold (RR p.354).', suggestedType: 'clanhold' };
+  // Non-clanhold beastman domain — check the chaotic-powerful-ruler exception.
+  const exception = _meetsBeastmanRulerException(_rulerCharacterOf(campaign, d));
+  if (exception) return { level: 'exception', message: 'A Chaotic, powerful, intelligent non-beastman ruler — the RR p.354 exception applies; an ordinary domain is allowed.', suggestedType: t };
+  return { level: 'advise', message: 'Beastman domains are normally barbarian clanholds (RR p.354). Only a Chaotic, powerful, intelligent non-beastman ruler makes an ordinary domain. The GM override stands.', suggestedType: 'clanhold' };
+}
+// The chaotic-powerful-intelligent-non-beastman exception (RR p.354) — a GM-overridable
+// interpretation (plan open flag §10.1): Chaotic alignment + name-level (≥9) + high INT (≥13) +
+// not a beastman ruler. Read very defensively (it only colours an advisory, never blocks).
+function _meetsBeastmanRulerException(ruler) {
+  if (!ruler) return false;
+  const align = String(ruler.alignment || '').toLowerCase();
+  if (align.indexOf('chaotic') < 0 && align.indexOf('chaos') < 0) return false;
+  const ab = ruler.abilities || {};
+  const intel = Number(ab.int != null ? ab.int : ab.intelligence) || 0;
+  const race  = String(ruler.race || '').toLowerCase();
+  if (race.indexOf('beastman') >= 0) return false;
+  return (Number(ruler.level) || 0) >= 9 && intel >= 13;
+}
+function _rulerCharacterOf(campaign, d) {
+  if (!campaign || !d || !d.rulerCharacterId || !Array.isArray(campaign.characters)) return null;
+  return campaign.characters.find(c => c && c.id === d.rulerCharacterId) || null;
+}
+
+// ── The income land-revenue hook (the canonical cap's revenue shadow) ─────────
+
+// Per-hex effective land-value contribution under the domain type (plan §5.1–§5.6). gp/family is
+// untouched (RAW); the cap limits which families generate land revenue.
+//   clanhold     → min(fam,125)·val
+//   transitional → min(fam,125)·val + max(0,fam−125)·val·0.5   (RR p.354 — the 126th+ give HALF)
+//   demchi / civ → fam·val (demchi's full income ledger is PT-C; here it is unchanged)
+function _hexEffectiveLandValue(type, fam, val) {
+  if (type === 'clanhold')     return Math.min(fam, CLANHOLD_HEX_FAMILY_CAP) * val;
+  if (type === 'transitional') return Math.min(fam, CLANHOLD_HEX_FAMILY_CAP) * val + Math.max(0, fam - CLANHOLD_HEX_FAMILY_CAP) * val * 0.5;
+  return fam * val;
+}
+
+// domainTypeLandFactor(campaign, d, hexList) ∈ (0,1] — the land-revenue factor for a clanhold /
+// transitional domain. Families-weighted across the domain's RURAL hexes (a hex bearing a settlement
+// is urban, not land). Returns 1.0 for civilized / demchi / a domain with no over-cap families
+// (byte-identical no-op). In the per-hex land branch (landRow = Σ fam·val), landRow × factor =
+// Σ effective EXACTLY. (Pure-aggregate domains with no per-hex families ⇒ 1.0 — the v1 boundary; the
+// cap readout still shows, the density bites once per-hex families exist.)
+function domainTypeLandFactor(campaign, d, hexList) {
   if (!campaign || !d) return 1;
+  const type = domainTypeOf(d);
+  if (type !== 'clanhold' && type !== 'transitional') return 1;   // civilized / demchi: no cap-shadow here
   const hexes = (hexList || hexesForDomain(campaign, d.id) || []).filter(h => h && !settlementForHex(campaign, h.id));
-  let num = 0, den = 0, hasPastoralist = false;
+  let num = 0, den = 0, anyOver = false;
   for (const h of hexes) {
     const fam = Math.max(0, Number(h.families) || 0);
     if (fam <= 0) continue;
     const val = Number(effectiveHexValue(h)) || 0;
-    const economyType = h.economyType || 'agricultural';
-    let eff = fam;
-    if (isPastoralistEconomy(economyType)) {
-      eff = Math.min(fam, pastoralistFamilyCap(h.classification, economyType));
-      hasPastoralist = true;
-    }
-    num += eff * val;
+    const eff = _hexEffectiveLandValue(type, fam, val);
+    if (eff < fam * val) anyOver = true;
+    num += eff;
     den += fam * val;
   }
-  if (!hasPastoralist || den <= 0) return 1;
+  if (!anyOver || den <= 0) return 1;
   return num / den;
 }
 
-// The incomeBreakdown late-bind hook (called via the guarded one-liner in acks-engine-economy.js).
-// Returns the land row with its gp scaled by the pastoralist density factor + its label annotated;
-// returns the row UNCHANGED when there is no pastoralist effect (factor 1) — byte-identical.
-function applyPastoralistLandRevenue(campaign, d, landRow, ctx) {
+// applyDomainTypeLandRevenue(campaign, d, landRow, ctx) — the incomeBreakdown late-bind hook (the slot
+// the removed applyPastoralistLandRevenue held; called via the guarded one-liner in
+// acks-engine-economy.js). Scales + annotates the land row for a clanhold (125 cap) / transitional
+// (½-overage); returns the row UNCHANGED for civilized / demchi / under-cap (factor 1) — byte-identical.
+function applyDomainTypeLandRevenue(campaign, d, landRow, ctx) {
   if (!landRow || !d) return landRow;
-  const factor = domainPastoralistLandFactor(campaign, d, ctx && ctx.hexes);
+  const factor = domainTypeLandFactor(campaign, d, ctx && ctx.hexes);
   if (!(factor < 1)) return landRow;   // factor 1 (or NaN/guard) ⇒ no-op
-  const pct = Math.round(factor * 100);
+  const tag = isTransitional(d) ? 'transitional ½-overage' : 'clanhold cap 125';
   return {
-    label: (landRow.label || 'Land revenue') + ' [pastoralist density ×' + pct + '%]',
+    label: (landRow.label || 'Land revenue') + ' [' + tag + ' ×' + Math.round(factor * 100) + '%]',
     gp: bankersRound((landRow.gp || 0) * factor),
   };
 }
 
-// Per-domain pastoralist readout for the UI panel (the rural hex list + the domain density factor).
-function domainPastoralistInfo(campaign, d) {
-  if (!campaign || !d) return { hasPastoralist: false, hexes: [], factor: 1, densityPct: 100, ruralHexCount: 0, pastoralistHexCount: 0 };
-  const all = hexesForDomain(campaign, d.id) || [];
-  const rural = all.filter(h => h && !settlementForHex(campaign, h.id));
-  const hexInfos = rural.map(h => hexPastoralistInfo(campaign, h)).filter(Boolean);
-  const pastoralistHexes = hexInfos.filter(h => h.isPastoralist);
-  const factor = domainPastoralistLandFactor(campaign, d, all);
+// ── The −2 vassal-morale-under-clanhold-rule penalty (RR p.354) ──────────────
+
+// A civilized / demi-human domain SUBJECTED TO clanhold rule takes −2 base morale (atop any alignment
+// penalty). Returns the morale-modifier row (or null) for moraleModifiersFor (late-bound — the
+// militia/sanctum precedent). A clanhold / demchi / beastman vassal under a clanhold liege is NOT
+// penalised (it is its own kind); only an ordinary domain chafing under a barbarian overlord.
+function clanholdVassalMoraleRow(campaign, d) {
+  if (!campaign || !d || !d.liegeId) return null;
+  if (isClanhold(d) || isDemchi(d) || isBeastman(d)) return null;
+  const liege = Array.isArray(campaign.domains) ? campaign.domains.find(x => x && x.id === d.liegeId) : null;
+  if (!liege || !isClanhold(liege)) return null;
+  return { label: 'Subjected to clanhold rule (RR p.354)', value: -2 };
+}
+
+// ── Per-domain readout for the UI panel ──────────────────────────────────────
+
+// domainTypeInfo(campaign, d) — the tribal-domain readout the domain sheet renders: type/label,
+// dominant race, the per-hex cap, levy gates, clan-warrior capacity, urban caps, the F&D set, the
+// senate gate, the beastman advisory, the transitional clock + land factor.
+function domainTypeInfo(campaign, d) {
+  if (!d) return null;
+  const type = domainTypeOf(d);
+  const clanhold = type === 'clanhold', transitional = type === 'transitional', demchi = type === 'demchi';
+  const factor = domainTypeLandFactor(campaign, d);
   return {
-    hasPastoralist: pastoralistHexes.length > 0,
-    factor, densityPct: Math.round(factor * 100),
-    hexes: hexInfos,
-    pastoralistHexCount: pastoralistHexes.length,
-    ruralHexCount: rural.length,
+    domainId: d.id, type, label: domainTypeLabel(type),
+    dominantRace: dominantRaceOf(d),
+    isClanhold: clanhold, isTransitional: transitional, isDemchi: demchi, isBeastman: isBeastman(d),
+    hexFamilyCap: (clanhold || transitional) ? CLANHOLD_HEX_FAMILY_CAP : (demchi ? null : agriculturalFamilyCapFor(d.classification)),
+    hexFamilyCap24Mile: clanhold ? CLANHOLD_HEX_FAMILY_CAP_24MILE : null,
+    allowsConscription: domainAllowsConscription(d), allowsMilitia: domainAllowsMilitia(d),
+    clanWarriorCapacity: clanholdWarriorCapacity(campaign, d),
+    maxUrbanFamilies: clanholdMaxUrbanFamilies(d),
+    allowsUrbanInvestment: !clanhold,
+    favorDutyTable: domainFavorDutyTable(d),
+    excludedFavorDutyKinds: clanhold ? CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS.slice() : [],
+    allowsSenate: domainTypeAllowsSenate(type),
+    beastmanAdvisory: beastmanDomainTypeAdvisory(campaign, d),
+    landRevenueFactor: factor, landRevenuePct: Math.round(factor * 100),
+    chiefRaidedThisMonth: !!(d && d.chiefRaidedThisMonth),
+    transitionalSince: (d && d.transitionalSince != null) ? d.transitionalSince : null,
+    transitionalConversionReady: transitionalConversionReady(campaign, d),
   };
 }
 
-// ── The economyType setter + the record-only `economy-type-changed` event ──────
+// ── setDomainType + decreeTransitional + the record-only events ──────────────
 
-function applyEvent_domainVariantAudit(campaign, event) {
+function applyEvent_domainTypeChanged(campaign, event) {
   const p = (event && event.payload) || {};
-  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'economy-type-changed' } };
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'domain-type-changed' } };
+}
+function applyEvent_domainDecreedTransitional(campaign, event) {
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'domain-decreed-transitional' } };
 }
 
-// Record an `economy-type-changed` event (record-only; the §8.9 context envelope — primaryHexId +
-// domainId). Mirrors the religion/voyages record-only emit (newEvent → setEventContext → push, status
-// APPLIED — no replay handler needed for a record-only audit event).
-function _recordEconomyTypeEvent(campaign, hex, from, to, opts) {
+// Record-only emit (the §8.9 context envelope — domainId). Mirrors the
+// religion/voyages/terrain-transformed record-only pattern (newEvent → setEventContext → push, status
+// APPLIED — no replay handler beyond the audit summary).
+function _recordDomainTypeEvent(campaign, kind, d, payload, opts) {
   const A = global.ACKS || ACKS;
   if (typeof A.newEvent !== 'function') return null;
-  const narrative = (hex.name || hexNameOf(hex) || ('Hex ' + (hex.id || ''))) + ' economy: '
-    + pastoralistEconomyLabel(from) + ' → ' + pastoralistEconomyLabel(to);
-  const ev = A.newEvent('economy-type-changed', {
+  const ev = A.newEvent(kind, {
     submittedBy: (opts && opts.submittedBy) || 'gm',
     targetTurn: campaign.currentTurn || 1,
     cadence: 'monthly-turn',
-    payload: { hexId: hex.id, domainId: hex.domainId || null, from, to, narrative },
+    payload: Object.assign({ domainId: d.id }, payload),
   });
-  if (typeof A.setEventContext === 'function') A.setEventContext(ev, { primaryHexId: hex.id, domainId: hex.domainId || null });
+  if (typeof A.setEventContext === 'function') A.setEventContext(ev, { domainId: d.id });
   ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
   ev.appliedAtTurn = campaign.currentTurn || 1;
   ev.appliedAtDay = campaign.currentDayInMonth || 1;
   if (!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
-  campaign.eventLog.push({
-    event: ev, result: { narrativeSummary: narrative },
-    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString(),
-  });
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: payload.narrative }, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
   return ev;
 }
 
-// Set a hex's economyType + record the change. Idempotent (no-op + no event when unchanged).
-// Returns { ok, hex, from, to } | { ok:true, unchanged:true, ... } | { ok:false, reason }.
-function setHexEconomyType(campaign, hexId, economyType, opts) {
+// setDomainType(campaign, domainId, type, opts) — the canonical domain-type setter (plan §5.4).
+// Validates the transition (the senate gate + transitional-is-irrevocable), sets domainType, forces
+// classification → Outlands when →clanhold (RR p.353), and emits the record-only `domain-type-changed`
+// event. Idempotent (no-op + no event when unchanged). Returns { ok, from, to } | { ok:true,
+// unchanged } | { ok:false, reason }. opts.force overrides the soft guards (GM sovereignty).
+function setDomainType(campaign, domainId, type, opts) {
   opts = opts || {};
-  const hex = (campaign && Array.isArray(campaign.hexes)) ? campaign.hexes.find(h => h && h.id === hexId) : null;
-  if (!hex) return { ok: false, reason: 'no-hex' };
-  const valid = economyType === 'agricultural' || isPastoralistEconomy(economyType) || RESERVED_ECONOMY_TYPES.indexOf(economyType) >= 0;
-  if (!valid) return { ok: false, reason: 'invalid-economy-type' };
-  const from = hex.economyType || 'agricultural';
-  if (from === economyType) return { ok: true, hex, from, to: economyType, unchanged: true };
-  hex.economyType = economyType;
-  _recordEconomyTypeEvent(campaign, hex, from, economyType, opts);
-  return { ok: true, hex, from, to: economyType };
+  const d = (campaign && Array.isArray(campaign.domains)) ? campaign.domains.find(x => x && x.id === domainId) : null;
+  if (!d) return { ok: false, reason: 'no-domain' };
+  if (DOMAIN_TYPES.indexOf(type) < 0) return { ok: false, reason: 'invalid-domain-type' };
+  const from = domainTypeOf(d);
+  if (from === type) return { ok: true, d, from, to: type, unchanged: true };
+  // Transitional is irrevocable: a transitional domain may not revert to clanhold (RR p.354).
+  if (from === 'transitional' && type === 'clanhold' && !opts.force) return { ok: false, reason: 'transitional-irrevocable' };
+  // Senate gate: a senatorial realm apex cannot become a clanhold (RR p.354). Soft (force overrides).
+  if (type === 'clanhold' && !opts.force && _apexHasSenate(campaign, d)) return { ok: false, reason: 'senate-on-apex' };
+  d.domainType = type;
+  if (type === 'clanhold') d.classification = 'Outlands';   // RR p.353 — clanholds are always outlands
+  const narrative = (d.name || domainId) + ' domain type: ' + domainTypeLabel(from) + ' → ' + domainTypeLabel(type);
+  _recordDomainTypeEvent(campaign, 'domain-type-changed', d, { from, to: type, narrative }, opts);
+  return { ok: true, d, from, to: type };
+}
+
+// Whether the domain's realm apex currently runs a senatorial governance (the gate's read). Uses the
+// shipped Politics helpers when present (late-bound), else a defensive governance.mode read.
+function _apexHasSenate(campaign, d) {
+  const A = global.ACKS || ACKS;
+  let apex = d;
+  if (typeof A.realmApexDomain === 'function') { apex = A.realmApexDomain(campaign, d) || d; }
+  const gov = apex && apex.governance;
+  if (gov && gov.mode) return gov.mode === 'senatorial';
+  if (typeof A.governanceFor === 'function') { const g = A.governanceFor(campaign, apex); return !!g && g.mode === 'senatorial'; }
+  return false;
+}
+
+// decreeTransitional(campaign, domainId, opts) — a clanhold/civilized domain is decreed transitional
+// (RR p.354): irrevocable, stamps transitionalSince (the 20-yr→ordinary clock). The RR criteria
+// (ruler is a non-beastman sapient · an urban settlement ≥150 families · adjacent to / in a realm with
+// a civilized-or-transitional domain) are returned as an ADVISORY (transitionalDecreeCriteria); GM
+// sovereignty — the decree proceeds unless opts.enforceCriteria. Emits `domain-decreed-transitional`.
+function decreeTransitional(campaign, domainId, opts) {
+  opts = opts || {};
+  const d = (campaign && Array.isArray(campaign.domains)) ? campaign.domains.find(x => x && x.id === domainId) : null;
+  if (!d) return { ok: false, reason: 'no-domain' };
+  if (isTransitional(d)) return { ok: true, d, unchanged: true };
+  const crit = transitionalDecreeCriteria(campaign, d);
+  if (opts.enforceCriteria && !crit.allMet) return { ok: false, reason: 'criteria-unmet', criteria: crit };
+  const from = domainTypeOf(d);
+  d.domainType = 'transitional';
+  d.transitionalSince = (opts.turn != null) ? opts.turn : (campaign.currentTurn || 1);
+  const narrative = (d.name || domainId) + ' decreed Transitional (RR p.354) from ' + domainTypeLabel(from);
+  _recordDomainTypeEvent(campaign, 'domain-decreed-transitional', d, { from, transitionalSince: d.transitionalSince, narrative }, opts);
+  return { ok: true, d, from, criteria: crit };
+}
+
+// The RR p.354 transitional-decree criteria, as an advisory readout (never a hard gate by default).
+function transitionalDecreeCriteria(campaign, d) {
+  const ruler = _rulerCharacterOf(campaign, d);
+  const rulerOk = !isBeastman(d) && (!ruler || String(ruler.race || '').toLowerCase().indexOf('beastman') < 0);
+  const urb = Math.max(0, Number(d && d.demographics && d.demographics.urbanFamilies) || 0);
+  const urbanOk = urb >= 150;
+  // "Adjacent to / in a realm with / vassal to a civilized-or-transitional domain" — approximated by
+  // the realm/liege containing a civilized-or-transitional domain (a soft check; GM judgment, plan §6).
+  const neighbourOk = _hasCivilizedRealmNeighbour(campaign, d);
+  return {
+    ruler: rulerOk, urbanSettlement: urbanOk, civilizedNeighbour: neighbourOk,
+    allMet: rulerOk && urbanOk && neighbourOk,
+    note: 'RR p.354 — advisory; the GM may decree regardless (GM sovereignty).',
+  };
+}
+function _hasCivilizedRealmNeighbour(campaign, d) {
+  if (!campaign || !Array.isArray(campaign.domains)) return false;
+  const liege = d.liegeId ? campaign.domains.find(x => x && x.id === d.liegeId) : null;
+  if (liege && (domainTypeOf(liege) === 'civilized' || domainTypeOf(liege) === 'transitional')) return true;
+  return campaign.domains.some(x => x && x.id !== d.id && x.liegeId === d.liegeId && (domainTypeOf(x) === 'civilized' || domainTypeOf(x) === 'transitional'));
+}
+
+// transitionalConversionReady(campaign, d) — the 20-game-year clock (RR p.354): a transitional domain
+// that has been transitional ≥20 years MAY be ratified to civilized (a GM-prompted conversion, not
+// automatic). Returns { ready, yearsElapsed, since } | null (non-transitional). 12 turns = 1 year.
+function transitionalConversionReady(campaign, d) {
+  if (!isTransitional(d) || d.transitionalSince == null) return null;
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const years = Math.max(0, (turn - d.transitionalSince) / 12);
+  return { ready: years >= 20, yearsElapsed: Math.floor(years), since: d.transitionalSince };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -551,9 +713,13 @@ function processTerrainTransformationForTurn(campaign, opts) {
 
 // ── Self-register the record-only event kinds (PR #89 kernel — from THIS module, no events.js edit) ──
 if (typeof ACKS.registerEventKind === 'function') {
-  ACKS.registerEventKind('economy-type-changed', {
-    schema: { R: { hexId: 'string', to: 'string' }, O: { domainId: 'string', from: 'string', narrative: 'string' } },
-    wizardOptOut: true, handler: applyEvent_domainVariantAudit,
+  ACKS.registerEventKind('domain-type-changed', {
+    schema: { R: { domainId: 'string', to: 'string' }, O: { from: 'string', narrative: 'string' } },
+    wizardOptOut: true, handler: applyEvent_domainTypeChanged,
+  });
+  ACKS.registerEventKind('domain-decreed-transitional', {
+    schema: { R: { domainId: 'string' }, O: { from: 'string', transitionalSince: 'number', narrative: 'string' } },
+    wizardOptOut: true, handler: applyEvent_domainDecreedTransitional,
   });
   ACKS.registerEventKind('terrain-transformed', {
     schema: { R: { hexId: 'string', toTerrain: 'string' }, O: { domainId: 'string', fromTerrain: 'string', fromSubtype: 'string', toSubtype: 'string', fromStage: 'number', toStage: 'number', families: 'number', direction: 'string', narrative: 'string' } },
@@ -572,18 +738,39 @@ if (typeof ACKS.registerHouseRule === 'function') {
   });
 }
 
+// ── PT-0 load-migration: retire the removed pastoralist economyType values ────
+// Any leftover `pastoralist-*` / `mixed` Hex.economyType (from the removed P5-PAST layer) → the
+// 'agricultural' baseline (the field stays reserved for mining/fishing/forestry/magical). Idempotent;
+// a hex without a pastoralist value is untouched ⇒ clean templates stay byte-identical. domainType /
+// dominantRace are NOT backfilled (defensive-read covers them — the no-template-churn idiom). Self-
+// registered (the §15.5 convention; orders 10..190 are taken, so this slots at 200).
+if (typeof ACKS.registerLoadMigration === 'function') {
+  ACKS.registerLoadMigration('domain-variants-retire-pastoralist-economy', function(campaign) {
+    if (!campaign || !Array.isArray(campaign.hexes)) return;
+    for (const hex of campaign.hexes) {
+      if (hex && /^(pastoralist-|mixed$)/.test(String(hex.economyType || ''))) hex.economyType = 'agricultural';
+    }
+  }, { order: 200 });
+}
+
 // ── Export onto global.ACKS ───────────────────────────────────────────────────
 Object.assign(ACKS, {
   // RAW reference data
-  AGRICULTURAL_FAMILY_CAP, PASTORALIST_ECONOMICS, RESERVED_ECONOMY_TYPES,
-  // catalog accessors
-  isPastoralistEconomy, pastoralistEconomyInfo, pastoralistEconomyTypes, pastoralistEconomyLabel,
-  caloricEfficiencyFor, agriculturalFamilyCapFor, pastoralistFamilyCap,
-  rearableTerrainFor, isTerrainRearable,
-  // derived readouts + the income hook
-  hexPastoralistInfo, domainPastoralistLandFactor, applyPastoralistLandRevenue, domainPastoralistInfo,
-  // setter + event
-  setHexEconomyType, applyEvent_domainVariantAudit,
+  AGRICULTURAL_FAMILY_CAP, DOMAIN_TYPES, DOMAIN_TYPE_LABELS,
+  CLANHOLD_HEX_FAMILY_CAP, CLANHOLD_HEX_FAMILY_CAP_24MILE, DEMCHI_MAX_POP_BY_LAND_VALUE,
+  CLANHOLD_EXCLUDED_FAVOR_DUTY_KINDS,
+  // domain-type accessors
+  domainTypeOf, dominantRaceOf, domainTypeLabel, isClanhold, isTransitional, isDemchi, isBeastman,
+  agriculturalFamilyCapFor, demchiMaxPopulationForLandValue, hexFamilyCap,
+  // clanhold rules + levy gates
+  clanholdWarriorCapacity, domainAllowsConscription, domainAllowsMilitia, clanholdMaxUrbanFamilies,
+  // favors & duties selector + senate gate + beastman advisory
+  domainFavorDutyTable, favorDutyKindAllowedForDomain, domainTypeAllowsSenate, beastmanDomainTypeAdvisory,
+  // the income hook + the −2 vassal-morale row + the UI readout
+  domainTypeLandFactor, applyDomainTypeLandRevenue, clanholdVassalMoraleRow, domainTypeInfo,
+  // setters + events
+  setDomainType, decreeTransitional, transitionalDecreeCriteria, transitionalConversionReady,
+  applyEvent_domainTypeChanged, applyEvent_domainDecreedTransitional,
   // ── Terrain Transformation (P5-TERR; JJ p.412) ──
   TERRAIN_TRANSFORMATION, TERRAIN_TRANSFORM_THRESHOLDS,
   terrainTransformStageForFamilies, terrainTransformTargetFor, raceTransformsLand,

@@ -6991,7 +6991,8 @@
                 "war-machine-built",
                 "siege-construction-built",
                 "urban-incident-escalated",
-                "economy-type-changed",
+                "domain-type-changed",
+                "domain-decreed-transitional",
                 "terrain-transformed",
                 "dynasty-founded",
                 "kinship-recorded",
@@ -7099,7 +7100,7 @@
     "schemaVersion": 2,
     "entityKinds": 59,
     "typedKinds": 43,
-    "eventKinds": 189,
+    "eventKinds": 190,
     "nestedSubEntityKinds": [
       "mount",
       "bout",

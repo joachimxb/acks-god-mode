@@ -396,16 +396,16 @@ function incomeBreakdown(campaign, d){
                 gp: bankersRound((landRow.gp || 0) + consBonus * consFam) };
   }
   // === end @b10-religion ===
-  // === @b13-domvariants (team) — Pastoralist economics (Phase 5 §3, JJ pp.436–438): a herding hex's
-  // land feeds fewer families per acre (caloric efficiency 0.20–0.42), so its LAND revenue reflects that
-  // lower carrying capacity — gp/family is unchanged; the families-the-land-sustains is capped. In the
-  // per-hex land branch (landRow = Σ fam·val) the factor yields Σ min(fam,cap)·val exactly. Defensive:
-  // no pastoralist hex over its cap ⇒ factor 1 ⇒ byte-identical (the economy oracle stays green). Logic
-  // lives in acks-engine-domain-variants.js; late-bound (it loads after this module).
-  if(global.ACKS && typeof global.ACKS.applyPastoralistLandRevenue === 'function'){
-    landRow = global.ACKS.applyPastoralistLandRevenue(campaign, d, landRow, { hexes });
+  // === Tribal Domains (Phase 5; RR pp.353–354): the DOMAIN TYPE owns the per-hex family cap, and that
+  // cap casts a shadow on land revenue — a clanhold hex's land feeds ≤125 families (the surplus loses
+  // its land contribution); a transitional hex's 126th+ families give HALF land value. gp/family is
+  // untouched (RAW). In the per-hex land branch (landRow = Σ fam·val) the hook yields Σ effective
+  // exactly. Defensive: civilized / demchi / under-cap ⇒ factor 1 ⇒ byte-identical (the economy oracle
+  // stays green). Logic lives in acks-engine-domain-variants.js; late-bound (it loads after this module).
+  if(global.ACKS && typeof global.ACKS.applyDomainTypeLandRevenue === 'function'){
+    landRow = global.ACKS.applyDomainTypeLandRevenue(campaign, d, landRow, { hexes });
   }
-  // === end @b13-domvariants ===
+  // === end Tribal Domains ===
   const rows = [
     landRow,
     { label: 'Service revenue (' + (d.income.serviceRevenuePerFamily||4) + ' × ' + (fam+urb) + ')', gp: (d.income.serviceRevenuePerFamily||0)*(fam+urb) },
@@ -554,6 +554,13 @@ function moraleModifiersFor(campaign, d){
   if(global.ACKS && typeof global.ACKS.dungeonGarrisonMoralePenalty === 'function'){
     const dunPen = global.ACKS.dungeonGarrisonMoralePenalty(campaign, d);
     if(dunPen && dunPen.value < 0) mods.push({ label: dunPen.label, value: dunPen.value });
+  }
+  // === Tribal Domains (RR p.354) — a civilized / demi-human domain SUBJECTED TO clanhold rule takes
+  // −2 base morale (atop any alignment penalty). RAW core (the field IS the switch — no rule gate).
+  // Late-bound (acks-engine-domain-variants.js loads after this module); null ⇒ no row.
+  if(global.ACKS && typeof global.ACKS.clanholdVassalMoraleRow === 'function'){
+    const chRow = global.ACKS.clanholdVassalMoraleRow(campaign, d);
+    if(chRow && chRow.value < 0) mods.push(chRow);
   }
   // RR p.349 — stronghold-adequacy penalty, emitted as a row so it flows through moraleModSum.
   const strongholdReq = strongholdRequired(d), strongholdVal = strongholdValue(campaign, d);

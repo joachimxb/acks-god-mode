@@ -519,9 +519,9 @@ function houseRuleCategories(){ return HOUSERULE_CATEGORIES.slice(); }
   { id:'elven-civilization', category:'cultural', name:'Elven civilization (Cyclopedia of Elven Civ — future supplement)',
     source:'Future Autarch supplement (Phase 4.7 placeholder)',
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
-  { id:'beastman-domains', category:'cultural', name:'Beastman domains (clanholds and transitional)',
-    source:'ACKS II RR (clanholds) + future supplement (Phase 4.8 placeholder)',
-    description:"Architectural placeholder for the full clanhold variant: tribal warband family categories, transitional governance, and the beastman path from clan to civilized realm." },
+  // (Retired 2026-06-24 — the `beastman-domains` placeholder rule is fulfilled by Phase 5 Tribal
+  // Domains: beastman is now Domain.dominantRace:'beastman' (auto-clanhold) on the real domainType
+  // model, not a house rule. The field IS the switch — no rule. See Phase_5_Tribal_Domains_Plan.md §9.)
   // === Weather HW (team agent-2): the §6.5 polarity OPT-OUT. Weather generation (JJ pp.40–41)
   // is RAW-default CORE behaviour of the slot-1 day-tick weather consumer — it only fires on an
   // expedition, GM-overridable per day. This is the only optional weather rule: a default-OFF

@@ -1,28 +1,25 @@
-/* Domain Variants smoke test — Phase 5 §3 Pastoralist economics (P5-PAST).
+/* Domain Variants smoke test — Phase 5 Tribal Domains (PT-0/A/B) + Terrain Transformation (P5-TERR).
  *
  * Run from the "ACKS God Mode/" directory (or via `npm test`):
  *   node tests/domain-variants.smoke.js
  *
  * Covers acks-engine-domain-variants.js:
- *   (A) the PASTORALIST_ECONOMICS catalog + caloric efficiencies + the pastoralistFamilyCap
- *       worked examples (plan §3.3a: cattle 113 / swine 158 / sheep 37·75·156, agricultural no-op 375).
- *   (B) rearability gating (a HINT only) — terrain-base mapping for the RAW per-terrain constraint.
- *   (C) the land-revenue density factor + applyPastoralistLandRevenue — the per-hex carrying-capacity
- *       cap (gp/family unchanged), exact in the per-hex branch [Σ min(fam,cap)·val], no-op (byte-
- *       identical) for agricultural / under-cap / no-per-hex-families, rural-only (urban hex excluded).
- *   (D) setHexEconomyType + the record-only `economy-type-changed` event (idempotent / validated /
- *       context envelope).
- *   (E) the demo integration — flipping a populous hex to a low-efficiency economy drops the Land
- *       revenue row + logs one event; the pristine (all-agricultural) demo is byte-identical.
- *   (F) event-kind registration (kind + wizardOptOut + schema).
- *   (G) Terrain Transformation (P5-TERR, JJ p.412 — b14): the TERRAIN_TRANSFORMATION table (every RAW
- *       row + target lookups), the 186/326 thresholds, the human/halfling/beastman race gate, the
- *       processTerrainTransformationForTurn monthly consumer (rule-off no-op / dry-run / growth + state
- *       + event / idempotent / bidirectional reversion / dwarven skip / grassland-farm silent stage /
- *       settlement demand-flag / domainId scoping / water skip), the koppen+biome reconcile (untouched),
- *       the lineage readout, the 2 new terraced sub-types, + event/house-rule registration (default OFF).
+ *   (A) domain-type accessors + the canonical hexFamilyCap (clanhold 125 / transitional 125 / demchi
+ *       land-value curve / civilized 185·375·780) + the demchi cap table + agriculturalFamilyCapFor.
+ *   (B) clanhold rules — clan-warrior capacity (1/family), the conscript/militia ban (incl. the
+ *       Military W7 levy-cap integration → 0), the urban cap, the F&D selector + excluded set.
+ *   (C) the income hook applyDomainTypeLandRevenue — clanhold cap (Σ min(fam,125)·val exactly),
+ *       transitional ½-overage, civilized/demchi/under-cap no-op (byte-identical), rural-only, the demo
+ *       integration (pristine civilized byte-identical; a clanhold flip never raises land revenue).
+ *   (D) setDomainType + decreeTransitional + the record-only events (idempotent / guards / the senate +
+ *       irrevocable gates / classification→Outlands / transitionalSince + the 20-yr clock / context envelope).
+ *   (E) the senate gate (domainTypeAllowsSenate + materializeSenate refusing a clanhold apex) + the
+ *       beastman advisory (ok / advise / exception).
+ *   (F) the −2 vassal-morale-under-clanhold-rule penalty (incl. moraleModifiersFor flow) + the PT-0
+ *       migration (pastoralist→agricultural) + event-kind registration (the removed kind is gone).
+ *   (G) Terrain Transformation (P5-TERR, JJ p.412 — unchanged; b13/b14).
  *
- * Authored 2026-06-21 (b13 team session, agent-2); §G added 2026-06-21 (b14 team session, agent-1).
+ * Authored 2026-06-24 (Tribal Domains, replacing the retired P5-PAST pastoralist tests); §G unchanged.
  * Independent of the central registries — the module self-registers its event kinds + the
  * terrain-transformation house rule via ACKS.registerEventKind / registerHouseRule (PR #89 kernel).
  */
@@ -37,166 +34,109 @@ function check(label, cond, detail){
 }
 const approx = (a, b, eps) => Math.abs(a - b) <= (eps == null ? 1e-9 : eps);
 
-// A minimal campaign for the per-hex density math — incomeBreakdown's land row only needs hexes
-// (effectiveHexValue + settlementForHex + hexesForDomain). valuePerFamily drives effectiveHexValue.
-function mkCampaign(hexes, settlements){
-  return { domains: [{ id: 'dom-x', name: 'Test March' }], hexes: hexes.map(h => ({ domainId: 'dom-x', ...h })),
-           settlements: settlements || [], characters: [], eventLog: [], currentTurn: 3, currentDayInMonth: 1, houseRules: {} };
+// A minimal campaign: domains carry domainType; hexes carry families/value/classification.
+function mkCampaign(domains, hexes, settlements){
+  return { domains: domains, hexes: (hexes || []).map(h => ({ ...h })), settlements: settlements || [],
+           characters: [], eventLog: [], currentTurn: 3, currentDayInMonth: 1, houseRules: {} };
 }
-const DOM = { id: 'dom-x', name: 'Test March' };
+const civ  = (over) => Object.assign({ id:'dom-civ',  name:'Civ March', classification:'Borderlands', demographics:{ peasantFamilies:300, urbanFamilies:0 } }, over || {});
+const clan = (over) => Object.assign({ id:'dom-clan', name:'Wolf Clan', domainType:'clanhold', classification:'Outlands', demographics:{ peasantFamilies:300, urbanFamilies:0 } }, over || {});
 
 // ───────────────────────────────────────────────────────────────────────────
-console.log('--- (A) catalog + caloric efficiency + family caps ---');
-check('5 pastoralist economy types', ACKS.pastoralistEconomyTypes().length === 5, ACKS.pastoralistEconomyTypes().join(','));
-check('types are the §3.2 enum', ['pastoralist-cattle','pastoralist-goat','pastoralist-sheep','pastoralist-swine','mixed'].every(k => ACKS.pastoralistEconomyTypes().includes(k)));
-check('isPastoralistEconomy(cattle) true', ACKS.isPastoralistEconomy('pastoralist-cattle') === true);
-check('isPastoralistEconomy(agricultural) false', ACKS.isPastoralistEconomy('agricultural') === false);
-check('isPastoralistEconomy(mining) false (reserved marker)', ACKS.isPastoralistEconomy('mining') === false);
-check('caloric cattle 0.30', ACKS.caloricEfficiencyFor('pastoralist-cattle') === 0.30);
-check('caloric goat 0.37', ACKS.caloricEfficiencyFor('pastoralist-goat') === 0.37);
-check('caloric sheep 0.20', ACKS.caloricEfficiencyFor('pastoralist-sheep') === 0.20);
-check('caloric swine 0.42', ACKS.caloricEfficiencyFor('pastoralist-swine') === 0.42);
-check('caloric mixed 0.40', ACKS.caloricEfficiencyFor('mixed') === 0.40);
-check('caloric agricultural 1.0 (baseline, no-op)', ACKS.caloricEfficiencyFor('agricultural') === 1);
-check('caloric mining 1.0 (reserved → no-op)', ACKS.caloricEfficiencyFor('mining') === 1);
-// agricultural caps (RR p.340)
+console.log('--- (A) domain-type accessors + hexFamilyCap ---');
+check('domainTypeOf absent → civilized', ACKS.domainTypeOf({}) === 'civilized');
+check('domainTypeOf clanhold', ACKS.domainTypeOf({ domainType:'clanhold' }) === 'clanhold');
+check('domainTypeOf invalid → civilized', ACKS.domainTypeOf({ domainType:'bogus' }) === 'civilized');
+check('dominantRaceOf absent → null', ACKS.dominantRaceOf({}) === null);
+check('isClanhold true', ACKS.isClanhold({ domainType:'clanhold' }) === true);
+check('isTransitional true', ACKS.isTransitional({ domainType:'transitional' }) === true);
+check('isDemchi true', ACKS.isDemchi({ domainType:'demchi' }) === true);
+check('isBeastman reads dominantRace', ACKS.isBeastman({ dominantRace:'beastman' }) === true);
 check('agri cap civilized 780', ACKS.agriculturalFamilyCapFor('Civilized') === 780);
 check('agri cap borderlands 375', ACKS.agriculturalFamilyCapFor('Borderlands') === 375);
 check('agri cap outlands 185', ACKS.agriculturalFamilyCapFor('Outlands') === 185);
-check('agri cap unsettled 185', ACKS.agriculturalFamilyCapFor('unsettled') === 185);
-check('agri cap case-insensitive', ACKS.agriculturalFamilyCapFor('BORDERLANDS') === 375);
-check('agri cap unknown → outlands default 185', ACKS.agriculturalFamilyCapFor('xyz') === 185);
-// pastoralist caps (plan §3.3a worked examples)
-check('cattle Borderlands cap 113 (375×0.30)', ACKS.pastoralistFamilyCap('Borderlands','pastoralist-cattle') === 113);
-check('swine Borderlands cap 158 (375×0.42)', ACKS.pastoralistFamilyCap('Borderlands','pastoralist-swine') === 158);
-check('sheep Outlands cap 37 (185×0.20)', ACKS.pastoralistFamilyCap('Outlands','pastoralist-sheep') === 37);
-check('sheep Borderlands cap 75 (375×0.20)', ACKS.pastoralistFamilyCap('Borderlands','pastoralist-sheep') === 75);
-check('sheep Civilized cap 156 (780×0.20)', ACKS.pastoralistFamilyCap('Civilized','pastoralist-sheep') === 156);
-check('goat Civilized cap 289 (780×0.37)', ACKS.pastoralistFamilyCap('Civilized','pastoralist-goat') === 289);
-check('agricultural "cap" = the full agri cap (no reduction)', ACKS.pastoralistFamilyCap('Borderlands','agricultural') === 375);
-check('label cattle', ACKS.pastoralistEconomyLabel('pastoralist-cattle') === 'Cattle');
-check('label agricultural', ACKS.pastoralistEconomyLabel('agricultural') === 'Agricultural');
-check('catalog entries carry a JJ cite', ['pastoralist-cattle','pastoralist-goat','pastoralist-sheep','pastoralist-swine','mixed'].every(k => /^JJ p\.43[678]$/.test(ACKS.PASTORALIST_ECONOMICS[k].cite)));
-
-// ───────────────────────────────────────────────────────────────────────────
-console.log('--- (B) rearability (a hint, never a block) ---');
-check('cattle rearable on grassland', ACKS.isTerrainRearable('pastoralist-cattle','grassland') === true);
-check('cattle NOT rearable on mountains', ACKS.isTerrainRearable('pastoralist-cattle','mountains') === false);
-check('cattle NOT rearable on desert', ACKS.isTerrainRearable('pastoralist-cattle','desert') === false);
-check('goat rearable on barrens', ACKS.isTerrainRearable('pastoralist-goat','barrens') === true);
-check('sheep NOT rearable on barrens (RAW: not Barrens)', ACKS.isTerrainRearable('pastoralist-sheep','barrens') === false);
-check('sheep rearable on mountains', ACKS.isTerrainRearable('pastoralist-sheep','mountains') === true);
-check('swine rearable on swamp', ACKS.isTerrainRearable('pastoralist-swine','swamp') === true);
-check('swine rearable on jungle', ACKS.isTerrainRearable('pastoralist-swine','jungle') === true);
-check('terrain sub-type resolves to base (hills-forested → hills)', ACKS.isTerrainRearable('pastoralist-cattle','hills-forested') === true);
-check('agricultural rearable anywhere (no constraint)', ACKS.isTerrainRearable('agricultural','desert') === true);
-check('rearableTerrainFor agricultural is null', ACKS.rearableTerrainFor('agricultural') === null);
-check('rearableTerrainFor cattle is a 4-base set', (ACKS.rearableTerrainFor('pastoralist-cattle')||[]).length === 4);
-
-// ───────────────────────────────────────────────────────────────────────────
-console.log('--- (C) land-revenue density factor + applyPastoralistLandRevenue ---');
-// One Borderlands hex, 224 families, value 6, flipped sheep (cap 75): factor = min(224,75)/224.
+check('agri cap unknown → outlands 185', ACKS.agriculturalFamilyCapFor('xyz') === 185);
+check('demchi LV1 → 3', ACKS.demchiMaxPopulationForLandValue(1) === 3);
+check('demchi LV3 → 10 (poor steppe)', ACKS.demchiMaxPopulationForLandValue(3) === 10);
+check('demchi LV5 → 50', ACKS.demchiMaxPopulationForLandValue(5) === 50);
+check('demchi LV6+ → 100', ACKS.demchiMaxPopulationForLandValue(6) === 100 && ACKS.demchiMaxPopulationForLandValue(9) === 100);
 {
-  const camp = mkCampaign([{ id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-sheep' }]);
-  const f = ACKS.domainPastoralistLandFactor(camp, DOM);
-  check('single sheep hex factor = 75/224', approx(f, 75 / 224), f);
-  const base = { label: 'Land revenue (hex)', gp: 224 * 6 };  // mirror the per-hex branch
-  const out = ACKS.applyPastoralistLandRevenue(camp, DOM, base, { hexes: camp.hexes });
-  check('applyPastoralist gp = Σ min(fam,cap)·val exactly (75×6=450)', out.gp === 450, out.gp);
-  check('applyPastoralist annotates the label (75/224 ≈ 33%)', /pastoralist density ×33%/.test(out.label), out.label);
-  check('original row object NOT mutated (returns a new row)', base.gp === 224 * 6);
-}
-// Agricultural-only → factor 1 → applyPastoralist is a byte-identical no-op (returns the SAME object).
-{
-  const camp = mkCampaign([{ id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'agricultural' }]);
-  check('agricultural-only factor = 1', ACKS.domainPastoralistLandFactor(camp, DOM) === 1);
-  const base = { label: 'Land revenue', gp: 1344 };
-  const out = ACKS.applyPastoralistLandRevenue(camp, DOM, base, { hexes: camp.hexes });
-  check('applyPastoralist no-op returns the SAME row object (byte-identical)', out === base);
-}
-// A pastoralist hex UNDER its cap → no reduction (RAW: income/family unchanged below capacity).
-{
-  const camp = mkCampaign([{ id: 'h1', families: 50, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-cattle' }]); // cattle cap 113 > 50
-  check('under-cap pastoralist factor = 1 (no reduction)', ACKS.domainPastoralistLandFactor(camp, DOM) === 1);
-}
-// Mixed agricultural + sheep: exact per-hex weighted factor.
-{
-  const camp = mkCampaign([
-    { id: 'h1', families: 200, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 5, economyType: 'pastoralist-sheep' }, // cap 75
-    { id: 'h2', families: 100, classification: 'Borderlands', terrain: 'plains', valuePerFamily: 7, economyType: 'agricultural' },
-  ]);
-  const num = 75 * 5 + 100 * 7, den = 200 * 5 + 100 * 7;   // min(200,75)=75 ; agri unchanged
-  check('mixed-domain factor = weighted Σ min/Σ fam', approx(ACKS.domainPastoralistLandFactor(camp, DOM), num / den), ACKS.domainPastoralistLandFactor(camp, DOM));
-  const base = { label: 'Land', gp: den };
-  check('applyPastoralist exact = Σ min(fam,cap)·val', ACKS.applyPastoralistLandRevenue(camp, DOM, base, { hexes: camp.hexes }).gp === ACKS.bankersRound(num), ACKS.applyPastoralistLandRevenue(camp, DOM, base, { hexes: camp.hexes }).gp);
-}
-// Urban hex (bears a settlement) is excluded — rural-only land density.
-{
-  const camp = mkCampaign(
-    [{ id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-sheep' }],
-    [{ id: 'set-1', hexId: 'h1', name: 'Town', families: 224 }]);
-  check('a pastoralist hex bearing a settlement is excluded (factor 1)', ACKS.domainPastoralistLandFactor(camp, DOM) === 1);
-}
-// No per-hex families (pure-aggregate domain) → factor 1 (v1 boundary; the cap readout still shows).
-{
-  const camp = mkCampaign([{ id: 'h1', families: 0, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-sheep' }]);
-  check('no per-hex families → factor 1 (v1 boundary)', ACKS.domainPastoralistLandFactor(camp, DOM) === 1);
-  const info = ACKS.hexPastoralistInfo(camp, camp.hexes[0]);
-  check('hexPastoralistInfo still shows the cap readout (75) even at 0 families', info.pastoralistCap === 75, info.pastoralistCap);
-  check('hexPastoralistInfo overCap false at 0 families', info.overCap === false);
-}
-// hexPastoralistInfo shape on a populous over-cap hex.
-{
-  const camp = mkCampaign([{ id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-sheep' }]);
-  const info = ACKS.hexPastoralistInfo(camp, camp.hexes[0]);
-  check('hexInfo isPastoralist', info.isPastoralist === true);
-  check('hexInfo agriculturalCap 375', info.agriculturalCap === 375);
-  check('hexInfo pastoralistCap 75', info.pastoralistCap === 75);
-  check('hexInfo effectiveFamilies 75', info.effectiveFamilies === 75);
-  check('hexInfo overCap true', info.overCap === true);
-  check('hexInfo surplus 149', info.surplus === 149);
-  check('hexInfo rearable true (sheep on grassland)', info.rearable === true);
-}
-// domainPastoralistInfo summary.
-{
-  const camp = mkCampaign([
-    { id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'pastoralist-sheep' },
-    { id: 'h2', families: 100, classification: 'Borderlands', terrain: 'plains', valuePerFamily: 6, economyType: 'agricultural' },
-  ]);
-  const di = ACKS.domainPastoralistInfo(camp, DOM);
-  check('domainInfo hasPastoralist', di.hasPastoralist === true);
-  check('domainInfo ruralHexCount 2', di.ruralHexCount === 2);
-  check('domainInfo pastoralistHexCount 1', di.pastoralistHexCount === 1);
-  check('domainInfo densityPct < 100', di.densityPct < 100, di.densityPct);
-  check('domainInfo hexes carry a hexLabel', di.hexes.every(h => typeof h.hexLabel === 'string' && h.hexLabel.length > 0));
+  const cClan = mkCampaign([clan()], [{ id:'h', domainId:'dom-clan', families:200, classification:'Outlands', valuePerFamily:6 }]);
+  check('clanhold hex cap 125 (not 185)', ACKS.hexFamilyCap(cClan, cClan.hexes[0]) === 125);
+  const cTrans = mkCampaign([civ({ id:'dom-t', domainType:'transitional', classification:'Borderlands' })], [{ id:'h', domainId:'dom-t', families:200, classification:'Borderlands', valuePerFamily:6 }]);
+  check('transitional hex cap 125', ACKS.hexFamilyCap(cTrans, cTrans.hexes[0]) === 125);
+  const cCiv = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:200, classification:'Borderlands', valuePerFamily:6 }]);
+  check('civilized hex cap = classification 375', ACKS.hexFamilyCap(cCiv, cCiv.hexes[0]) === 375);
+  const cDem = mkCampaign([civ({ id:'dom-d', domainType:'demchi' })], [{ id:'h', domainId:'dom-d', families:50, classification:'Outlands', valuePerFamily:3 }]);
+  check('demchi hex cap = land-value curve (LV3 → 10)', ACKS.hexFamilyCap(cDem, cDem.hexes[0]) === 10);
+  check('unclaimed hex cap = classification (no domain)', ACKS.hexFamilyCap(mkCampaign([], []), { classification:'Civilized', families:0 }) === 780);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-console.log('--- (D) setHexEconomyType + the economy-type-changed event ---');
+console.log('--- (B) clanhold rules + the Military W7 levy-cap integration ---');
 {
-  const camp = mkCampaign([{ id: 'h1', families: 224, classification: 'Borderlands', terrain: 'grassland', valuePerFamily: 6, economyType: 'agricultural' }]);
-  const r = ACKS.setHexEconomyType(camp, 'h1', 'pastoralist-cattle');
-  check('set ok', r.ok === true && r.from === 'agricultural' && r.to === 'pastoralist-cattle');
-  check('hex.economyType written', camp.hexes[0].economyType === 'pastoralist-cattle');
-  check('one event logged', camp.eventLog.length === 1);
-  const ev = camp.eventLog[0].event;
-  check('event kind economy-type-changed', ev.kind === 'economy-type-changed');
-  check('event payload from/to/hexId', ev.payload.from === 'agricultural' && ev.payload.to === 'pastoralist-cattle' && ev.payload.hexId === 'h1');
-  check('event context primaryHexId (the §8.9 envelope)', ev.context && ev.context.primaryHexId === 'h1', JSON.stringify(ev.context));
-  check('event context domainId', ev.context && ev.context.domainId === 'dom-x');
-  check('event status applied (record-only)', (ev.status === 'applied' || (ACKS.EVENT_STATUS && ev.status === ACKS.EVENT_STATUS.APPLIED)));
-  // idempotent — setting the same value logs nothing more
-  const r2 = ACKS.setHexEconomyType(camp, 'h1', 'pastoralist-cattle');
-  check('idempotent: unchanged flag + no new event', r2.ok === true && r2.unchanged === true && camp.eventLog.length === 1);
-  // guards
-  check('no-hex guard', ACKS.setHexEconomyType(camp, 'nope', 'pastoralist-cattle').reason === 'no-hex');
-  check('invalid-economy-type guard', ACKS.setHexEconomyType(camp, 'h1', 'banana').reason === 'invalid-economy-type');
-  check('reserved marker (mining) accepted as valid', ACKS.setHexEconomyType(camp, 'h1', 'mining').ok === true);
-  check('back to agricultural accepted', ACKS.setHexEconomyType(camp, 'h1', 'agricultural').ok === true);
+  const c = mkCampaign([clan({ demographics:{ peasantFamilies:240, urbanFamilies:30 } })], []);
+  const d = c.domains[0];
+  check('clanhold warrior capacity = peasant families (240)', ACKS.clanholdWarriorCapacity(c, d) === 240);
+  check('civilized warrior capacity 0', ACKS.clanholdWarriorCapacity(c, civ()) === 0);
+  check('clanhold disallows conscription', ACKS.domainAllowsConscription(d) === false);
+  check('clanhold disallows militia', ACKS.domainAllowsMilitia(d) === false);
+  check('civilized allows conscription', ACKS.domainAllowsConscription(civ()) === true);
+  check('clanhold conscriptLevyMax 0 (W7 integration)', ACKS.conscriptLevyMax(d) === 0);
+  check('clanhold militiaLevyMax 0 (W7 integration)', ACKS.militiaLevyMax(d) === 0);
+  check('civilized conscriptLevyMax = fam/10 (24)', ACKS.conscriptLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 24);
+  check('civilized militiaLevyMax = 2×fam/10 (48)', ACKS.militiaLevyMax(civ({ demographics:{ peasantFamilies:240 } })) === 48);
+  check('clanhold urban cap = 12.5% peasants (30)', ACKS.clanholdMaxUrbanFamilies(d) === 30);
+  check('clanhold urban cap hard-capped at 249 for huge clanholds', ACKS.clanholdMaxUrbanFamilies(clan({ demographics:{ peasantFamilies:9000 } })) === 249);
+  check('civilized urban cap = null (no special cap)', ACKS.clanholdMaxUrbanFamilies(civ()) === null);
+  check('clanhold F&D table = clanhold-restricted', ACKS.domainFavorDutyTable(d) === 'clanhold-restricted');
+  check('demchi F&D table = nomad', ACKS.domainFavorDutyTable(civ({ domainType:'demchi' })) === 'nomad');
+  check('civilized F&D table = standard', ACKS.domainFavorDutyTable(civ()) === 'standard');
+  check('clanhold may NOT demand a loan', ACKS.favorDutyKindAllowedForDomain(d, 'loan') === false);
+  check('clanhold may NOT grant an office/title', ACKS.favorDutyKindAllowedForDomain(d, 'office') === false);
+  check('clanhold MAY call to arms (war)', ACKS.favorDutyKindAllowedForDomain(d, 'call-to-arms') === true);
+  check('civilized may demand anything', ACKS.favorDutyKindAllowedForDomain(civ(), 'loan') === true);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-console.log('--- (E) demo integration (matches the browser-verify) ---');
+console.log('--- (C) the income hook applyDomainTypeLandRevenue ---');
+{
+  const c = mkCampaign([civ()], [{ id:'h', domainId:'dom-civ', families:300, classification:'Borderlands', valuePerFamily:6 }]);
+  const row = { label:'Land revenue', gp: 1800 };
+  const out = ACKS.applyDomainTypeLandRevenue(c, c.domains[0], row, { hexes: c.hexes });
+  check('civilized income hook is a byte-identical no-op (same object)', out === row);
+  check('domainTypeLandFactor civilized = 1', ACKS.domainTypeLandFactor(c, c.domains[0]) === 1);
+}
+{
+  const c = mkCampaign([clan()], [{ id:'h', domainId:'dom-clan', families:200, classification:'Outlands', valuePerFamily:6 }]);
+  const f = ACKS.domainTypeLandFactor(c, c.domains[0]);
+  check('clanhold factor = 125/200', approx(f, 125 / 200), f);
+  const row = { label:'Land revenue (hex)', gp: 200 * 6 };
+  const out = ACKS.applyDomainTypeLandRevenue(c, c.domains[0], row, { hexes: c.hexes });
+  check('clanhold land gp = Σ min(fam,125)·val exactly (125×6=750)', out.gp === 750, out.gp);
+  check('clanhold land row annotated', /clanhold cap 125/.test(out.label), out.label);
+  check('original row NOT mutated', row.gp === 1200);
+}
+{
+  const c = mkCampaign([civ({ id:'dom-t', domainType:'transitional', classification:'Borderlands' })], [{ id:'h', domainId:'dom-t', families:200, classification:'Borderlands', valuePerFamily:6 }]);
+  const row = { label:'Land', gp: 200 * 6 };
+  const out = ACKS.applyDomainTypeLandRevenue(c, c.domains[0], row, { hexes: c.hexes });
+  check('transitional ½-overage gp = 125·6 + 75·6·0.5 = 975', out.gp === 975, out.gp);
+  check('transitional row annotated', /transitional/.test(out.label), out.label);
+}
+{
+  const c = mkCampaign([clan()], [{ id:'h', domainId:'dom-clan', families:50, classification:'Outlands', valuePerFamily:6 }]);
+  check('clanhold under cap (50<125) → factor 1', ACKS.domainTypeLandFactor(c, c.domains[0]) === 1);
+}
+{
+  const c = mkCampaign([civ({ id:'dom-d', domainType:'demchi' })], [{ id:'h', domainId:'dom-d', families:50, classification:'Outlands', valuePerFamily:3 }]);
+  const row = { label:'Land', gp: 150 };
+  check('demchi income hook no-op (PT-C owns the ledger)', ACKS.applyDomainTypeLandRevenue(c, c.domains[0], row, { hexes: c.hexes }) === row);
+}
+{
+  const c = mkCampaign([clan()], [{ id:'h', domainId:'dom-clan', families:200, classification:'Outlands', valuePerFamily:6 }], [{ id:'set-1', hexId:'h', name:'Town', families:200 }]);
+  check('clanhold hex bearing a settlement is excluded (factor 1)', ACKS.domainTypeLandFactor(c, c.domains[0]) === 1);
+}
 {
   require(path.join(__dirname, '..', 'acks-demo-template.js'));
   let camp = JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE));
@@ -204,27 +144,103 @@ console.log('--- (E) demo integration (matches the browser-verify) ---');
   const d = camp.domains.find(x => /saltspur/i.test(x.name)) || camp.domains[0];
   const landOf = () => (ACKS.incomeBreakdown(camp, d).find(r => /Land revenue/.test(r.label)) || {});
   const before = landOf();
-  check('pristine demo land row is byte-identical (no pastoralist annotation)', !/pastoralist density/.test(before.label || ''), before.label);
-  const rural = (ACKS.hexesForDomain(camp, d.id) || []).filter(h => !ACKS.settlementForHex(camp, h.id) && (h.families || 0) > 0)
-    .sort((a, b) => (b.families || 0) - (a.families || 0));
-  check('demo domain has a populous rural hex', rural.length > 0 && rural[0].families > 75);
-  const evBefore = camp.eventLog.length;
-  const r = ACKS.setHexEconomyType(camp, rural[0].id, 'pastoralist-sheep');
-  const after = landOf();
-  check('flip → land revenue DROPS', (after.gp || 0) < (before.gp || 0), before.gp + ' → ' + after.gp);
-  check('flip → land row annotated', /pastoralist density/.test(after.label || ''), after.label);
-  check('flip → exactly one economy-type-changed event', camp.eventLog.length - evBefore === 1 && camp.eventLog[camp.eventLog.length - 1].event.kind === 'economy-type-changed');
-  // revert → byte-identical again (the density goes away)
-  ACKS.setHexEconomyType(camp, rural[0].id, 'agricultural');
-  check('revert to agricultural → land row byte-identical again', landOf().gp === before.gp && !/pastoralist density/.test(landOf().label || ''), landOf().gp + ' vs ' + before.gp);
+  check('pristine demo land row byte-identical (no domain-type annotation)', !/clanhold cap|transitional ½/.test(before.label || ''), before.label);
+  check('pristine demo domain defaults to civilized', ACKS.domainTypeOf(d) === 'civilized');
+  const beforeGp = before.gp || 0;
+  ACKS.setDomainType(camp, d.id, 'clanhold');
+  check('demo domain flipped to clanhold', ACKS.domainTypeOf(d) === 'clanhold');
+  check('clanhold flip emitted a domain-type-changed event', camp.eventLog.some(e => e.event.kind === 'domain-type-changed'));
+  check('clanhold land revenue ≤ civilized (the cap never raises it)', (landOf().gp || 0) <= beforeGp, beforeGp + ' → ' + (landOf().gp || 0));
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-console.log('--- (F) event-kind registration (self-registered, PR #89 kernel) ---');
-check('economy-type-changed registered', ACKS.registeredEventKinds().includes('economy-type-changed'));
-check('economy-type-changed is wizard-opt-out', typeof ACKS.isEventWizardOptOut === 'function' ? ACKS.isEventWizardOptOut('economy-type-changed') === true : true);
-check('applyEvent_domainVariantAudit returns a narrativeSummary', (ACKS.applyEvent_domainVariantAudit({}, { kind: 'economy-type-changed', payload: { narrative: 'X' } }).result.narrativeSummary) === 'X');
+console.log('--- (D) setDomainType + decreeTransitional + events ---');
+{
+  const c = mkCampaign([civ()], []);
+  const d = c.domains[0];
+  check('setDomainType to same (civilized) → unchanged, no event', ACKS.setDomainType(c, 'dom-civ', 'civilized').unchanged === true && c.eventLog.length === 0);
+  check('no-domain guard', ACKS.setDomainType(c, 'nope', 'clanhold').reason === 'no-domain');
+  check('invalid-domain-type guard', ACKS.setDomainType(c, 'dom-civ', 'bogus').reason === 'invalid-domain-type');
+  const r = ACKS.setDomainType(c, 'dom-civ', 'clanhold');
+  check('set clanhold ok', r.ok === true && r.from === 'civilized' && r.to === 'clanhold');
+  check('domainType written', d.domainType === 'clanhold');
+  check('classification forced Outlands (RR p.353)', d.classification === 'Outlands');
+  check('one domain-type-changed event logged', c.eventLog.length === 1 && c.eventLog[0].event.kind === 'domain-type-changed');
+  check('event context domainId (the §8.9 envelope)', c.eventLog[0].event.context && c.eventLog[0].event.context.domainId === 'dom-civ');
+  check('event status applied (record-only)', c.eventLog[0].event.status === 'applied' || (ACKS.EVENT_STATUS && c.eventLog[0].event.status === ACKS.EVENT_STATUS.APPLIED));
+}
+{
+  const c = mkCampaign([civ({ id:'dom-t', domainType:'transitional' })], []);
+  check('transitional → clanhold refused (irrevocable)', ACKS.setDomainType(c, 'dom-t', 'clanhold').reason === 'transitional-irrevocable');
+  check('transitional → clanhold allowed with force', ACKS.setDomainType(c, 'dom-t', 'clanhold', { force:true }).ok === true);
+}
+{
+  const c = mkCampaign([clan({ demographics:{ peasantFamilies:300, urbanFamilies:160 } })], []);
+  const r = ACKS.decreeTransitional(c, 'dom-clan', { turn: 7 });
+  check('decreeTransitional ok', r.ok === true && r.from === 'clanhold');
+  check('domainType now transitional', c.domains[0].domainType === 'transitional');
+  check('transitionalSince stamped (turn 7)', c.domains[0].transitionalSince === 7);
+  check('domain-decreed-transitional event logged', c.eventLog.some(e => e.event.kind === 'domain-decreed-transitional'));
+  c.currentTurn = 7 + 240;   // 20 game-years at 12 turns/year
+  const ready = ACKS.transitionalConversionReady(c, c.domains[0]);
+  check('transitionalConversionReady at 20 years', ready && ready.ready === true && ready.yearsElapsed === 20);
+  c.currentTurn = 7 + 12;    // 1 year
+  check('not ready at 1 year', ACKS.transitionalConversionReady(c, c.domains[0]).ready === false);
+}
 
+// ───────────────────────────────────────────────────────────────────────────
+console.log('--- (E) senate gate + beastman advisory ---');
+check('domainTypeAllowsSenate clanhold false', ACKS.domainTypeAllowsSenate('clanhold') === false);
+check('domainTypeAllowsSenate transitional true', ACKS.domainTypeAllowsSenate('transitional') === true);
+check('domainTypeAllowsSenate civilized true', ACKS.domainTypeAllowsSenate('civilized') === true);
+check('domainTypeAllowsSenate demchi true', ACKS.domainTypeAllowsSenate('demchi') === true);
+{
+  const c = mkCampaign([clan({ id:'dom-apex', isRealm:true })], []);
+  if(typeof ACKS.materializeSenate === 'function'){
+    const r = ACKS.materializeSenate(c, { domainId:'dom-apex' });
+    check('materializeSenate refuses a clanhold apex', r.ok === false && r.reason === 'clanhold-no-senate', JSON.stringify(r));
+  } else { check('materializeSenate present', true); }
+}
+{
+  const c = mkCampaign([], []);
+  check('non-beastman → advisory level ok', ACKS.beastmanDomainTypeAdvisory(c, civ()).level === 'ok');
+  check('beastman clanhold → ok', ACKS.beastmanDomainTypeAdvisory(c, clan({ dominantRace:'beastman' })).level === 'ok');
+  check('beastman civilized (no special ruler) → advise', ACKS.beastmanDomainTypeAdvisory(c, civ({ dominantRace:'beastman' })).level === 'advise');
+  const c2 = mkCampaign([civ({ id:'dom-b', dominantRace:'beastman', rulerCharacterId:'chr-r' })], []);
+  c2.characters = [{ id:'chr-r', name:'Dread Sorcerer', race:'human', alignment:'Chaotic', level:11, abilities:{ int:16 } }];
+  check('beastman civilized + a Chaotic powerful non-beastman ruler → exception', ACKS.beastmanDomainTypeAdvisory(c2, c2.domains[0]).level === 'exception');
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+console.log('--- (F) vassal morale + PT-0 migration + registration ---');
+{
+  const liege  = ACKS.blankDomain({ id:'dom-liege', name:'Wolf Clan', domainType:'clanhold' });
+  const vassal = ACKS.blankDomain({ id:'dom-vassal', name:'Vale', liegeId:'dom-liege' });
+  const c = mkCampaign([liege, vassal], []);
+  const row = ACKS.clanholdVassalMoraleRow(c, vassal);
+  check('civilized vassal under clanhold liege → −2 morale row', row && row.value === -2, JSON.stringify(row));
+  const mods = ACKS.moraleModifiersFor(c, vassal) || [];
+  check('the −2 row flows through moraleModifiersFor', mods.some(mm => mm.value === -2 && /clanhold/i.test(mm.label)));
+  const c2 = mkCampaign([clan({ id:'dom-l2' }), clan({ id:'dom-v2', liegeId:'dom-l2' })], []);
+  check('clanhold vassal under clanhold liege → no penalty', ACKS.clanholdVassalMoraleRow(c2, c2.domains[1]) === null);
+  const c3 = mkCampaign([civ({ id:'dom-l3' }), civ({ id:'dom-v3', liegeId:'dom-l3' })], []);
+  check('civilized vassal under civilized liege → no penalty', ACKS.clanholdVassalMoraleRow(c3, c3.domains[1]) === null);
+}
+{
+  let camp = { schemaVersion:2, domains:[], characters:[], hexes:[
+    { id:'h1', economyType:'pastoralist-cattle' }, { id:'h2', economyType:'mixed' },
+    { id:'h3', economyType:'mining' }, { id:'h4', economyType:'agricultural' }, { id:'h5' } ] };
+  const m = ACKS.migrateCampaign(camp); if(m) camp = m;
+  check('PT-0: pastoralist-cattle → agricultural', camp.hexes[0].economyType === 'agricultural');
+  check('PT-0: mixed → agricultural', camp.hexes[1].economyType === 'agricultural');
+  check('PT-0: mining reserved marker UNTOUCHED', camp.hexes[2].economyType === 'mining');
+  check('PT-0: agricultural untouched', camp.hexes[3].economyType === 'agricultural');
+}
+check('domain-type-changed registered', ACKS.registeredEventKinds().includes('domain-type-changed'));
+check('domain-decreed-transitional registered', ACKS.registeredEventKinds().includes('domain-decreed-transitional'));
+check('economy-type-changed REMOVED (not registered)', !ACKS.registeredEventKinds().includes('economy-type-changed'));
+check('domain-type-changed is wizard-opt-out', typeof ACKS.isEventWizardOptOut === 'function' ? ACKS.isEventWizardOptOut('domain-type-changed') === true : true);
+check('applyEvent_domainTypeChanged returns a narrativeSummary', ACKS.applyEvent_domainTypeChanged({}, { kind:'domain-type-changed', payload:{ narrative:'X' } }).result.narrativeSummary === 'X');
 // ═══════════════════════════════════════════════════════════════════════════
 // TERRAIN TRANSFORMATION (P5-TERR — gap L; JJ p.412) — added 2026-06-21 (b14 agent-1)
 // ───────────────────────────────────────────────────────────────────────────
