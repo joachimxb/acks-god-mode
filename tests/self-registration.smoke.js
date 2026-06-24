@@ -425,9 +425,10 @@ ok('registerEventKind() with no args is a safe no-op', (function(){ try { const 
 // entity-kind count + the global schema⊆factory invariant in tests/smoke.js. Here we pin the COUNTS +
 // the structural invariants (no dups, 1:1 list↔index, schema-keys ⊆ entity-kinds) + representatives,
 // and exercise both registrars end-to-end.
-// FIELD_SCHEMAS_COUNT: 43 → 46 with the XLS-1 World-I/O foundation (hex + domain + settlement schemas,
-// authored in acks-engine-field-schemas.js for the Excel importer + the Inspector — registered after the seed).
-const ENTITY_KINDS_COUNT = 59, FIELD_SCHEMAS_COUNT = 46;
+// FIELD_SCHEMAS_COUNT: 43 → 46 with the XLS-1 World-I/O foundation (hex + domain + settlement schemas);
+// 46 → 49 with the audit-2026-06-24 G1 lane (the character / rumor / venture schemas — the load-bearing
+// Inspector stubs), authored in acks-engine-field-schemas.js and registered after the seed.
+const ENTITY_KINDS_COUNT = 59, FIELD_SCHEMAS_COUNT = 49;
 const ENTITY_REPRESENTATIVES = ['character','party','group','hex','domain','unit','army','lair','encounter',
   'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore','dynasty','confinement'];
 const SCHEMA_REPRESENTATIVES = ['outpost','stash','magistracy','unit','army','journey','group','dungeon',

@@ -407,12 +407,585 @@
   "$defs": {
     "character": {
       "title": "Character",
-      "description": "\"character\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"character\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controlledBy": {
+          "enum": [
+            "player",
+            "gm",
+            null
+          ]
+        },
+        "ownerPlayerId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detailLevel": {
+          "enum": [
+            "lightweight",
+            "full",
+            null
+          ]
+        },
+        "socialTier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lifecycleState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "alignment": {
+          "enum": [
+            "L",
+            "N",
+            "C",
+            null
+          ]
+        },
+        "race": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isEnchantedCreature": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "creatureTypes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "humanoid",
+              "beastman-humanoid",
+              "animal",
+              "construct",
+              "giant",
+              "incarnation",
+              "monstrosity",
+              "ooze",
+              "plant",
+              "undead",
+              "vermin"
+            ]
+          }
+        },
+        "hitDice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "level": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "xp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reserveXp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "henchmanCap": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "constructionSupervisorCap": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "hp": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "current": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "hitDice": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "ac": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "attackThrow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "abilities": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "STR": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "INT": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "WIL": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "DEX": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "CON": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "CHA": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "savingThrows": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "paralysis": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "death": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "blast": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "implements": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "spells": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "permanentWoundPenalty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mortalityPenalty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "coins": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "pp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "ep": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "personalGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "monthlyWage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "upkeepMonthly": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "lastLivingExpensePaidGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "currentDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "currentJourneyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "journey id — prefix \"jrn-\""
+        },
+        "partyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "party id — prefix \"prt-\""
+        },
+        "homeSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "homeDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "homeHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "placementRole": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "travelDestination": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "travelPace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "liegeCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "loyalty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lifestyleTargetLevel": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "effectiveSocialLevel": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "payKeepFromTreasury": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "personalFatigue": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "hungerDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dehydrationDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "waterDaysCarried": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "foodDeficitDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "waterDeficitDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "underfed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "starving": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "dehydrated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "conLossHunger": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "conLossThirst": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "age": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ageMonths": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ageCategory": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agingDeathSave": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "autoAdvance": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "heroicCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fatePoints": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "alive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "deceasedTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "personality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "secrets": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "voice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
         }
       },
       "required": [
@@ -877,6 +1450,12 @@
             "null"
           ],
           "description": "domain id — prefix \"dom-\""
+        },
+        "controllingPlayerId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "isRealm": {
           "type": [
@@ -2490,12 +3069,116 @@
     },
     "venture": {
       "title": "Mercantile Venture",
-      "description": "\"venture\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"venture\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venturerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "destinationDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "departureTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "expectedArrivalTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "arrivalTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "completedTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "totalInvestment": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "salePriceGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "profitGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "xpAwarded": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "garrisonEscortUnitIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "unit id — prefix \"unit-\""
+          }
+        },
+        "syndicateDisruptionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "syndicate id — prefix \"syn-\""
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2504,12 +3187,118 @@
     },
     "rumor": {
       "title": "Rumor",
-      "description": "\"rumor\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"rumor\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "truthLevel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "apparentLevel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "submittedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "submittedBy": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sourceEventId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sourceCharacterId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "character id — prefix \"chr-\""
+            }
+          }
+        },
+        "proliferation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "chancePerMonth": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "settlementsReached": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "settlement id — prefix \"set-\""
+              }
+            }
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
         }
       },
       "required": [
@@ -7504,7 +8293,7 @@
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
     "entityKinds": 59,
-    "typedKinds": 46,
+    "typedKinds": 49,
     "eventKinds": 190,
     "nestedSubEntityKinds": [
       "mount",
