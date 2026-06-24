@@ -1383,6 +1383,47 @@
     }));
   }
 
+  // A PURE, dice-free preview of a motion's voting bloc — each leading senator (or faction, by mode)
+  // with the modifiers that WOULD apply to its 2d6, but no roll. For the read-only motion-detail view.
+  //   opts: { senateId|senate, motion|motionId, + any vote override }  → { senateId, mode, matter,
+  //           totalVotes, majorityThreshold, independentMinorVotes, controlledIndependentVotes, rows[] }
+  function previewSenateMotionModifiers(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    const motion = opts.motion || findSenateMotion(campaign, senate.id, opts.motionId);
+    if(!motion) return null;
+    const voteOpts = _motionVoteOpts(campaign, senate, motion, opts);
+    const ctx = _consultContext(campaign, senate, voteOpts);
+    const mode = voteOpts.mode === 'by-faction' ? 'by-faction' : 'per-senator';
+    const cascades = {};                                   // no endorse/condemn cascade pre-roll
+    const totalVotes = senateTotalVotes(campaign, senate);
+    const rows = [];
+    if(mode === 'by-faction'){
+      factionsForSenate(campaign, senate.id)
+        .map(f => ({ f, votes: factionTotalInfluence(campaign, f) })).filter(x => x.votes > 0)
+        .sort((a, b) => b.votes - a.votes)
+        .forEach(({ f, votes }) => {
+          const stub = { factionId: f.id, policyObjectives: f.policyObjectives || [], influenceModifiers: [] };
+          const mod = senatorVoteModifiers(campaign, senate, stub, ctx, cascades, true);
+          rows.push({ factionId: f.id, factionName: f.name || f.id, votes, modifiers: mod.modifiers, total: mod.total });
+        });
+    } else {
+      senatorshipsForSenate(campaign, senate.id).filter(s => s.rank !== 'minor')
+        .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0))
+        .forEach(s => {
+          const bew = _bewitchedVote(s);
+          const mod = bew ? { modifiers: [], total: 0 } : senatorVoteModifiers(campaign, senate, s, ctx, cascades, false);
+          rows.push({ senatorshipId: s.id, senatorCharacterId: s.senatorCharacterId, factionId: s.factionId || null,
+            votes: Number(s.votes) || 0, bewitched: !!bew, bewitchedVote: bew || null, modifiers: mod.modifiers, total: mod.total });
+        });
+    }
+    return { senateId: senate.id, mode, matter: voteOpts.matter,
+      totalVotes, majorityThreshold: totalVotes > 0 ? Math.floor(totalVotes / 2) + 1 : 1,
+      independentMinorVotes: senate.independentMinorSenatorVotes || 0,
+      controlledIndependentVotes: ctx.controlledIndependentVotes, rows };
+  }
+
   // Resolve an open motion end-to-end (the terminal verb): take the wizard's already-rolled
   // voteResult (or roll one — emit:false, the motion event is the audit), apply influence reveals,
   // then enact / reject (policy + edict, via enactPolicy) OR clear / escalate (dispute, via
@@ -1962,7 +2003,9 @@
     // generated:true); the NPC is minted in materializeSenate, so this propose step stays mutation-free
     // + seeded (the preview reproduces; minting — which mutates — is deferred to the commit step).
     const fillWithGenerated = !!opts.fillWithGenerated;
-    const rolledLeadingCount = Math.max(1, _rollDice(chars.leading, rng));
+    // GM override (Phase 5): decide the leading-senator count instead of rolling chars.leading.
+    const leadingCountManual = (opts.leadingCount != null && Number(opts.leadingCount) >= 1);
+    const rolledLeadingCount = leadingCountManual ? Math.round(Number(opts.leadingCount)) : Math.max(1, _rollDice(chars.leading, rng));
     const pool = senateMaterializeCandidates(campaign, apex, { minLevel: minSenatorLevel, extraCharacterIds: opts.extraCharacterIds });
     const poolSize = pool.length;
     const realSeatCount = Math.min(rolledLeadingCount, poolSize);
@@ -1984,8 +2027,12 @@
     // RAW influence accounting (RR p.357): if Σ influence > seats, drop the least-influential leading
     // senators until it fits.
     seated.sort((a, b) => b.votes - a.votes);
-    let runTotal = seated.reduce((s, x) => s + x.votes, 0);
-    while(seated.length > 1 && runTotal > seats){ runTotal -= seated.pop().votes; }
+    // RAW influence accounting (RR p.357): drop least-influential until Σ influence ≤ seats — UNLESS the GM
+    // decided the count (then deliver it; the GM can edit votes, and independent minor votes floor at 0).
+    if(!leadingCountManual){
+      let runTotal = seated.reduce((s, x) => s + x.votes, 0);
+      while(seated.length > 1 && runTotal > seats){ runTotal -= seated.pop().votes; }
+    }
     // step 4 — 1d3 policy objectives each; step 6 — cluster into factions
     seated.forEach(s => { s.objectives = _rollObjectives(rng); });
     const clusters = _clusterFactions(seated);
@@ -2023,7 +2070,7 @@
       requirements: { minLevel: minSenatorLevel, title: requirements.title, netWorthGp: requirements.netWorthGp,
         landDescription: requirements.landDescription, families: requirements.families, bribe: Object.assign({}, requirements.bribe) },
       senators: seated, factions, independentMinorVotes,
-      rolledLeadingCount, seatedCount: seated.length, poolSize, poolShort: poolSize < rolledLeadingCount,
+      rolledLeadingCount, leadingCountManual, seatedCount: seated.length, poolSize, poolShort: poolSize < rolledLeadingCount,
       generatedCount: seated.filter(s => s.generated).length, realCount: seated.filter(s => !s.generated).length, fillWithGenerated,
       rulingFactionIndex, leadingFactionIndex, seed
     };
@@ -2076,7 +2123,11 @@
             socialTier: 'independent', controlledBy: 'gm', placementRole: 'domain-npc' },
           { seed: genSeed });
       } catch(e){ ch = null; }
-      if(ch && ch.id){ mintedByIndex[i] = ch; mintedCount++; }
+      if(ch && ch.id){
+        // honor a GM-edited generated-senator name (the wizard's "edit the leading senators"); else keep the generated name
+        if(s.name && s.name !== '(to be generated)') ch.name = s.name;
+        mintedByIndex[i] = ch; mintedCount++;
+      }
     });
 
     const req = plan.requirements;
@@ -2168,7 +2219,7 @@
     // P-5 — the motion layer (the guided Senate Wizard's engine; burst9)
     SENATE_MOTION_KINDS, blankSenateMotion,
     senateMotionsForSenate, findSenateMotion,
-    openSenateMotion, previewSenateMotionVote, resolveSenateMotion, withdrawSenateMotion,
+    openSenateMotion, previewSenateMotionVote, previewSenateMotionModifiers, resolveSenateMotion, withdrawSenateMotion,
     senateInHoneymoon,
     // P-7 — Eldermoot vocabulary + the rule-of-the-few oligarchy mode (burst10)
     RULE_OF_THE_FEW, SENATE_KINDS, OLIGARCHY_DECISION_RULES,

@@ -193,13 +193,34 @@
     if(!c || !Array.isArray(c.senates)) return [];
     return c.senates.filter(s => s && s.status !== 'dissolved').map(s => ({ id: s.id, name: s.name || s.id }));
   },
+  // Phase 5 — the Senate tab is PER-DOMAIN: the senate shown/acted-on is the SELECTED DOMAIN's
+  // realm senate, resolved at the apex (RR pp.355–360), and ONLY that — never another realm's.
+  // Returns null when this realm has no active senate (→ the re-establish view).
   senateSelected(){
     const c = this.currentCampaign, A = window.ACKS;
     if(!c || !A) return null;
+    if(this.selectedDomain && A.senateForDomain) return A.senateForDomain(c, this.selectedDomain);
+    // Legacy fallback (a caller with no selected domain): the explicit pointer, else the first senate.
     const rows = this.senateAllRows();
     if(rows.length === 0) return null;
     const id = this.senateSelectedId || rows[0].id;
     return A.findSenate(c, id) || A.findSenate(c, rows[0].id);
+  },
+  // Keep the senate context bound to the selected domain (driven by the Senate view's x-effect).
+  // When the resolved senate changes, align senateSelectedId and drop the PREVIOUS senate's
+  // transient consult state so nothing bleeds between two senatorial realms.
+  senateSyncContext(){
+    if(this.activeTab !== 'senate') return;
+    const c = this.currentCampaign, A = window.ACKS;
+    const sen = (c && A && A.senateForDomain && this.selectedDomain) ? A.senateForDomain(c, this.selectedDomain) : null;
+    const id = sen ? sen.id : null;
+    if(this.senateSelectedId === id) return;          // already aligned — nothing to reset
+    this.senateSelectedId = id;
+    this.senateConsultResult = null;                  // the prior senate's vote result
+    this.senateConsult.rulerFactionId = '';           // faction ids are senate-specific
+    this.senateConsult.policyHelps = [];
+    this.senateConsult.policyHinders = [];
+    this.senateConsult.controlledIndependentVotes = 0;
   },
   _senateApex(senate){
     const c = this.currentCampaign;
