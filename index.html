@@ -457,7 +457,8 @@ document.addEventListener('alpine:init', () => {
     <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
     <button @click="newCampaign()" class="btn">＋ New campaign</button>
     <button @click="openCampaign()" class="btn" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
-    <button @click="saveCampaign()" class="btn btn-primary" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
+    <!-- H3-d, audit 2026-06-24: loud dirty-state — the Save button rings + flags ● when there are unsaved changes. -->
+    <button @click="saveCampaign()" class="btn btn-primary" :class="dirty ? 'ring-2 ring-red-600 ring-offset-1' : ''" :disabled="!currentCampaign" :title="(dirty ? 'You have unsaved changes. ' : '') + 'Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.'">💾 Save campaign<span x-show="dirty" aria-hidden="true"> ●</span></button>
     <button @click="saveCampaignAs()" class="btn text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
     <!-- 📤 Export for player (B1-UI, audit 2026-06-24) — redacted, player-safe .acks.json (vs the unredacted save) -->
     <button @click="openPlayerExport()" class="btn text-sm" :disabled="!currentCampaign" title="Export a redacted, player-safe copy of the campaign — one player's view only (their characters/domains + the discovered world). Closes the secret-leak path: a player never needs the full GM save.">📤 Export for player…</button>
@@ -506,8 +507,9 @@ document.addEventListener('alpine:init', () => {
          of the bar — ml-auto on the first of the group (Events, alignRight in topViews) pushes it
          and the two after it flush right, so they sit under the advance-day clock at the top-right;
          the world-content tabs stay left. -->
+    <!-- H3-b, audit 2026-06-24: an empty (count 0) world tab is softened so the eye goes to where the content is. -->
     <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
-            :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '')"
+            :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '') + (v.count === 0 ? ' opacity-60' : '')"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
       <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
@@ -4988,6 +4990,19 @@ document.addEventListener('alpine:init', () => {
 <div x-show="currentView === 'domains' && domainsSubView === 'domains'" x-cloak>
 
   <main class="p-4">
+    <!-- Orientation strip (H3-a a11y/UX, audit 2026-06-24) — first-run wayfinding; dismissable + persisted. -->
+    <div x-show="currentCampaign && !orientationStripDismissed" x-cloak
+         x-init="try { if(localStorage.getItem('acks-orientation-dismissed')==='1') orientationStripDismissed = true; } catch(e){}"
+         class="mb-3 px-3 py-2 border border-ink/50 rounded flex items-start justify-between gap-3 text-sm" style="background:#f4ecd2">
+      <div>
+        👋 You're running <span class="font-semibold" x-text="(currentCampaign && currentCampaign.name) || 'your campaign'"></span>, Turn <span x-text="(currentCampaign && currentCampaign.currentTurn) || 1"></span>.
+        New here? Read what's happened in
+        <button @click="currentView='review'; reviewSubView='annals'" class="underline font-semibold">📖 the Annals</button><span x-show="(currentCampaign && currentCampaign.pendingEvents || []).filter(e=>e.status==='pending').length" x-text="' (' + (currentCampaign && currentCampaign.pendingEvents || []).filter(e=>e.status==='pending').length + ' pending)'"></span>,
+        then run the month on the
+        <button @click="currentView='domain-turn'" class="underline font-semibold">🏰 Monthly Turn</button> tab.
+      </div>
+      <button @click="dismissOrientationStrip()" class="text-lg leading-none px-1 hover:opacity-60 shrink-0" title="Dismiss" aria-label="Dismiss orientation">×</button>
+    </div>
     <template x-if="!currentCampaign">
       <!-- Welcome / first-run banner (task #217). CTAs: (1) instant demo (loads the inlined
            window.ACKS_DEMO_TEMPLATE), (2) "Start from a template" — reveals the six shipped
@@ -8964,10 +8979,10 @@ document.addEventListener('alpine:init', () => {
           <div class="flex justify-between items-center flex-wrap gap-2">
             <h3 class="font-bold">
               <span x-text="p.domainName + ' (' + p.classification + ')'"></span>
-              <span x-show="p.hasPlayerInput && monthlyTurnSubView==='domains'" class="ml-2 text-sm px-2 py-0.5 rounded accent-green" style="background:#e8f3df" title="Player has submitted an end-of-turn plan for this domain — Phase 5 will pre-populate the proposal fields from it">📥 player plan submitted</span>
+              <!-- H3-e, audit 2026-06-24: removed the dead "📥 player plan submitted" badge (unimplemented Phase-5 control). -->
             </h3>
             <div class="flex items-center gap-3 text-sm" x-show="monthlyTurnSubView==='domains'">
-              <label><input type="checkbox" x-model="p.askClaude"> 🤖 Ask Claude (Phase 6)</label>
+              <!-- H3-e, audit 2026-06-24: removed the dead "🤖 Ask Claude (Phase 6)" checkbox (unimplemented). -->
               <label><input type="checkbox" x-model="p.skip"> Skip</label>
             </div>
           </div>
@@ -8975,7 +8990,6 @@ document.addEventListener('alpine:init', () => {
           <!-- economics (income / expenses / morale) — DOMAINS sub-tab only -->
           <div x-show="monthlyTurnSubView==='domains'">
           <div x-show="p.skip" x-cloak class="skip-banner">⚠ SKIPPED — no changes applied to this domain this month</div>
-          <div x-show="p.askClaude && !p.skip" x-cloak class="text-sm mt-1 px-2 py-1 rounded inline-block" style="background:#dde2f0;color:#1f3a7a">🤖 Marked for Claude to resolve · (Phase 6 will export this domain's state and ingest Claude's response on commit)</div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-sm" :class="p.skip ? 'skipped' : ''">
             <div>
@@ -20121,6 +20135,13 @@ document.addEventListener('alpine:init', () => {
   else { start(); }
   document.addEventListener('alpine:initialized', wireDialogs);
 })();
+</script>
+
+<!-- Unsaved-changes guard (H3-d, audit 2026-06-24) — warn before leaving / reloading with uncommitted edits. -->
+<script>
+window.addEventListener('beforeunload', function(e){
+  try { if(window.acksApp && window.acksApp.dirty){ e.preventDefault(); e.returnValue = ''; return ''; } } catch(_){}
+});
 </script>
 
 </body>

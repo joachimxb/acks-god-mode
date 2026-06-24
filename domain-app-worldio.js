@@ -406,6 +406,13 @@
     // redacted .acks.json. Fog-of-war is honoured through the same serializer's player-view world
     // filter (B3's _publicWorld). Pairs with the assign-to-player control (sets ownerPlayerId).
     playerExport: { pickerOpen: false, playerId: '' },
+
+    // ── Orientation strip (H3-a, audit 2026-06-24) — first-run wayfinding atop Domains, dismissable. ──
+    orientationStripDismissed: false,
+    dismissOrientationStrip(){
+      this.orientationStripDismissed = true;
+      try { localStorage.setItem('acks-orientation-dismissed', '1'); } catch(e){}
+    },
     // The distinct player identifiers assigned across the campaign (characters' ownerPlayerId ∪
     // domains' controllingPlayerId). No formal players[] collection — ownership is a field, so the
     // roster is derived.
