@@ -7971,6 +7971,13 @@ const _component = {
   // that live in the UI layer.
   _finishLoad(camp){
     if(!camp) return;
+    // G2 (audit 2026-06-24): the post-migrate finish steps (array-ensure, the lazy migrations, the
+    // #193 top-level lift, the T6 mirror strip) now live in the ENGINE — ACKS.finalizeCampaignLoad —
+    // so a headless integrator gets the SAME complete load via ACKS.loadCampaign(raw) (it bundles
+    // migrate + finalize). The app reaches here AFTER its own migrateCampaign (loadCampaignFromObject),
+    // so we call finalizeCampaignLoad directly (no double-migrate); one finish implementation, two
+    // entry points. Falls back to the inline path only if an old engine build lacks the function.
+    if(window.ACKS.finalizeCampaignLoad){ window.ACKS.finalizeCampaignLoad(camp); return; }
     if(!Array.isArray(camp.domains))      camp.domains = [];
     if(!Array.isArray(camp.pendingEvents))camp.pendingEvents = [];
     if(!Array.isArray(camp.eventLog))     camp.eventLog = [];
@@ -7978,31 +7985,17 @@ const _component = {
     if(!Array.isArray(camp.settlements))  camp.settlements = [];
     if(!Array.isArray(camp.rumors))       camp.rumors = [];
     const ds = camp.domains;
-    // Turn Cycle v2 — lazy-migrate legacy domain.pendingPlayerInput into player-plan events.
     window.ACKS.migratePendingPlayerInputToEvents(camp);
-    // Foundation #16 — strongholds → components[] shape.
     ds.forEach(d => window.ACKS.migrateStrongholdToComponents(d));
-    // Foundation #17 — hex.landImprovementProjects[] → accumulated invested. Reads the NESTED hexes,
-    // so it must run BEFORE the lift empties domain.geography.hexes[].
     ds.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
-    // Foundation #18 — single supervisor → multi-supervisor array. Also pre-lift (nested hexes).
     ds.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
-    // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
     ds.forEach(d => window.ACKS.ensureMagistratesShape(d));
-    // Foundation #193 — lift hexes/settlements/rumors to the top-level collections (empties the
-    // nested domain.geography.hexes[]). Idempotent.
     const liftSynth = { domains: ds, hexes: camp.hexes, settlements: camp.settlements, rumors: camp.rumors };
     window.ACKS.liftToTopLevelCollections(liftSynth);
     camp.hexes = liftSynth.hexes;
     camp.settlements = liftSynth.settlements;
     camp.rumors = liftSynth.rumors;
-    // Wave Construction-B — materialize agricultural Projects now that hexes are lifted into
-    // camp.hexes (templates ship hexes nested, so migrateCampaign's earlier pass saw none). Idempotent.
     window.ACKS.migrateAgriculturalToProjects(camp);
-    // T6 single-home — now that the hexes/settlements are lifted (and any legacy nested membership has
-    // backfilled domainId/hexId onto the canonical entities), STRIP the nested hex/settlement mirror so
-    // the single home (campaign.hexes / .settlements) is the only home in memory. The unit mirror was
-    // already stripped inside migrateCampaign (strip-unit-mirror, order 155). Idempotent.
     if(window.ACKS.stripHexSettlementMirrors) window.ACKS.stripHexSettlementMirrors(camp);
   },
 

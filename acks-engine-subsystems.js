@@ -3773,6 +3773,45 @@ function _commitJourneyDayAndEmit(campaign, j, ctx){
   if(!out || !out.record) return null;
   commitJourneyRecord(campaign, out.record);
   const ids = j.participantCharacterIds || [];
+  // B3 fog-of-war (audit 2026-06-24): mark each hex the party ENTERED this day as explored — you have
+  // been there (RAW) — and emit ONE hex-discovered event for the hex(es) newly revealed this day so the
+  // player-view map + the Portal can react. Back-compat: hex.explored defaults TRUE (blankHex), so a hex
+  // read as `explored !== false` is already known; this only flips + logs a hex that was explicitly
+  // explored:false (a fog / West-Marches campaign). Never blocks the day.
+  try {
+    const _newlyExplored = [];
+    // The entered-hex list lives on the COMMITTED day (commitJourneyRecord just pushed it to j.days
+    // from record.dayRecord.hexPath); read it there, not off the raw record envelope.
+    const _committedDay = (j.days && j.days.length) ? j.days[j.days.length - 1] : null;
+    const _path = (_committedDay && Array.isArray(_committedDay.hexPath)) ? _committedDay.hexPath : [];
+    for(const _ph of _path){
+      if(!_ph || !_ph.hexId) continue;
+      const _h = (campaign.hexes || []).find(x => x && x.id === _ph.hexId);
+      if(_h && _h.explored === false){
+        _h.explored = true;
+        if(typeof _h.firstExploredTurn !== 'number') _h.firstExploredTurn = campaign.currentTurn || 1;
+        if(j.partyId && !_h.discoveredByPartyId) _h.discoveredByPartyId = j.partyId;
+        _newlyExplored.push(_h.id);
+      }
+    }
+    if(_newlyExplored.length){
+      campaign.eventLog = campaign.eventLog || [];
+      const _cal = campaign.calendar || {};
+      const _dim = (j.startedAtDayInMonth || 1) + Math.max(0, (out.record.newDayIndex || 1) - 1);
+      const _rel = ids.map(id => ({ kind: 'character', id, role: 'subject' }));
+      if(j.partyId) _rel.push({ kind: 'party', id: j.partyId, role: 'subject' });
+      const _ev = A.newEvent('hex-discovered', {
+        submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+        targetTurn: campaign.currentTurn || 1,
+        gameTimeAt: { year: _cal.year || 1, month: _cal.month || 1, day: _dim },
+        context: { primaryHexId: j.currentHexId || _newlyExplored[_newlyExplored.length - 1] || null, involvedHexIds: _newlyExplored.slice(), settlementId: null, domainId: null, relatedEntities: _rel },
+        payload: { journeyId: j.id, partyId: j.partyId || null, hexIds: _newlyExplored.slice(), firstExploredTurn: campaign.currentTurn || 1,
+          narrative: (j.name || 'The party') + ' discovered ' + _newlyExplored.length + ' new hex' + (_newlyExplored.length === 1 ? '' : 'es') + '.' }
+      });
+      _ev.appliedAtTurn = campaign.currentTurn || 1;
+      campaign.eventLog.push({ event: _ev, result: { narrativeSummary: _ev.payload.narrative }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+    }
+  } catch(e){ /* fog mutation/emit never blocks the day */ }
   try {
     campaign.eventLog = campaign.eventLog || [];
     const cal = campaign.calendar || {};

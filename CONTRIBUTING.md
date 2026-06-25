@@ -25,7 +25,7 @@ npm run lint:docs    # public docs vs the engine — no removed token referenced
 npm run lint:engine  # engine module boundary — no bare cross-module private call
 ```
 
-There are no runtime dependencies; the suites load the engine modules headless in Node.
+There are no runtime dependencies; the suites load the engine modules headless in Node. Tests live in `tests/*.smoke.js` — each a standalone headless Node script, auto-discovered by `tests/run.js` (drop in a file, no runner edit). For a map of the codebase (the engine / Alpine-UI / `index.html` layers and how they fit together), see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Releases
 

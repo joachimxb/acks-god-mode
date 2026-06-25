@@ -343,7 +343,9 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // optout ⊆ kinds, no dups) + representatives, and exercise the kernel API end-to-end.
 // Tribal Domains (2026-06-24): −1 `economy-type-changed` (removed), +2 `domain-type-changed` +
 // `domain-decreed-transitional` (all wizard-opt-out) ⇒ net +1 kind / +1 schema / +1 opt-out.
-const EV_KINDS_COUNT = 190, EV_SCHEMAS_COUNT = 190, EV_OPTOUT_COUNT = 164;
+// Audit B3 fog-of-war (2026-06-24): +1 `hex-discovered` (wizard-opt-out — engine-emitted on hex
+// discovery from travel) ⇒ +1 kind / +1 schema / +1 opt-out.
+const EV_KINDS_COUNT = 191, EV_SCHEMAS_COUNT = 191, EV_OPTOUT_COUNT = 165;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',
@@ -425,9 +427,10 @@ ok('registerEventKind() with no args is a safe no-op', (function(){ try { const 
 // entity-kind count + the global schema⊆factory invariant in tests/smoke.js. Here we pin the COUNTS +
 // the structural invariants (no dups, 1:1 list↔index, schema-keys ⊆ entity-kinds) + representatives,
 // and exercise both registrars end-to-end.
-// FIELD_SCHEMAS_COUNT: 43 → 46 with the XLS-1 World-I/O foundation (hex + domain + settlement schemas,
-// authored in acks-engine-field-schemas.js for the Excel importer + the Inspector — registered after the seed).
-const ENTITY_KINDS_COUNT = 59, FIELD_SCHEMAS_COUNT = 46;
+// FIELD_SCHEMAS_COUNT: 43 → 46 with the XLS-1 World-I/O foundation (hex + domain + settlement schemas);
+// 46 → 49 with the audit-2026-06-24 G1 lane (the character / rumor / venture schemas — the load-bearing
+// Inspector stubs), authored in acks-engine-field-schemas.js and registered after the seed.
+const ENTITY_KINDS_COUNT = 59, FIELD_SCHEMAS_COUNT = 49;
 const ENTITY_REPRESENTATIVES = ['character','party','group','hex','domain','unit','army','lair','encounter',
   'dungeon','senate','custom-class','garrison-unit','stronghold-component','lore','dynasty','confinement'];
 const SCHEMA_REPRESENTATIVES = ['outpost','stash','magistracy','unit','army','journey','group','dungeon',

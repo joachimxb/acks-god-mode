@@ -45,13 +45,13 @@ RAW page citations (`RR p.344`, `JJ p.99`, etc.) are threaded through the UI lab
 3. The quickest tour is **🎲 Load demo campaign**. To build your own, pick a **starter template** — on the hosted site it loads in one click; running from a local `file://` copy, you choose the template file from the bundled `Templates/` folder.
 4. To save: when prompted, choose a folder to keep your `.acks.json` files. The browser reuses this folder for future saves.
 5. To open later: **📂 Open campaign…** → pick a `.acks.json` file.
-6. To merge a domain (or a whole campaign) into the one you have open: **📥 Import domains…** in the Domains toolbar.
+6. To bring world data (domains, hexes, settlements, lairs) into the campaign you have open, use the **📊 Import / Export** box on the **World** tab — it reads and writes an Excel (`.xlsx`) workbook. To open a different campaign file outright, use **📂 Open campaign…**.
 
 ## Your data is yours
 
 Every campaign you build is a single `.acks.json` file in a folder you choose on your own computer. The tool never uploads your campaign anywhere — your saves go directly from your browser to your local disk via the File System Access API (or via download in Firefox/Safari).
 
-One caveat in the interest of honesty: the page itself loads its two UI libraries — Tailwind CSS and Alpine.js — from public CDNs each visit, so it needs an internet connection to *load and render*. Your campaign *data*, though, never leaves your machine.
+And it runs **fully offline**: the page ships its two UI libraries — Tailwind CSS and Alpine.js — vendored alongside it (no CDN, no external fetch, no analytics or tracking of any kind), so once you have the file it loads and renders with no internet connection at all. Nothing — your campaign data *or* the page itself — ever leaves your machine.
 
 To back up a campaign: copy the `.acks.json` file. To share a campaign or a single domain: send the file to another GM. To version-control your campaign: commit the file to your own git repo.
 
@@ -59,7 +59,7 @@ That openness is also a **building block**: the `.acks.json` file is a documente
 
 ## Templates
 
-Six starter `.acks.json` templates ship with the tool. On the hosted site they load in one click from the welcome screen; you can also **📂 Open** them directly, or **📥 Import** a domain from one into an existing campaign.
+Six starter `.acks.json` templates ship with the tool. On the hosted site they load in one click from the welcome screen; you can also **📂 Open** them directly.
 
 | Template file | What it is |
 |---|---|
@@ -94,7 +94,7 @@ Bugs, broken mechanics, feature suggestions: open an issue on this repo's **Issu
 
 ## Contributing
 
-Pull requests are welcome for bug fixes and small improvements; larger features are best discussed in an issue first. The full branch / PR / release policy lives in [`CONTRIBUTING.md`](CONTRIBUTING.md) — read it before opening a PR.
+Pull requests are welcome for bug fixes and small improvements; larger features are best discussed in an issue first. The full branch / PR / release policy lives in [`CONTRIBUTING.md`](CONTRIBUTING.md) — read it before opening a PR — and [`ARCHITECTURE.md`](ARCHITECTURE.md) maps the codebase (the engine / UI / `index.html` layers) for anyone changing the code.
 
 **One thing to know up front:** I'm the sole copyright holder, which keeps the project's licensing flexible going forward. To preserve that, every pull request must include this line in its description:
 

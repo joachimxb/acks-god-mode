@@ -216,5 +216,173 @@
     if(/gm-narrative|note/.test(k))    return '📝';
     return '•';
   },
+
+  // ── Merged entity chronicle (C1, audit 2026-06-24) ───────────────────────────────────
+  // df-lens C1: the rich detail panels (lair / battle / siege / army / notable-item) showed ONLY
+  // the entity's hand-pushed `.history[]` (or, for battles, nothing narrative — just the combat
+  // turn log), while the DERIVED eventLog chronicle (every event tagged with this entity in its
+  // context envelope) stayed invisible. This unions the two into one newest-first stream so a
+  // panel reads the whole life of the thing.
+  //   derivedKind   — the _CHRONICLE_ACCESSOR key for the derived stream ('group' for an army,
+  //                   'notable-item', 'congregation'); pass '' / null for kinds with no accessor
+  //                   (battle / siege / lair → stored-history only).
+  //   storedHistory — the entity's on-object `.history[]`. Shapes vary across subsystems
+  //                   ({turn|atTurn, type, reason|summary|text|narrative}); normalized here.
+  _chronicleRowTurn(row){
+    if(row && typeof row._turn === 'number') return row._turn;
+    const m = row && row.date && /Turn\s+(\d+)/.exec(row.date);
+    return m ? parseInt(m[1], 10) : -1;
+  },
+  entityChronicleMerged(derivedKind, id, storedHistory){
+    const rows = [];
+    // 1. derived stream — already formatted {icon,summary,date,kind,hidden}, newest-first.
+    if(derivedKind && id){
+      try { for(const r of this.entityChronicle(derivedKind, id, 200)) rows.push(r); } catch(e){}
+    }
+    // 2. stored .history[] — normalize the varied shapes into the shared row shape.
+    const stored = Array.isArray(storedHistory) ? storedHistory : [];
+    for(const h of stored){
+      if(!h) continue;
+      const turn = (h.atTurn != null) ? h.atTurn : (h.turn != null ? h.turn : null);
+      const summary = h.summary || h.text || h.narrative || h.reason || h.type || '(event)';
+      rows.push({
+        icon: this._chronicleIcon(h.type || derivedKind || ''),
+        summary,
+        date: (turn != null ? ('Turn ' + turn + (this.gameDateFromTurn && this.gameDateFromTurn(turn) ? (' · ' + this.gameDateFromTurn(turn)) : '')) : '(date unknown)'),
+        kind: h.type || 'history',
+        hidden: false,
+        _turn: (turn != null ? turn : -1),
+      });
+    }
+    // union → dedup (same turn + same summary) → newest-first by turn (stable sort keeps the
+    // derived-before-stored order within a turn).
+    const seen = new Set();
+    const deduped = [];
+    for(const r of rows){
+      const key = this._chronicleRowTurn(r) + '|' + (r.summary || '');
+      if(seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(r);
+    }
+    deduped.sort((a, b) => this._chronicleRowTurn(b) - this._chronicleRowTurn(a));
+    return deduped.length > 60 ? deduped.slice(0, 60) : deduped;
+  },
+
+  // ── Campaign-wide Annals (C2, audit 2026-06-24) ──────────────────────────────────────
+  // df-lens C2 — the DF "Legends" payoff: the whole eventLog rendered newest-first through the
+  // same row formatter the per-entity Chronicle uses, with kind-family filter chips and a GM
+  // "player-facing only" filter. Read-only over already-computed data; no new engine logic.
+  annalsState: { family: 'all', playersOnly: false, limit: 250 },
+  // Classify an event kind into one of the chip families (mirrors _chronicleIcon's groupings).
+  _chronicleFamily(kind){
+    const k = kind || '';
+    if(/encounter/.test(k))                       return 'encounters';
+    if(/banditry/.test(k))                        return 'banditry';
+    if(/battle|siege|warfare|army|incursion|maneuver|war/.test(k)) return 'war';
+    if(/religion|divine|congregation/.test(k))    return 'religion';
+    if(/survival|mortal|wound|aging|death/.test(k)) return 'life';
+    if(/level-up|xp|domain-advanced|advanc/.test(k)) return 'advancement';
+    if(/wealth|treasury|market|trade|item-transfer/.test(k)) return 'wealth';
+    return 'other';
+  },
+  // The chip definitions (label + icon + family key). 'all' first; the six spec families + wealth.
+  _annalsChipDefs(){
+    return [
+      { key:'all',         label:'All',          icon:'📖' },
+      { key:'encounters',  label:'Encounters',   icon:'⚔' },
+      { key:'banditry',    label:'Banditry',     icon:'🏴' },
+      { key:'war',         label:'War',          icon:'🎌' },
+      { key:'religion',    label:'Religion',     icon:'⛪' },
+      { key:'life',        label:'Life & Death', icon:'🩸' },
+      { key:'advancement', label:'Advancement',  icon:'📈' },
+      { key:'wealth',      label:'Wealth',       icon:'💰' },
+    ];
+  },
+  // One pass over the log → per-family counts (respecting the player-facing-only toggle, NOT the
+  // active family filter, so each chip shows how many it would surface).
+  annalsFamilyCounts(){
+    const c = this.currentCampaign;
+    const counts = { all:0, encounters:0, banditry:0, war:0, religion:0, life:0, advancement:0, wealth:0, other:0 };
+    if(!c || !Array.isArray(c.eventLog)) return counts;
+    const playersOnly = !!this.annalsState.playersOnly;
+    for(const e of c.eventLog){
+      const ev = (e && e.event) || e;
+      if(!ev) continue;
+      if(playersOnly && e.campaignLogHidden) continue;
+      counts.all++;
+      const f = this._chronicleFamily(ev.kind || '');
+      counts[f] = (counts[f] || 0) + 1;
+    }
+    return counts;
+  },
+  annalsChips(){
+    const counts = this.annalsFamilyCounts();
+    return this._annalsChipDefs().map(d => Object.assign({}, d, { count: counts[d.key] || 0 }));
+  },
+  // The rendered rows: newest-first, filtered by family + playersOnly, capped at annalsState.limit.
+  // Same {icon,summary,date,kind,hidden} shape + same formatter logic as entityChronicle (core).
+  annalsRows(){
+    const c = this.currentCampaign;
+    if(!c || !Array.isArray(c.eventLog)) return [];
+    const fam = this.annalsState.family || 'all';
+    const playersOnly = !!this.annalsState.playersOnly;
+    const cap = this.annalsState.limit || 250;
+    const rows = [];
+    for(let i = c.eventLog.length - 1; i >= 0; i--){
+      const e = c.eventLog[i];
+      const ev = (e && e.event) || e;
+      if(!ev) continue;
+      const hidden = !!e.campaignLogHidden;
+      if(playersOnly && hidden) continue;
+      const kind = ev.kind || '';
+      if(fam !== 'all' && this._chronicleFamily(kind) !== fam) continue;
+      const summary = (e.result && e.result.narrativeSummary)
+        || (ev.payload && ev.payload.narrativeSummary)
+        || (ev.payload && ev.payload.narrative)
+        || (ev.payload && ev.payload.title)
+        || (kind + (ev.status && ev.status !== 'applied' ? (' [' + ev.status + ']') : ''));
+      const turn = (e.appliedAtTurn != null) ? e.appliedAtTurn : (ev.appliedAtTurn || ev.targetTurn || null);
+      rows.push({
+        icon: this._chronicleIcon(kind),
+        summary,
+        date: (ev.gameTimeAt ? this._travelEventDate(ev) : (turn != null ? ('Turn ' + turn + (this.gameDateFromTurn(turn) ? (' · ' + this.gameDateFromTurn(turn)) : '')) : '(date unknown)')),
+        kind,
+        hidden,
+      });
+      if(rows.length >= cap) break;
+    }
+    return rows;
+  },
+  // Total matching the active filter (for the "showing latest N of M" line) — derived from the
+  // family-counts pass, so no extra full scan.
+  annalsMatchTotal(){
+    const counts = this.annalsFamilyCounts();
+    return counts[this.annalsState.family] || 0;
+  },
+
+  // ── Lore known by a character (C4, audit 2026-06-24) ─────────────────────────────────
+  // df-lens C4 / gm-westmarches 4.8 — the knowledge layer (acks-engine-knowledge.js) passes 35 KB
+  // of tests with zero UI. This is the minimal "what does this person know" list for the character
+  // sheet, over ACKS.loreKnownBy (first-hand witnessed events ∪ second-hand rumours/told records).
+  characterLoreKnown(c){
+    if(!c || !c.id || !this.currentCampaign) return [];
+    const A = window.ACKS;
+    if(!A || typeof A.loreKnownBy !== 'function') return [];
+    let rows;
+    try { rows = A.loreKnownBy(this.currentCampaign, 'character', c.id) || []; }
+    catch(e){ return []; }
+    return rows.map(r => {
+      const text = r.firstHand
+        ? (r.text || r.kind || 'something witnessed')
+        : (r.believedText || (r.lore && (r.lore.text || r.lore.summary || r.lore.title)) || r.loreId || 'a rumour');
+      return {
+        firstHand: !!r.firstHand,
+        certainty: r.certainty || (r.firstHand ? 'certain' : 'believed'),
+        text,
+        source: r.firstHand ? null : (r.source || null),
+        turn: r.firstHand ? (r.learnedAtTurn != null ? r.learnedAtTurn : null) : null,
+      };
+    });
+  },
   });
 })();

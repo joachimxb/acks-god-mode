@@ -1,5 +1,5 @@
 {
-  "_comment": "Characterization oracle for the economy lift — the lifted engine must reproduce these per-domain economy snapshots on the shipped demo. Refreshed 2026-06-24 (demo World-Layer refresh): + the dom-gravewolf-clans beastman clanhold; Northwatch/Saltcombe rulers bumped to L7 (Senate of the March eligibility). March + Tidewrack unchanged (asserted byte-identical at regen). [D4 re-baseline 2026-06-25: incursion-rate tuning — every domain brought up to its RAW garrison + stronghold minimum (removes the JJ p.102 one-classification demotion) and its border set to secure (dangerousBordersOverride), dropping the daily domain-encounter chance from 27-44%/day to 1-5%/day so the garrison auto-defense keeps the queue bounded. All 5 domains move (added garrison cost lowers monthlyNet; stronghold value + garrison headcount rise). Engine tables (JJ p.101/102) unchanged.]",
+  "_comment": "Characterization oracle for the economy lift — the lifted engine must reproduce these per-domain economy snapshots on the shipped demo. Refreshed 2026-06-24 (demo World-Layer refresh): + the dom-gravewolf-clans beastman clanhold; Northwatch/Saltcombe rulers bumped to L7 (Senate of the March eligibility). March + Tidewrack unchanged (asserted byte-identical at regen). [D4 re-baseline 2026-06-25: incursion-rate tuning — every domain brought up to its RAW garrison + stronghold minimum (removes the JJ p.102 one-classification demotion) and its border set to secure (dangerousBordersOverride), dropping the daily domain-encounter chance from 27-44%/day to 1-5%/day so the garrison auto-defense keeps the queue bounded. All 5 domains move (added garrison cost lowers monthlyNet; stronghold value + garrison headcount rise). Engine tables (JJ p.101/102) unchanged.] [D4 re-baseline 2026-06-25: incursion-rate tuning — every domain brought up to its RAW garrison + stronghold minimum (removes the JJ p.102 one-classification demotion) and its border set to secure (dangerousBordersOverride), dropping the daily domain-encounter chance from 27-44%/day to 1-5%/day so the garrison auto-defense keeps the queue bounded. All 5 domains move (added garrison cost lowers monthlyNet; stronghold value + garrison headcount rise). Engine tables (JJ p.101/102) unchanged.]",
   "_capturedFromTurn": 5,
   "_domainOrder": [
     "dom-march-of-saltspur",
@@ -78,7 +78,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 143,
       "garrisonCost": 1886,
-      "garrisonBR": 12.609,
+      "garrisonBR": 3.338,
       "requiredGarrison": 1880,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
@@ -186,7 +186,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 83,
       "garrisonCost": 528,
-      "garrisonBR": 3.112,
+      "garrisonBR": 0.86,
       "requiredGarrison": 525,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
@@ -294,7 +294,7 @@
       "banditCount": 0,
       "garrisonHeadcount": 85,
       "garrisonCost": 510,
-      "garrisonBR": 2.89,
+      "garrisonBR": 0.85,
       "requiredGarrison": 510,
       "effectiveClassification": "Civilized",
       "effectiveRuler": {

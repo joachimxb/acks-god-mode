@@ -154,6 +154,10 @@ function registeredEventKinds(){ return EVENT_KINDS.slice(); }
   'journey-encounter',
   'journey-aborted',
   'journey-rerouted',
+  // Fog-of-war from travel (audit B3, 2026-06-24) — engine-emitted when a journey ENTERS a
+  // previously-unexplored hex (flips hex.explored false→true). Auditable; integrators / the
+  // Player Portal react to it to reveal the map. Opted out of the Event Wizard below.
+  'hex-discovered',
   // Phase 2.5 Provisioning V4 (2026-06-06) — the general Forage/Hunt activity record. Emitted by
   // forageActivity/huntActivity (record-only; the verb already applied the yield) — opted out of the
   // Event Wizard below. Carries payload.activityCost so the #346 day budget counts it (forage=ancillary,
@@ -794,6 +798,12 @@ Object.entries({
   'journey-arrived': {
     R: { journeyId: 'string' },
     O: { destinationHexId: 'string', narrative: 'string' }
+  },
+  // Fog-of-war from travel (audit B3, 2026-06-24). hexIds = the hex(es) newly revealed this day;
+  // the context envelope's involvedHexIds mirrors them, primaryHexId = the party's end hex.
+  'hex-discovered': {
+    R: { hexIds: 'array' },
+    O: { journeyId: 'string', partyId: 'string', firstExploredTurn: 'number', narrative: 'string' }
   },
   'journey-lost': {
     R: { journeyId: 'string' },
@@ -1606,6 +1616,70 @@ function isEventStatusValid(status){
   return Object.values(EVENT_STATUS).indexOf(status) >= 0;
 }
 
+// 9.5.4b — Event-context derivation (#528 / audit D1, 2026-06-24). The context envelope
+// (primaryHexId / settlementId / domainId / relatedEntities) powers the derived-history
+// accessors — domainHistory / hexHistory / settlementHistory / characterHistory read the
+// inverted index _buildEventLogIndex builds from it (byHex / bySettlement / byRelated).
+// Engine handlers populate it inline, but the GENERIC public write-path (newEvent + applyEvent
+// — the documented integrator path, INTEGRATION.md §5) left it all-null, so an externally
+// authored event (a treasury-grant, a player-plan, …) fell out of every history view. This
+// helper back-fills the envelope from the event's OWN well-known payload id fields, so a
+// public-path event is indexed exactly like an engine-authored one. Conservative: it only ADDS
+// ids it recognizes (the table below); an unknown payload yields the same empty envelope as
+// before (no throw, no guesswork). Kinds are the registry-canonical entity kinds (Data_Dictionary
+// §1); the byRelated index keys on "kind:id", so every related id ALSO lands in relatedEntities
+// (the domainId/settlementId/primaryHexId scalars additionally feed byHex/bySettlement).
+const _EVENT_CONTEXT_ID_FIELDS = [
+  // domains — the scalar `domainId` also seeds the context.domainId field (informational)
+  { field: 'domainId',            kind: 'domain',       role: 'site',        scalar: 'domainId' },
+  { field: 'attackerDomainId',    kind: 'domain',       role: 'attacker' },
+  { field: 'defenderDomainId',    kind: 'domain',       role: 'defender' },
+  { field: 'fromDomainId',        kind: 'domain',       role: 'origin' },
+  { field: 'toDomainId',          kind: 'domain',       role: 'destination' },
+  { field: 'originDomainId',      kind: 'domain',       role: 'origin' },
+  { field: 'destinationDomainId', kind: 'domain',       role: 'destination' },
+  // characters
+  { field: 'characterId',         kind: 'character',    role: 'subject' },
+  { field: 'actorCharacterId',    kind: 'character',    role: 'subject' },
+  { field: 'subjectCharacterId',  kind: 'character',    role: 'subject' },
+  { field: 'casterId',            kind: 'character',    role: 'subject' },
+  { field: 'rulerId',             kind: 'character',    role: 'ruler' },
+  { field: 'rulerCharacterId',    kind: 'character',    role: 'ruler' },
+  { field: 'heirId',              kind: 'character',    role: 'heir' },
+  { field: 'recruitCharacterId',  kind: 'character',    role: 'recruit' },
+  // hexes / settlements — scalars feed byHex / bySettlement directly
+  { field: 'hexId',               kind: null,           scalar: 'primaryHexId' },
+  { field: 'primaryHexId',        kind: null,           scalar: 'primaryHexId' },
+  { field: 'settlementId',        kind: null,           scalar: 'settlementId' },
+  // other first-class entities the history accessors slice on
+  { field: 'partyId',             kind: 'party',        role: 'subject' },
+  { field: 'journeyId',           kind: 'journey',      role: 'subject' },
+  { field: 'groupId',             kind: 'group',        role: 'subject' },
+  { field: 'armyId',              kind: 'group',        role: 'subject' },
+  { field: 'unitId',              kind: 'group',        role: 'subject' },
+  { field: 'lairId',              kind: 'lair',         role: 'site' },
+  { field: 'deityId',             kind: 'deity',        role: 'patron' },
+  { field: 'congregationId',      kind: 'congregation', role: 'subject' },
+  { field: 'notableItemId',       kind: 'notable-item', role: 'subject' },
+  { field: 'constructibleId',     kind: 'constructible',role: 'subject' },
+  { field: 'senateId',            kind: 'senate',       role: 'site' }
+];
+function _deriveEventContext(kind, payload){
+  const ctx = { primaryHexId: null, involvedHexIds: [], settlementId: null, domainId: null, relatedEntities: [] };
+  if(!payload || typeof payload !== 'object') return ctx;
+  const seen = new Set();
+  for(const m of _EVENT_CONTEXT_ID_FIELDS){
+    const v = payload[m.field];
+    if(typeof v !== 'string' || !v) continue;
+    if(m.scalar && ctx[m.scalar] == null) ctx[m.scalar] = v;
+    if(m.kind){
+      const k = m.kind + ':' + v;
+      if(!seen.has(k)){ seen.add(k); ctx.relatedEntities.push({ kind: m.kind, id: v, role: m.role || null }); }
+    }
+  }
+  return ctx;
+}
+
 // 9.5.5 — Factory. Returns a fresh pending event with id, timestamp, status set.
 function newEvent(kind, opts){
   if(!isEventKindKnown(kind)) throw new Error('newEvent: unknown kind "'+kind+'"');
@@ -1641,14 +1715,12 @@ function newEvent(kind, opts){
     // time by per-kind _deriveEventContext helpers. Powers derived history accessors
     // (hexHistory, settlementHistory, etc.) per Architecture.md §3.5 Wave Hex-history.
     // Pre-existing events without context degrade gracefully — accessors use optional
-    // chaining and return only contextualized events.
-    context: opts.context || {
-      primaryHexId:     null,
-      involvedHexIds:   [],
-      settlementId:     null,
-      domainId:         null,
-      relatedEntities:  []  // [{kind: 'character'|'group'|'constructible'|..., id, role}]
-    },
+    // chaining and return only contextualized events. D1 (2026-06-24): when the caller
+    // doesn't supply context (the generic public path), DERIVE it from the payload's
+    // well-known id fields (_deriveEventContext) so externally-authored events are indexed
+    // into the history accessors exactly like engine-authored ones. A handler that passes
+    // context explicitly is never clobbered.
+    context: opts.context || _deriveEventContext(kind, opts.payload),
     // `gameTimeAt` stays calendar-pure ({year, month, day}). Sub-day temporal context
     // (encounter id, round number, turn number, initiative order) lives in this parallel
     // namespace. Null for day-cadence events. Architecture.md §7 schema decision (Joachim 2026-05-30).
@@ -1806,17 +1878,54 @@ function registerEventHandler(kind, fn){
 // (or its JSON fallback) is lossless. _restoreCampaignInPlace mutates the SAME
 // campaign object reference back to the snapshot so callers holding the reference
 // (and Alpine's reactive proxy) see the rolled-back state.
+// F1 (perf, audit 2026-06-24): the eventLog is an UNBOUNDED, APPEND-ONLY history. Deep-cloning
+// it on every applyEvent made the rollback snapshot O(history) — measured 53 ms at 20k entries,
+// so a commit that applies dozens of events spent 1.6–2.6 s (3–8 s in-browser) cloning logs it
+// never needed to restore. Exclude the append-only logs (eventLog + the reserved eventLogArchive)
+// from the deep clone and instead record their reference + length; on rollback we re-point them
+// and truncate any appended tail (O(tail)) rather than restore a clone. Clone cost is now
+// O(entity-state), independent of how long the campaign has been played. The snapshot is an
+// envelope { snap, logRef, logLen, archiveRef, archiveLen }; _restoreCampaignInPlace understands it.
 function _cloneForRollback(c){
-  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
-  return JSON.parse(JSON.stringify(c));
+  if(!c || typeof c !== 'object'){
+    let snap; try { snap = (typeof structuredClone === 'function') ? structuredClone(c) : JSON.parse(JSON.stringify(c)); } catch(e){ snap = JSON.parse(JSON.stringify(c)); }
+    return { snap, logRef: null, logLen: 0, archiveRef: null, archiveLen: 0 };
+  }
+  const logRef = Array.isArray(c.eventLog) ? c.eventLog : null;
+  const archiveRef = Array.isArray(c.eventLogArchive) ? c.eventLogArchive : null;
+  // Shallow-omit the append-only logs (the spread shares every OTHER top-level value by reference),
+  // then deep-clone the rest — so structuredClone never walks the long log arrays.
+  const { eventLog, eventLogArchive, ...rest } = c;
+  let snap; try { snap = (typeof structuredClone === 'function') ? structuredClone(rest) : JSON.parse(JSON.stringify(rest)); } catch(e){ snap = JSON.parse(JSON.stringify(rest)); }
+  return { snap, logRef, logLen: logRef ? logRef.length : 0, archiveRef, archiveLen: archiveRef ? archiveRef.length : 0 };
 }
-function _restoreCampaignInPlace(target, snap){
-  if(!target || !snap || typeof snap !== 'object') return;
-  for(const k of Object.keys(target)){ if(!(k in snap)) delete target[k]; }
-  for(const k of Object.keys(snap)){ target[k] = snap[k]; }
+function _restoreCampaignInPlace(target, snapshot){
+  if(!target || !snapshot || typeof snapshot !== 'object') return;
+  const isEnvelope = ('snap' in snapshot) && ('logRef' in snapshot);
+  const snap = isEnvelope ? snapshot.snap : snapshot;        // tolerate a raw clone (legacy shape)
+  if(!snap || typeof snap !== 'object') return;
+  const LOG_KEYS = isEnvelope ? { eventLog: 1, eventLogArchive: 1 } : {};
+  for(const k of Object.keys(target)){ if(!LOG_KEYS[k] && !(k in snap)) delete target[k]; }
+  for(const k of Object.keys(snap)){
+    if(LOG_KEYS[k]) continue;
+    const sv = snap[k], tv = target[k];
+    // Restore top-level ARRAY contents IN PLACE so callers holding the array reference across a
+    // rollback don't diverge from campaign[k] (e.g. commitTurn's `const domains = campaign.domains`,
+    // captured before the event pass — without this, an F2 batch rollback would swap campaign.domains
+    // for a fresh clone while the loop kept mutating the stale array, dropping the whole turn's math).
+    if(Array.isArray(sv) && Array.isArray(tv)){ tv.length = 0; for(let i = 0; i < sv.length; i++) tv.push(sv[i]); }
+    else target[k] = sv;
+  }
+  if(isEnvelope){
+    // The append-only logs were excluded from the clone — re-point each to its original array
+    // (defends against a handler that reassigned it) and truncate any tail it appended, restoring
+    // the pre-event length in O(tail) instead of O(history).
+    if(snapshot.logRef){ if(snapshot.logRef.length > snapshot.logLen) snapshot.logRef.length = snapshot.logLen; target.eventLog = snapshot.logRef; }
+    if(snapshot.archiveRef){ if(snapshot.archiveRef.length > snapshot.archiveLen) snapshot.archiveRef.length = snapshot.archiveLen; target.eventLogArchive = snapshot.archiveRef; }
+  }
 }
 
-function applyEvent(campaign, event){
+function applyEvent(campaign, event, opts){
   validateEvent(event);
   const handler = EVENT_HANDLERS[event.kind];
   if(!handler){
@@ -1837,6 +1946,13 @@ function applyEvent(campaign, event){
   // the pre-event state before re-throwing. The existing catch at the call site
   // (commitTurn ~3114 / resolvePendingEvent ~11916) then marks the event rejected,
   // logs the engine error, and toasts — now with no orphaned partial state.
+  //
+  // F2 (audit 2026-06-24): when the CALLER owns rollback for a whole batch (commitTurn snapshots
+  // once for the accepted-event pass — the GM's transactional unit), it passes {transactional:false}
+  // so we skip the per-event snapshot. The throw still propagates; the caller restores the batch.
+  if(opts && opts.transactional === false){
+    return handler(campaign, event);
+  }
   const _snapshot = _cloneForRollback(campaign);
   try {
     return handler(campaign, event);
@@ -6437,6 +6553,8 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
   // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
   // not authored raw (raw emit would skip the journey state transitions).
   'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted', 'journey-rerouted',
+  // Fog-of-war from travel (audit B3) — engine-emitted on hex discovery, never authored raw.
+  'hex-discovered',
   // GP Wave B — owned by marketBuy/marketSell (raw emit would skip the availability + funds
   // gate). The wealth-transfer + item-transfer primitives stay emittable (legit GM move verbs).
   'market-transaction',
@@ -6685,6 +6803,9 @@ function defaultPayloadFor(kind){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, registerEventKind, registeredEventKinds, migratePendingPlayerInputToEvents,
+  // audit 2026-06-24 — D1 context derivation + F1/F2 batch-rollback primitives (exported so commitTurn
+  // can own a per-batch snapshot, and integrators/tests can derive context off the public path).
+  deriveEventContext: _deriveEventContext, cloneCampaignForRollback: _cloneForRollback, restoreCampaignForRollback: _restoreCampaignInPlace,
   // Safe dotted-path writer + its guard (prototype-pollution hardening, appsec C1).
   // Exposed so the safe-write contract is testable + reusable by integrators.
   _setByPath, assertSafeFieldPath, SAFE_FIELDPATH_RE, DANGEROUS_PATH_SEGMENTS,
