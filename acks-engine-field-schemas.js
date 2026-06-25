@@ -1599,6 +1599,7 @@
       { name:'dominantRace',    type:'string', importColumn:false, group:'Identity', description:'Beastman / demi-human population tag — Inspector field' },
       { name:'rulerCharacterId',type:'id', idKind:'character', group:'Identity', description:'The ruler — referenced by id (characters are out of the v1 workbook, §4.7)' },
       { name:'liegeId',         type:'id', idKind:'domain', importHeader:'Liege', group:'Vassalage', description:'Suzerain domain; resolved by Name-or-Id in a two-pass commit so a vassal listed before its liege still links' },
+      { name:'controllingPlayerId', type:'string', importColumn:false, group:'Vassalage', description:'Multi-actor / Player Portal (#222, B2) — the player who controls this domain (free-form player id; null = GM-run). projectCampaignForPlayer partitions on it. Inspector field; not a v1 Excel column.' },
       { name:'isRealm',         type:'boolean', group:'Vassalage' },
       { name:'vassalIds',       type:'idArray', idKind:'domain', importColumn:false, group:'Vassalage', description:'Reconciled from each vassal’s liegeId (derived); never an Excel column' },
       { name:'demographics',    type:'object', group:'Population', fields:[
@@ -1641,6 +1642,164 @@
       { name:'foundedTurn',      type:'number', group:'History' },
       { name:'foundedByCharacterId', type:'id', idKind:'character', importColumn:false, group:'History' },
       { name:'notes',            type:'longText', group:'History' }
+    ]
+  });
+
+  // ─── 3g. The character field-schema (G1 — audit 2026-06-24) — the load-bearing stub. Authored
+  // ⊆ blankCharacter keys (the schema⊆factory invariant). adminCreate:'schemaForm' advances the
+  // Inspector character Admin-Create (Wave-F). Characters are OUT of the v1 Excel workbook (Excel plan
+  // §4.7 — referenced by id, not authored as rows), so no import flags. The four fixed-shape stat
+  // objects (hp/abilities/savingThrows/coins) are schematized; the deep/freeform structures
+  // (proficiencies/classPowers/inventory/recruitmentDrives/goals/relationships/honor/shame/
+  // mercantileNetwork/earningsLedger/mortalWounds + divinePower + transformationState) are OMITTED
+  // (schema ⊆ factory permits a subset; raw-JSON / subsystem-managed — the Wave-C convention).
+  registerFieldSchema('character', {
+    factory: 'blankCharacter',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Class & Level','Abilities','Combat','Wealth','Location','Vassalage & Service','Survival','Lifecycle','Narrative','History'],
+    fields: [
+      { name:'id',             type:'string', readonly:true, group:'Identity' },
+      { name:'name',           type:'string', required:true, group:'Identity' },
+      { name:'controlledBy',   type:'enum', enumValues:['player','gm'], group:'Identity', description:'Player- vs GM-driven (the five-axis model, Architecture §2)' },
+      { name:'ownerPlayerId',  type:'string', group:'Identity', description:'Multi-actor / Player Portal (#222, B2) — which player owns this character (free-form player id; null = unassigned / a GM NPC). No players[] collection yet, so a plain string, not an id reference.' },
+      { name:'detailLevel',    type:'enum', enumValues:['lightweight','full'], group:'Identity', description:'A lightweight NPC stub vs a fully-statted character (expandCharacterToFull promotes)' },
+      { name:'socialTier',     type:'string', group:'Identity', description:'independent / henchman / specialist / follower / hireling / mercenary / slave / gladiator … — an open axis (it has grown with features), so a string not an enum' },
+      { name:'lifecycleState', type:'string', group:'Identity', description:'active / candidate / departed / imprisoned / dominated / deceased … — not a fixed engine set (the group-schema precedent), so a string' },
+      { name:'alignment',      type:'enum', enumValues:['L','N','C'], group:'Identity', description:'ACKS single-letter alignment — Lawful / Neutral / Chaotic' },
+      { name:'race',           type:'string', group:'Identity', description:'Open string — custom races allowed (#154)' },
+      { name:'class',          type:'string', group:'Class & Level', description:'Open string — custom classes allowed (#154)' },
+      { name:'isEnchantedCreature', type:'boolean', group:'Identity', description:'A monster/creature rather than a person (drives the creatureTypes axis)' },
+      { name:'creatureTypes',  type:'enumMulti', enumValues:['humanoid','beastman-humanoid','animal','construct','giant','incarnation','monstrosity','ooze','plant','undead','vermin'], group:'Identity' },
+      { name:'hitDice',        type:'string', group:'Class & Level', description:"RAW HD string for creatures (e.g. '4+1'); blank for leveled characters" },
+      { name:'level',          type:'number', group:'Class & Level' },
+      { name:'xp',             type:'number', group:'Class & Level' },
+      { name:'reserveXp',      type:'number', group:'Class & Level', description:'XP earned past the monthly threshold, held in reserve (RR p.124)' },
+      { name:'henchmanCap',    type:'number', group:'Class & Level', description:'Max henchmen (4 + CHA modifier; RR p.336)' },
+      { name:'constructionSupervisorCap', type:'number', group:'Class & Level', description:'Concurrent construction projects this character can supervise' },
+      { name:'hp',             type:'object', group:'Combat', fields:[
+        { name:'current',  type:'number' },
+        { name:'max',      type:'number' },
+        { name:'hitDice',  type:'string', description:'The HD the max was rolled from' }
+      ] },
+      { name:'ac',             type:'number', group:'Combat' },
+      { name:'attackThrow',    type:'number', group:'Combat', description:'The 1d20 attack throw target (RR p.296)' },
+      { name:'abilities',      type:'object', group:'Abilities', fields:[
+        { name:'STR', type:'number' }, { name:'INT', type:'number' }, { name:'WIL', type:'number' },
+        { name:'DEX', type:'number' }, { name:'CON', type:'number' }, { name:'CHA', type:'number' }
+      ] },
+      { name:'savingThrows',   type:'object', group:'Combat', fields:[
+        { name:'paralysis',  type:'number' }, { name:'death', type:'number' }, { name:'blast', type:'number' },
+        { name:'implements', type:'number' }, { name:'spells', type:'number' }
+      ] },
+      { name:'permanentWoundPenalty', type:'number', group:'Combat', description:'Cumulative penalty from healed mortal wounds (Delves D1; RR App.C)' },
+      { name:'mortalityPenalty',      type:'number', group:'Combat', description:'Cumulative tampering/mortal-wound mortality modifier' },
+      { name:'coins',          type:'object', group:'Wealth', description:'Carried coin by denomination', fields:[
+        { name:'pp', type:'number' }, { name:'gp', type:'number' }, { name:'ep', type:'number' },
+        { name:'sp', type:'number' }, { name:'cp', type:'number' }
+      ] },
+      { name:'personalGp',     type:'gp', group:'Wealth', description:'Convenience scalar mirroring coins.gp' },
+      { name:'monthlyWage',    type:'gp', group:'Wealth', description:'Wage owed if this character is a hireling/henchman (RR p.168)' },
+      { name:'upkeepMonthly',  type:'gp', group:'Wealth' },
+      { name:'lastLivingExpensePaidGp', type:'gp', group:'Wealth', description:'Cost-of-living paid last month (CoL-2)' },
+      { name:'currentHexId',     type:'id', idKind:'hex',        group:'Location' },
+      { name:'currentDomainId',  type:'id', idKind:'domain',     group:'Location' },
+      { name:'currentJourneyId', type:'id', idKind:'journey',    group:'Location', description:'Set while travelling — only one journey at a time' },
+      { name:'partyId',          type:'id', idKind:'party',      group:'Location' },
+      { name:'homeSettlementId', type:'id', idKind:'settlement', group:'Location', description:'Urban residence (the SD census home)' },
+      { name:'homeDomainId',     type:'id', idKind:'domain',     group:'Location', description:'The realm this NPC serves in (realmCommandStructure entourage)' },
+      { name:'homeHexId',        type:'id', idKind:'hex',        group:'Location' },
+      { name:'placementRole',    type:'string', group:'Location', description:'SD-7b placement taxonomy bucket (ruler / countryside / mercenary / …)' },
+      { name:'travelDestination', type:'string', group:'Location', description:'Pending travel target (hex id / coord) — the journey is the source of truth once underway' },
+      { name:'travelPace',       type:'string', group:'Location' },
+      { name:'liegeCharacterId', type:'id', idKind:'character', group:'Vassalage & Service', description:'The patron this character is henched/hired to' },
+      { name:'loyalty',          type:'number', group:'Vassalage & Service', description:'Loyalty score toward the liege (RR p.337; ± employer CHA)' },
+      { name:'lifestyleTargetLevel', type:'number', group:'Vassalage & Service', description:'Cost-of-living social level the character maintains (CoL-2)' },
+      { name:'effectiveSocialLevel', type:'number', group:'Vassalage & Service', description:'Derived/overridden social level → henchman cap + loyalty' },
+      { name:'payKeepFromTreasury',  type:'boolean', group:'Vassalage & Service', description:'A ruler draws his keep from the domain treasury (else from personal coin)' },
+      { name:'personalFatigue',  type:'number', group:'Survival', description:'Strenuous-day streak toward Fatigued (AB-2; JJ p.84)' },
+      { name:'hungerDays',       type:'number', group:'Survival' },
+      { name:'dehydrationDays',  type:'number', group:'Survival' },
+      { name:'waterDaysCarried', type:'number', group:'Survival', description:'Days of drinking water on hand (RR p.278)' },
+      { name:'foodDeficitDays',  type:'number', group:'Survival' },
+      { name:'waterDeficitDays', type:'number', group:'Survival' },
+      { name:'underfed',         type:'boolean', group:'Survival' },
+      { name:'starving',         type:'boolean', group:'Survival' },
+      { name:'dehydrated',       type:'boolean', group:'Survival' },
+      { name:'conLossHunger',    type:'number', group:'Survival', description:'Temporary CON lost to starvation (recovers on feeding)' },
+      { name:'conLossThirst',    type:'number', group:'Survival' },
+      { name:'age',          type:'number', group:'Lifecycle', description:'Age in years (CL-1; RR p.19) — null until set' },
+      { name:'ageMonths',    type:'number', group:'Lifecycle', description:'Months into the current year of age' },
+      { name:'ageCategory',  type:'string', group:'Lifecycle', description:'Derived life-stage band (CL-1)' },
+      { name:'agingDeathSave', type:'number', group:'Lifecycle', description:'The venerable-age death save target, once aging begins' },
+      { name:'autoAdvance',  type:'boolean', group:'Lifecycle', description:'Whether the lifecycle day-tick ages this character automatically' },
+      { name:'heroicCode',   type:'string', group:'Lifecycle', description:'Heroic Code followed (Phase 6) — null when none' },
+      { name:'fatePoints',   type:'number', group:'Lifecycle', description:'Fate/luck points (Phase 6) — null when unused' },
+      { name:'alive',        type:'boolean', group:'Lifecycle' },
+      { name:'deceasedTurn', type:'number', group:'Lifecycle', description:'Turn of death — null while alive' },
+      // `background` is OMITTED: it is polymorphic in real saves (a free-text string OR a structured
+      // { origin, notes } object), and no single field-type accepts both — so it falls through to the
+      // $def's lenient additionalProperties (raw-JSON edited), per the build-schema "never reject a
+      // valid save" posture.
+      { name:'personality',  type:'longText', group:'Narrative' },
+      { name:'secrets',      type:'longText', group:'Narrative' },
+      { name:'voice',        type:'string', group:'Narrative', description:'GM voice/mannerism note' },
+      { name:'notes',        type:'longText', group:'Narrative' },
+      { name:'history',      type:'history', readonly:true, group:'History' }
+    ]
+  });
+
+  // ─── 3h. The rumor field-schema (G1) — authored ⊆ blankRumor keys. The three rumor vocabularies
+  // (truth/apparent-level/topic) read live from the subsystem catalogs via enumSource. Inspector-only.
+  registerFieldSchema('rumor', {
+    factory: 'blankRumor',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Classification','Origin','Spread','History'],
+    fields: [
+      { name:'id',            type:'string', readonly:true, group:'Identity' },
+      { name:'text',          type:'longText', required:true, group:'Identity', description:'The rumor as heard at the table' },
+      { name:'truthLevel',    type:'enum', enumSource:'RUMOR_TRUTH_LEVELS', group:'Classification', description:'How true it actually is (GM-only)' },
+      { name:'apparentLevel', type:'enum', enumSource:'RUMOR_APPARENT_LEVELS', group:'Classification', description:'How widespread/credible it seems' },
+      { name:'topic',         type:'enum', enumSource:'RUMOR_TOPICS', group:'Classification' },
+      { name:'origin',        type:'object', group:'Origin', fields:[
+        { name:'submittedAt',       type:'string' },
+        { name:'submittedBy',       type:'string' },
+        { name:'sourceEventId',     type:'string' },
+        { name:'sourceCharacterId', type:'id', idKind:'character' }
+      ] },
+      { name:'proliferation', type:'object', group:'Spread', description:'Month-over-month spread to settlements (the Rumors subsystem)', fields:[
+        { name:'enabled',            type:'boolean' },
+        { name:'chancePerMonth',     type:'number' },
+        { name:'settlementsReached', type:'idArray', idKind:'settlement' }
+      ] },
+      { name:'notes',         type:'longText', group:'History' },
+      { name:'history',       type:'history', readonly:true, group:'History' }
+    ]
+  });
+
+  // ─── 3i. The venture field-schema (G1) — authored ⊆ blankVenture keys. The abstract mercantile
+  // venture (the shipped model). Deep records (cargo / vagaries / politicalTariffs) are OMITTED
+  // (their own sub-records; raw-JSON). Inspector-only.
+  registerFieldSchema('venture', {
+    factory: 'blankVenture',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Route','Economics','Escort','State','History'],
+    fields: [
+      { name:'id',                  type:'string', readonly:true, group:'Identity' },
+      { name:'venturerCharacterId', type:'id', idKind:'character', required:true, group:'Identity', description:'The merchant running the venture' },
+      { name:'status',              type:'string', group:'Identity', description:'Venture lifecycle state (in-transit / arrived / sold / failed …)' },
+      { name:'originDomainId',      type:'id', idKind:'domain', group:'Route' },
+      { name:'destinationDomainId', type:'id', idKind:'domain', group:'Route' },
+      { name:'departureTurn',       type:'number', group:'Route' },
+      { name:'expectedArrivalTurn', type:'number', group:'Route' },
+      { name:'arrivalTurn',         type:'number', group:'Route', description:'Actual arrival — null until arrived' },
+      { name:'completedTurn',       type:'number', group:'Route', description:'Turn the venture closed out — null while open' },
+      { name:'totalInvestment',     type:'gp', group:'Economics', description:'gp committed to the cargo' },
+      { name:'salePriceGp',         type:'gp', group:'Economics', description:'Final sale price — null until sold' },
+      { name:'profitGp',            type:'gp', group:'Economics', description:'Realized profit — null until closed' },
+      { name:'xpAwarded',           type:'number', group:'Economics', description:'XP awarded from the venture profit (RR p.424)' },
+      { name:'garrisonEscortUnitIds', type:'idArray', idKind:'unit', group:'Escort', description:'Units escorting the caravan (raise the safe-arrival odds)' },
+      { name:'syndicateDisruptionId', type:'id', idKind:'syndicate', group:'State', description:'A criminal syndicate disrupting this venture (Hijinks HJ-2) — null when undisturbed' },
+      { name:'notes',               type:'longText', group:'History' }
     ]
   });
 

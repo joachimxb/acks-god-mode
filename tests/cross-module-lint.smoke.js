@@ -11,7 +11,8 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { lintSources, definedNames, stripCommentsAndStrings } = require('../tools/cross-module-lint.js');
+const { lintSources, definedNames, stripCommentsAndStrings,
+  lintRelatedEntityKinds, stripCommentsKeepStrings, buildValidRelatedKinds } = require('../tools/cross-module-lint.js');
 
 let pass = 0, fail = 0; const failures = [];
 function ok(label, cond, detail) { if (cond) { pass++; } else { fail++; failures.push(label); console.log('  FAIL ' + label + (detail ? ' — ' + detail : '')); } }
@@ -88,6 +89,65 @@ section('integration — the REAL engine is clean (the live regression guard)');
   ok('the engine has many module-private names (>100)', r.privateCount > 100, 'privates ' + r.privateCount);
   ok('ZERO bare cross-module private calls in the engine', r.findings.length === 0,
     r.findings.slice(0, 5).map(x => x.file + ':' + x.line + ' ' + x.name).join(' · '));
+}
+
+// =============================================================================
+section('stripCommentsKeepStrings — blanks comments but KEEPS string values');
+ok('keeps a string interior (needed to read the kind value)', /notableItem/.test(stripCommentsKeepStrings("x = 'notableItem';")));
+ok('blanks a line comment', !/_secret/.test(stripCommentsKeepStrings('a(); // _secret')));
+ok('blanks a block comment', !/_secret/.test(stripCommentsKeepStrings('/* _secret */ a();')));
+ok('preserves line count', stripCommentsKeepStrings('a\n/* x\ny */\nb').split('\n').length === 4);
+
+// =============================================================================
+section('buildValidRelatedKinds — registry kinds + the notableItem→notable-item override');
+{
+  const v = buildValidRelatedKinds(['character', 'domain', 'notableItem']);
+  ok('passes the kebab event-context tag notable-item', v.has('notable-item'));
+  ok('the camel registry kind notableItem is NOT a valid relatedEntities tag', !v.has('notableItem'));
+  ok('a plain kind passes through unchanged', v.has('character') && v.has('domain'));
+}
+
+// =============================================================================
+section('lintRelatedEntityKinds — catches a relatedEntities kind that will not chronicle');
+{
+  const valid = buildValidRelatedKinds(['character', 'notableItem', 'domain']);
+  const camel = { 'acks-engine-x.js': "e = { relatedEntities: [{ kind: 'notableItem', id: it.id, role: 'produced' }] };" };
+  const r = lintRelatedEntityKinds(camel, valid);
+  ok('flags the camelCase notableItem slip (the 2026-06-24 bug)', r.findings.length === 1 && r.findings[0].kind === 'notableItem');
+  ok('reports the right file', (r.findings[0] || {}).file === 'acks-engine-x.js');
+
+  ok('the kebab notable-item is NOT flagged',
+    lintRelatedEntityKinds({ 'a.js': "e = [{ kind:'notable-item', id: x, role:'produced' }];" }, valid).findings.length === 0);
+  ok('a typo / bogus kind is flagged',
+    lintRelatedEntityKinds({ 'a.js': "e = [{ kind:'widget', id: x, role:'t' }];" }, valid).findings.length === 1);
+
+  // shape discrimination — only {kind,id,role} entries are scanned.
+  ok('a registry definition {kind,label,…} (no id:/role:) is NOT scanned',
+    lintRelatedEntityKinds({ 'a.js': "{ kind: 'widget', label: 'Widget', icon: 'x' }" }, valid).findings.length === 0);
+  ok('a stationing pointer {kind,id} (no role:) is NOT scanned',
+    lintRelatedEntityKinds({ 'a.js': "stationedAt: { kind: 'domain-garrison', id: d.id }" }, valid).findings.length === 0);
+  ok('a kind inside a // comment is not scanned',
+    lintRelatedEntityKinds({ 'a.js': "// { kind:'widget', id:x, role:'t' }\ncode();" }, valid).findings.length === 0);
+  ok('the // cross-module-lint-ignore comment suppresses',
+    lintRelatedEntityKinds({ 'a.js': "e = [{ kind:'widget', id:x, role:'t' }]; // cross-module-lint-ignore" }, valid).findings.length === 0);
+  ok('a computed (non-literal) kind is out of scope',
+    lintRelatedEntityKinds({ 'a.js': "e = [{ kind: someVar, id:x, role:'t' }];" }, valid).findings.length === 0);
+}
+
+// =============================================================================
+section('integration — the REAL engine has ZERO unchronicleable relatedEntities kinds (live guard)');
+{
+  const REPO = path.join(__dirname, '..');
+  const ACKS = require('./_engine.js').load();
+  const registryKinds = ACKS.entityKinds().map(k => k.kind);
+  const validKinds = buildValidRelatedKinds(registryKinds);
+  const files = fs.readdirSync(REPO).filter(f => /^acks-engine.*\.js$/.test(f));
+  const sources = {};
+  for (const f of files) sources[f] = fs.readFileSync(path.join(REPO, f), 'utf8');
+  const r = lintRelatedEntityKinds(sources, validKinds);
+  ok('the engine has many relatedEntities entries (>100)', r.entryCount > 100, 'entries ' + r.entryCount);
+  ok('ZERO relatedEntities kinds outside the canonical set', r.findings.length === 0,
+    r.findings.slice(0, 5).map(x => x.file + ':' + x.line + " '" + x.kind + "'").join(' · '));
 }
 
 // =============================================================================
