@@ -980,6 +980,24 @@ function reactionForcePlatoonBr(campaign, unitIds){
   return Math.round(br * 100) / 100;
 }
 
+// The SMALLEST subset of `freeUnitIds` whose platoon BR reaches `targetBr` (Joachim 2026-06-25) — so an
+// auto-sortie commits only what a decisive drive-off needs (targetBr = 2× the band's BR) and the rest of
+// the garrison stays free to answer OTHER threats the same day. Greedy largest-BR-first: it picks the
+// fewest units to clear the bar, and is guaranteed to find a subset ≤ the whole set whenever the whole
+// set already meets the bar (eligibility proves that). Pure. Returns {unitIds, forceBr} or null when even
+// the whole free force falls short. (forceBr is the rounded sum, identical to reactionForcePlatoonBr.)
+function minimalReactionUnitIds(campaign, freeUnitIds, targetBr){
+  if(!campaign || !Array.isArray(freeUnitIds) || !freeUnitIds.length || !(targetBr > 0)) return null;
+  const scored = freeUnitIds
+    .map(id => { const u = (typeof id === 'string') ? findUnit(campaign, id) : id; return u ? { id: u.id, br: unitPlatoonScaleBr(u) || 0 } : null; })
+    .filter(x => x && x.br > 0)
+    .sort((a, b) => b.br - a.br);                            // largest first → fewest units to reach the bar
+  if(!scored.length) return null;
+  const picked = []; let raw = 0;
+  for(const s of scored){ picked.push(s.id); raw += s.br; if(raw >= targetBr) return { unitIds: picked, forceBr: reactionForcePlatoonBr(campaign, picked) }; }
+  return null;                                               // even the whole free force can't meet it decisively
+}
+
 // Predict deploying `unitIds` against the band, by the RAW attitude+BR rules (JJ p.104). Pure
 // — drives the BR preview in the deploy modal AND the Military-tab threats table. Returns
 // {forceBr, bandBr, attitude, attitudeLabel, lingering, effectiveAttitude, flips, outcome,
@@ -1061,11 +1079,12 @@ function deployGarrisonReaction(campaign, opts){
   const callUpUnitIds = (Array.isArray(opts.callUpUnitIds) ? opts.callUpUnitIds : []).filter(Boolean);
   if(!unitIds.length && !callUpUnitIds.length) return { ok: false, reason: 'no-units' };
   const army = createArmy(campaign, {
-    name: opts.name || (((dom && dom.name) || 'Domain') + ' reaction force'),
-    leaderCharacterId: opts.commanderCharacterId || null,
-    currentHexId: rallyHexId || null,
-    strategicStance: opts.stance || 'offensive',
-    unitIds, callUpUnitIds
+    id: opts.armyId || undefined,                        // a caller-stable id (D4 auto-deploy: the slot-89
+    name: opts.name || (((dom && dom.name) || 'Domain') + ' reaction force'),  // record pre-mints it so the
+    leaderCharacterId: opts.commanderCharacterId || null,                      // work-copy + real-campaign
+    currentHexId: rallyHexId || null,                                          // armies share an id, and the
+    strategicStance: opts.stance || 'offensive',                              // slot-88 resolution record
+    unitIds, callUpUnitIds                                                     // resolves on both)
   });
   army.reactionTargetGroupId = group.id;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
@@ -1073,13 +1092,24 @@ function deployGarrisonReaction(campaign, opts){
     text: 'Deployed to meet ' + (group.name || 'a band') + (dom ? (' threatening ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
   // March to the band's hex (W4). If the band is AT the rally point already, no march — the
   // consumer resolves on the spot next tick (the army stands on the band).
+  // opts.muster (D4 follow-up 2026-06-25): the garrison forms up at the stronghold for ONE day
+  // before it marches out. A standing garrison is already concentrated at its stronghold (JJ p.103),
+  // so it musters in a DAY — not the realm time period RAW reserves for raising / calling up dispersed
+  // troops (RR p.434; "local forces… respond quickly"). The march is started a day later by the slot-89
+  // garrison-defense muster-completion step (which first SEES the army next tick — that lag IS the day).
+  // The band shows 🛡 Responding · mustering meanwhile. Both sortie paths (auto + the GM's manual ⚔
+  // Deploy) pass muster:true so they behave identically; a bare call (the march-primitive tests) does not.
   let journey = null;
   const bandHexId = group.currentHexId || null;
-  if(bandHexId && rallyHexId && bandHexId !== rallyHexId && global.ACKS && typeof global.ACKS.startArmyMarch === 'function'){
+  if(opts.muster){
+    army.sortieMustering = true;
+    (army.history = army.history || []).push({ turn, type: 'mustering',
+      text: 'Mustering at ' + (rallyHexId || 'the stronghold') + ' — marches out next day (RR p.434, JJ p.104)' });
+  } else if(bandHexId && rallyHexId && bandHexId !== rallyHexId && global.ACKS && typeof global.ACKS.startArmyMarch === 'function'){
     const r = global.ACKS.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: opts.pace || 'normal' });
     if(r && r.ok) journey = r.journey;
   }
-  return { ok: true, army, journey, rallyHexId };
+  return { ok: true, army, journey, rallyHexId, mustering: !!opts.muster };
 }
 
 // Recall a sally force — the fight's done, or it's called off: disband it, sending every unit
@@ -2213,7 +2243,7 @@ Object.assign(ACKS, {
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, returnUnitHome, unitOwnerDomainId, musterUnitToDestination, createArmy, disbandArmy, callUpUnit, addUnitToArmy, removeUnitFromArmy, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
-  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
+  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, minimalReactionUnitIds, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
   conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
   domainLevyPoolCount, domainLevyTrainedOfType, conscriptQualifyingRemaining,

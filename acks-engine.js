@@ -4912,9 +4912,9 @@ function commitTurn(campaign, proposal, options){
       if(!s) return;
       const before = s.families || 0;
       const settK = Math.max(1, Math.ceil(before / 1000));
-      const natInc = rollNaturalIncrease(settK, moraleAfter);
-      const natDec = rollNaturalDecrease(settK);
-      const moraleExtraUrban = rollMoraleExtra(moraleAfter, settK);
+      const natInc = rollNaturalIncrease(settK, moraleAfter, rng);
+      const natDec = rollNaturalDecrease(settK, rng);
+      const moraleExtraUrban = rollMoraleExtra(moraleAfter, settK, rng);
       // Single-home (T6): match the order by hexId (order-independent); fall back to the legacy
       // positional hexIndex for older proposals that predate the hexId stamp.
       const invLine = (p.urbanInvestments || []).find(inv => inv.hexId ? inv.hexId === hex.id : inv.hexIndex === hexIdx);
@@ -5472,7 +5472,7 @@ function commitTurn(campaign, proposal, options){
           // projected hex (the panel writes the budget field directly) so the month-end drip finds +
           // advances them; also clears capped budgets. Idempotent.
           migrateAgriculturalToProjects(campaign);
-          global.ACKS.runDayTickToMonthEnd(campaign);
+          global.ACKS.runDayTickToMonthEnd(campaign, rng);
         }
       } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
       campaign.currentDayInMonth = 1;
@@ -5999,12 +5999,24 @@ function emitDayTickEvents(campaign, proposal){
 // days = 30 - currentDay, so an untouched month advances ~29 day-ticks of work and a
 // partially-ticked month tops up to day 30. Forced (no pause). Used by commitTurn at the
 // monthly rollover, and by the UI "Tick to Month End" control.
-function runDayTickToMonthEnd(campaign){
+function runDayTickToMonthEnd(campaign, rng){
   const dim = (campaign && campaign.currentDayInMonth) || 1;
   const days = (30 - dim);
   if(days <= 0) return { committed: 0, eventsEmitted: 0 };
-  const proposal = proposeDayTick(campaign, days, { force: true });
-  return commitDayTick(campaign, proposal, null);
+  // When the caller seeds the turn (commitTurn passes its rng), route the day-tick's
+  // randomness through that seed too, so "advance month" is reproducible end-to-end.
+  // The day consumers (incursions, band generation, vagaries, newId) call Math.random
+  // directly — otherwise unseeded — so a seeded monthly commit was not actually
+  // deterministic across its subsumed day-tick. Restored in finally; the interactive
+  // day-advance path (no rng) is unaffected and stays on Math.random.
+  const realRandom = Math.random;
+  if(rng && rng !== realRandom){ Math.random = rng; }
+  try {
+    const proposal = proposeDayTick(campaign, days, { force: true });
+    return commitDayTick(campaign, proposal, null);
+  } finally {
+    Math.random = realRandom;
+  }
 }
 
 // Legacy primitive, retained for back-compat: advance the REAL campaign by daysElapsed

@@ -4939,11 +4939,17 @@ Object.assign(ACKS, {
   proposeMonsterBandDay, commitMonsterBandRecord,
   // Phase 3 Military W2 — the slot-86 incursions consumer (the Vagaries of Incursion,
   // JJ pp.100–106) + the domain-panel lookup.
-  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain,
+  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain, incursionBandStillInDomain,
+  // D4 Awareness — the slot-87 reconnaissance re-check (the ruler detects an incursion band over time,
+  // JJ p.103 / RR p.452): auto-detect at the stronghold or while pillaging, else re-roll recon weekly/daily.
+  proposeIncursionReconDay, commitIncursionReconRecord,
   // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
   proposeMilitaryDay, commitMilitaryRecord,
+  // D4 — the slot-89 garrison auto-defense consumer (opt-in per domain.autoResolveIncursions) + the
+  // shared gate + the same-day arrival deploy (folded into commitIncursionRecord, 2026-06-25).
+  proposeGarrisonDefenseDay, commitGarrisonDefenseRecord, garrisonAutoDefenseEligible, autoDeployGarrisonReaction,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -5695,9 +5701,16 @@ function proposeMonsterBandDay(campaign, ctx){
           const rolled = (typeof A._rollDiceStr === 'function') ? A._rollDiceStr(spec, rng) : alive;
           fullCount = Math.max(alive, rolled);
         }
+        // The physical entry IS this domain's domain encounter (JJ p.103) — roll its disposition + the
+        // ruler's reconnaissance NOW, so the commit can tag the band into ⚔ Active Threats exactly like a
+        // Vagaries-drawn one. A SEPARATE per-key rng (not the band's wander rng) keeps the wander's
+        // linger/strength stream byte-stable (monster-persistence determinism untouched).
+        const _dObj = (campaign.domains || []).find(x => x && x.id === dom);
+        const tag = _dObj ? _domainEncounterReactionAndRecon(campaign, _dObj, hx, entry, alive,
+                              _jMulberry32(_jHash32('domain-entry|' + g.id + '|' + dom + '|' + worldOrd))) : null;
         domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
                              lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
-                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
+                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null, tag });
         // W2 interlock — the physical border crossing IS this domain's positive occurrence
         // today: the incursion consumer (slot 86, same tick) reads the stash off the shared
         // day ctx and skips its probability roll (JJ p.103 / E6 — never double-roll).
@@ -5755,6 +5768,7 @@ function commitMonsterBandRecord(campaign, record){
   }
   // The Vagaries occurrence stub — recorded on the Group; the Daily Domain Encounter
   // Probability machinery consumes these when Vagaries of Incursion lands (Phase 3 Military).
+  let taggedEntryDomainId = null;                  // a domain this band became a NEW encounter for this tick
   for(const de of (record.domainEntries || [])){
     const dom = (campaign.domains || []).find(d => d && d.id === de.domainId);
     g.history.push({ turn, type: 'incursion',
@@ -5762,6 +5776,37 @@ function commitMonsterBandRecord(campaign, record){
         + (de.hexFull
             ? ('migrates — the hex is at its lair cap (' + (de.lairCap ? (de.lairCap.count + ' of ' + de.lairCap.max) : 'full') + ', JJ p.69), too crowded to den')
             : ((de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)')) });
+    // Part 1 — the physical entry IS the domain encounter (JJ p.103): tag the band so it lands in
+    // ⚔ Active Threats with a disposition + reconnaissance, exactly like a Vagaries-drawn band. Skip if it
+    // already carries this domain's tag (a band lingering across days is the same ongoing encounter).
+    if(de.tag && dom && !(g.incursion && g.incursion.domainId === de.domainId)){
+      const em = (g.groupTemplate && g.groupTemplate.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(g.groupTemplate.monsterCatalogKey) : null;
+      g.incursion = {
+        domainId: de.domainId, attitude: de.tag.attitude,
+        disposition: de.lingers ? 'lingering' : 'migrating',
+        fullStrength: !!de.fullStrength,
+        treasureType: (de.fullStrength && em) ? (em.treasureType || '') : '',
+        rulerAware: !!(de.tag.recon && de.tag.recon.rulerAware),
+        monstersIntel: !!(de.tag.recon && de.tag.recon.monstersIntel),
+        arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null,
+        lastReconOrd: (turn * 30) + (record.dayInMonth || 1), via: 'wander'
+      };
+      g.history.push({ turn, type: 'incursion',
+        reason: 'becomes a domain encounter on entering ' + (dom.name || 'the domain') + ' (JJ p.103) — '
+          + de.tag.attitudeLabel + ', ' + (de.lingers ? 'lingering' : 'migrating') + (g.incursion.rulerAware ? '' : '; the ruler is unaware') });
+      taggedEntryDomainId = de.domainId;
+    }
+  }
+  // Part 1 — SAME-DAY response to a wandered-in encounter (mirrors commitIncursionRecord's tail): an
+  // auto-defending domain sorties the tick the band crosses in; a NEUTRAL band the garrison does NOT meet
+  // leaves the peasants uneasy (JJ p.103 −1, the same xenophobia clause the draw path fires). Runs BEFORE
+  // the settle/home early-returns below, against the band's end-of-walk position (g.currentHexId, set above).
+  if(taggedEntryDomainId){
+    const dom = (campaign.domains || []).find(d => d && d.id === taggedEntryDomainId);
+    if(dom){
+      const autoDeployed = !!autoDeployGarrisonReaction(campaign, dom, g);
+      if((g.incursion && g.incursion.attitude) === 'neutral' && !autoDeployed) dom.incursionXenophobiaPending = true;
+    }
   }
   // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
   // den binds THE Group, no second population; full strength gathers it to the lair count).
@@ -5941,6 +5986,43 @@ function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
   ]);
   const aware = k => (k === 'marginal' || k === 'success' || k === 'major');
   return { ruler, monsters, rulerAware: aware(ruler.result), monstersIntel: aware(monsters.result) };
+}
+// The JJ p.103 Domain Encounter Reaction (2d6 + morale + alignment) + the RR p.452 reconnaissance, as
+// ONE bundle — used to tag a band that becomes a domain encounter by some path OTHER than the slot-86
+// Vagaries draw: a band that physically WANDERS across the border (slot 84), or a pre-existing / seeded
+// LAIR a domain comes to assess. The draw path (proposeIncursionDay) keeps its own inline copy so that
+// seeded byte-stream stays untouched; this mirrors its reaction block. Caller passes a per-key seeded rng
+// (NOT the shared ctx.rng / wander rng) so tagging never perturbs another consumer's seeded stream.
+function _domainEncounterReactionAndRecon(campaign, d, encHex, entry, count, rng){
+  const A = _jACKS();
+  const garrisonBr = (typeof A.domainGarrisonPlatoonBr === 'function') ? A.domainGarrisonPlatoonBr(campaign, d) : 0;
+  const monsterBr = (entry && typeof entry.battleRating === 'number' && count)
+    ? ((typeof A.monsterPlatoonBr === 'function') ? A.monsterPlatoonBr(entry.battleRating, count) : null) : null;
+  const mods = [];
+  const morale = (d.demographics && typeof d.demographics.morale === 'number') ? d.demographics.morale : 0;
+  if(morale !== 0) mods.push({ label: 'domain morale score', value: morale });
+  const rulerCh = (typeof A.rulerCharacter === 'function') ? A.rulerCharacter(campaign, d) : null;
+  const dAl = String((rulerCh && rulerCh.alignment) || '').charAt(0).toUpperCase();
+  const mAl = String((entry && entry.alignment) || '').charAt(0).toUpperCase();
+  const brTops = (monsterBr != null) && (monsterBr > garrisonBr);
+  if(dAl && mAl){
+    if(dAl === 'L' && mAl === 'L') mods.push({ label: 'lawful domain, lawful monsters', value: 2 });
+    else if((dAl === 'L' || dAl === 'N') && mAl === 'C') mods.push({ label: 'lawful/neutral domain, chaotic monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+    else if(dAl === 'C' && mAl === 'L') mods.push({ label: 'chaotic domain, lawful monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+  }
+  const reactionRoll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const reactionTotal = reactionRoll + mods.reduce((s, m) => s + m.value, 0);
+  let band = (typeof A.domainEncounterReactionBand === 'function') ? A.domainEncounterReactionBand(reactionTotal) : { key: 'neutral', label: 'Neutral' };
+  const types = (entry && entry.creatureTypes) || [];
+  const mindCapped = types.some(t => t === 'animal' || t === 'vermin' || t === 'ooze' || t === 'construct');
+  let capped = false;
+  if(mindCapped && (band.key === 'mercantilist' || band.key === 'friendly')){
+    band = ((A.DOMAIN_REACTION_BANDS || []).find(b => b.key === 'neutral')) || { key: 'neutral', label: 'Neutral — exploratory' };
+    capped = true;
+  }
+  const recon = _incursionReconLite(campaign, d, encHex, entry, count, rng);
+  return { attitude: band.key, attitudeLabel: band.label, reaction: { roll: reactionRoll, total: reactionTotal, mods, capped },
+           recon, monsterBr, garrisonBr, sapient: !mindCapped };
 }
 // The JJ p.104 mass-combat trigger lines — GM guidance recorded with the verdict (the
 // battles themselves are W3/W6; deployment is the GM's call, so both branches print).
@@ -6140,7 +6222,11 @@ function commitIncursionRecord(campaign, record){
     fullStrength: !!record.fullStrength, treasureType: record.treasureType || '',
     rulerAware: !!(record.recon && record.recon.rulerAware),
     monstersIntel: !!(record.recon && record.recon.monstersIntel),
-    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null
+    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null,
+    // D4 Awareness (JJ p.103) — the world-ordinal of the ruler's LAST reconnaissance check. Seeds the
+    // weekly recon re-roll cadence (proposeIncursionReconDay); if arrival recon missed, the ruler keeps
+    // re-checking from here rather than staying blind to the band forever.
+    lastReconOrd: (turn * 30) + (record.dayInMonth || 1)
   };
   g.history = g.history || [];
   g.history.push({ turn, type: 'incursion',
@@ -6196,25 +6282,272 @@ function commitIncursionRecord(campaign, record){
   if(!denned && !record.lingering && record.hexId && typeof A.noteDungeonInvaders === 'function'){
     A.noteDungeonInvaders(campaign, { hexId: record.hexId, groupId: g.id, monsterKey: (entry && entry.key) || '', via: 'incursion' });
   }
-  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is not deployed against:
-  // −1 on the NEXT domain morale roll. One-shot; the monthly turn consumes the flag
-  // (clear it by hand if the garrison was in fact deployed — deployment is W4 state).
-  if(att === 'neutral') d.incursionXenophobiaPending = true;
+  // D4 follow-up (2026-06-25) — SAME-DAY garrison auto-defense: if the domain auto-defends and the
+  // garrison decisively outmatches this just-arrived band, sortie NOW (the same tick it appears), not
+  // tomorrow. The band materializes HERE, in slot-86's commit, AFTER the slot-89 propose has already
+  // run — so the slot-89 consumer alone can only react from the next day (the one-day muster lag).
+  // Triggering it on arrival closes that lag; slot-89 stays the BACKSTOP (a band detected later, or one
+  // that wandered in). A settled (laired) neutral band is skipped by the gate — a den, not a raid.
+  const autoDeployed = !!autoDeployGarrisonReaction(campaign, d, g);
+  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is NOT deployed against: −1 on the NEXT
+  // domain morale roll. If the garrison auto-sortied, the peasants are reassured — no penalty. One-shot;
+  // the monthly turn consumes the flag (clear it by hand if a manual sally answered the band instead).
+  if(att === 'neutral' && !autoDeployed) d.incursionXenophobiaPending = true;
 }
-// The UI read: the live incursion bands standing in a domain (alive + still on the
-// domain's ground; a settled band keeps showing through its den's hex).
+// The active (not cleared/destroyed/abandoned) lair whose groupIds includes this band — its den, if any.
+function _lairForBand(campaign, groupId){
+  for(const l of ((campaign && campaign.lairs) || [])){
+    if(l && Array.isArray(l.groupIds) && l.groupIds.indexOf(groupId) >= 0
+       && l.status !== 'cleared' && l.status !== 'destroyed' && l.status !== 'abandoned') return l;
+  }
+  return null;
+}
+// The UI read: every live monster band a domain must reckon with — alive and physically present, whether
+// it (a) arrived as a domain encounter and STANDS on the domain's ground (the incursion tag), or (b) has
+// LAIRED in one of the domain's hexes (ANY den — a drawn/wandered arrival that settled, OR an ambient
+// seeded wilderness lair). Joachim 2026-06-25: lairing monsters belong in ⚔ Active Threats too; the
+// slot-87 reconcile tags an untagged lair band into a proper encounter (disposition + reconnaissance), so
+// after a tick every band here carries an incursion tag. A band off the mapped hexes (currentHexId null,
+// not laired) is handled by the coord-aware reaction layer (incursionBandStillInDomain), not shown here.
 function incursionBandsForDomain(campaign, domainId){
   const A = _jACKS();
   const out = [];
   for(const g of ((campaign && campaign.groups) || [])){
-    if(!g || !g.incursion || g.incursion.domainId !== domainId) continue;
+    if(!g) continue;
     const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
     if(alive <= 0) continue;
-    const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
-    if(!hex || hex.domainId !== domainId) continue;    // wandered off (or off the map) — no longer this domain's problem
-    out.push(g);
+    let inDomain = false;
+    if(g.incursion && g.incursion.domainId === domainId){                       // (a) tagged + standing on its ground
+      const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+      if(hex && hex.domainId === domainId) inDomain = true;
+    }
+    if(!inDomain){                                                              // (b) lairing in one of the domain's hexes
+      const lair = _lairForBand(campaign, g.id);
+      if(lair && lair.hexId){ const lh = (campaign.hexes || []).find(h => h && h.id === lair.hexId); if(lh && lh.domainId === domainId) inDomain = true; }
+    }
+    if(inDomain) out.push(g);
   }
   return out;
+}
+
+// D4 follow-up (2026-06-25) — is this incursion band STILL standing in the domain it threatened?
+// COORD-AWARE: a migrating band that wanders off the authored map has currentHexId === null but keeps
+// its true position on wanderState.coord (the E6 walk carries the band across unauthored hexes — slot 84),
+// so the garrison's "is it still my problem?" decision must read the real position, not the nullable hex
+// id. The garrison holds its DOMAIN (RR p.341): it pursues a band WITHIN the domain but stands down when
+// the band crosses out — it does not abandon the domain to chase across the wilderness (which would march
+// the home garrison out of supply, RR p.450 — the bug the deploy model exposed, fixed the same day).
+function incursionBandStillInDomain(campaign, band){
+  if(!campaign || !band || !band.incursion || !band.incursion.domainId) return false;
+  const A = _jACKS();
+  let hex = band.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === band.currentHexId) || null) : null;
+  if(!hex && band.wanderState && band.wanderState.coord && typeof A.hexAtCoord === 'function'){
+    hex = A.hexAtCoord(campaign, band.wanderState.coord.q, band.wanderState.coord.r);
+  }
+  return !!(hex && hex.domainId === band.incursion.domainId);
+}
+// The band's display position when it has no authored hex (off-map): its true wander coord, else null.
+function incursionBandCoordLabel(band){
+  const ws = band && band.wanderState;
+  return (ws && ws.coord && typeof ws.coord.q === 'number') ? ('coord ' + ws.coord.q + ',' + ws.coord.r) : null;
+}
+
+// ── D4 Awareness (JJ p.103, RR p.452) — the ruler's reconnaissance is RE-CHECKED on the Day Clock ─────
+// At arrival, _incursionReconLite rolls the ruler's recon ONCE; a failure used to leave him blind to the
+// band forever. RAW (JJ p.103): "a domain ruler may not be aware of a domain encounter until the enemy
+// begins pillaging his domain or arrives at his stronghold," with reconnaissance rolls per RR p.452. So
+// awareness is re-evaluated each day for an as-yet-undetected band (rulerAware === false):
+//   • AUTO-DETECT (no roll) — the band stands at the domain's STRONGHOLD (any attitude; it is at the seat
+//     of power), OR it is overtly PILLAGING: a hostile/unfriendly band ON a settlement hex of the domain
+//     (sacking a population centre — JJ p.103 "begins pillaging / loots supplies"). A band merely lingering
+//     or denning in the wilds does NOT auto-reveal — RAW explicitly allows monsters to "settle into a
+//     domain and impose morale penalties while an oblivious ruler remains unaware of the cause."
+//   • RECON RE-ROLL (RR p.452 cadence) — otherwise re-roll the ruler's reconnaissance WEEKLY, or DAILY
+//     while the band is within 1 hex of any of the domain's settlements (RR p.452 shifts the recon cycle
+//     from weeks to days as forces close — the domain-scale equivalent of "within one week's movement").
+//     A marginal/success/major result detects the band.
+// lastReconOrd (set at arrival) paces the weekly cycle. On detection in an auto-defending domain the
+// garrison sallies the SAME day (autoDeployGarrisonReaction — the arrival path's mechanism), so a freshly-
+// spotted band is answered at once, not a tick late. Gated on 'vagaries-of-incursion' (the bands only
+// arise under it). The recon re-roll uses its OWN per-key seeded rng — never the shared ctx.rng — so it
+// can never shift the seeded stream the military/economy consumers (slots 88/89) read after it.
+
+// The largest-settlement hex (the garrison's seat, JJ p.103). Kept separate from the inline copy in
+// _incursionReconLite so that seeded arrival-recon path stays byte-for-byte stable.
+function _domainStrongholdHex(campaign, d){
+  const A = _jACKS();
+  let best = -1, sh = null;
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    const fam = (s && s.families) || 0;
+    if(fam > best){ best = fam; sh = h; }
+  }
+  return sh;
+}
+// The id-set of the domain's hexes that carry a settlement (the population centres a band can pillage).
+function _domainSettlementHexIdSet(campaign, d){
+  const A = _jACKS();
+  const set = new Set();
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    if(s && (s.families || 0) > 0) set.add(h.id);
+  }
+  return set;
+}
+// The band's authored hex (if any) + its true coord (an off-map band keeps its position on wanderState.coord).
+function _incursionBandHexAndCoord(campaign, band){
+  const A = _jACKS();
+  let hex = band.currentHexId ? (((campaign.hexes) || []).find(h => h && h.id === band.currentHexId) || null) : null;
+  let coord = (hex && hex.coord) ? hex.coord : ((band.wanderState && band.wanderState.coord) || null);
+  if(!hex && coord && typeof A.hexAtCoord === 'function') hex = A.hexAtCoord(campaign, coord.q, coord.r) || null;
+  if(hex && hex.coord) coord = hex.coord;
+  return { hex, coord };
+}
+// True when `coord` is within `range` 6-mile hexes of any of the domain's settlements (the daily-recon trigger).
+function _bandWithinHexesOfSettlement(campaign, d, coord, range){
+  if(!coord) return false;
+  const A = _jACKS();
+  if(typeof A.hexAxialDistance !== 'function') return false;
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id || !h.coord) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    if(!(s && (s.families || 0) > 0)) continue;
+    if(A.hexAxialDistance(coord, h.coord) <= range) return true;
+  }
+  return false;
+}
+// The ruler's reconnaissance RE-ROLL (RR p.452), recomputed from the band's CURRENT position. Mirrors the
+// ruler side of _incursionReconLite (size · proximity-to-stronghold · own-region familiarity · the band's
+// terrain · garrison cavalry scouting), kept self-contained so the seeded arrival path is untouched.
+function _incursionRulerReconReroll(campaign, d, bandHex, alive, rng){
+  const A = _jACKS();
+  const strongholdHex = _domainStrongholdHex(campaign, d);
+  const dist = (strongholdHex && strongholdHex.coord && bandHex && bandHex.coord && typeof A.hexAxialDistance === 'function')
+    ? A.hexAxialDistance(strongholdHex.coord, bandHex.coord) : null;
+  let cav = 0;
+  for(const u of (A.domainGarrisonUnits ? A.domainGarrisonUnits(campaign, d) : [])){
+    if(!u) continue;
+    const row = (typeof A.findTroopType === 'function')
+      ? A.findTroopType(u.unitTypeKey, { race: u.race || 'man', veteran: !!u.veteran, loadout: u.loadout || null }) : null;
+    if(row && row.category === 'cavalry') cav++;
+  }
+  const cavMod = cav >= 101 ? 3 : cav >= 21 ? 2 : cav >= 6 ? 1 : 0;
+  const mods = [ _incursionSizeMod(alive || 1), _incursionProximityMod(dist), 1, _incursionTerrainConcealMod(bandHex), cavMod ];
+  const roll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const total = roll + mods.reduce((s, m) => s + m, 0);
+  const rb = (typeof A.reconRollBand === 'function') ? A.reconRollBand(total) : { key: 'failure' };
+  return { roll, total, result: rb.key, aware: (rb.key === 'marginal' || rb.key === 'success' || rb.key === 'major') };
+}
+function proposeIncursionReconDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'vagaries-of-incursion'))) return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  // Part 2 (Joachim 2026-06-25) — TAG any untagged band a domain must reckon with (a seeded / pre-existing
+  // lair the ruler comes to assess) as a domain encounter, so it joins ⚔ Active Threats with a disposition +
+  // reconnaissance (JJ p.103). incursionBandsForDomain now returns lairing bands too; an untagged one gets
+  // ONE tag (rolled per-key — isolated from the shared stream). The recon re-check below refines awareness
+  // on later ticks; a distant lair starts unaware, so the garrison can't auto-clear it until scouts find it.
+  for(const d of (campaign.domains || [])){
+    if(!d) continue;
+    for(const band of incursionBandsForDomain(campaign, d.id)){
+      if(!band || band.banditryDomainId) continue;                       // the domain's own bandits aren't an incursion
+      if(band.incursion && band.incursion.domainId === d.id) continue;   // already this domain's encounter
+      const aliveT = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(band) : Math.max(0, (band.count || 0) - (band.casualties || 0));
+      if(aliveT <= 0) continue;
+      const lair = _lairForBand(campaign, band.id);
+      const lairHex = (lair && lair.hexId) ? ((campaign.hexes || []).find(h => h && h.id === lair.hexId) || null) : null;
+      const em = (band.groupTemplate && band.groupTemplate.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(band.groupTemplate.monsterCatalogKey) : null;
+      const tag = _domainEncounterReactionAndRecon(campaign, d, lairHex, em, aliveT, _jMulberry32(_jHash32('incursion-tag|' + band.id + '|' + d.id + '|' + worldOrd)));
+      pendingRecords.push({ kind: 'incursion-tag', groupId: band.id, domainId: d.id, worldOrd,
+        attitude: tag.attitude, attitudeLabel: tag.attitudeLabel, treasureType: (em && em.treasureType) || '',
+        rulerAware: !!(tag.recon && tag.recon.rulerAware), monstersIntel: !!(tag.recon && tag.recon.monstersIntel) });
+    }
+  }
+  for(const band of (campaign.groups || [])){
+    if(!band || !band.incursion || band.incursion.rulerAware !== false || !band.incursion.domainId) continue;
+    const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(band) : Math.max(0, (band.count || 0) - (band.casualties || 0));
+    if(alive <= 0) continue;
+    const d = (campaign.domains || []).find(x => x && x.id === band.incursion.domainId);
+    if(!d) continue;
+    const bc = _incursionBandHexAndCoord(campaign, band);
+    const bandHex = bc.hex, coord = bc.coord;
+    const inDomain = !!(bandHex && bandHex.domainId === d.id);
+    const near = _bandWithinHexesOfSettlement(campaign, d, coord, 1);
+    if(!inDomain && !near) continue;                       // wandered clear away — no longer the ruler's concern
+    const att = band.incursion.attitude || 'neutral';
+    const strongholdHex = _domainStrongholdHex(campaign, d);
+    let detected = false, trigger = null, reroll = null;
+    if(bandHex && strongholdHex && bandHex.id === strongholdHex.id){
+      detected = true; trigger = 'stronghold';             // arrives at the stronghold (JJ p.103)
+    } else if(bandHex && (att === 'hostile' || att === 'unfriendly') && _domainSettlementHexIdSet(campaign, d).has(bandHex.id)){
+      detected = true; trigger = 'pillage';                // overtly sacking a settlement (JJ p.103)
+    } else {
+      const lastOrd = band.incursion.lastReconOrd || ((band.incursion.arrivedAtTurn || campaign.currentTurn || 1) * 30 + (band.incursion.arrivedOnDay || 1));
+      if(!(near || (worldOrd - lastOrd >= 7))) continue;   // daily within 1 hex of a settlement; else weekly (RR p.452)
+      const rng = _jMulberry32(_jHash32('incursion-recon|' + band.id + '|' + worldOrd));
+      reroll = _incursionRulerReconReroll(campaign, d, bandHex, alive, rng);
+      detected = reroll.aware; trigger = 'recon';
+    }
+    pendingRecords.push({ kind: 'incursion-recon', groupId: band.id, domainId: d.id, worldOrd, detected, trigger,
+      reroll: reroll ? { roll: reroll.roll, total: reroll.total, result: reroll.result } : null });
+    if(detected){
+      const how = trigger === 'stronghold' ? 'reached the stronghold'
+        : trigger === 'pillage' ? 'was caught pillaging a settlement'
+        : 'was located by the ruler’s scouts (RR p.452)';
+      const label = '\u{1F575} ' + (d.name || 'The domain') + ': reconnaissance detects ' + alive + ' × ' + (band.name || 'monsters')
+        + ' — it ' + how + ' (JJ p.103)';
+      notableEvents.push({ kind: 'gm-narrative', type: 'incursion-detected',
+        primaryHexId: bandHex ? bandHex.id : null, domainId: d.id,
+        relatedEntities: [{ kind: 'domain', id: d.id, role: 'target' }, { kind: 'group', id: band.id, role: 'subject' }],
+        label, payload: { domainId: d.id, groupId: band.id, trigger, narrative: label,
+          reroll: reroll ? { roll: reroll.roll, total: reroll.total, result: reroll.result } : null } });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitIncursionReconRecord(campaign, record){
+  if(!campaign || !record) return;
+  // Part 2 — tag a lairing/standing band as the domain's encounter (disposition + recon-based awareness).
+  if(record.kind === 'incursion-tag'){
+    const b = (campaign.groups || []).find(g => g && g.id === record.groupId);
+    if(!b || (b.incursion && b.incursion.domainId === record.domainId)) return;   // replay / already tagged
+    const t = campaign.currentTurn || 1;
+    b.incursion = {
+      domainId: record.domainId, attitude: record.attitude, disposition: 'lingering',
+      fullStrength: false, treasureType: record.treasureType || '',
+      rulerAware: !!record.rulerAware, monstersIntel: !!record.monstersIntel,
+      arrivedAtTurn: t, arrivedOnDay: campaign.currentDayInMonth || null,
+      lastReconOrd: record.worldOrd, via: 'lair-assess', settled: true
+    };
+    (b.history = b.history || []).push({ turn: t, type: 'incursion',
+      reason: 'the domain takes note of a monster lair within its bounds (JJ p.103) — ' + (record.attitudeLabel || record.attitude)
+        + (b.incursion.rulerAware ? '' : '; the ruler is not yet aware of it') });
+    return;
+  }
+  if(record.kind !== 'incursion-recon') return;
+  const band = (campaign.groups || []).find(g => g && g.id === record.groupId);
+  if(!band || !band.incursion) return;
+  band.incursion.lastReconOrd = record.worldOrd;            // pace the weekly cycle (advanced even on a failed roll)
+  if(band.incursion.rulerAware !== false) return;           // already aware (another path won / replay) — done
+  if(!record.detected) return;
+  band.incursion.rulerAware = true;
+  const turn = campaign.currentTurn || 1;
+  const how = record.trigger === 'stronghold' ? 'reached the stronghold'
+    : record.trigger === 'pillage' ? 'was caught pillaging a settlement'
+    : 'was located by the ruler’s scouts (RR p.452' + (record.reroll ? ', 2d6 → ' + record.reroll.total : '') + ')';
+  (band.history = band.history || []).push({ turn, type: 'incursion',
+    reason: 'the ruler became AWARE of the band — it ' + how + ' (JJ p.103)' });
+  // SAME-DAY response (the arrival path's mechanism): if the domain auto-defends and the garrison decisively
+  // outmatches the now-detected band, sortie THIS tick rather than waiting for the slot-89 backstop. The gate
+  // inside autoDeployGarrisonReaction handles the autoResolveIncursions opt-in (a no-op when off).
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId);
+  if(d) autoDeployGarrisonReaction(campaign, d, band);
 }
 
 // ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
@@ -6670,12 +7003,26 @@ function proposeMilitaryDay(campaign, ctx){
   //        live on the army card (re-route / recall — D3), not as daily records. ──
   for(const army of active){
     if(!army.reactionTargetGroupId) continue;
+    if(army.sortieMustering) continue;                            // still forming up at the stronghold (the 1-day sortie muster) — not in the field yet
     if(army.reactionBattleId && (campaign.battles || []).some(b => b && b.id === army.reactionBattleId)) continue;  // a battle already fired
     const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
     const bandAlive = band && (typeof A.groupActiveCount === 'function' ? A.groupActiveCount(band) > 0 : true);
     if(!band || !bandAlive) continue;                              // gone — the army card prompts a recall
     const armyHex = effHex(army);
     if(!armyHex || armyHex !== band.currentHexId){
+      // A garrison defends its DOMAIN (RR p.341): once the band an AUTO-sortie answers has LEFT the
+      // defended domain (migrated to the border + across), the threat to the domain is gone — stand the
+      // force down (recall home) rather than chase it across the map and out of supply (RR p.450). The
+      // band lives on, migrating elsewhere — no longer this domain's problem; JJ p.104 "driven off." A
+      // MANUAL sally stays the GM's to recall or press on. [D4 follow-up 2026-06-25]
+      if(army.autoReaction && band.incursion && band.incursion.domainId && !incursionBandStillInDomain(campaign, band)){
+        const bandWhere = band.currentHexId || incursionBandCoordLabel(band) || 'the wilderness';
+        pendingRecords.push({ kind: 'reaction-stand-down', armyId: army.id, groupId: band.id,
+          domainId: band.incursion.domainId, name: armyName(army) + ' stands down',
+          label: '\u{1F6E1} ' + armyName(army) + ' stands down \u{2014} ' + (band.name || 'the band')
+            + ' has slipped out of the domain (now at ' + bandWhere + '); the garrison holds its ground rather than chase it into the wild (RR p.341, JJ p.104)', status: 'pending' });
+        continue;
+      }
       // ── AUTO-CHASE (v2, JJ p.104) — not co-located: the sally force keeps after a band
       //    that wanders before it arrives. Each day, if the band has moved off the army's
       //    march target, re-route the march to the band's last-known hex (its move commits
@@ -7081,6 +7428,23 @@ function commitMilitaryRecord(campaign, record){
           text: 'Routed the bandits of ' + (banditDom.name || banditDom.id) + moraleNote });
       } else {
         if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+        // If the band had DENNED (it lingered + settled into a lair mid-chase, JJ p.103, before the
+        // sally force caught it), driving it off vacates that den too — so a driven-off band is never
+        // left lair-bound yet position-less. Detach it; a den it SOLELY held is ABANDONED (the structure
+        // remains + can repopulate later); a SHARED den loses one occupant but stands. abandonLair departs
+        // any remaining bound groups alive, so we pass leaveGroups (the drive-off nulls THIS band below —
+        // it must not also evict co-tenants). [D4 race fix, 2026-06-25: the slot-84 settle commits before
+        // this slot-88 drive-off, so a same-tick or mid-chase den would otherwise dangle.]
+        for(const lair of (campaign.lairs || []).filter(l => l && Array.isArray(l.groupIds)
+              && l.groupIds.indexOf(band.id) >= 0 && l.status !== 'cleared' && l.status !== 'abandoned' && l.status !== 'destroyed')){
+          lair.groupIds = lair.groupIds.filter(gid => gid !== band.id);
+          if(!lair.groupIds.length && typeof A.abandonLair === 'function'){
+            A.abandonLair(campaign, lair.id, { atTurn: turn, leaveGroups: true,
+              reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — the band vacated the den it had made' });
+          } else if(typeof A.lairInhabitantCount === 'function'){
+            lair.totalInhabitantCount = A.lairInhabitantCount(campaign, lair);
+          }
+        }
         band.currentHexId = null;                            // out of the hex — off the active map (no longer the domain's problem)
         band.wanderState = null;
         (band.history = band.history || []).push({ turn, type: 'incursion',
@@ -7089,6 +7453,14 @@ function commitMilitaryRecord(campaign, record){
         (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
           text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
       }
+    }
+    // Garrison AUTO-DEFENSE (D4): an AUTO-deployed sortie that drove its band off takes light
+    // proportional casualties (autoReaction-gated — a GM-directed drive-off stays RAW-bloodless) and is
+    // RECALLED at once (its units re-garrison; the sortie is done, no manual recall needed). A battle
+    // outcome is left for the GM (the sortie escalated — don't auto-recall mid-fight).
+    if(army && army.autoReaction && record.outcome !== 'battle'){
+      _applyAutoReactionCasualties(campaign, army, record.forceBr, record.bandBr);
+      if(typeof A.recallReactionForce === 'function') A.recallReactionForce(campaign, army.id);
     }
   } else if(record.kind === 'army-band-chase'){
     // Garrison-reaction AUTO-CHASE (v2, JJ p.104): the band wandered before the sally force
@@ -7112,6 +7484,16 @@ function commitMilitaryRecord(campaign, record){
     }
     (army.history = army.history || []).push({ turn, type: 'reaction-chase',
       text: 'Pressed the pursuit — re-routed to follow ' + (band.name || 'the band') + ' to ' + record.newDestinationHexId + ' (JJ p.104)' });
+  } else if(record.kind === 'reaction-stand-down'){
+    // A garrison's mandate is its DOMAIN (RR p.341): the band an AUTO-sortie answered has left the
+    // defended domain — the threat is gone, so the force stands down (recalls home) rather than chase
+    // it out (and out of supply). The band lives on, migrating elsewhere. JJ p.104 "driven off."
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    if(!army || !army.reactionTargetGroupId) return;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    (army.history = army.history || []).push({ turn: campaign.currentTurn || 1, type: 'reaction-stand-down',
+      text: 'Stood down — ' + ((band && band.name) || 'the band') + ' left the domain (RR p.341, JJ p.104)' });
+    if(typeof A.recallReactionForce === 'function') A.recallReactionForce(campaign, army.id);
   } else if(record.kind === 'domain-invasion'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
@@ -7172,6 +7554,257 @@ function commitMilitaryRecord(campaign, record){
     if(!army || !dom) return;
     if(typeof A.applyPillageResults === 'function') A.applyPillageResults(campaign, army, dom, record.results, record.morale);
     army.pillage = null;
+  }
+}
+
+// ── Garrison auto-defense (slot 89, D4 2026-06-25) — opt-in per domain via domain.autoResolveIncursions ──
+// When a low-threat incursion band stands in a domain whose ruler has set the garrison to auto-defend
+// (the ⚔ Active Threats checkbox), and the garrison's platoon BR is at least GARRISON_DEFENSE_BR_RATIO×
+// the band's, the garrison AUTO-DEPLOYS a reaction force — the SAME deploy-and-march flow the GM's ⚔
+// Deploy button uses (deployGarrisonReaction: muster at the seat → march to the band → the slot-88
+// army-band-contact resolution drives it off on arrival → auto-recall), only triggered for the GM. So the
+// band stays VISIBLE on the threats list as "responding" while the force is in transit (Joachim's call
+// 2026-06-25 — a threat shouldn't silently vanish; you watch the garrison handle it), and an autonomous
+// (sim) run DRAINS the incursion queue instead of growing it (the 2026-06-24 audit's solo-sim finding).
+// The ratio gate is STRICTER than the manual drive-off (forceBr > bandBr): a 1×–2× edge still waits for
+// the GM. Only a DRIVEN-OFF outcome auto-deploys — a hostile band gives BATTLE on contact (JJ p.104), so
+// it's left for the GM to adjudicate (more RAW-faithful than auto-resolving a battle). An undetected band
+// (failed recon, JJ p.103) can't be sallied against; a settled (laired) band is a standing feature, not a
+// raid; a GM-priced band (a dragon — no platoon BR) is never auto-handled; a band a force already responds
+// to is skipped (idempotent). 🎨 The auto-sortie takes light PROPORTIONAL casualties on the drive-off
+// (applied in the slot-88 commit, autoReaction-gated so a GM-directed sally stays RAW-bloodless) — ≤5% at
+// the 2× margin, →0 as the odds widen — a documented tooling extension giving a sim stakes: a constantly-
+// raided realm attrits its garrison and must replace troops (RR pp.350–351). Registered AFTER the slot-88
+// military consumer; pauseTriggers [] — the auto-deploy + the non-battle resolution both auto-apply.
+const GARRISON_DEFENSE_BR_RATIO = 2;        // forceBr ≥ 2× bandBr → "the garrison clearly handles it"
+const GARRISON_DEFENSE_LOSS_RATE = 0.10;    // auto-sortie loss fraction = (bandBr/forceBr) × rate …
+const GARRISON_DEFENSE_LOSS_CAP = 0.05;     // … capped at 5% (the worst case — exactly at the 2× margin)
+
+// The per-band gate shared by BOTH auto-defense paths — the slot-89 daily propose (the backstop)
+// and the SAME-DAY arrival deploy folded into commitIncursionRecord (D4 follow-up 2026-06-25). A
+// band the garrison auto-defends: the domain opted in, a garrison stands, the band is detected, not
+// already answered, not settled in a lair, has a priced platoon BR, and the force decisively
+// outmatches it (≥ 2×, → a drive-off not a battle). Returns the reaction PREVIEW when YES (callers
+// reuse its bandBr/forceBr), else null. Pure — no hex check here (callers pass an in-domain threat).
+function garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr){
+  const A = _jACKS();
+  if(!campaign || !dom || !dom.autoResolveIncursions || !band) return null;
+  if(!Array.isArray(unitIds) || !unitIds.length || !(forceBr > 0)) return null;     // no garrison → nothing sallies
+  if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === band.id)) return null;   // a force already responds
+  // (Q2, Joachim 2026-06-25) A DETECTED den is now auto-clearable too — driven off the same way a field
+  // band is (the slot-88 drive-off + the den-vacate fix abandon the lair). So NO settled-exclusion here.
+  // But an UNTAGGED band (a seeded den the ruler hasn't assessed) OR a detected-false one is undetected →
+  // can't sally (JJ p.103): the garrison clears only dens its reconnaissance has actually located.
+  if(!band.incursion || band.incursion.rulerAware === false) return null;           // undetected — can't sally (JJ p.103)
+  const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
+  if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) return null;               // GM-priced (a dragon) → never auto
+  if(prev.outcome !== 'driven-off') return null;                                    // hostile → it gives battle; the GM's call
+  // Neutral-bands opt-in (the 2nd ⚔ checkbox, Joachim 2026-06-25): by default the garrison auto-defends
+  // only NATIVELY hostile/unfriendly bands. A neutral / mercantilist / friendly band — one the preview
+  // FLIPS to unfriendly only because you marched on it (JJ p.104, prev.flips) — may just be passing
+  // through, so it is left for the GM unless the domain also ticks autoDefendNeutral. (Hostile bands give
+  // battle and are already excluded above, so this only narrows the would-be-flipped set.)
+  if(prev.flips && !dom.autoDefendNeutral) return null;                             // neutral/friendly → the GM's call unless opted in
+  if(forceBr < GARRISON_DEFENSE_BR_RATIO * prev.bandBr) return null;                // not decisive → leave it for the GM
+  return prev;
+}
+
+// Deploy the garrison reaction against a band RIGHT NOW (a commit-side action) — used by the same-day
+// arrival path (commitIncursionRecord). Computes the live garrison force, runs the shared gate, and
+// (if it passes + the band stands as a current threat in the domain) musters the whole garrison into
+// the shipped reaction-and-march flow, marked autoReaction so the slot-88 arrival resolution drives
+// the band off + recalls + books the light sortie casualties. Idempotent via the shared arm-rxn-<band>
+// id + the reactionTargetGroupId guard. Returns the deployed army, or null when nothing sallied.
+function autoDeployGarrisonReaction(campaign, dom, band){
+  const A = _jACKS();
+  if(!campaign || !dom || !band || typeof A.deployGarrisonReaction !== 'function') return null;
+  if(!incursionBandsForDomain(campaign, dom.id).some(x => x && x.id === band.id)) return null;   // same visibility as slot-89
+  const units = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id) : [];
+  const unitIds = units.map(u => u && u.id).filter(Boolean);                                      // genuinely free (afield units station to their army)
+  const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
+  const prev = garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr);
+  if(!prev) return null;
+  // Send only as many as a decisive drive-off needs (Joachim 2026-06-25) — leave the rest of the garrison
+  // free to answer other threats the same day. Fall back to the whole free force if no subset is computed
+  // (defensive — eligibility already proved the whole force is decisive).
+  const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, unitIds, GARRISON_DEFENSE_BR_RATIO * prev.bandBr) : null;
+  const deployIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : unitIds;
+  const armyId = 'arm-rxn-' + String(band.id).replace(/^grp-/, '');
+  if((campaign.armies || []).some(a => a && a.id === armyId)) return null;                        // replay guard
+  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: deployIds.slice(), armyId, muster: true });
+  if(res && res.ok && res.army){
+    res.army.autoReaction = true;
+    (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',
+      text: 'Sallied automatically (garrison auto-defense, same day) against ' + (band.name || 'a band') + ' (JJ p.104)' });
+    return res.army;
+  }
+  return null;
+}
+
+function proposeGarrisonDefenseDay(campaign, ctx){
+  const A = _jACKS();
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.domains) || !campaign.domains.length) return { pendingRecords, notableEvents };
+  if(typeof A.deployGarrisonReaction !== 'function') return { pendingRecords, notableEvents };
+  // Muster-completion (D4 follow-up 2026-06-25) — a reaction force that mustered last tick marches
+  // out NOW: the 1-day garrison sortie muster (RR p.434, JJ p.104). The army was deployed (auto OR the
+  // GM's manual ⚔ Deploy) with sortieMustering set; the slot-89 consumer first SEES it the next tick,
+  // which IS the one-day hold. Runs for EVERY mustering reaction army — incl. a manual sally in a domain
+  // that doesn't auto-defend — so it sits BEFORE the autoResolveIncursions gate. Idempotent (commit clears).
+  for(const army of (campaign.armies || [])){
+    if(!army || !army.sortieMustering || !army.reactionTargetGroupId) continue;
+    const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
+    // Neutral label: the muster is done + the force sallies. Whether it then MARCHES (the band still
+    // stands in the domain) or STANDS DOWN (the band slipped out — the garrison holds its ground, RR
+    // p.341) is decided in commit against the band's post-wander position (slot 84 commits first this tick).
+    pendingRecords.push({ kind: 'garrison-sortie-march', armyId: army.id, groupId: army.reactionTargetGroupId,
+      name: (army.name || 'Reaction force') + ' completes its muster',
+      label: '\u{1F6E1} ' + (army.name || 'The reaction force') + ' completes its muster and sallies against '
+        + ((band && band.name) || 'the band') + ' (RR p.434, JJ p.104)', status: 'pending' });
+  }
+  for(const dom of campaign.domains){
+    if(!dom || !dom.autoResolveIncursions) continue;
+    const bands = (typeof A.incursionBandsForDomain === 'function') ? A.incursionBandsForDomain(campaign, dom.id) : [];
+    if(!bands.length) continue;
+    const allUnits = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id).map(u => u && u.id).filter(Boolean) : [];
+    if(!allUnits.length) continue;                                 // no garrison → nothing sallies (units afield station to their army)
+    // Rank the threats the garrison can take on (Joachim 2026-06-25): the ones nearest a settlement first
+    // (imminent pillage — protect the population), then ascending band BR (clear the most with a limited
+    // garrison). Deterministic — no rng, so the seeded military/economy streams (slots 88/89) are untouched.
+    const setHexIds = _domainSettlementHexIdSet(campaign, dom);
+    const ranked = bands.map(b => {
+      const bandBr = (typeof A.reactionBandPlatoonBr === 'function') ? A.reactionBandPlatoonBr(campaign, b) : null;
+      const hc = _incursionBandHexAndCoord(campaign, b);
+      const imminent = !!((hc.hex && setHexIds.has(hc.hex.id)) || _bandWithinHexesOfSettlement(campaign, dom, hc.coord, 1));
+      return { b, bandBr, imminent };
+    }).sort((x, y) => ((y.imminent ? 1 : 0) - (x.imminent ? 1 : 0))
+                   || ((x.bandBr == null ? Infinity : x.bandBr) - (y.bandBr == null ? Infinity : y.bandBr)));
+    // Allocate DISJOINT minimal subsets across the day's sorties: each handled band takes only the units a
+    // decisive drive-off needs; the rest stay free for the next band — so a multi-unit garrison answers
+    // SEVERAL threats at once, and any it can't cover (or a band that arrives / is detected while the
+    // garrison is committed) is picked up by a later day's scan as units free up (Joachim 2026-06-25,
+    // solutions 1+2). PROPOSE-correct: the propose can't see this day's deploy commits, so allocating
+    // disjointly HERE is what keeps two sorties off the same units; commit re-validates against the live
+    // free garrison (an earlier-slot arrival sortie may have taken some first) and defers if short.
+    const taken = new Set();
+    for(const { b: band } of ranked){
+      const freeIds = allUnits.filter(id => !taken.has(id));
+      if(!freeIds.length) break;                                   // garrison fully committed this tick
+      const freeBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, freeIds) : 0;
+      const prev = garrisonAutoDefenseEligible(campaign, dom, band, freeIds, freeBr);   // the shared gate, on what's LEFT
+      if(!prev) continue;
+      const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, freeIds, GARRISON_DEFENSE_BR_RATIO * prev.bandBr) : null;
+      const useIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : freeIds;
+      const useBr = (sub && sub.forceBr) || freeBr;
+      useIds.forEach(id => taken.add(id));
+      const bandAlive = Math.max(0, (band.count || 0) - (band.casualties || 0));
+      pendingRecords.push({
+        kind: 'garrison-defense', domainId: dom.id, groupId: band.id, groupName: band.name || 'monsters',
+        // a PROPOSE-stable army id so the work-copy + the real-campaign deploys share it (the slot-88
+        // army-band-contact resolution captures the army id — it must match on the commit replay).
+        armyId: 'arm-rxn-' + String(band.id).replace(/^grp-/, ''),
+        unitIds: useIds.slice(), forceBr: useBr, bandBr: prev.bandBr,
+        name: (dom.name || 'Garrison') + ' \u{1F6E1} ' + (band.name || 'band'),
+        label: '\u{1F6E1} ' + (dom.name || 'The domain') + ' garrison musters to meet ' + bandAlive + ' \u{00D7} ' + (band.name || 'monsters')
+          + ' \u{2014} BR ' + useBr.toFixed(2) + ' vs ' + prev.bandBr.toFixed(2) + ' (JJ p.104)',
+        status: 'pending'
+      });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+
+// Commit half of garrison auto-defense: AUTO-DEPLOY the garrison reaction (the GM's ⚔ Deploy flow,
+// triggered for them) — muster the garrison at the seat + march it to the band, marked autoReaction so
+// the slot-88 arrival resolution recalls it + applies the sortie casualties once it drives the band off.
+// Idempotent: skip if a force already responds (a re-propose before commit, or a manual deploy that landed
+// first). No band/casualty mutation here — the shipped slot-88 army-band-contact path owns the resolution;
+// this only sets the sortie in motion, so the band stays on the threats list, responding.
+function commitGarrisonDefenseRecord(campaign, record){
+  if(!campaign || !record) return;
+  const A = _jACKS();
+  // Muster-completion: the mustered sortie marches out — clear the 1-day muster hold + start the W4
+  // march to the band (a co-located band needs no march; the slot-88 contact resolves it next tick).
+  if(record.kind === 'garrison-sortie-march'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    if(!army || !army.sortieMustering) return;                     // already marched / recalled (replay guard)
+    army.sortieMustering = false;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    const turn = campaign.currentTurn || 1;
+    // The band may have wandered (slot 84 committed earlier THIS tick) out of the domain while the garrison
+    // formed up. The garrison holds its DOMAIN (RR p.341) — it marches out ONLY if the band still stands in
+    // the domain; otherwise an AUTO sortie stands down + recalls (don't march out of supply after a departed
+    // band — RR p.450), and a MANUAL sortie holds at the rally for the GM to recall or pursue by hand.
+    if(band && band.incursion && band.incursion.domainId && !incursionBandStillInDomain(campaign, band)){
+      const where = band.currentHexId || incursionBandCoordLabel(band) || 'the wilderness';
+      if(army.autoReaction){
+        (army.history = army.history || []).push({ turn, type: 'reaction-stand-down',
+          text: 'Stood down — ' + ((band && band.name) || 'the band') + ' slipped out of the domain (now at ' + where + ') before the garrison formed up; holds its ground (RR p.341, JJ p.104)' });
+        if(typeof A.recallReactionForce === 'function') A.recallReactionForce(campaign, army.id);
+      } else {
+        (army.history = army.history || []).push({ turn, type: 'sortie-held',
+          text: 'Mustered, but ' + ((band && band.name) || 'the band') + ' had left the domain (now at ' + where + ') — holding at the rally (RR p.341); recall or pursue by hand' });
+      }
+      return;
+    }
+    const bandHexId = band ? (band.currentHexId || null) : null;
+    if(bandHexId && army.currentHexId && bandHexId !== army.currentHexId && typeof A.startArmyMarch === 'function'){
+      A.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: 'normal' });
+    }
+    (army.history = army.history || []).push({ turn, type: 'sortie-marched',
+      text: 'Mustered and marched out to engage ' + ((band && band.name) || 'the band') + ' (JJ p.104)' });
+    return;
+  }
+  if(record.kind !== 'garrison-defense') return;
+  if(typeof A.deployGarrisonReaction !== 'function') return;
+  if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === record.groupId)) return;   // already responding
+  if(record.armyId && (campaign.armies || []).some(a => a && a.id === record.armyId)) return;       // already deployed (replay guard)
+  // Re-validate against the LIVE free garrison (Joachim 2026-06-25): an earlier-slot commit this tick — the
+  // same-day arrival sortie (slot 86) or the GM's manual ⚔ Deploy — may have already mustered some of the
+  // units this record named. Deploy only the minimal STILL-FREE subset that decisively meets the band; if
+  // what's left no longer suffices, DEFER — the band stays on the threats list and a later day's scan
+  // re-checks once a sortie returns + re-garrisons (so two sorties never steal each other's units).
+  const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+  if(!band) return;
+  const freeNow = new Set(((typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, record.domainId) : []).map(u => u && u.id).filter(Boolean));
+  const stillFree = (record.unitIds || []).filter(id => freeNow.has(id));
+  if(!stillFree.length) return;                                    // every named unit got committed elsewhere this tick — defer
+  const bandBr = (typeof A.reactionBandPlatoonBr === 'function') ? A.reactionBandPlatoonBr(campaign, band) : record.bandBr;
+  const freeBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, stillFree) : 0;
+  if(!(bandBr > 0) || freeBr < GARRISON_DEFENSE_BR_RATIO * bandBr) return;   // no longer decisive with what's free — defer
+  const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, stillFree, GARRISON_DEFENSE_BR_RATIO * bandBr) : null;
+  const deployIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : stillFree;
+  const res = A.deployGarrisonReaction(campaign, { groupId: record.groupId, unitIds: deployIds, armyId: record.armyId, muster: true });
+  if(res && res.ok && res.army){
+    res.army.autoReaction = true;                                  // → slot-88 auto-recall + the sortie casualties
+    (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',
+      text: 'Sallied automatically (garrison auto-defense) against ' + (record.groupName || 'a band') + ' (JJ p.104)' });
+  }
+}
+
+// Light PROPORTIONAL casualties for an auto-deployed sortie that drove its band off (D4 — the documented
+// 🎨 tooling extension; auto-gated, so a GM-directed drive-off stays RAW-bloodless). loss = min(5%,
+// (bandBr/forceBr)×10%) of the sortie headcount, distributed across its units (largest-remainder split).
+function _applyAutoReactionCasualties(campaign, army, forceBr, bandBr){
+  const A = _jACKS();
+  if(!(forceBr > 0) || !(bandBr > 0)) return;
+  const units = (typeof A.armyUnits === 'function') ? A.armyUnits(campaign, army) : [];
+  const active = u => Math.max(0, (u.count || 0) - (u.casualties || 0));
+  const headcount = units.reduce((s, u) => s + active(u), 0);
+  if(headcount <= 0) return;
+  const want = Math.round(headcount * Math.min(GARRISON_DEFENSE_LOSS_CAP, (bandBr / forceBr) * GARRISON_DEFENSE_LOSS_RATE));
+  if(want <= 0) return;
+  const alloc = units.map(u => { const ex = want * active(u) / headcount; const base = Math.floor(ex); return { u, base, frac: ex - base }; });
+  let assigned = alloc.reduce((s, a) => s + a.base, 0);
+  alloc.sort((x, y) => y.frac - x.frac);
+  for(let i = 0; assigned < want && alloc.length; i++, assigned++) alloc[i % alloc.length].base++;
+  const turn = campaign.currentTurn || 1;
+  for(const a of alloc){
+    const loss = Math.min(active(a.u), a.base);
+    if(loss <= 0) continue;
+    a.u.casualties = Math.min(a.u.count || 0, (a.u.casualties || 0) + loss);
+    if(!Array.isArray(a.u.history)) a.u.history = [];
+    a.u.history.push({ atTurn: turn, type: 'garrison-defense', summary: loss + ' lost in the garrison auto-sortie' });
   }
 }
 
@@ -7236,6 +7869,18 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     pauseTriggers: ['encounter'],
     commit: commitIncursionRecord
   });
+  // D4 Awareness (slot 87, JJ p.103 / RR p.452) — re-check the ruler's reconnaissance for as-yet-
+  // undetected incursion bands: auto-detect at the stronghold or while pillaging a settlement, else
+  // re-roll recon weekly (daily within 1 hex of a settlement). Runs AFTER the band's day-move (84) +
+  // any new arrival (86) and BEFORE the military / garrison consumers (88/89), so a band detected today
+  // is answerable today. pauseTriggers [] — it only flips awareness (the band was already on the ⚔ Active
+  // Threats list as "Unaware"); the detection surfaces as a notable in the day's review.
+  ACKS.registerDayConsumer('incursion-recon', {
+    handler: proposeIncursionReconDay,
+    order: 87,
+    pauseTriggers: [],
+    commit: commitIncursionReconRecord
+  });
   // Phase 3 Military W4 + W5 — the campaign cycle (slot 88, RR p.447): initiative +
   // reconnaissance, army contacts → battles, invasions → the immediate morale roll,
   // the weekly supply check (W5, step 4), occupation flips, pillage progress. Runs
@@ -7245,6 +7890,16 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 88,
     pauseTriggers: ['encounter', 'supplies-low'],
     commit: commitMilitaryRecord
+  });
+  // D4 (2026-06-25) — garrison auto-defense (slot 89): a domain whose ruler set the garrison to
+  // auto-defend (the ⚔ Active Threats checkbox) clears decisively-outmatched (BR ≥ 2×) incursion
+  // bands on its own. Runs AFTER the slot-88 military consumer so a GM-deployed reaction force
+  // resolves first; pauseTriggers [] — it auto-applies, so an autonomous run drains the queue.
+  ACKS.registerDayConsumer('garrison-defense', {
+    handler: proposeGarrisonDefenseDay,
+    order: 89,
+    pauseTriggers: [],
+    commit: commitGarrisonDefenseRecord
   });
 }
 

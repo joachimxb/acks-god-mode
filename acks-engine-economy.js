@@ -189,6 +189,26 @@ function garrisonAdequacySpend(campaign, d){
     spend += global.ACKS.domainTrainedMilitiaCredit(campaign, d) || 0;   // RR p.341 — trained militia at home
   }
   spend += domainGarrisonUnits(campaign, d).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
+  // D4 (2026-06-25) — a domain's OWN troops still garrison it while they remain WITHIN its boundary,
+  // even when mustered out of the posted garrison: a unit posted to a border hex, mustering, or on a
+  // LOCAL sortie against an incursion is the garrison doing its job, not abandoning the post ("that's
+  // what garrisons are for", JJ p.104). RAW frames the garrison as the spend that "maintains the
+  // security of HIS DOMAIN" (RR p.341) and separates garrisoning a stronghold from waging war on
+  // campaign (RR p.169) — so troops that have LEFT the domain (marched off to a campaign, or chased a
+  // band out of the realm) no longer garrison it and DON'T count (Joachim's call, RAW-confirmed). The
+  // posted garrison (domain-garrison station) is already counted above; this adds the domain's units
+  // that have mustered into a force but still stand on one of the domain's hexes. A domain at rest, or
+  // whose troops have left, adds nothing here — so the economy oracle is unchanged.
+  const A = global.ACKS;
+  if(Array.isArray(campaign.units) && A && typeof A.unitCurrentHexId === 'function'){
+    for(const u of campaign.units){
+      if(!u || u.wageWaived || u.ownerDomainId !== d.id) continue;
+      if(u.stationedAt && u.stationedAt.kind === 'domain-garrison') continue;   // posted garrison — counted above
+      const hxId = A.unitCurrentHexId(campaign, u);
+      const hx = hxId ? (campaign.hexes || []).find(h => h && h.id === hxId) : null;
+      if(hx && hx.domainId === d.id) spend += (u.count || 0) * (u.monthlyWage || 0);   // still within the domain
+    }
+  }
   return spend;
 }
 // === Military W7 (burst4) — peasant families that produce REVENUE this month: the population minus

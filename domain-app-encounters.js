@@ -250,7 +250,9 @@
           monster: monster || (tpl.creatureTypes || []).join(', ') || '—',
           count: b.count,
           hexId: hex ? hex.id : null,
-          where: where || 'wandering — no fixed hex',
+          where: where || (g.wanderState && g.wanderState.coord && typeof g.wanderState.coord.q === 'number'
+            ? ('near ' + g.wanderState.coord.q + ',' + g.wanderState.coord.r + ' — off the mapped hexes')
+            : 'wandering — no fixed hex'),
           statusLabel: 'incursion · ' + (b.incursion.attitude || ''),
           statusText: '⚔ domain encounter at ' + ((incDom && incDom.name) || 'a domain') + ' (Vagaries of Incursion, JJ p.101) — '
             + (b.incursion.attitude || 'unknown') + ', ' + (b.incursion.disposition || '')

@@ -6752,10 +6752,36 @@ document.addEventListener('alpine:init', () => {
 
           <!-- Active Threats / Reactions (2026-06-14, JJ pp.104–106) — the live incursion bands
                the ruler may deploy a force against. The deferred-reaction surface: a threat not
-               answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow. -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-show="incursionBands(selectedDomain).length > 0 || brigandArmies(selectedDomain).length > 0">
+               answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow.
+               D4 (2026-06-25): the box is ALWAYS shown (even with no threats) so the garrison
+               auto-defense checkbox has a home. -->
+          <div class="vellum border border-ink p-3 rounded mt-4">
             <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
-            <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
+            <!-- D4 — opt-in garrison auto-defense. Ticked, the garrison auto-deploys a real reaction
+                 force against decisively-outmatched (BR ≥ 2×) incursion bands each day (the slot-89
+                 consumer); the band stays here marked 🛡 responding until the force arrives, drives it
+                 off (light losses) and is recalled, so an autonomous run drains instead of piling up.
+                 Stronger threats still wait for the GM. Persists on the domain (markDirty + schedulePersist). -->
+            <label class="flex items-start gap-2 text-sm mb-2 cursor-pointer select-none">
+              <input type="checkbox" class="mt-0.5" x-model="selectedDomain.autoResolveIncursions" @change="markDirty(); schedulePersist();">
+              <span>🛡 <span class="font-semibold">Garrison auto-defends low-threat incursions</span>
+                <span class="opacity-60">— when the garrison's battle rating is ≥ 2× a band's, it musters and marches to meet it on its own (light losses); the band stays here, marked 🛡 responding, until the force arrives and is recalled. It commits only as many units as a decisive drive-off needs, so it can answer several threats at once and pick up any it couldn't reach (busy, or not yet detected) on a later day. Stronger threats still wait for your orders. (JJ p.104)</span>
+              </span>
+            </label>
+            <!-- D4 follow-up (2026-06-25) — the 2nd ⚔ checkbox: also drive off NEUTRAL bands. By default the
+                 garrison sallies only against natively hostile/unfriendly bands; a neutral band (one the act
+                 of marching on it turns unfriendly, JJ p.104) may just be passing through, so it is left for
+                 the GM unless this is ticked. Shown only when auto-defense is on. -->
+            <label class="flex items-start gap-2 text-sm mb-2 ml-6 cursor-pointer select-none" x-show="selectedDomain.autoResolveIncursions">
+              <input type="checkbox" class="mt-0.5" x-model="selectedDomain.autoDefendNeutral" @change="markDirty(); schedulePersist();">
+              <span>⚔ <span class="font-semibold">Also drive off neutral bands</span>
+                <span class="opacity-60">— sally against neutral/exploratory bands too, not just hostile ones (marching on them turns them unfriendly, JJ p.104). Left off, the garrison lets a neutral band pass — and unchallenged neutral monsters leave the peasants uneasy (−1 on the next domain morale roll, JJ p.103).</span>
+              </span>
+            </label>
+            <template x-if="incursionBands(selectedDomain).length === 0 && brigandArmies(selectedDomain).length === 0">
+              <p class="text-sm italic opacity-60" x-text="selectedDomain.autoResolveIncursions ? 'No active threats — the garrison answers low-threat incursions automatically as they appear.' : 'No active threats — the domain is quiet.'"></p>
+            </template>
+            <p class="text-xs opacity-60 italic mb-2" x-show="incursionBands(selectedDomain).length > 0">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
             <table class="bookkeeping text-sm" x-show="incursionBands(selectedDomain).length > 0">
               <thead><tr><th>Band</th><th title="Whether the ruler’s reconnaissance has detected this band — a deliberate sally requires detection (JJ p.103, RR p.452)">Aware?</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
               <tbody>
@@ -6767,7 +6793,14 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="(g.incursion && g.incursion.disposition) || '—'"></td>
                     <td class="font-mono" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.forceBr.toFixed(2) + ' vs ' + (p.bandBr != null ? p.bandBr.toFixed(2) : 'GM')) : '—'; })()"></td>
                     <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'text-green-700' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
-                    <td class="whitespace-nowrap"><button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)" :class="rulerUnawareOfBand(g) ? 'px-2 py-0.5 border border-ink/40 rounded text-xs opacity-50 cursor-not-allowed' : 'px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100'" :title="rulerUnawareOfBand(g) ? 'Undetected — the ruler can’t sally until reconnaissance locates this band (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy</button></td>
+                    <td class="whitespace-nowrap">
+                      <template x-if="bandRespondingArmy(g)">
+                        <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold text-green-700 border border-green-700/40" :title="'A garrison force is answering this band (' + bandRespondingStatus(g) + '). Manage it on the 🎖 Armies card — re-route or recall.'">🛡 Responding · <span x-text="bandRespondingStatus(g)"></span></span>
+                      </template>
+                      <template x-if="!bandRespondingArmy(g)">
+                        <button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)" :class="rulerUnawareOfBand(g) ? 'px-2 py-0.5 border border-ink/40 rounded text-xs opacity-50 cursor-not-allowed' : 'px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100'" :title="rulerUnawareOfBand(g) ? 'Undetected — the ruler can’t sally until reconnaissance locates this band (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy</button>
+                      </template>
+                    </td>
                   </tr>
                 </template>
               </tbody>

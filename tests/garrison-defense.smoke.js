@@ -1,0 +1,324 @@
+// =============================================================================
+// garrison-defense.smoke.js — D4 (2026-06-25): garrison AUTO-DEPLOY against low-threat
+// incursions (the 2026-06-24 audit's solo-sim finding — an autonomous run must DRAIN the
+// incursion queue, not grow it; Joachim 2026-06-25 — the garrison must visibly RESPOND, not
+// silently clear the band).
+//
+//   node tests/garrison-defense.smoke.js   (or via `npm test`)
+//
+// The opt-in (domain.autoResolveIncursions — the ⚔ Active Threats checkbox) makes a domain's
+// garrison AUTO-DEPLOY a reaction force (the GM's ⚔ Deploy flow, triggered for them) against a
+// DECISIVELY-outmatched (platoon BR ≥ 2×) incursion band, via the slot-89 day consumer. The band
+// stays VISIBLE on the threats list as "responding" while the force musters + marches; the shipped
+// slot-88 army-band-contact path drives it off on arrival, then the force is auto-recalled (units
+// re-garrison) and takes light proportional sortie casualties. Verifies:
+//   - the deploy (a reaction force, autoReaction-flagged, targets the band; the band stays standing)
+//   - the resolution on arrival (band driven off, force recalled, units re-garrisoned + casualties)
+//   - the 2× gate; toggle/no-garrison/unaware/GM-priced/settled/already-responding/hostile skips
+//   - the headline: a force advance drains a domain full of low-threat bands to zero
+// =============================================================================
+'use strict';
+const path = require('path');
+const DIR = path.join(__dirname, '..');
+global.window = global;
+[
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
+  'acks-engine.js', 'acks-engine-lairs.js', 'acks-engine-stash.js', 'acks-engine-military.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
+  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-battles.js', 'acks-engine-maneuvers.js', 'acks-engine-subsystems.js'
+].forEach(f => require(path.join(DIR, f)));
+const ACKS = global.ACKS;
+
+let pass = 0, fail = 0; const failures = [];
+function ok(label, cond, detail){ if(cond){ pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); console.log('  FAIL ' + label + (detail ? ' — ' + detail : '')); } }
+function section(t){ console.log('— ' + t); }
+const adv = (c) => ACKS.commitDayTick(c, ACKS.proposeDayTick(c, 1, { force: true }));   // one forced day-tick
+const reactionArmies = (c, gid) => (c.armies || []).filter(a => a && a.reactionTargetGroupId === gid);
+
+// A threatened realm: seat hex (the rally) + a near hex + a far hex, all in dom-r; vagaries +
+// persistent-wandering OFF so nothing mints/moves bands behind the test (only the garrison acts).
+// The ruler (chr-cap) sits at the seat so domainSeatHexId rallies there. light-infantry ×120 platoon
+// BR = 4.8; orc ×8 = 0.25. autoResolveIncursions defaults ON (o.auto:false turns it off). o.bandHex
+// places the band(s); o.bandIds plants several.
+function mk(o){
+  o = o || {};
+  const c = { currentTurn: 3, currentDayInMonth: 1, eventLog: [],
+    houseRules: { 'persistent-wandering-monsters': { enabled: false }, 'vagaries-of-incursion': { enabled: false } },
+    characters: [{ schemaVersion: 2, id: 'chr-cap', name: 'Captain Vael', alive: true, currentHexId: 'hex-seat', class: 'Fighter', level: 9, abilities: { STR: 13, INT: 10, WIL: 10, DEX: 12, CON: 12, CHA: 13 } }],
+    domains: [{ id: 'dom-r', name: 'March', rulerCharacterId: 'chr-cap', autoResolveIncursions: o.auto !== false, garrison: { units: [] }, demographics: { peasantFamilies: 500, morale: 0 } }],
+    journeys: [], armies: [], units: [], battles: [], groups: [], lairs: [],
+    hexes: [{ id: 'hex-seat', domainId: 'dom-r', coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-band', domainId: 'dom-r', coord: { q: 1, r: 0 }, terrain: 'hills' },
+            { id: 'hex-far',  domainId: 'dom-r', coord: { q: 7, r: 0 }, terrain: 'grassland' }] };
+  const n = (o.garrisonUnits != null) ? o.garrisonUnits : 1;
+  for(let i = 0; i < n; i++){
+    ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g' + i, displayName: 'Foot ' + i, unitTypeKey: 'light-infantry',
+      count: (o.garrisonCount != null) ? o.garrisonCount : 120, ownerDomainId: 'dom-r' }), { kind: 'domain-garrison', id: 'dom-r' });
+  }
+  const ids = o.bandIds || ['grp-threat'];
+  const hex = o.bandHex || 'hex-band';
+  for(const id of ids){
+    const band = ACKS.blankGroup({ id, name: 'Orc raiders',
+      groupTemplate: { monsterCatalogKey: (o.catalogKey !== undefined ? o.catalogKey : 'orc'), creatureTypes: ['beastman', 'humanoid'], hitDice: '1' },
+      count: (o.count != null) ? o.count : 8, currentHexId: hex, currentDomainId: 'dom-r', lifecycleState: 'wild' });
+    band.incursion = { domainId: 'dom-r', attitude: o.attitude || 'unfriendly', disposition: 'lingering',
+      fullStrength: false, treasureType: '', rulerAware: true, monstersIntel: false, arrivedAtTurn: 3 };
+    band.wanderState = { coord: null, lastCoord: null, mileRemainder: 0, mode: null, destLairId: null, dissolveOnArrival: false, lastDomainId: 'dom-r', halted: true };
+    c.groups.push(band);
+  }
+  return c;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('auto-deploy — the garrison RESPONDS (mustering), and the band stays visible while it does');
+const c1 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });   // co-located → muster (d1) → march (d2) → resolve (d3)
+adv(c1);                                                                 // day 1: slot-89 auto-deploys — the force MUSTERS at the seat
+const army1 = reactionArmies(c1, 'grp-threat')[0];
+ok('a reaction force is auto-deployed against the band', !!army1 && army1.autoReaction === true);
+ok('the force is MUSTERING on the deploy day (the 1-day sortie muster — not yet in the field)', !!army1 && army1.sortieMustering === true);
+ok('the band STILL stands (visible as "responding", not vanished)', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 1);
+ok('the garrison mustered out into the sortie force', ACKS.domainGarrisonUnits(c1, 'dom-r').length === 0 && ACKS.armyUnits(c1, army1).length === 1);
+ok('the army history records the auto-sortie', (army1.history || []).some(h => h.type === 'auto-deployed-reaction'));
+
+section('muster completes the next day — the force marches out (the 1-day sortie muster, RR p.434/JJ p.104)');
+adv(c1);                                                                 // day 2: slot-89 muster-completion — the force marches out
+ok('the force finished mustering (marches out the NEXT day, not the deploy day)', army1.sortieMustering === false);
+ok('the band still stands while the force closes in', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 1);
+
+section('resolution on arrival — driven off, recalled, light sortie casualties');
+adv(c1);                                                                 // day 3: slot-88 resolves the co-located contact
+ok('the band is driven off (queue drained)', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 0);
+const band1 = c1.groups.find(g => g && g.id === 'grp-threat');
+ok('band repelled — currentHexId null, outcome driven-off', band1 && band1.currentHexId === null && band1.incursion.outcome === 'driven-off');
+ok('the sortie force was recalled (army gone)', !reactionArmies(c1, 'grp-threat').length && !(c1.armies || []).some(a => a && a.id === army1.id));
+ok('the units re-garrisoned after the sortie', ACKS.domainGarrisonUnits(c1, 'dom-r').length === 1);
+const u1 = ACKS.domainGarrisonUnits(c1, 'dom-r')[0];
+ok('light sortie casualties on the garrison (≈1 of 120 for a 19× fight)', u1 && u1.casualties >= 1 && u1.casualties <= 3, 'casualties=' + (u1 && u1.casualties));
+ok('a reaction-driven-off event was logged', (c1.eventLog || []).some(e => e && e.event && e.event.kind === 'domain-warfare' && e.event.payload && e.event.payload.action === 'reaction-driven-off'));
+
+section('the toggle + garrison gates');
+const c2 = mk({ count: 8, auto: false, bandHex: 'hex-seat' });
+adv(c2);
+ok('toggle OFF → no reaction deployed', !reactionArmies(c2, 'grp-threat').length);
+ok('toggle OFF → the band still stands unchanged', ACKS.incursionBandsForDomain(c2, 'dom-r').length === 1);
+const c2b = mk({ count: 8, garrisonUnits: 0, bandHex: 'hex-seat' });
+adv(c2b);
+ok('no garrison → nothing deploys', !(c2b.armies || []).length);
+
+section('the 2× gate — a 1×–2× edge stays the GM’s call');
+const c3 = mk({ count: 90, garrisonCount: 120, bandHex: 'hex-seat' });
+const prev3 = ACKS.garrisonReactionPreview(c3, 'grp-threat', ['unit-g0']);
+ok('fixture: a near-match band (force > band, but force < 2× band)', prev3.bandBr > prev3.forceBr / 2 && prev3.bandBr < prev3.forceBr, 'force=' + prev3.forceBr + ' band=' + prev3.bandBr);
+adv(c3);
+ok('a 1×–2× margin does NOT auto-deploy (left for the GM)', !(c3.armies || []).some(a => a && a.autoReaction));
+
+section('never auto-deploys what the garrison shouldn’t handle on its own');
+const c4 = mk({ count: 8, attitude: 'hostile', garrisonCount: 120, bandHex: 'hex-seat' });
+adv(c4);
+ok('a hostile band → NOT auto-deployed (it gives battle — the GM adjudicates)', !(c4.armies || []).some(a => a && a.autoReaction) && ACKS.incursionBandsForDomain(c4, 'dom-r').length === 1);
+const c5 = mk({ count: 8, catalogKey: '__nope__', bandHex: 'hex-seat' });
+adv(c5);
+ok('a GM-priced band (no catalog BR — a dragon) → no auto-deploy', !(c5.armies || []).some(a => a && a.autoReaction));
+// (Q2, 2026-06-25) a DETECTED, decisively-outmatched DEN is auto-cleared now — sallied the same way a field
+// band is (the slot-88 drive-off + the den-vacate fix abandon the lair). Only an UNDETECTED / untagged den is left.
+const c6 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });   // mk tags it rulerAware:true (detected)
+c6.lairs = [{ id: 'lair-x', hexId: 'hex-seat', groupIds: ['grp-threat'], status: 'active' }];
+adv(c6);
+ok('a DETECTED settled den (weak, in a lair) → auto-cleared (Q2 — sallied like a field band)', (c6.armies || []).some(a => a && a.autoReaction));
+// an UNTAGGED seeded den (no incursion object — a pure ambient lair) reads as undetected → NOT auto-attacked
+const c6b = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-band' });
+delete c6b.groups.find(g => g.id === 'grp-threat').incursion;
+c6b.lairs = [{ id: 'lair-seed', hexId: 'hex-band', groupIds: ['grp-threat'], status: 'active', knownToPlayers: false }];
+adv(c6b);
+ok('an UNTAGGED seeded den (the ruler hasn’t assessed it) → not auto-attacked', !(c6b.armies || []).some(a => a && a.autoReaction));
+const c7 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });
+c7.groups.find(g => g.id === 'grp-threat').incursion.rulerAware = false;
+adv(c7);
+ok('an undetected band (failed recon, JJ p.103) → no auto-deploy', !(c7.armies || []).some(a => a && a.autoReaction));
+
+section('idempotent — no double-deploy while a force is already responding');
+const c8 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });
+adv(c8);                                                                 // deploys once
+const reprop = ACKS.proposeGarrisonDefenseDay(c8, { dayInMonth: c8.currentDayInMonth });
+ok('a band already being responded to proposes no new deploy', reactionArmies(c8, 'grp-threat').length === 1 && !reprop.pendingRecords.some(r => r.kind === 'garrison-defense' && r.groupId === 'grp-threat'));
+
+section('THE HEADLINE — a force advance drains a domain full of low-threat bands to zero');
+const cDrain = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-seat', bandIds: ['grp-a', 'grp-b', 'grp-c'] });
+ok('fixture: three bands stand in the domain', ACKS.incursionBandsForDomain(cDrain, 'dom-r').length === 3);
+ACKS.runDayTickToMonthEnd(cDrain);
+ok('after the advance, the incursion queue is empty (the audit’s drain — via real sorties)', ACKS.incursionBandsForDomain(cDrain, 'dom-r').length === 0, 'still standing: ' + ACKS.incursionBandsForDomain(cDrain, 'dom-r').length);
+ok('three bands were driven off by garrison sorties', (cDrain.eventLog || []).filter(e => e && e.event && e.event.kind === 'domain-warfare' && e.event.payload && e.event.payload.action === 'reaction-driven-off').length === 3);
+ok('the garrison stood down again after the sorties (no lingering reaction armies)', !(cDrain.armies || []).some(a => a && a.reactionTargetGroupId));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The neutral-bands tickbox (Joachim 2026-06-25): the BASE auto-defend now sallies only against natively
+// hostile/unfriendly bands; a neutral band (one the act of marching on it FLIPS unfriendly, JJ p.104) is
+// left for the GM unless the domain also ticks autoDefendNeutral.
+section('the neutral-bands tickbox — neutral is the GM’s call unless opted in');
+const cNeu = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'neutral' });
+adv(cNeu);
+ok('a NEUTRAL band is NOT auto-deployed by default', !(cNeu.armies || []).some(a => a && a.autoReaction) && ACKS.incursionBandsForDomain(cNeu, 'dom-r').length === 1);
+const cNeuOn = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'neutral' });
+cNeuOn.domains[0].autoDefendNeutral = true;
+adv(cNeuOn);
+ok('with autoDefendNeutral ON, the neutral band IS auto-deployed', (cNeuOn.armies || []).some(a => a && a.autoReaction));
+const cUnfTick = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'unfriendly' });
+adv(cUnfTick);
+ok('an UNFRIENDLY band is auto-deployed regardless of the neutral tick', (cUnfTick.armies || []).some(a => a && a.autoReaction));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Minimal force + multiple threats (Joachim 2026-06-25, solutions 1+2): a sortie commits only as many
+// units as a decisive (≥2×) drive-off needs, so a multi-unit garrison answers SEVERAL bands at once, and
+// any it can't cover this tick is picked up by a later day's scan once a sortie returns + re-garrisons.
+section('minimal force — a 3-unit garrison splits to answer 3 bands the same day (only what each needs)');
+const cMulti = mk({ count: 8, garrisonUnits: 3, garrisonCount: 120, bandHex: 'hex-seat', bandIds: ['grp-a', 'grp-b', 'grp-c'] });
+const recsM = (ACKS.proposeGarrisonDefenseDay(cMulti, { dayInMonth: cMulti.currentDayInMonth }).pendingRecords || []).filter(r => r.kind === 'garrison-defense');
+ok('three sorties are proposed the SAME day (one per band — no longer one-per-domain)', recsM.length === 3);
+ok('each sortie commits only ONE unit (minimal decisive force, not the whole garrison)', recsM.every(r => (r.unitIds || []).length === 1));
+ok('the three sorties use DISJOINT units (the garrison is split, never double-booked)', new Set(recsM.flatMap(r => r.unitIds || [])).size === 3);
+adv(cMulti);   // commit the day — the 3 reaction forces muster at once
+ok('three reaction forces are deployed at once', ['grp-a', 'grp-b', 'grp-c'].every(g => reactionArmies(cMulti, g).length === 1));
+ok('the whole garrison mustered out across the three sorties', ACKS.domainGarrisonUnits(cMulti, 'dom-r').length === 0);
+
+section('revisit (solution 2) — a band the busy garrison can’t reach yet is answered on a later day');
+const cBusy = mk({ count: 8, garrisonUnits: 1, garrisonCount: 200, bandHex: 'hex-seat', bandIds: ['grp-x', 'grp-y'] });
+const recsBusy = (ACKS.proposeGarrisonDefenseDay(cBusy, { dayInMonth: cBusy.currentDayInMonth }).pendingRecords || []).filter(r => r.kind === 'garrison-defense');
+ok('with one unit + two bands, only ONE sortie is proposed (the other waits for the garrison)', recsBusy.length === 1);
+ACKS.runDayTickToMonthEnd(cBusy);
+ok('over the month BOTH bands are driven off (the 2nd is picked up once the 1st sortie returns)',
+   ACKS.incursionBandsForDomain(cBusy, 'dom-r').length === 0, 'still standing: ' + ACKS.incursionBandsForDomain(cBusy, 'dom-r').length);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAME-DAY arrival (D4 follow-up, 2026-06-25): a band materialized by the incursion path
+// (commitIncursionRecord — slot-86's commit) is met the SAME tick it appears, not the next.
+// The slot-89 consumer alone reacts a day late (the band materializes after slot-89's propose
+// has run); folding the trigger into the arrival commit closes that one-day muster lag.
+section('same-day arrival — a band met via the incursion path sorties the SAME tick');
+function arrive(o){
+  o = o || {};
+  const c = mk({ garrisonCount: 200, bandIds: [] });                 // garrison, NO band pre-planted
+  if(o.auto === false) c.domains[0].autoResolveIncursions = false;
+  if(o.autoDefendNeutral) c.domains[0].autoDefendNeutral = true;
+  ACKS.commitIncursionRecord(c, { kind: 'incursion', domainId: 'dom-r', groupId: 'grp-arr', hexId: 'hex-seat',
+    identity: { key: o.key || 'orc', label: o.label || 'Orc' },
+    reaction: { attitude: o.attitude || 'unfriendly', attitudeLabel: (o.attitude || 'unfriendly') },
+    count: (o.count != null ? o.count : 8), lingering: !!o.lingering, fullStrength: false, treasureType: '',
+    recon: { rulerAware: o.rulerAware !== false, monstersIntel: false }, dayInMonth: 1 });
+  return c;
+}
+const cArrU = arrive({ attitude: 'unfriendly', lingering: true, count: 8 });
+ok('an UNFRIENDLY arrival is met the SAME tick (no 1-day lag)', reactionArmies(cArrU, 'grp-arr').length === 1 && reactionArmies(cArrU, 'grp-arr')[0].autoReaction === true);
+ok('the arrived band still stands (responding), not vanished', ACKS.incursionBandsForDomain(cArrU, 'dom-r').length === 1);
+// NEUTRAL is the GM's call by default (the 2nd ⚔ checkbox, Joachim 2026-06-25): a neutral arrival is NOT
+// met, and the unchallenged band leaves the peasants uneasy (JJ p.103). Tick autoDefendNeutral and the
+// garrison sallies (marching on it turns it unfriendly, JJ p.104 — so the xenophobia penalty is averted).
+const cArrN = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2 });
+ok('a NEUTRAL migrating arrival is NOT met by default (left for the GM)', reactionArmies(cArrN, 'grp-arr').length === 0);
+ok('the unchallenged neutral band leaves the peasants uneasy (xenophobia −1 pending)', cArrN.domains[0].incursionXenophobiaPending === true);
+const cArrNon = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2, autoDefendNeutral: true });
+ok('with autoDefendNeutral ON, a neutral arrival IS met the SAME tick', reactionArmies(cArrNon, 'grp-arr').length === 1);
+ok('auto-deploying the neutral band reassures the peasants (no xenophobia −1)', cArrNon.domains[0].incursionXenophobiaPending !== true);
+const cArrH = arrive({ attitude: 'hostile', lingering: true, count: 8 });
+ok('a HOSTILE arrival is NOT same-day deployed (it gives battle — the GM adjudicates)', !reactionArmies(cArrH, 'grp-arr').length && ACKS.incursionBandsForDomain(cArrH, 'dom-r').length === 1);
+const cArrGm = arrive({ attitude: 'unfriendly', lingering: true, key: '__nope__', count: 8 });
+ok('a GM-priced arrival (no catalog BR — a dragon) is NOT same-day deployed', !reactionArmies(cArrGm, 'grp-arr').length);
+const cArrOff = arrive({ attitude: 'unfriendly', lingering: true, count: 8, auto: false });
+ok('auto-defense OFF → an arrival is NOT same-day deployed', !reactionArmies(cArrOff, 'grp-arr').length);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Home garrison (D4 follow-up, 2026-06-25): a reaction force defending its OWN domain is fed by
+// that domain (its garrison cost, RR p.341) — it is NOT an army on campaign, so it never reads
+// out of supply (RR p.450) nor "occupies" its own land (RR p.458). The reaction force is often
+// LEADERLESS (the auto-sortie), which is exactly what used to mis-classify it as an enemy invader.
+section('home garrison — a reaction force in its OWN domain is fed by it, never out of supply / occupying');
+const cHome = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });   // band 1 hex off → the force marches within the domain
+let oosSeen = false, occSeen = false, supHomeSeen = false;
+for(let i = 0; i < 8; i++){
+  const prop = ACKS.proposeDayTick(cHome, 1, { force: true });
+  const flat = JSON.stringify(prop.pendingRecords || []);
+  if(/OUT OF SUPPLY|starving/i.test(flat)) oosSeen = true;
+  if(/OCCUPIED|occupies/i.test(flat)) occSeen = true;
+  const a = reactionArmies(cHome, 'grp-threat')[0];
+  if(a && typeof ACKS.armyInSupply === 'function'){ const s = ACKS.armyInSupply(cHome, a, {}); if(s && s.inSupply && s.homeSupplied) supHomeSeen = true; }
+  ACKS.commitDayTick(cHome, prop);
+}
+ok('a home reaction force is NEVER flagged out of supply (it is fed by its domain)', !oosSeen);
+ok('a home reaction force never "occupies" its own domain (it is friendly to it, even leaderless)', !occSeen);
+ok('the domain is not stamped occupied by its own sortie', !cHome.domains[0].occupiedBy);
+ok('armyInSupply reads the home reaction force as in-supply, home-fed', supHomeSeen);
+// the auto-sortie's mandate is its DOMAIN (RR p.341): when its band LEAVES the domain (migrates out),
+// the force stands down (recalls home) rather than chase it across the map — so it never goes on campaign.
+const cLeave = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+cLeave.hexes.push({ id: 'hex-foreign', domainId: 'dom-other', coord: { q: 9, r: 0 }, terrain: 'grassland' });
+adv(cLeave); adv(cLeave);                                                  // deploy + muster completes — the force is afield
+ok('fixture: an auto reaction force is afield', reactionArmies(cLeave, 'grp-threat').length === 1 && reactionArmies(cLeave, 'grp-threat')[0].autoReaction === true);
+cLeave.groups.find(g => g && g.id === 'grp-threat').currentHexId = 'hex-foreign';   // the band migrates OUT of the domain
+adv(cLeave);
+ok('the auto-sortie STANDS DOWN when its band leaves the domain (recalled, not chasing out of supply)', !reactionArmies(cLeave, 'grp-threat').length);
+ok('the units re-garrisoned after standing down', ACKS.domainGarrisonUnits(cLeave, 'dom-r').length === 1);
+
+// COORD-AWARE (2026-06-25 follow-up): a migrating band that wanders OFF the authored map keeps its true
+// position on wanderState.coord while currentHexId goes null — the stand-down must read the coord, not the
+// (null) hex id, so an off-map band is correctly judged "left the domain" rather than mishandled.
+section('coord-aware stand-down — a band that wandered off the authored map is still judged by its real position');
+const cOffMap = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+adv(cOffMap); adv(cOffMap);                                                 // deploy + muster completes — the force is afield
+ok('fixture: an auto reaction force is afield', reactionArmies(cOffMap, 'grp-threat').length === 1);
+const bandOff = cOffMap.groups.find(g => g && g.id === 'grp-threat');
+bandOff.currentHexId = null;                                                // wandered off the mapped hexes…
+bandOff.wanderState = { coord: { q: 30, r: 30 }, lastCoord: null, mileRemainder: 0, mode: null, halted: false };  // …but its true coord is known (no hex there)
+ok('the band is judged OUT of the domain by its coord even with no hex id', ACKS.incursionBandStillInDomain(cOffMap, bandOff) === false);
+adv(cOffMap);
+ok('the auto-sortie stands down for an off-map band (coord-aware — not stuck chasing a hexless ghost)', !reactionArmies(cOffMap, 'grp-threat').length);
+
+// The garrison holds its DOMAIN (RR p.341): if the band slips out WHILE the garrison is still forming up,
+// the muster-completion stands the force down instead of marching it OUT of the domain (and out of supply).
+section('band leaves during muster — the force stands down at muster-completion, never marching out');
+const cDuring = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+cDuring.hexes.push({ id: 'hex-foreign', domainId: 'dom-other', coord: { q: 9, r: 0 }, terrain: 'grassland' });
+adv(cDuring);                                                               // tick 1: deploy → the force is MUSTERING (forming up at the seat)
+const aDur = reactionArmies(cDuring, 'grp-threat')[0];
+ok('fixture: the force is mustering after the deploy tick', !!aDur && aDur.sortieMustering === true);
+cDuring.groups.find(g => g && g.id === 'grp-threat').currentHexId = 'hex-foreign';   // the band slips out of the domain WHILE forming up
+adv(cDuring);                                                               // tick 2: muster completes → band already gone → stand down (don't march out)
+ok('the force stands down at muster-completion (never marches out of the domain after a departed band)', !reactionArmies(cDuring, 'grp-threat').length);
+ok('the units re-garrisoned — the force never left the domain (no supply / occupation exposure)', ACKS.domainGarrisonUnits(cDuring, 'dom-r').length === 1);
+ok('no march was ever started toward the departed band (held the domain, RR p.341)',
+   !(cDuring.journeys || []).some(j => j && j.armyId === aDur.id && j.status === 'in-transit'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Denned mid-chase (2026-06-25 follow-up): the eligibility gate excludes an ALREADY-settled band,
+// but a band that is already a committed reaction target can linger + DEN mid-chase (the slot-84
+// settle commits BEFORE the slot-88 drive-off). Driving it off must vacate that den too, or a lair
+// is left dangling — referencing a band that's been nulled off the map (the contradiction Joachim flagged).
+section('denned mid-chase — driving off a band that settled into a lair vacates the den (no dangling lair)');
+const cDen = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-seat' });     // co-located → muster (d1) → (d2) → resolve (d3)
+adv(cDen); adv(cDen);                                                        // deploy + muster completes — the force is afield, co-located
+ok('fixture: a reaction force is afield against the band', reactionArmies(cDen, 'grp-threat').length === 1);
+cDen.lairs.push({ id: 'lair-den', hexId: 'hex-seat', groupIds: ['grp-threat'], status: 'active', monsterCatalogKey: 'orc' });
+const bDen = cDen.groups.find(g => g && g.id === 'grp-threat');
+bDen.wanderState = null;                                                     // housed — it lingered + denned (JJ p.103) before the force resolved
+adv(cDen);                                                                   // slot-88 resolves the co-located contact → drive-off
+ok('the band is driven off (currentHexId null, outcome driven-off)', bDen.currentHexId === null && bDen.incursion.outcome === 'driven-off');
+const den = cDen.lairs.find(l => l && l.id === 'lair-den');
+ok('the den it had made is ABANDONED (not left active + dangling)', !!den && den.status === 'abandoned');
+ok('the abandoned den no longer lists the driven-off band', !!den && (den.groupIds || []).indexOf('grp-threat') < 0);
+ok('INVARIANT: no active lair references a band that was driven off the map',
+   !(cDen.lairs || []).some(l => l && (l.status === 'active' || l.status === 'unknown')
+      && (l.groupIds || []).some(gid => { const g = cDen.groups.find(x => x && x.id === gid); return g && g.currentHexId === null; })));
+
+section('shared den — driving one band off leaves the den standing for its co-tenant');
+const cShared = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-seat' });
+adv(cShared); adv(cShared);                                                  // deploy + muster — force afield, co-located
+cShared.groups.push(ACKS.blankGroup({ id: 'grp-cotenant', name: 'Orc kin', count: 6, currentHexId: 'hex-seat', currentDomainId: 'dom-r', lifecycleState: 'wild',
+  groupTemplate: { monsterCatalogKey: 'orc', creatureTypes: ['beastman', 'humanoid'], hitDice: '1' } }));
+cShared.lairs.push({ id: 'lair-shared', hexId: 'hex-seat', groupIds: ['grp-threat', 'grp-cotenant'], status: 'active', monsterCatalogKey: 'orc' });
+cShared.groups.find(g => g && g.id === 'grp-threat').wanderState = null;
+adv(cShared);                                                               // drive off grp-threat
+const shared = cShared.lairs.find(l => l && l.id === 'lair-shared');
+ok('the shared den STANDS (its co-tenant still holds it)', !!shared && shared.status === 'active');
+ok('the driven-off band was detached from the shared den', !!shared && (shared.groupIds || []).join() === 'grp-cotenant');
+ok('the co-tenant band is untouched (still standing at the hex)', (cShared.groups.find(g => g && g.id === 'grp-cotenant') || {}).currentHexId === 'hex-seat');
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — ' + pass + ' passed, ' + fail + ' failed');
+if(fail > 0){ console.log(failures.map(f => '  • ' + f).join('\n')); process.exit(1); }
