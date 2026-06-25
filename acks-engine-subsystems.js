@@ -4905,8 +4905,9 @@ Object.assign(ACKS, {
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
   proposeMilitaryDay, commitMilitaryRecord,
-  // D4 — the slot-89 garrison auto-defense consumer (opt-in per domain.autoResolveIncursions).
-  proposeGarrisonDefenseDay, commitGarrisonDefenseRecord,
+  // D4 — the slot-89 garrison auto-defense consumer (opt-in per domain.autoResolveIncursions) + the
+  // shared gate + the same-day arrival deploy (folded into commitIncursionRecord, 2026-06-25).
+  proposeGarrisonDefenseDay, commitGarrisonDefenseRecord, garrisonAutoDefenseEligible, autoDeployGarrisonReaction,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -6159,10 +6160,17 @@ function commitIncursionRecord(campaign, record){
   if(!denned && !record.lingering && record.hexId && typeof A.noteDungeonInvaders === 'function'){
     A.noteDungeonInvaders(campaign, { hexId: record.hexId, groupId: g.id, monsterKey: (entry && entry.key) || '', via: 'incursion' });
   }
-  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is not deployed against:
-  // −1 on the NEXT domain morale roll. One-shot; the monthly turn consumes the flag
-  // (clear it by hand if the garrison was in fact deployed — deployment is W4 state).
-  if(att === 'neutral') d.incursionXenophobiaPending = true;
+  // D4 follow-up (2026-06-25) — SAME-DAY garrison auto-defense: if the domain auto-defends and the
+  // garrison decisively outmatches this just-arrived band, sortie NOW (the same tick it appears), not
+  // tomorrow. The band materializes HERE, in slot-86's commit, AFTER the slot-89 propose has already
+  // run — so the slot-89 consumer alone can only react from the next day (the one-day muster lag).
+  // Triggering it on arrival closes that lag; slot-89 stays the BACKSTOP (a band detected later, or one
+  // that wandered in). A settled (laired) neutral band is skipped by the gate — a den, not a raid.
+  const autoDeployed = !!autoDeployGarrisonReaction(campaign, d, g);
+  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is NOT deployed against: −1 on the NEXT
+  // domain morale roll. If the garrison auto-sortied, the peasants are reassured — no penalty. One-shot;
+  // the monthly turn consumes the flag (clear it by hand if a manual sally answered the band instead).
+  if(att === 'neutral' && !autoDeployed) d.incursionXenophobiaPending = true;
 }
 // The UI read: the live incursion bands standing in a domain (alive + still on the
 // domain's ground; a settled band keeps showing through its den's hex).
@@ -7168,6 +7176,53 @@ function commitMilitaryRecord(campaign, record){
 const GARRISON_DEFENSE_BR_RATIO = 2;        // forceBr ≥ 2× bandBr → "the garrison clearly handles it"
 const GARRISON_DEFENSE_LOSS_RATE = 0.10;    // auto-sortie loss fraction = (bandBr/forceBr) × rate …
 const GARRISON_DEFENSE_LOSS_CAP = 0.05;     // … capped at 5% (the worst case — exactly at the 2× margin)
+
+// The per-band gate shared by BOTH auto-defense paths — the slot-89 daily propose (the backstop)
+// and the SAME-DAY arrival deploy folded into commitIncursionRecord (D4 follow-up 2026-06-25). A
+// band the garrison auto-defends: the domain opted in, a garrison stands, the band is detected, not
+// already answered, not settled in a lair, has a priced platoon BR, and the force decisively
+// outmatches it (≥ 2×, → a drive-off not a battle). Returns the reaction PREVIEW when YES (callers
+// reuse its bandBr/forceBr), else null. Pure — no hex check here (callers pass an in-domain threat).
+function garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr){
+  const A = _jACKS();
+  if(!campaign || !dom || !dom.autoResolveIncursions || !band) return null;
+  if(!Array.isArray(unitIds) || !unitIds.length || !(forceBr > 0)) return null;     // no garrison → nothing sallies
+  if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === band.id)) return null;   // a force already responds
+  if((campaign.lairs || []).some(l => l && Array.isArray(l.groupIds) && l.groupIds.indexOf(band.id) >= 0)) return null;  // settled
+  if(band.incursion && band.incursion.rulerAware === false) return null;            // undetected — can't sally (JJ p.103)
+  const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
+  if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) return null;               // GM-priced (a dragon) → never auto
+  if(prev.outcome !== 'driven-off') return null;                                    // hostile → it gives battle; the GM's call
+  if(forceBr < GARRISON_DEFENSE_BR_RATIO * prev.bandBr) return null;                // not decisive → leave it for the GM
+  return prev;
+}
+
+// Deploy the garrison reaction against a band RIGHT NOW (a commit-side action) — used by the same-day
+// arrival path (commitIncursionRecord). Computes the live garrison force, runs the shared gate, and
+// (if it passes + the band stands as a current threat in the domain) musters the whole garrison into
+// the shipped reaction-and-march flow, marked autoReaction so the slot-88 arrival resolution drives
+// the band off + recalls + books the light sortie casualties. Idempotent via the shared arm-rxn-<band>
+// id + the reactionTargetGroupId guard. Returns the deployed army, or null when nothing sallied.
+function autoDeployGarrisonReaction(campaign, dom, band){
+  const A = _jACKS();
+  if(!campaign || !dom || !band || typeof A.deployGarrisonReaction !== 'function') return null;
+  if(!incursionBandsForDomain(campaign, dom.id).some(x => x && x.id === band.id)) return null;   // same visibility as slot-89
+  const units = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id) : [];
+  const unitIds = units.map(u => u && u.id).filter(Boolean);
+  const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
+  if(!garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr)) return null;
+  const armyId = 'arm-rxn-' + String(band.id).replace(/^grp-/, '');
+  if((campaign.armies || []).some(a => a && a.id === armyId)) return null;                        // replay guard
+  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: unitIds.slice(), armyId });
+  if(res && res.ok && res.army){
+    res.army.autoReaction = true;
+    (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',
+      text: 'Sallied automatically (garrison auto-defense, same day) against ' + (band.name || 'a band') + ' (JJ p.104)' });
+    return res.army;
+  }
+  return null;
+}
+
 function proposeGarrisonDefenseDay(campaign, ctx){
   const A = _jACKS();
   const pendingRecords = [], notableEvents = [];
@@ -7183,13 +7238,8 @@ function proposeGarrisonDefenseDay(campaign, ctx){
     const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
     if(!(forceBr > 0)) continue;
     for(const band of bands){
-      if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === band.id)) continue;   // a force already responds
-      if((campaign.lairs || []).some(l => l && Array.isArray(l.groupIds) && l.groupIds.indexOf(band.id) >= 0)) continue;  // settled
-      if(band.incursion && band.incursion.rulerAware === false) continue;   // undetected — can't sally (JJ p.103, RR p.452)
-      const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
-      if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) continue;     // GM-priced (a dragon) → never auto
-      if(prev.outcome !== 'driven-off') continue;                          // hostile → it gives battle; the GM's call
-      if(forceBr < GARRISON_DEFENSE_BR_RATIO * prev.bandBr) continue;      // not decisive → leave it for the GM
+      const prev = garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr);   // the shared gate (= the arrival path)
+      if(!prev) continue;
       const bandAlive = Math.max(0, (band.count || 0) - (band.casualties || 0));
       pendingRecords.push({
         kind: 'garrison-defense', domainId: dom.id, groupId: band.id, groupName: band.name || 'monsters',

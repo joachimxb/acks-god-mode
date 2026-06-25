@@ -136,5 +136,35 @@ ok('three bands were driven off by garrison sorties', (cDrain.eventLog || []).fi
 ok('the garrison stood down again after the sorties (no lingering reaction armies)', !(cDrain.armies || []).some(a => a && a.reactionTargetGroupId));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SAME-DAY arrival (D4 follow-up, 2026-06-25): a band materialized by the incursion path
+// (commitIncursionRecord — slot-86's commit) is met the SAME tick it appears, not the next.
+// The slot-89 consumer alone reacts a day late (the band materializes after slot-89's propose
+// has run); folding the trigger into the arrival commit closes that one-day muster lag.
+section('same-day arrival — a band met via the incursion path sorties the SAME tick');
+function arrive(o){
+  o = o || {};
+  const c = mk({ garrisonCount: 200, bandIds: [] });                 // garrison, NO band pre-planted
+  if(o.auto === false) c.domains[0].autoResolveIncursions = false;
+  ACKS.commitIncursionRecord(c, { kind: 'incursion', domainId: 'dom-r', groupId: 'grp-arr', hexId: 'hex-seat',
+    identity: { key: o.key || 'orc', label: o.label || 'Orc' },
+    reaction: { attitude: o.attitude || 'unfriendly', attitudeLabel: (o.attitude || 'unfriendly') },
+    count: (o.count != null ? o.count : 8), lingering: !!o.lingering, fullStrength: false, treasureType: '',
+    recon: { rulerAware: o.rulerAware !== false, monstersIntel: false }, dayInMonth: 1 });
+  return c;
+}
+const cArrU = arrive({ attitude: 'unfriendly', lingering: true, count: 8 });
+ok('an UNFRIENDLY arrival is met the SAME tick (no 1-day lag)', reactionArmies(cArrU, 'grp-arr').length === 1 && reactionArmies(cArrU, 'grp-arr')[0].autoReaction === true);
+ok('the arrived band still stands (responding), not vanished', ACKS.incursionBandsForDomain(cArrU, 'dom-r').length === 1);
+const cArrN = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2 });   // the demo case
+ok('a NEUTRAL MIGRATING arrival (the demo case) is met the SAME tick', reactionArmies(cArrN, 'grp-arr').length === 1);
+ok('auto-deploying a neutral band reassures the peasants (no xenophobia −1)', cArrN.domains[0].incursionXenophobiaPending !== true);
+const cArrH = arrive({ attitude: 'hostile', lingering: true, count: 8 });
+ok('a HOSTILE arrival is NOT same-day deployed (it gives battle — the GM adjudicates)', !reactionArmies(cArrH, 'grp-arr').length && ACKS.incursionBandsForDomain(cArrH, 'dom-r').length === 1);
+const cArrGm = arrive({ attitude: 'unfriendly', lingering: true, key: '__nope__', count: 8 });
+ok('a GM-priced arrival (no catalog BR — a dragon) is NOT same-day deployed', !reactionArmies(cArrGm, 'grp-arr').length);
+const cArrOff = arrive({ attitude: 'unfriendly', lingering: true, count: 8, auto: false });
+ok('auto-defense OFF → an arrival is NOT same-day deployed', !reactionArmies(cArrOff, 'grp-arr').length);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — ' + pass + ' passed, ' + fail + ' failed');
 if(fail > 0){ console.log(failures.map(f => '  • ' + f).join('\n')); process.exit(1); }
