@@ -7,7 +7,7 @@
  * (treasury < 0) could not pay its garrison, so its garrison expenditure fell below the required
  * rate. Its NEXT monthly morale roll therefore takes a penalty that deepens −1 per consecutive
  * insolvent month to −4, and resets the first solvent month. Sustained insolvency drives morale
- * down (incomeFactor collapses income; with `domain-morale-banditry` on, bandits rise per RR p.351)
+ * down (incomeFactor collapses income; bandits rise per RR p.351 — banditry is core RAW, no rule)
  * — so a bleeding treasury finally CREATES something instead of being a number that falls forever.
  * RAW core (no house rule). Trigger is treasury SIGN, not monthly net: a wealthy domain absorbing a
  * small deficit from reserves stays solvent and takes no hit until the reserves run dry. Authored
@@ -122,8 +122,7 @@ console.log('--- (b) commitTurn: set / escalate / reset / peasant-gate ---');
 
 console.log('--- (c) end-to-end: sustained deficit spirals morale into banditry (RR p.351) ---');
 {
-  const c = buildDemoCampaign();
-  c.houseRules['domain-morale-banditry'] = { enabled: true };   // the bandit consequence (RR p.351)
+  const c = buildDemoCampaign();   // banditry is core RAW now — no house rule to enable
   const d = c.domains[0];
   d.expenses.miscFlat = 9999999;                                 // perpetual insolvency
   const startMorale = d.demographics.morale;

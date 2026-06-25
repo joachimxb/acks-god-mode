@@ -602,19 +602,21 @@ function moraleModifiersFor(campaign, d){
   if(liturgy > 1) mods.push({ label: 'Liturgy above baseline', value: Math.floor(liturgy-1) });
   else if(liturgy < 1) mods.push({ label: 'Liturgy below baseline', value: -Math.ceil(1-liturgy) });
   if(!d.expenses.tithePaid) mods.push({ label: 'Tithe not paid', value: -1 });
-  // #476 E10 — bandits count as an ENEMY ARMY (RR p.351): while they plague the domain the
-  // occupation penalty builds on the morale roll — 0 the first month, then −1 per month,
-  // cumulative (RR p.349 "Domain invaded and occupied by enemy army: 0, then -1 per month").
-  // banditryOccupationMonths is advanced by processBanditryForTurn (lazy field; rule-gated
-  // so an unticked rule leaves no live penalty — principle 8).
+  // #476 E10 — bandits count as an ENEMY ARMY (RR p.351): while they plague the domain (morale ≤ −2)
+  // the occupation penalty builds on the morale roll — 0 the first month, then −1 per month, cumulative
+  // to a −4 cap (RR p.349 "Domain invaded and occupied by enemy army: 0, then -1 per month"; the −4
+  // maximum is RR p.352). banditryOccupationMonths is advanced by processBanditryForTurn (lazy field).
+  // RAW core — banditry is RR pp.350–351 (no house rule). Suppressed while a bandit lord pillages: the
+  // −4 pillage row below is IN LIEU OF the occupation penalty (RR p.354 — they do not stack).
   const occMonths = d.banditryOccupationMonths || 0;
-  if(occMonths >= 1 && isHouseRuleEnabled(campaign, 'domain-morale-banditry')){
+  const banditPillage = !!(d.banditryChallenger && d.banditryChallenger.pillaging);
+  if(occMonths >= 1 && !banditPillage){
     mods.push({ label: 'Bandits plague the domain — enemy-army occupation, month ' + occMonths + ' (RR p.349 + p.351)',
-                value: -Math.max(0, occMonths - 1) });
+                value: -Math.min(4, Math.max(0, occMonths - 1)) });
   }
-  // #476 E10 — the NPC bandit-leader challenger pillages an unmet domain (RR p.351): −4 to its
-  // morale rolls until the ruler meets him in battle. Rule-gated like the occupation term above.
-  if(d.banditryChallenger && d.banditryChallenger.pillaging && isHouseRuleEnabled(campaign, 'domain-morale-banditry')){
+  // #476 E10 — the NPC bandit-leader challenger pillages an unmet domain (RR p.351): −4 to its morale
+  // rolls until the ruler meets him in battle, in lieu of the occupation penalty above (RR p.354). RAW core.
+  if(banditPillage){
     mods.push({ label: 'A bandit lord loots the domain — its ruler has not met him in battle (RR p.351)', value: -4 });
   }
   // Phase 3 Military W2 — JJ p.103: a NEUTRAL domain-encounter band the ruler did not
