@@ -14,10 +14,14 @@ The realistic attack surface is small but worth reporting against:
   crafted save that triggers code execution, breaks out of the data model, or causes a
   cross-site-scripting (XSS) issue when rendered would be a real vulnerability.
 - **Cross-site scripting (XSS)** from any campaign-supplied text rendered in the UI.
-- **Dependency / supply-chain issues.** The app bundles Alpine.js (pinned, with a
-  Subresource-Integrity hash) and Tailwind CSS at pinned versions, and ships a baseline
-  Content-Security-Policy. A way to get third-party code to run despite that would be in
-  scope.
+- **Dependency / supply-chain issues.** Alpine.js and Tailwind CSS are vendored under
+  `vendor/` as pinned, same-origin copies (there are no remote `<script src>` tags, so a
+  compromised CDN can't run code here), backed by a baseline Content-Security-Policy.
+  Subresource-Integrity hashes are **omitted by design**: SRI forces a CORS fetch that a
+  `file://` document (opaque origin) can't satisfy — it would blank the page in the tool's
+  single-file distribution mode — and is redundant for a same-origin vendored asset anyway
+  (an attacker who could rewrite the local bundle could equally rewrite `index.html`). A way
+  to get third-party code to run despite the vendoring + CSP would be in scope.
 
 ## Supported versions
 

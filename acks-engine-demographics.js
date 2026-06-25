@@ -536,10 +536,16 @@ function groundCivilizedEncounter(campaign, opts){
 // read (the SD-1/SD-5a pattern). The rank-and-file (guards / regulars / apprentices, 0th–1st) stay
 // COUNTS — they are the urban/rural roster, not named command offices.
 
-// Expected ruler level by realm title — a ruler accrues XP from realm income until he stops leveling,
-// so higher titles → higher-level lords (the Econometrics ruler distribution + RR title thresholds).
-// realmTitleForDomain returns one of these seven; office levels scale off this floor.
-const TITLE_RULER_LEVEL = Object.freeze({ baron:6, viscount:7, count:8, duke:10, prince:11, king:12, emperor:14 });
+// Expected ruler level by realm title — the RAW "Realm Ruler Level" band FLOOR for each realm type
+// (JJ p.197 "Realms by Type"; the data corresponds to the RR Ch.8 "Tiers by Realm Size" table). RAW
+// bands: Barony 3rd–4th, Viscounty 5th–6th, County 7th–8th, Duchy 9th–10th, Principality 11th–12th,
+// Kingdom 13th–14th, Empire 14th. A ruler accrues XP from realm income until his monthly XP threshold
+// halts him, so the title is the realm's MINIMUM ruler level; we anchor on the band floor and let the
+// actual ruler's level override upward (realmCommandStructure's Math.max). realmTitleForDomain returns
+// one of these seven; office levels scale off this floor.
+// (Re-anchored to RAW 2026-06-24 — audit acks-authority I1: the prior {baron:6, viscount:7, count:8,
+// duke:10, prince:11, king:12, emperor:14} ran +2–3 high at the low titles and 1 low at king.)
+const TITLE_RULER_LEVEL = Object.freeze({ baron:3, viscount:5, count:7, duke:9, prince:11, king:13, emperor:14 });
 const TITLE_LABELS = Object.freeze({ baron:'Baron', viscount:'Viscount', count:'Count', duke:'Duke', prince:'Prince', king:'King', emperor:'Emperor' });
 
 // The named leveled offices of a realm's command structure (the Econometrics "A Typical Legature" §5 +

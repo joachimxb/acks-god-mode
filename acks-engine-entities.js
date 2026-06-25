@@ -94,6 +94,10 @@ function blankDomain(opts={}){
     administersThisMonth: opts.administersThisMonth || false,
     // Vassalage
     liegeId: opts.liegeId || null,
+    // Multi-actor / Player Portal (#222, B2) — the player who controls this domain in a multi-player
+    // campaign (null = GM-run). The player-view serializer (projectCampaignForPlayer) partitions on it;
+    // additive + lazy (readers use `?? null`), so existing saves load unchanged with no migration.
+    controllingPlayerId: opts.controllingPlayerId || null,
     vassalIds: opts.vassalIds || [],
     isRealm: opts.isRealm || false,
     // Phase 3 Military W2 — Vagaries of Incursion (JJ p.102; lazy on old saves).
@@ -1032,6 +1036,10 @@ function blankCharacter(opts={}){
     // #453 — c.kind retired. Five-axis fields below are canonical.
     // Architecture.md §2. Readers use ACKS.displayKind(c) for the legacy string.
     controlledBy: _controlledBy,        // 'player' | 'gm'
+    // Multi-actor / Player Portal (#222, B2) — WHICH player owns this character (null = unassigned / a
+    // GM NPC). `controlledBy` says player-vs-GM; this says which one, so projectCampaignForPlayer can
+    // partition player A from player B. Additive + lazy (readers use `?? null`) — no migration.
+    ownerPlayerId: opts.ownerPlayerId || null,
     socialTier:   _socialTier,          // 'independent' | 'henchman' | 'specialist' | 'follower' | 'hireling' | 'mercenary' | 'slave'
     lifecycleState: _lifecycleState,    // 'active' | 'candidate' | 'departed' | 'imprisoned' | 'dominated' | 'deceased'
     creatureTypes:  opts.creatureTypes || ['humanoid'],

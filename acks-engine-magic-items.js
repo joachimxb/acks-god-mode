@@ -613,7 +613,7 @@
     const hex = (ch && ch.currentHexId) || null;
     const related = [];
     if(ch) related.push({ kind:'character', id: ch.id, role: (kind === 'item-charge-spent' ? 'subject' : 'subject') });
-    if(ctx.item) related.push({ kind:'notableItem', id: ctx.item.id, role:'target' });
+    if(ctx.item) related.push({ kind:'notable-item', id: ctx.item.id, role:'target' });   // event-context tag: the history index keys on kebab 'notable-item' (see acks-engine.js notableItemHistory), NOT the registry's camel 'notableItem'
     const context = {
       primaryHexId: hex,
       involvedHexIds: hex ? [hex] : [],

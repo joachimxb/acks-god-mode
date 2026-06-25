@@ -28,7 +28,7 @@
          so the "no third-party script" guarantee is unchanged on the hosted HTTP site
          (an HTTP page can't load file: resources regardless). Do NOT remove file: — it is
          what keeps the single-file distribution alive. -->
-<meta http-equi???????v=2026-06-24-tribal"Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
 <!-- Tailwind — vendored locally (appsec audit, 2026-06-14). Was the floating runtime CDN
      (https://cdn.tailwindcss.com); now a pinned, self-hosted copy of the Tailwind Play 3.4.16
      bundle so the tool loads with no network (the "single file you own" pitch) and can never be
@@ -39,6 +39,16 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
+<!-- ⚠ CACHE-BUST RULE (audit A2, 2026-06-24). The `?v=<date-tag>` suffixes below are bumped BY HAND,
+     per module, each session that touches one — there is NO stamping script, and the tags are
+     deliberately heterogeneous (each reflects the session that last changed that file). When you bump
+     them, scope your find-replace to the `src="…"` / `href="…"` attribute ONLY. NEVER run a blind
+     file-wide replace of a bare `v=…` token: on 2026-06-24 exactly that spliced a `?v=` cache-bust
+     into the CSP `http-equiv` attribute above (seven 0x3f bytes), renaming the attribute and SILENTLY
+     VOIDING the entire Content-Security-Policy — it shipped green because nothing visibly broke.
+     Restored + guarded as audit A1/A2/A3: tests/index-parse.smoke.js now fails CI on a malformed
+     CSP, a run of question-mark bytes in the head, or a remote-origin script tag. Bump `src`/`href`,
+     never attribute names. -->
 <script src="acks-engine-catalogs.js?v=2026-06-24-tribal"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
@@ -440,6 +450,9 @@ document.addEventListener('alpine:init', () => {
 </head>
 <body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
 
+<!-- Skip-link (H2-e a11y, audit 2026-06-24) — keyboard/SR users tab here first to jump past the header to the main view tabs. Hidden until focused. -->
+<a href="#main-nav" class="sr-only focus:not-sr-only focus:fixed focus:top-1 focus:left-1 focus:z-[200] focus:px-3 focus:py-1 focus:bg-yellow-100 focus:border focus:border-ink focus:rounded focus:text-sm">Skip to navigation</a>
+
 <!-- HEADER — three layered sections with visible dividers:
      Row 1: title + file ops
      Row 2: campaign state (name, turn, pending events, advance month)
@@ -454,8 +467,11 @@ document.addEventListener('alpine:init', () => {
     <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
     <button @click="newCampaign()" class="btn">＋ New campaign</button>
     <button @click="openCampaign()" class="btn" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
-    <button @click="saveCampaign()" class="btn btn-primary" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
+    <!-- H3-d, audit 2026-06-24: loud dirty-state — the Save button rings + flags ● when there are unsaved changes. -->
+    <button @click="saveCampaign()" class="btn btn-primary" :class="dirty ? 'ring-2 ring-red-600 ring-offset-1' : ''" :disabled="!currentCampaign" :title="(dirty ? 'You have unsaved changes. ' : '') + 'Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.'">💾 Save campaign<span x-show="dirty" aria-hidden="true"> ●</span></button>
     <button @click="saveCampaignAs()" class="btn text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
+    <!-- 📤 Export for player (B1-UI, audit 2026-06-24) — redacted, player-safe .acks.json (vs the unredacted save) -->
+    <button @click="openPlayerExport()" class="btn text-sm" :disabled="!currentCampaign" title="Export a redacted, player-safe copy of the campaign — one player's view only (their characters/domains + the discovered world). Closes the secret-leak path: a player never needs the full GM save.">📤 Export for player…</button>
     <input type="file" x-ref="campaignFileInput" accept=".json,.acks.json" class="hidden" @change="importCampaignFile($event.target.files[0])">
   </div>
 
@@ -494,15 +510,16 @@ document.addEventListener('alpine:init', () => {
      No bottom border on the nav itself: the line below the tabs would be a third
      divider Joachim explicitly didn't want. Content below the tabs has its own
      padding so the gap reads cleanly without a rule. -->
-<nav class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
+<nav id="main-nav" role="tablist" aria-label="Main views" class="no-print vellum px-4 flex gap-1" x-show="currentCampaign"
      style="margin-top: 0.75rem; padding-top:0.5rem; padding-bottom:0.5rem;">
   <template x-for="v in topViews" :key="v.id">
     <!-- The turn-running tabs (📜 Events / 🏰 Domain Turn / ⚙ House Rules) float to the RIGHT end
          of the bar — ml-auto on the first of the group (Events, alignRight in topViews) pushes it
          and the two after it flush right, so they sit under the advance-day clock at the top-right;
          the world-content tabs stay left. -->
-    <button @click="currentView = v.id"
-            :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '')"
+    <!-- H3-b, audit 2026-06-24: an empty (count 0) world tab is softened so the eye goes to where the content is. -->
+    <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
+            :class="(currentView === v.id ? 'tab-active' : 'hover:bg-yellow-100') + (v.alignRight ? ' ml-auto' : '') + (v.count === 0 ? ' opacity-60' : '')"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
       <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
@@ -518,14 +535,19 @@ document.addEventListener('alpine:init', () => {
      Domain-Review content blocks live further down (their large markup stayed put — only the
      x-show gates flipped, the #225 World-hub pattern). -->
 <div x-show="currentCampaign && currentView === 'review'" class="px-4 pt-3" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="Events sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in reviewSubTabs" :key="tab.id">
-      <button @click="reviewSubView=tab.id"
+      <button @click="reviewSubView=tab.id" role="tab" :aria-selected="reviewSubView===tab.id ? 'true' : 'false'"
               :class="reviewSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="reviewSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
+    <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
+    <button @click="reviewSubView='annals'" role="tab" :aria-selected="reviewSubView==='annals' ? 'true' : 'false'"
+            :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+            class="px-3 py-1 text-sm border-b-2"
+            :style="reviewSubView==='annals' ? 'border-color:#2a1f12' : 'border-color:transparent'">📖 Annals</button>
   </div>
 </div>
 
@@ -910,9 +932,9 @@ document.addEventListener('alpine:init', () => {
     </template>
   </div>
 
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="World sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in worldSubTabs" :key="tab.id">
-      <button @click="worldSubView=tab.id"
+      <button @click="worldSubView=tab.id" role="tab" :aria-selected="worldSubView===tab.id ? 'true' : 'false'"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="worldSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
@@ -976,6 +998,8 @@ document.addEventListener('alpine:init', () => {
           <template x-for="entry in filteredHexes()" :key="entry.hex.id">
             <tr>
               <td>
+                <!-- fog glyph (B3-UI, audit 2026-06-24) — at-a-glance hex.explored state -->
+                <span x-show="entry.hex.explored === false" title="Unexplored — hidden from a player's exported view" aria-label="Unexplored">🌫 </span>
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="hexLabelFor(entry.hex)"></button>
               </td>
               <td class="text-base">
@@ -1500,6 +1524,42 @@ document.addEventListener('alpine:init', () => {
     <div class="flex justify-end gap-2 mt-4">
       <button @click="newDomainModal.open=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50 text-sm">Cancel</button>
       <button @click="createDomainFromModal()" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-sm">🏰 Create domain</button>
+    </div>
+  </div>
+</div>
+
+<!-- 📤 Export-for-player picker (B1-UI, audit 2026-06-24) — the GM hands a player a redacted save -->
+<div x-show="playerExport.pickerOpen" @keydown.escape.window="if(playerExport.pickerOpen){ playerExport.pickerOpen=false; $event.preventDefault() }" role="dialog" aria-modal="true" aria-labelledby="playerExportTitle" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="playerExport.pickerOpen=false">
+  <div class="vellum border border-ink rounded shadow-lg p-4 my-6 w-full max-w-md">
+    <div class="flex justify-between items-start mb-3 gap-2">
+      <h3 id="playerExportTitle" class="font-bold text-lg">📤 Export for player</h3>
+      <button @click="playerExport.pickerOpen=false" class="text-2xl leading-none px-2 hover:opacity-60" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="space-y-3 text-sm">
+      <p class="opacity-70">Download a redacted, player-safe <span class="font-mono">.acks.json</span> — only this player's characters &amp; domains plus the discovered world. Hand it out instead of the GM save; secrets and unexplored hexes stay yours.</p>
+      <template x-if="knownPlayerIds().length > 0">
+        <div>
+          <div class="font-semibold mb-1">Assigned players</div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="pid in knownPlayerIds()" :key="pid">
+              <button @click="playerExport.playerId = pid"
+                      :class="playerExport.playerId===pid ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+                      class="px-2 py-0.5 border border-ink rounded" x-text="pid"></button>
+            </template>
+          </div>
+        </div>
+      </template>
+      <label class="block">Player id
+        <input type="text" x-model="playerExport.playerId" list="knownPlayersList" placeholder="e.g. alice" class="w-full">
+        <datalist id="knownPlayersList"><template x-for="pid in knownPlayerIds()" :key="pid"><option :value="pid"></option></template></datalist>
+      </label>
+      <template x-if="knownPlayerIds().length === 0">
+        <p class="text-xs opacity-60 italic">No players assigned yet. Open a character (or domain) and set “Controlled by player” first — then their id appears here. You can still type one to export against.</p>
+      </template>
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button @click="playerExport.pickerOpen=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50 text-sm">Cancel</button>
+      <button @click="exportForPlayer(playerExport.playerId)" :disabled="!playerExport.playerId" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-sm" :class="!playerExport.playerId ? 'opacity-40' : ''">📤 Export</button>
     </div>
   </div>
 </div>
@@ -2188,6 +2248,24 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- CHRONICLE (C1, audit 2026-06-24) — the battle's narrative history (created / joined / heroes / ended / resolved); distinct from the combat Turn log below -->
+        <div class="border-t border-ink/20 pt-2" x-data="{ get _chron(){ return entityChronicleMerged('', battlePanel()?.id, battlePanel()?.history); } }" x-show="_chron.length > 0">
+          <div class="flex justify-between items-baseline mb-1">
+            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
+          </div>
+          <div class="text-sm max-h-72 overflow-y-auto pr-1">
+            <template x-for="(row,ri) in _chron" :key="ri">
+              <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                <div class="flex justify-between items-baseline gap-2">
+                  <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                  <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- the turn log -->
         <template x-if="battlePanel().turnLog.length > 0">
           <div class="border-t border-ink/20 pt-2">
@@ -2637,14 +2715,19 @@ document.addEventListener('alpine:init', () => {
               </template>
             </ul>
           </div>
-          <!-- History -->
-          <div x-show="(lairDetailLair().history || []).length">
-            <h4 class="font-semibold mb-1">History</h4>
-            <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
-              <template x-for="(h,hi) in (lairDetailLair().history || []).slice().reverse()" :key="'ldh-'+hi">
-                <li><span class="opacity-60" x-text="'turn ' + (h.turn == null ? '—' : h.turn) + ' · '"></span><span class="font-semibold" x-text="h.type"></span><span class="opacity-70" x-text="h.reason && h.reason !== h.type ? (' — ' + h.reason) : ''"></span></li>
+          <!-- CHRONICLE (C1, audit 2026-06-24) — the lair's stored .history[] (∪ derived eventLog stream when one exists) -->
+          <div x-data="{ get _chron(){ return entityChronicleMerged('', lairDetailLair()?.id, lairDetailLair()?.history); } }" x-show="_chron.length">
+            <h4 class="font-semibold mb-1">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <div class="text-xs max-h-44 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
               </template>
-            </ul>
+            </div>
           </div>
           <p class="text-xs opacity-50 italic" x-text="'Established turn ' + (lairDetailLair().establishedAtTurn || '?') + ' (' + (lairDetailLair().establishedBy || '?') + ')' + (lairDetailLair().lastVisitedTurn ? ' · last visited turn ' + lairDetailLair().lastVisitedTurn : '')"></p>
         </div>
@@ -3870,13 +3953,21 @@ document.addEventListener('alpine:init', () => {
               <p class="text-xs opacity-50 mt-1">Item-kind-specific data — edit in the Inspector (Raw JSON).</p>
             </div>
           </template>
-          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">History</h4>
-          <template x-if="(notableModalItem().history||[]).length===0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
-          <ul class="text-sm space-y-1">
-            <template x-for="(h,hi) in [...(notableModalItem().history||[])].reverse()" :key="hi">
-              <li class="border-b border-ink/10 pb-1"><span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span><span x-text="h.reason ? (' — '+h.reason) : (h.narrative ? (' — '+h.narrative) : '')"></span></li>
-            </template>
-          </ul>
+          <!-- CHRONICLE (C1, audit 2026-06-24) — the item's stored .history[] ∪ its derived notable-item-tagged eventLog stream -->
+          <div x-data="{ get _chron(){ return entityChronicleMerged('notable-item', notableModalItem()?.id, notableModalItem()?.history); } }">
+            <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
+            <div class="text-sm max-h-56 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -4577,6 +4668,8 @@ document.addEventListener('alpine:init', () => {
     <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
     <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
     <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
+    <!-- Keyboard-accessible alternative (H2-d a11y, audit 2026-06-24) — the map is a visual mouse surface; the Hexes list reaches every hex by keyboard / screen reader. -->
+    <button @click="worldSubView='hexes'" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Switch to the keyboard-accessible Hexes list — every hex is reachable by keyboard and screen reader there.">⌨ List view</button>
   </div>
 
   <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select
@@ -4893,9 +4986,9 @@ document.addEventListener('alpine:init', () => {
      sub-view). The sub-tab strip drives domainsSubView: Domains | Governance/Senate. The strip only
      appears when a senate exists or rule-of-the-few makes governance available (dormant-until-used). ═══════════ -->
 <div x-show="currentCampaign && currentView === 'domains' && domainsSubTabs.length > 1" class="px-4 pt-3" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+  <div role="tablist" aria-label="Domains sub-views" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in domainsSubTabs" :key="tab.id">
-      <button @click="domainsSubView=tab.id"
+      <button @click="domainsSubView=tab.id" role="tab" :aria-selected="domainsSubView===tab.id ? 'true' : 'false'"
               :class="domainsSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
               class="px-3 py-1 text-sm border-b-2"
               :style="domainsSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
@@ -4907,6 +5000,19 @@ document.addEventListener('alpine:init', () => {
 <div x-show="currentView === 'domains' && domainsSubView === 'domains'" x-cloak>
 
   <main class="p-4">
+    <!-- Orientation strip (H3-a a11y/UX, audit 2026-06-24) — first-run wayfinding; dismissable + persisted. -->
+    <div x-show="currentCampaign && !orientationStripDismissed" x-cloak
+         x-init="(() => { try { if(localStorage.getItem('acks-orientation-dismissed')==='1') orientationStripDismissed = true; } catch(e){} })()"
+         class="mb-3 px-3 py-2 border border-ink/50 rounded flex items-start justify-between gap-3 text-sm" style="background:#f4ecd2">
+      <div>
+        👋 You're running <span class="font-semibold" x-text="(currentCampaign && currentCampaign.name) || 'your campaign'"></span>, Turn <span x-text="(currentCampaign && currentCampaign.currentTurn) || 1"></span>.
+        New here? Read what's happened in
+        <button @click="currentView='review'; reviewSubView='annals'" class="underline font-semibold">📖 the Annals</button><span x-show="(currentCampaign && currentCampaign.pendingEvents || []).filter(e=>e.status==='pending').length" x-text="' (' + (currentCampaign && currentCampaign.pendingEvents || []).filter(e=>e.status==='pending').length + ' pending)'"></span>,
+        then run the month on the
+        <button @click="currentView='domain-turn'" class="underline font-semibold">🏰 Monthly Turn</button> tab.
+      </div>
+      <button @click="dismissOrientationStrip()" class="text-lg leading-none px-1 hover:opacity-60 shrink-0" title="Dismiss" aria-label="Dismiss orientation">×</button>
+    </div>
     <template x-if="!currentCampaign">
       <!-- Welcome / first-run banner (task #217). CTAs: (1) instant demo (loads the inlined
            window.ACKS_DEMO_TEMPLATE), (2) "Start from a template" — reveals the six shipped
@@ -5213,6 +5319,13 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="domainTypeInfo(selectedDomain)?.beastmanAdvisory?.level === 'exception'">
                       <span class="block text-xs opacity-70 mt-0.5" x-text="'ⓘ ' + domainTypeInfo(selectedDomain).beastmanAdvisory.message"></span>
                     </template>
+                  </td></tr>
+                <!-- Controlled by player — B2-UI, audit 2026-06-24: assign this domain to a player (drives the redacted 📤 Export-for-player). -->
+                <tr><td>Controlled by
+                  <span class="opacity-50 cursor-help" title="Assign this domain to a player — its data is included when you 📤 Export for that player (top menu). Leave blank for a GM-run domain.">ⓘ</span>
+                </td>
+                  <td class="text-right">
+                    <input type="text" x-model="selectedDomain.controllingPlayerId" list="knownPlayersList" placeholder="— GM-run —" class="text-sm text-right" style="width:10rem" aria-label="Controlling player">
                   </td></tr>
                 <tr x-show="domainTypeInfo(selectedDomain)?.dominantRace"><td>Special type
                   <span class="opacity-50 cursor-help" title="The domain's special character, chosen when it was created — Beastman (RR p.354) · Dwarven Vault · Elven Fastness.">ⓘ</span>
@@ -7947,6 +8060,47 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Review ▸ 📖 Annals (C2, audit 2026-06-24) — the whole eventLog as a filterable narrative chronicle (df-lens "Legends" payoff) -->
+<div x-show="currentView === 'review' && reviewSubView === 'annals'" class="p-4" x-cloak>
+  <div class="max-w-screen-lg space-y-3">
+    <div class="vellum border border-ink rounded p-4">
+      <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+        <h3 class="font-bold text-lg">📖 Annals <span class="text-sm opacity-70 font-normal">· the chronicle of the whole realm</span></h3>
+        <label class="text-sm flex items-center gap-1" title="Hide routine / GM-only entries (the audit chatter the narrative log suppresses) — an approximation of what players would know.">
+          <input type="checkbox" x-model="annalsState.playersOnly"> Player-facing only
+        </label>
+      </div>
+      <p class="text-sm opacity-70 mb-3">Every recorded event, newest first — filter by the kind of thing that happened.</p>
+      <!-- filter chips -->
+      <div class="flex flex-wrap gap-1 mb-3">
+        <template x-for="chip in annalsChips()" :key="chip.key">
+          <button @click="annalsState.family = chip.key"
+                  :class="annalsState.family===chip.key ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
+                  class="px-2 py-0.5 text-sm border border-ink rounded"
+                  x-text="chip.icon + ' ' + chip.label + ' · ' + chip.count"></button>
+        </template>
+      </div>
+      <p class="text-xs opacity-60 mb-2"
+         x-text="(() => { const t = annalsMatchTotal(); const shown = Math.min(t, annalsState.limit); return 'Showing ' + shown + (t > shown ? (' of ' + t + ' (latest)') : '') + ' event' + (t===1?'':'s'); })()"></p>
+      <div x-data="{ get _rows(){ return annalsRows(); } }">
+        <template x-if="_rows.length === 0">
+          <p class="text-sm italic opacity-60 py-6 text-center">No events match this filter yet.</p>
+        </template>
+        <div class="text-sm">
+          <template x-for="(row,ri) in _rows" :key="ri">
+            <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+              <div class="flex justify-between items-baseline gap-2">
+                <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div x-show="currentView === 'review' && reviewSubView === 'event-log'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex justify-between items-center flex-wrap gap-3 mb-3">
@@ -8835,10 +8989,10 @@ document.addEventListener('alpine:init', () => {
           <div class="flex justify-between items-center flex-wrap gap-2">
             <h3 class="font-bold">
               <span x-text="p.domainName + ' (' + p.classification + ')'"></span>
-              <span x-show="p.hasPlayerInput && monthlyTurnSubView==='domains'" class="ml-2 text-sm px-2 py-0.5 rounded accent-green" style="background:#e8f3df" title="Player has submitted an end-of-turn plan for this domain — Phase 5 will pre-populate the proposal fields from it">📥 player plan submitted</span>
+              <!-- H3-e, audit 2026-06-24: removed the dead "📥 player plan submitted" badge (unimplemented Phase-5 control). -->
             </h3>
             <div class="flex items-center gap-3 text-sm" x-show="monthlyTurnSubView==='domains'">
-              <label><input type="checkbox" x-model="p.askClaude"> 🤖 Ask Claude (Phase 6)</label>
+              <!-- H3-e, audit 2026-06-24: removed the dead "🤖 Ask Claude (Phase 6)" checkbox (unimplemented). -->
               <label><input type="checkbox" x-model="p.skip"> Skip</label>
             </div>
           </div>
@@ -8846,7 +9000,6 @@ document.addEventListener('alpine:init', () => {
           <!-- economics (income / expenses / morale) — DOMAINS sub-tab only -->
           <div x-show="monthlyTurnSubView==='domains'">
           <div x-show="p.skip" x-cloak class="skip-banner">⚠ SKIPPED — no changes applied to this domain this month</div>
-          <div x-show="p.askClaude && !p.skip" x-cloak class="text-sm mt-1 px-2 py-1 rounded inline-block" style="background:#dde2f0;color:#1f3a7a">🤖 Marked for Claude to resolve · (Phase 6 will export this domain's state and ingest Claude's response on commit)</div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-sm" :class="p.skip ? 'skipped' : ''">
             <div>
@@ -11280,6 +11433,26 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
         <p class="text-xs opacity-60 mt-2 italic">The Day Clock runs the campaign cycle (RR p.447): initiative and reconnaissance each day opposing armies stand in range, contact where columns collide (the battle proposes itself), invasion morale rolls, occupation flips, pillage progress. Standing GM levers — magic, spies, stratagems, allies, permitted ground — live on the army in the 🔍 Inspector.</p>
+        <!-- CHRONICLE (C1, audit 2026-06-24) — the army's stored .history[] ∪ its derived group-tagged eventLog stream -->
+        <div class="border-t border-ink/30 pt-2 mt-2" x-data="{ get _chron(){ return entityChronicleMerged('group', armySelected()?.id, armySelected()?.history); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
+          </div>
+          <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">Nothing recorded yet.</p></template>
+          <template x-if="_chron.length > 0">
+            <div class="text-sm max-h-72 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in _chron" :key="ri">
+                <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
       </div>
         </template>
 
@@ -12392,9 +12565,9 @@ document.addEventListener('alpine:init', () => {
       </div>
     </template>
     <!-- Sub-tab bar inside the modal -->
-    <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
+    <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
-        <button @click="characterEditorTab=tab.id" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
+        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
     <div class="p-4 space-y-3" x-show="characterEditing">
@@ -12415,6 +12588,19 @@ document.addEventListener('alpine:init', () => {
               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
               <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="gm">GM-controlled</option><option value="player">Player-controlled</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
+          </div>
+          <!-- Owner (player) — B2-UI, audit 2026-06-24: WHICH player owns this character (drives the redacted Export-for-player). Distinct from Control (gm vs player). -->
+          <div class="block text-sm flex items-center gap-2">
+            <span class="w-20">Player</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'ownerPlayerId', label:'Owning player', kind:'text', placeholder:'— unassigned —', formatter(v){ return v || '— unassigned —'; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Assign to a player (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" list="knownPlayersList" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+            </span>
+          </div>
+          <!-- Per-character export (B1-UI) — appears once the character has an owning player. -->
+          <div class="block text-sm flex items-center gap-2" x-show="characterEditing.ownerPlayerId">
+            <span class="w-20"></span>
+            <button @click="exportForPlayer(characterEditing.ownerPlayerId)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Download the redacted player-view .acks.json for this character's owning player">📤 Export <span x-text="characterEditing.ownerPlayerId"></span>'s view</button>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Tier</span>
@@ -14168,6 +14354,31 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
+        <!-- LORE (C4, audit 2026-06-24) — what this character knows: first-hand (witnessed) ∪ second-hand
+             (rumours / told). Fed by ACKS.loreKnownBy; the knowledge engine had zero UI until now. -->
+        <template x-if="characterEditing && characterEditing.id">
+          <div class="vellum border border-ink p-3 rounded" x-data="{ get _lore(){ return characterLoreKnown(characterEditing); } }">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="font-semibold">📚 Lore known</h4>
+              <span class="text-sm opacity-70" x-text="_lore.length + ' ' + (_lore.length===1?'thing known':'things known')"></span>
+            </div>
+            <template x-if="_lore.length === 0">
+              <p class="text-sm italic opacity-60">Nothing known yet. As this character witnesses events first-hand or hears rumours, what they know appears here — the campaign's knowledge layer.</p>
+            </template>
+            <div class="text-sm max-h-72 overflow-y-auto pr-1" x-show="_lore.length > 0">
+              <template x-for="(l,li) in _lore" :key="li">
+                <div class="border-l-2 pl-2 py-1 mb-1" :style="l.firstHand ? 'border-color:#2f5a2f' : 'border-color:#7a5a1f'">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="l.firstHand ? '👁' : '💬'"></span> <span x-text="l.text"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="l.firstHand ? (l.turn != null ? ('witnessed · Turn ' + l.turn) : 'witnessed') : (l.certainty || 'heard')"></span>
+                  </div>
+                  <p class="text-xs opacity-60" x-show="!l.firstHand && l.source" x-text="'— ' + (l.source||'')"></p>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
         <!-- CHRONICLE — the full per-entity world-memory (T3). Every eventLog entry that names this
              character in its context envelope (not just journey-* — recruitment, loyalty, calamities,
              survival, battles, wealth, level-ups …). The narrative Personal-history box above is the
@@ -14443,6 +14654,19 @@ document.addEventListener('alpine:init', () => {
             <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().domainId)">Unclaimed wilderness</option>
             <template x-for="d in domains" :key="d.id"><option :value="d.id" :selected="worldHexEditingHex() && worldHexEditingHex().domainId === d.id" x-text="d.name"></option></template>
           </select>
+        </div>
+        <!-- Discovery / fog (B3-UI, audit 2026-06-24) — surface hex.explored. The real fog (hiding unexplored
+             hexes from a player's exported view) is the engine-side player-view filter; this is the visible
+             state + a GM reveal/hide. Default true (blankHex) → existing & GM hexes read "Discovered". -->
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Discovery</span>
+          <span class="flex items-center gap-2">
+            <span x-show="worldHexEditingHex().explored !== false" class="text-xs px-1.5 py-0.5 rounded border border-ink/40" style="background:#e8f3df">👁 Discovered</span>
+            <span x-show="worldHexEditingHex().explored === false" class="text-xs px-1.5 py-0.5 rounded border border-ink/40" style="background:#e7dcc4">🌫 Unexplored</span>
+            <button @click="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'explored', label:'Discovery', oldValue:(worldHexEditingHex().explored !== false), newValue:(worldHexEditingHex().explored === false)})"
+                    class="text-xs underline" x-text="worldHexEditingHex().explored === false ? 'mark discovered' : 'mark unexplored'"
+                    title="Toggle whether this hex has been discovered. Unexplored hexes are hidden from a player's exported view (📤 Export for player).">​</button>
+          </span>
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Terrain</span>
@@ -15402,7 +15626,7 @@ document.addEventListener('alpine:init', () => {
       <table class="bookkeeping text-sm w-full">
         <thead><tr>
           <th>Name</th><th>Deity</th><th>High priest</th><th class="text-right">Personal</th><th>Domain worship</th>
-          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th>
+          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th><th>Chronicle</th>
         </tr></thead>
         <tbody>
           <template x-for="cong in religionCongregations()" :key="cong.id">
@@ -15420,6 +15644,8 @@ document.addEventListener('alpine:init', () => {
               <td class="text-right font-mono" x-text="religionMonthlyDP(cong).toLocaleString()+' gp'"></td>
               <td><button @click="religionToggleMaintain(cong.id)" class="text-sm underline" x-text="religionAutoMaintain(cong) ? '✓ tended' : '⚠ neglected'" :title="religionAutoMaintain(cong) ? 'Tended each week as a matter of course — full accrual. Click to mark neglected.' : 'Untended — accrues nothing and declines each monthly turn. Click to mark tended.'"></button></td>
               <td x-text="cong.status"></td>
+              <!-- CHRONICLE (C1, audit 2026-06-24) — congregations have no detail modal; deep-link to the Inspector, which renders entityChronicle('congregation', id) -->
+              <td><button @click="inspectorOpen('congregation', cong.id)" class="text-sm underline" :title="'Open this congregation in the 🔍 Inspector to read its chronicle (' + entityChronicleCount('congregation', cong.id) + ' events)'" x-text="'📜 ' + entityChronicleCount('congregation', cong.id)"></button></td>
             </tr>
           </template>
         </tbody>
@@ -16065,17 +16291,20 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
 
-            <!-- history -->
-            <template x-if="(currentSiege().history||[]).length">
-              <div class="mt-3">
-                <p class="font-semibold text-xs uppercase opacity-60 mb-1">History</p>
-                <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
-                  <template x-for="(h,i) in currentSiege().history" :key="'sh-'+i">
-                    <li class="opacity-80" x-text="'· ' + (h.narrative || h.type)"></li>
-                  </template>
-                </ul>
+            <!-- CHRONICLE (C1, audit 2026-06-24) — the siege's stored .history[] (∪ derived eventLog stream when one exists) -->
+            <div class="mt-3" x-data="{ get _chron(){ return entityChronicleMerged('', currentSiege()?.id, currentSiege()?.history); } }" x-show="_chron.length">
+              <p class="font-semibold text-xs uppercase opacity-60 mb-1">📜 Chronicle <span class="opacity-60 font-normal normal-case" x-text="'· ' + _chron.length"></span></p>
+              <div class="text-xs max-h-44 overflow-y-auto pr-1">
+                <template x-for="(row,ri) in _chron" :key="ri">
+                  <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                      <span class="opacity-70" style="white-space:nowrap" x-text="row.date"></span>
+                    </div>
+                  </div>
+                </template>
               </div>
-            </template>
+            </div>
           </div>
         </template>
       </div>
@@ -19878,6 +20107,52 @@ document.addEventListener('alpine:init', () => {
   <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" class="underline hover:opacity-90">AGPL-3.0</a> ·
   <a href="https://github.com/joachimxb/acks-god-mode" target="_blank" rel="noopener" class="underline hover:opacity-90">Source on GitHub</a>
 </footer>
+
+<!-- a11y semantics (H2-a, audit 2026-06-24) — every [role="dialog"] gets aria-labelledby → its first
+     heading, so screen readers announce the dialog's name on open. Done generically (one pass after
+     load + a debounced MutationObserver for the x-if modals that mount on open) rather than ~56 hand
+     edits; dialogs that already declare aria-labelledby / aria-label are skipped. Idempotent + cheap. -->
+<script>
+(function(){
+  'use strict';
+  var uid = 0;
+  function wireDialogs(){
+    var dialogs = document.querySelectorAll('[role="dialog"]:not([aria-labelledby]):not([aria-label])');
+    for(var i = 0; i < dialogs.length; i++){
+      var d = dialogs[i];
+      var h = d.querySelector('h1,h2,h3,h4');
+      if(!h) continue;
+      if(!h.id){ h.id = 'a11y-dlg-' + (++uid); }
+      d.setAttribute('aria-labelledby', h.id);
+    }
+  }
+  var pending = false;
+  function schedule(){
+    if(pending) return;
+    pending = true;
+    setTimeout(function(){ pending = false; wireDialogs(); }, 200);
+  }
+  function start(){
+    wireDialogs();
+    try {
+      var mo = new MutationObserver(function(muts){
+        for(var i = 0; i < muts.length; i++){ if(muts[i].addedNodes && muts[i].addedNodes.length){ schedule(); return; } }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch(e){}
+  }
+  if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', start); }
+  else { start(); }
+  document.addEventListener('alpine:initialized', wireDialogs);
+})();
+</script>
+
+<!-- Unsaved-changes guard (H3-d, audit 2026-06-24) — warn before leaving / reloading with uncommitted edits. -->
+<script>
+window.addEventListener('beforeunload', function(e){
+  try { if(window.acksApp && window.acksApp.dirty){ e.preventDefault(); e.returnValue = ''; return ''; } } catch(_){}
+});
+</script>
 
 </body>
 </html>

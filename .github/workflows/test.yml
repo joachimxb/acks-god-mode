@@ -17,6 +17,13 @@ jobs:
           node-version: '20'
       # The GitHub repo root IS the "ACKS God Mode/" folder (package.json + tests/ live
       # here), so no working-directory override is needed.
+      # Install dev dependencies. The SHIPPED artifact stays runtime-dependency-free; the only
+      # dependency is jsdom (devDependency), used by the behavioral-UI test tier
+      # (tests/behavior.smoke.js, audit E1). Without it that suite self-skips, so the install is
+      # what makes the behavioral net actually run in CI. `npm install` (not `npm ci`) because the
+      # lockfile is intentionally gitignored; jsdom is range-pinned in package.json.
+      - name: Install dev dependencies (jsdom — behavioral test tier)
+        run: npm install --no-audit --no-fund
       - name: Run smoke suites
         run: npm test
       # Doc-drift backstop: fails if a removed engine token is still referenced as live in the
