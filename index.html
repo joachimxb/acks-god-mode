@@ -5002,7 +5002,7 @@ document.addEventListener('alpine:init', () => {
   <main class="p-4">
     <!-- Orientation strip (H3-a a11y/UX, audit 2026-06-24) — first-run wayfinding; dismissable + persisted. -->
     <div x-show="currentCampaign && !orientationStripDismissed" x-cloak
-         x-init="try { if(localStorage.getItem('acks-orientation-dismissed')==='1') orientationStripDismissed = true; } catch(e){}"
+         x-init="(() => { try { if(localStorage.getItem('acks-orientation-dismissed')==='1') orientationStripDismissed = true; } catch(e){} })()"
          class="mb-3 px-3 py-2 border border-ink/50 rounded flex items-start justify-between gap-3 text-sm" style="background:#f4ecd2">
       <div>
         👋 You're running <span class="font-semibold" x-text="(currentCampaign && currentCampaign.name) || 'your campaign'"></span>, Turn <span x-text="(currentCampaign && currentCampaign.currentTurn) || 1"></span>.
