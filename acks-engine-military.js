@@ -980,6 +980,24 @@ function reactionForcePlatoonBr(campaign, unitIds){
   return Math.round(br * 100) / 100;
 }
 
+// The SMALLEST subset of `freeUnitIds` whose platoon BR reaches `targetBr` (Joachim 2026-06-25) — so an
+// auto-sortie commits only what a decisive drive-off needs (targetBr = 2× the band's BR) and the rest of
+// the garrison stays free to answer OTHER threats the same day. Greedy largest-BR-first: it picks the
+// fewest units to clear the bar, and is guaranteed to find a subset ≤ the whole set whenever the whole
+// set already meets the bar (eligibility proves that). Pure. Returns {unitIds, forceBr} or null when even
+// the whole free force falls short. (forceBr is the rounded sum, identical to reactionForcePlatoonBr.)
+function minimalReactionUnitIds(campaign, freeUnitIds, targetBr){
+  if(!campaign || !Array.isArray(freeUnitIds) || !freeUnitIds.length || !(targetBr > 0)) return null;
+  const scored = freeUnitIds
+    .map(id => { const u = (typeof id === 'string') ? findUnit(campaign, id) : id; return u ? { id: u.id, br: unitPlatoonScaleBr(u) || 0 } : null; })
+    .filter(x => x && x.br > 0)
+    .sort((a, b) => b.br - a.br);                            // largest first → fewest units to reach the bar
+  if(!scored.length) return null;
+  const picked = []; let raw = 0;
+  for(const s of scored){ picked.push(s.id); raw += s.br; if(raw >= targetBr) return { unitIds: picked, forceBr: reactionForcePlatoonBr(campaign, picked) }; }
+  return null;                                               // even the whole free force can't meet it decisively
+}
+
 // Predict deploying `unitIds` against the band, by the RAW attitude+BR rules (JJ p.104). Pure
 // — drives the BR preview in the deploy modal AND the Military-tab threats table. Returns
 // {forceBr, bandBr, attitude, attitudeLabel, lingering, effectiveAttitude, flips, outcome,
@@ -2225,7 +2243,7 @@ Object.assign(ACKS, {
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, returnUnitHome, unitOwnerDomainId, musterUnitToDestination, createArmy, disbandArmy, callUpUnit, addUnitToArmy, removeUnitFromArmy, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
-  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
+  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, minimalReactionUnitIds, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
   conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
   domainLevyPoolCount, domainLevyTrainedOfType, conscriptQualifyingRemaining,

@@ -150,6 +150,44 @@ ok('three bands were driven off by garrison sorties', (cDrain.eventLog || []).fi
 ok('the garrison stood down again after the sorties (no lingering reaction armies)', !(cDrain.armies || []).some(a => a && a.reactionTargetGroupId));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The neutral-bands tickbox (Joachim 2026-06-25): the BASE auto-defend now sallies only against natively
+// hostile/unfriendly bands; a neutral band (one the act of marching on it FLIPS unfriendly, JJ p.104) is
+// left for the GM unless the domain also ticks autoDefendNeutral.
+section('the neutral-bands tickbox — neutral is the GM’s call unless opted in');
+const cNeu = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'neutral' });
+adv(cNeu);
+ok('a NEUTRAL band is NOT auto-deployed by default', !(cNeu.armies || []).some(a => a && a.autoReaction) && ACKS.incursionBandsForDomain(cNeu, 'dom-r').length === 1);
+const cNeuOn = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'neutral' });
+cNeuOn.domains[0].autoDefendNeutral = true;
+adv(cNeuOn);
+ok('with autoDefendNeutral ON, the neutral band IS auto-deployed', (cNeuOn.armies || []).some(a => a && a.autoReaction));
+const cUnfTick = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat', attitude: 'unfriendly' });
+adv(cUnfTick);
+ok('an UNFRIENDLY band is auto-deployed regardless of the neutral tick', (cUnfTick.armies || []).some(a => a && a.autoReaction));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Minimal force + multiple threats (Joachim 2026-06-25, solutions 1+2): a sortie commits only as many
+// units as a decisive (≥2×) drive-off needs, so a multi-unit garrison answers SEVERAL bands at once, and
+// any it can't cover this tick is picked up by a later day's scan once a sortie returns + re-garrisons.
+section('minimal force — a 3-unit garrison splits to answer 3 bands the same day (only what each needs)');
+const cMulti = mk({ count: 8, garrisonUnits: 3, garrisonCount: 120, bandHex: 'hex-seat', bandIds: ['grp-a', 'grp-b', 'grp-c'] });
+const recsM = (ACKS.proposeGarrisonDefenseDay(cMulti, { dayInMonth: cMulti.currentDayInMonth }).pendingRecords || []).filter(r => r.kind === 'garrison-defense');
+ok('three sorties are proposed the SAME day (one per band — no longer one-per-domain)', recsM.length === 3);
+ok('each sortie commits only ONE unit (minimal decisive force, not the whole garrison)', recsM.every(r => (r.unitIds || []).length === 1));
+ok('the three sorties use DISJOINT units (the garrison is split, never double-booked)', new Set(recsM.flatMap(r => r.unitIds || [])).size === 3);
+adv(cMulti);   // commit the day — the 3 reaction forces muster at once
+ok('three reaction forces are deployed at once', ['grp-a', 'grp-b', 'grp-c'].every(g => reactionArmies(cMulti, g).length === 1));
+ok('the whole garrison mustered out across the three sorties', ACKS.domainGarrisonUnits(cMulti, 'dom-r').length === 0);
+
+section('revisit (solution 2) — a band the busy garrison can’t reach yet is answered on a later day');
+const cBusy = mk({ count: 8, garrisonUnits: 1, garrisonCount: 200, bandHex: 'hex-seat', bandIds: ['grp-x', 'grp-y'] });
+const recsBusy = (ACKS.proposeGarrisonDefenseDay(cBusy, { dayInMonth: cBusy.currentDayInMonth }).pendingRecords || []).filter(r => r.kind === 'garrison-defense');
+ok('with one unit + two bands, only ONE sortie is proposed (the other waits for the garrison)', recsBusy.length === 1);
+ACKS.runDayTickToMonthEnd(cBusy);
+ok('over the month BOTH bands are driven off (the 2nd is picked up once the 1st sortie returns)',
+   ACKS.incursionBandsForDomain(cBusy, 'dom-r').length === 0, 'still standing: ' + ACKS.incursionBandsForDomain(cBusy, 'dom-r').length);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SAME-DAY arrival (D4 follow-up, 2026-06-25): a band materialized by the incursion path
 // (commitIncursionRecord — slot-86's commit) is met the SAME tick it appears, not the next.
 // The slot-89 consumer alone reacts a day late (the band materializes after slot-89's propose
@@ -159,6 +197,7 @@ function arrive(o){
   o = o || {};
   const c = mk({ garrisonCount: 200, bandIds: [] });                 // garrison, NO band pre-planted
   if(o.auto === false) c.domains[0].autoResolveIncursions = false;
+  if(o.autoDefendNeutral) c.domains[0].autoDefendNeutral = true;
   ACKS.commitIncursionRecord(c, { kind: 'incursion', domainId: 'dom-r', groupId: 'grp-arr', hexId: 'hex-seat',
     identity: { key: o.key || 'orc', label: o.label || 'Orc' },
     reaction: { attitude: o.attitude || 'unfriendly', attitudeLabel: (o.attitude || 'unfriendly') },
@@ -169,9 +208,15 @@ function arrive(o){
 const cArrU = arrive({ attitude: 'unfriendly', lingering: true, count: 8 });
 ok('an UNFRIENDLY arrival is met the SAME tick (no 1-day lag)', reactionArmies(cArrU, 'grp-arr').length === 1 && reactionArmies(cArrU, 'grp-arr')[0].autoReaction === true);
 ok('the arrived band still stands (responding), not vanished', ACKS.incursionBandsForDomain(cArrU, 'dom-r').length === 1);
-const cArrN = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2 });   // the demo case
-ok('a NEUTRAL MIGRATING arrival (the demo case) is met the SAME tick', reactionArmies(cArrN, 'grp-arr').length === 1);
-ok('auto-deploying a neutral band reassures the peasants (no xenophobia −1)', cArrN.domains[0].incursionXenophobiaPending !== true);
+// NEUTRAL is the GM's call by default (the 2nd ⚔ checkbox, Joachim 2026-06-25): a neutral arrival is NOT
+// met, and the unchallenged band leaves the peasants uneasy (JJ p.103). Tick autoDefendNeutral and the
+// garrison sallies (marching on it turns it unfriendly, JJ p.104 — so the xenophobia penalty is averted).
+const cArrN = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2 });
+ok('a NEUTRAL migrating arrival is NOT met by default (left for the GM)', reactionArmies(cArrN, 'grp-arr').length === 0);
+ok('the unchallenged neutral band leaves the peasants uneasy (xenophobia −1 pending)', cArrN.domains[0].incursionXenophobiaPending === true);
+const cArrNon = arrive({ attitude: 'neutral', lingering: false, key: 'brown-bear', label: 'Brown Bear', count: 2, autoDefendNeutral: true });
+ok('with autoDefendNeutral ON, a neutral arrival IS met the SAME tick', reactionArmies(cArrNon, 'grp-arr').length === 1);
+ok('auto-deploying the neutral band reassures the peasants (no xenophobia −1)', cArrNon.domains[0].incursionXenophobiaPending !== true);
 const cArrH = arrive({ attitude: 'hostile', lingering: true, count: 8 });
 ok('a HOSTILE arrival is NOT same-day deployed (it gives battle — the GM adjudicates)', !reactionArmies(cArrH, 'grp-arr').length && ACKS.incursionBandsForDomain(cArrH, 'dom-r').length === 1);
 const cArrGm = arrive({ attitude: 'unfriendly', lingering: true, key: '__nope__', count: 8 });

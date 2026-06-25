@@ -7560,6 +7560,12 @@ function garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr){
   const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
   if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) return null;               // GM-priced (a dragon) → never auto
   if(prev.outcome !== 'driven-off') return null;                                    // hostile → it gives battle; the GM's call
+  // Neutral-bands opt-in (the 2nd ⚔ checkbox, Joachim 2026-06-25): by default the garrison auto-defends
+  // only NATIVELY hostile/unfriendly bands. A neutral / mercantilist / friendly band — one the preview
+  // FLIPS to unfriendly only because you marched on it (JJ p.104, prev.flips) — may just be passing
+  // through, so it is left for the GM unless the domain also ticks autoDefendNeutral. (Hostile bands give
+  // battle and are already excluded above, so this only narrows the would-be-flipped set.)
+  if(prev.flips && !dom.autoDefendNeutral) return null;                             // neutral/friendly → the GM's call unless opted in
   if(forceBr < GARRISON_DEFENSE_BR_RATIO * prev.bandBr) return null;                // not decisive → leave it for the GM
   return prev;
 }
@@ -7575,12 +7581,18 @@ function autoDeployGarrisonReaction(campaign, dom, band){
   if(!campaign || !dom || !band || typeof A.deployGarrisonReaction !== 'function') return null;
   if(!incursionBandsForDomain(campaign, dom.id).some(x => x && x.id === band.id)) return null;   // same visibility as slot-89
   const units = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id) : [];
-  const unitIds = units.map(u => u && u.id).filter(Boolean);
+  const unitIds = units.map(u => u && u.id).filter(Boolean);                                      // genuinely free (afield units station to their army)
   const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
-  if(!garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr)) return null;
+  const prev = garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr);
+  if(!prev) return null;
+  // Send only as many as a decisive drive-off needs (Joachim 2026-06-25) — leave the rest of the garrison
+  // free to answer other threats the same day. Fall back to the whole free force if no subset is computed
+  // (defensive — eligibility already proved the whole force is decisive).
+  const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, unitIds, GARRISON_DEFENSE_BR_RATIO * prev.bandBr) : null;
+  const deployIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : unitIds;
   const armyId = 'arm-rxn-' + String(band.id).replace(/^grp-/, '');
   if((campaign.armies || []).some(a => a && a.id === armyId)) return null;                        // replay guard
-  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: unitIds.slice(), armyId, muster: true });
+  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: deployIds.slice(), armyId, muster: true });
   if(res && res.ok && res.army){
     res.army.autoReaction = true;
     (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',
@@ -7615,30 +7627,49 @@ function proposeGarrisonDefenseDay(campaign, ctx){
     if(!dom || !dom.autoResolveIncursions) continue;
     const bands = (typeof A.incursionBandsForDomain === 'function') ? A.incursionBandsForDomain(campaign, dom.id) : [];
     if(!bands.length) continue;
-    const units = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id) : [];
-    const unitIds = units.map(u => u && u.id).filter(Boolean);
-    if(!unitIds.length) continue;                                  // no garrison → nothing sallies
-    const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
-    if(!(forceBr > 0)) continue;
-    for(const band of bands){
-      const prev = garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr);   // the shared gate (= the arrival path)
+    const allUnits = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id).map(u => u && u.id).filter(Boolean) : [];
+    if(!allUnits.length) continue;                                 // no garrison → nothing sallies (units afield station to their army)
+    // Rank the threats the garrison can take on (Joachim 2026-06-25): the ones nearest a settlement first
+    // (imminent pillage — protect the population), then ascending band BR (clear the most with a limited
+    // garrison). Deterministic — no rng, so the seeded military/economy streams (slots 88/89) are untouched.
+    const setHexIds = _domainSettlementHexIdSet(campaign, dom);
+    const ranked = bands.map(b => {
+      const bandBr = (typeof A.reactionBandPlatoonBr === 'function') ? A.reactionBandPlatoonBr(campaign, b) : null;
+      const hc = _incursionBandHexAndCoord(campaign, b);
+      const imminent = !!((hc.hex && setHexIds.has(hc.hex.id)) || _bandWithinHexesOfSettlement(campaign, dom, hc.coord, 1));
+      return { b, bandBr, imminent };
+    }).sort((x, y) => ((y.imminent ? 1 : 0) - (x.imminent ? 1 : 0))
+                   || ((x.bandBr == null ? Infinity : x.bandBr) - (y.bandBr == null ? Infinity : y.bandBr)));
+    // Allocate DISJOINT minimal subsets across the day's sorties: each handled band takes only the units a
+    // decisive drive-off needs; the rest stay free for the next band — so a multi-unit garrison answers
+    // SEVERAL threats at once, and any it can't cover (or a band that arrives / is detected while the
+    // garrison is committed) is picked up by a later day's scan as units free up (Joachim 2026-06-25,
+    // solutions 1+2). PROPOSE-correct: the propose can't see this day's deploy commits, so allocating
+    // disjointly HERE is what keeps two sorties off the same units; commit re-validates against the live
+    // free garrison (an earlier-slot arrival sortie may have taken some first) and defers if short.
+    const taken = new Set();
+    for(const { b: band } of ranked){
+      const freeIds = allUnits.filter(id => !taken.has(id));
+      if(!freeIds.length) break;                                   // garrison fully committed this tick
+      const freeBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, freeIds) : 0;
+      const prev = garrisonAutoDefenseEligible(campaign, dom, band, freeIds, freeBr);   // the shared gate, on what's LEFT
       if(!prev) continue;
+      const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, freeIds, GARRISON_DEFENSE_BR_RATIO * prev.bandBr) : null;
+      const useIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : freeIds;
+      const useBr = (sub && sub.forceBr) || freeBr;
+      useIds.forEach(id => taken.add(id));
       const bandAlive = Math.max(0, (band.count || 0) - (band.casualties || 0));
       pendingRecords.push({
         kind: 'garrison-defense', domainId: dom.id, groupId: band.id, groupName: band.name || 'monsters',
         // a PROPOSE-stable army id so the work-copy + the real-campaign deploys share it (the slot-88
         // army-band-contact resolution captures the army id — it must match on the commit replay).
         armyId: 'arm-rxn-' + String(band.id).replace(/^grp-/, ''),
-        unitIds: unitIds.slice(), forceBr, bandBr: prev.bandBr,
+        unitIds: useIds.slice(), forceBr: useBr, bandBr: prev.bandBr,
         name: (dom.name || 'Garrison') + ' \u{1F6E1} ' + (band.name || 'band'),
         label: '\u{1F6E1} ' + (dom.name || 'The domain') + ' garrison musters to meet ' + bandAlive + ' \u{00D7} ' + (band.name || 'monsters')
-          + ' \u{2014} BR ' + forceBr.toFixed(2) + ' vs ' + prev.bandBr.toFixed(2) + ' (JJ p.104)',
+          + ' \u{2014} BR ' + useBr.toFixed(2) + ' vs ' + prev.bandBr.toFixed(2) + ' (JJ p.104)',
         status: 'pending'
       });
-      break;   // one sortie per domain per day — the garrison commits as a body (whole-garrison sortie),
-               // so it handles one threat at a time; the rest wait for it to return + sally again. (Also
-               // PROPOSE-correct: the propose phase can't see this day's deploy commit, so without the
-               // break it would propose a 2nd deploy on the same units, which would steal them at commit.)
     }
   }
   return { pendingRecords, notableEvents };
@@ -7689,7 +7720,22 @@ function commitGarrisonDefenseRecord(campaign, record){
   if(typeof A.deployGarrisonReaction !== 'function') return;
   if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === record.groupId)) return;   // already responding
   if(record.armyId && (campaign.armies || []).some(a => a && a.id === record.armyId)) return;       // already deployed (replay guard)
-  const res = A.deployGarrisonReaction(campaign, { groupId: record.groupId, unitIds: record.unitIds || [], armyId: record.armyId, muster: true });
+  // Re-validate against the LIVE free garrison (Joachim 2026-06-25): an earlier-slot commit this tick — the
+  // same-day arrival sortie (slot 86) or the GM's manual ⚔ Deploy — may have already mustered some of the
+  // units this record named. Deploy only the minimal STILL-FREE subset that decisively meets the band; if
+  // what's left no longer suffices, DEFER — the band stays on the threats list and a later day's scan
+  // re-checks once a sortie returns + re-garrisons (so two sorties never steal each other's units).
+  const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+  if(!band) return;
+  const freeNow = new Set(((typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, record.domainId) : []).map(u => u && u.id).filter(Boolean));
+  const stillFree = (record.unitIds || []).filter(id => freeNow.has(id));
+  if(!stillFree.length) return;                                    // every named unit got committed elsewhere this tick — defer
+  const bandBr = (typeof A.reactionBandPlatoonBr === 'function') ? A.reactionBandPlatoonBr(campaign, band) : record.bandBr;
+  const freeBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, stillFree) : 0;
+  if(!(bandBr > 0) || freeBr < GARRISON_DEFENSE_BR_RATIO * bandBr) return;   // no longer decisive with what's free — defer
+  const sub = (typeof A.minimalReactionUnitIds === 'function') ? A.minimalReactionUnitIds(campaign, stillFree, GARRISON_DEFENSE_BR_RATIO * bandBr) : null;
+  const deployIds = (sub && sub.unitIds && sub.unitIds.length) ? sub.unitIds : stillFree;
+  const res = A.deployGarrisonReaction(campaign, { groupId: record.groupId, unitIds: deployIds, armyId: record.armyId, muster: true });
   if(res && res.ok && res.army){
     res.army.autoReaction = true;                                  // → slot-88 auto-recall + the sortie casualties
     (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',

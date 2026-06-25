@@ -6652,7 +6652,17 @@ document.addEventListener('alpine:init', () => {
             <label class="flex items-start gap-2 text-sm mb-2 cursor-pointer select-none">
               <input type="checkbox" class="mt-0.5" x-model="selectedDomain.autoResolveIncursions" @change="markDirty(); schedulePersist();">
               <span>🛡 <span class="font-semibold">Garrison auto-defends low-threat incursions</span>
-                <span class="opacity-60">— when the garrison's battle rating is ≥ 2× a band's, it musters and marches to meet it on its own (light losses); the band stays here, marked 🛡 responding, until the force arrives and is recalled. Stronger threats still wait for your orders. (JJ p.104)</span>
+                <span class="opacity-60">— when the garrison's battle rating is ≥ 2× a band's, it musters and marches to meet it on its own (light losses); the band stays here, marked 🛡 responding, until the force arrives and is recalled. It commits only as many units as a decisive drive-off needs, so it can answer several threats at once and pick up any it couldn't reach (busy, or not yet detected) on a later day. Stronger threats still wait for your orders. (JJ p.104)</span>
+              </span>
+            </label>
+            <!-- D4 follow-up (2026-06-25) — the 2nd ⚔ checkbox: also drive off NEUTRAL bands. By default the
+                 garrison sallies only against natively hostile/unfriendly bands; a neutral band (one the act
+                 of marching on it turns unfriendly, JJ p.104) may just be passing through, so it is left for
+                 the GM unless this is ticked. Shown only when auto-defense is on. -->
+            <label class="flex items-start gap-2 text-sm mb-2 ml-6 cursor-pointer select-none" x-show="selectedDomain.autoResolveIncursions">
+              <input type="checkbox" class="mt-0.5" x-model="selectedDomain.autoDefendNeutral" @change="markDirty(); schedulePersist();">
+              <span>⚔ <span class="font-semibold">Also drive off neutral bands</span>
+                <span class="opacity-60">— sally against neutral/exploratory bands too, not just hostile ones (marching on them turns them unfriendly, JJ p.104). Left off, the garrison lets a neutral band pass — and unchallenged neutral monsters leave the peasants uneasy (−1 on the next domain morale roll, JJ p.103).</span>
               </span>
             </label>
             <template x-if="incursionBands(selectedDomain).length === 0 && brigandArmies(selectedDomain).length === 0">
