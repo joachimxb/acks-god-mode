@@ -4901,6 +4901,9 @@ Object.assign(ACKS, {
   // Phase 3 Military W2 — the slot-86 incursions consumer (the Vagaries of Incursion,
   // JJ pp.100–106) + the domain-panel lookup.
   proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain, incursionBandStillInDomain,
+  // D4 Awareness — the slot-87 reconnaissance re-check (the ruler detects an incursion band over time,
+  // JJ p.103 / RR p.452): auto-detect at the stronghold or while pillaging, else re-roll recon weekly/daily.
+  proposeIncursionReconDay, commitIncursionReconRecord,
   // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
@@ -6104,7 +6107,11 @@ function commitIncursionRecord(campaign, record){
     fullStrength: !!record.fullStrength, treasureType: record.treasureType || '',
     rulerAware: !!(record.recon && record.recon.rulerAware),
     monstersIntel: !!(record.recon && record.recon.monstersIntel),
-    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null
+    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null,
+    // D4 Awareness (JJ p.103) — the world-ordinal of the ruler's LAST reconnaissance check. Seeds the
+    // weekly recon re-roll cadence (proposeIncursionReconDay); if arrival recon missed, the ruler keeps
+    // re-checking from here rather than staying blind to the band forever.
+    lastReconOrd: (turn * 30) + (record.dayInMonth || 1)
   };
   g.history = g.history || [];
   g.history.push({ turn, type: 'incursion',
@@ -6208,6 +6215,165 @@ function incursionBandStillInDomain(campaign, band){
 function incursionBandCoordLabel(band){
   const ws = band && band.wanderState;
   return (ws && ws.coord && typeof ws.coord.q === 'number') ? ('coord ' + ws.coord.q + ',' + ws.coord.r) : null;
+}
+
+// ── D4 Awareness (JJ p.103, RR p.452) — the ruler's reconnaissance is RE-CHECKED on the Day Clock ─────
+// At arrival, _incursionReconLite rolls the ruler's recon ONCE; a failure used to leave him blind to the
+// band forever. RAW (JJ p.103): "a domain ruler may not be aware of a domain encounter until the enemy
+// begins pillaging his domain or arrives at his stronghold," with reconnaissance rolls per RR p.452. So
+// awareness is re-evaluated each day for an as-yet-undetected band (rulerAware === false):
+//   • AUTO-DETECT (no roll) — the band stands at the domain's STRONGHOLD (any attitude; it is at the seat
+//     of power), OR it is overtly PILLAGING: a hostile/unfriendly band ON a settlement hex of the domain
+//     (sacking a population centre — JJ p.103 "begins pillaging / loots supplies"). A band merely lingering
+//     or denning in the wilds does NOT auto-reveal — RAW explicitly allows monsters to "settle into a
+//     domain and impose morale penalties while an oblivious ruler remains unaware of the cause."
+//   • RECON RE-ROLL (RR p.452 cadence) — otherwise re-roll the ruler's reconnaissance WEEKLY, or DAILY
+//     while the band is within 1 hex of any of the domain's settlements (RR p.452 shifts the recon cycle
+//     from weeks to days as forces close — the domain-scale equivalent of "within one week's movement").
+//     A marginal/success/major result detects the band.
+// lastReconOrd (set at arrival) paces the weekly cycle. On detection in an auto-defending domain the
+// garrison sallies the SAME day (autoDeployGarrisonReaction — the arrival path's mechanism), so a freshly-
+// spotted band is answered at once, not a tick late. Gated on 'vagaries-of-incursion' (the bands only
+// arise under it). The recon re-roll uses its OWN per-key seeded rng — never the shared ctx.rng — so it
+// can never shift the seeded stream the military/economy consumers (slots 88/89) read after it.
+
+// The largest-settlement hex (the garrison's seat, JJ p.103). Kept separate from the inline copy in
+// _incursionReconLite so that seeded arrival-recon path stays byte-for-byte stable.
+function _domainStrongholdHex(campaign, d){
+  const A = _jACKS();
+  let best = -1, sh = null;
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    const fam = (s && s.families) || 0;
+    if(fam > best){ best = fam; sh = h; }
+  }
+  return sh;
+}
+// The id-set of the domain's hexes that carry a settlement (the population centres a band can pillage).
+function _domainSettlementHexIdSet(campaign, d){
+  const A = _jACKS();
+  const set = new Set();
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    if(s && (s.families || 0) > 0) set.add(h.id);
+  }
+  return set;
+}
+// The band's authored hex (if any) + its true coord (an off-map band keeps its position on wanderState.coord).
+function _incursionBandHexAndCoord(campaign, band){
+  const A = _jACKS();
+  let hex = band.currentHexId ? (((campaign.hexes) || []).find(h => h && h.id === band.currentHexId) || null) : null;
+  let coord = (hex && hex.coord) ? hex.coord : ((band.wanderState && band.wanderState.coord) || null);
+  if(!hex && coord && typeof A.hexAtCoord === 'function') hex = A.hexAtCoord(campaign, coord.q, coord.r) || null;
+  if(hex && hex.coord) coord = hex.coord;
+  return { hex, coord };
+}
+// True when `coord` is within `range` 6-mile hexes of any of the domain's settlements (the daily-recon trigger).
+function _bandWithinHexesOfSettlement(campaign, d, coord, range){
+  if(!coord) return false;
+  const A = _jACKS();
+  if(typeof A.hexAxialDistance !== 'function') return false;
+  for(const h of ((campaign && campaign.hexes) || [])){
+    if(!h || h.domainId !== d.id || !h.coord) continue;
+    const s = (typeof A.settlementForHex === 'function') ? A.settlementForHex(campaign, h.id) : null;
+    if(!(s && (s.families || 0) > 0)) continue;
+    if(A.hexAxialDistance(coord, h.coord) <= range) return true;
+  }
+  return false;
+}
+// The ruler's reconnaissance RE-ROLL (RR p.452), recomputed from the band's CURRENT position. Mirrors the
+// ruler side of _incursionReconLite (size · proximity-to-stronghold · own-region familiarity · the band's
+// terrain · garrison cavalry scouting), kept self-contained so the seeded arrival path is untouched.
+function _incursionRulerReconReroll(campaign, d, bandHex, alive, rng){
+  const A = _jACKS();
+  const strongholdHex = _domainStrongholdHex(campaign, d);
+  const dist = (strongholdHex && strongholdHex.coord && bandHex && bandHex.coord && typeof A.hexAxialDistance === 'function')
+    ? A.hexAxialDistance(strongholdHex.coord, bandHex.coord) : null;
+  let cav = 0;
+  for(const u of (A.domainGarrisonUnits ? A.domainGarrisonUnits(campaign, d) : [])){
+    if(!u) continue;
+    const row = (typeof A.findTroopType === 'function')
+      ? A.findTroopType(u.unitTypeKey, { race: u.race || 'man', veteran: !!u.veteran, loadout: u.loadout || null }) : null;
+    if(row && row.category === 'cavalry') cav++;
+  }
+  const cavMod = cav >= 101 ? 3 : cav >= 21 ? 2 : cav >= 6 ? 1 : 0;
+  const mods = [ _incursionSizeMod(alive || 1), _incursionProximityMod(dist), 1, _incursionTerrainConcealMod(bandHex), cavMod ];
+  const roll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const total = roll + mods.reduce((s, m) => s + m, 0);
+  const rb = (typeof A.reconRollBand === 'function') ? A.reconRollBand(total) : { key: 'failure' };
+  return { roll, total, result: rb.key, aware: (rb.key === 'marginal' || rb.key === 'success' || rb.key === 'major') };
+}
+function proposeIncursionReconDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'vagaries-of-incursion'))) return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  for(const band of (campaign.groups || [])){
+    if(!band || !band.incursion || band.incursion.rulerAware !== false || !band.incursion.domainId) continue;
+    const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(band) : Math.max(0, (band.count || 0) - (band.casualties || 0));
+    if(alive <= 0) continue;
+    const d = (campaign.domains || []).find(x => x && x.id === band.incursion.domainId);
+    if(!d) continue;
+    const bc = _incursionBandHexAndCoord(campaign, band);
+    const bandHex = bc.hex, coord = bc.coord;
+    const inDomain = !!(bandHex && bandHex.domainId === d.id);
+    const near = _bandWithinHexesOfSettlement(campaign, d, coord, 1);
+    if(!inDomain && !near) continue;                       // wandered clear away — no longer the ruler's concern
+    const att = band.incursion.attitude || 'neutral';
+    const strongholdHex = _domainStrongholdHex(campaign, d);
+    let detected = false, trigger = null, reroll = null;
+    if(bandHex && strongholdHex && bandHex.id === strongholdHex.id){
+      detected = true; trigger = 'stronghold';             // arrives at the stronghold (JJ p.103)
+    } else if(bandHex && (att === 'hostile' || att === 'unfriendly') && _domainSettlementHexIdSet(campaign, d).has(bandHex.id)){
+      detected = true; trigger = 'pillage';                // overtly sacking a settlement (JJ p.103)
+    } else {
+      const lastOrd = band.incursion.lastReconOrd || ((band.incursion.arrivedAtTurn || campaign.currentTurn || 1) * 30 + (band.incursion.arrivedOnDay || 1));
+      if(!(near || (worldOrd - lastOrd >= 7))) continue;   // daily within 1 hex of a settlement; else weekly (RR p.452)
+      const rng = _jMulberry32(_jHash32('incursion-recon|' + band.id + '|' + worldOrd));
+      reroll = _incursionRulerReconReroll(campaign, d, bandHex, alive, rng);
+      detected = reroll.aware; trigger = 'recon';
+    }
+    pendingRecords.push({ kind: 'incursion-recon', groupId: band.id, domainId: d.id, worldOrd, detected, trigger,
+      reroll: reroll ? { roll: reroll.roll, total: reroll.total, result: reroll.result } : null });
+    if(detected){
+      const how = trigger === 'stronghold' ? 'reached the stronghold'
+        : trigger === 'pillage' ? 'was caught pillaging a settlement'
+        : 'was located by the ruler’s scouts (RR p.452)';
+      const label = '\u{1F575} ' + (d.name || 'The domain') + ': reconnaissance detects ' + alive + ' × ' + (band.name || 'monsters')
+        + ' — it ' + how + ' (JJ p.103)';
+      notableEvents.push({ kind: 'gm-narrative', type: 'incursion-detected',
+        primaryHexId: bandHex ? bandHex.id : null, domainId: d.id,
+        relatedEntities: [{ kind: 'domain', id: d.id, role: 'target' }, { kind: 'group', id: band.id, role: 'subject' }],
+        label, payload: { domainId: d.id, groupId: band.id, trigger, narrative: label,
+          reroll: reroll ? { roll: reroll.roll, total: reroll.total, result: reroll.result } : null } });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitIncursionReconRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'incursion-recon') return;
+  const band = (campaign.groups || []).find(g => g && g.id === record.groupId);
+  if(!band || !band.incursion) return;
+  band.incursion.lastReconOrd = record.worldOrd;            // pace the weekly cycle (advanced even on a failed roll)
+  if(band.incursion.rulerAware !== false) return;           // already aware (another path won / replay) — done
+  if(!record.detected) return;
+  band.incursion.rulerAware = true;
+  const turn = campaign.currentTurn || 1;
+  const how = record.trigger === 'stronghold' ? 'reached the stronghold'
+    : record.trigger === 'pillage' ? 'was caught pillaging a settlement'
+    : 'was located by the ruler’s scouts (RR p.452' + (record.reroll ? ', 2d6 → ' + record.reroll.total : '') + ')';
+  (band.history = band.history || []).push({ turn, type: 'incursion',
+    reason: 'the ruler became AWARE of the band — it ' + how + ' (JJ p.103)' });
+  // SAME-DAY response (the arrival path's mechanism): if the domain auto-defends and the garrison decisively
+  // outmatches the now-detected band, sortie THIS tick rather than waiting for the slot-89 backstop. The gate
+  // inside autoDeployGarrisonReaction handles the autoResolveIncursions opt-in (a no-op when off).
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId);
+  if(d) autoDeployGarrisonReaction(campaign, d, band);
 }
 
 // ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
@@ -7479,6 +7645,18 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 86,
     pauseTriggers: ['encounter'],
     commit: commitIncursionRecord
+  });
+  // D4 Awareness (slot 87, JJ p.103 / RR p.452) — re-check the ruler's reconnaissance for as-yet-
+  // undetected incursion bands: auto-detect at the stronghold or while pillaging a settlement, else
+  // re-roll recon weekly (daily within 1 hex of a settlement). Runs AFTER the band's day-move (84) +
+  // any new arrival (86) and BEFORE the military / garrison consumers (88/89), so a band detected today
+  // is answerable today. pauseTriggers [] — it only flips awareness (the band was already on the ⚔ Active
+  // Threats list as "Unaware"); the detection surfaces as a notable in the day's review.
+  ACKS.registerDayConsumer('incursion-recon', {
+    handler: proposeIncursionReconDay,
+    order: 87,
+    pauseTriggers: [],
+    commit: commitIncursionReconRecord
   });
   // Phase 3 Military W4 + W5 — the campaign cycle (slot 88, RR p.447): initiative +
   // reconnaissance, army contacts → battles, invasions → the immediate morale roll,
