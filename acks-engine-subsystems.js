@@ -7088,6 +7088,23 @@ function commitMilitaryRecord(campaign, record){
           text: 'Routed the bandits of ' + (banditDom.name || banditDom.id) + moraleNote });
       } else {
         if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+        // If the band had DENNED (it lingered + settled into a lair mid-chase, JJ p.103, before the
+        // sally force caught it), driving it off vacates that den too — so a driven-off band is never
+        // left lair-bound yet position-less. Detach it; a den it SOLELY held is ABANDONED (the structure
+        // remains + can repopulate later); a SHARED den loses one occupant but stands. abandonLair departs
+        // any remaining bound groups alive, so we pass leaveGroups (the drive-off nulls THIS band below —
+        // it must not also evict co-tenants). [D4 race fix, 2026-06-25: the slot-84 settle commits before
+        // this slot-88 drive-off, so a same-tick or mid-chase den would otherwise dangle.]
+        for(const lair of (campaign.lairs || []).filter(l => l && Array.isArray(l.groupIds)
+              && l.groupIds.indexOf(band.id) >= 0 && l.status !== 'cleared' && l.status !== 'abandoned' && l.status !== 'destroyed')){
+          lair.groupIds = lair.groupIds.filter(gid => gid !== band.id);
+          if(!lair.groupIds.length && typeof A.abandonLair === 'function'){
+            A.abandonLair(campaign, lair.id, { atTurn: turn, leaveGroups: true,
+              reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — the band vacated the den it had made' });
+          } else if(typeof A.lairInhabitantCount === 'function'){
+            lair.totalInhabitantCount = A.lairInhabitantCount(campaign, lair);
+          }
+        }
         band.currentHexId = null;                            // out of the hex — off the active map (no longer the domain's problem)
         band.wanderState = null;
         (band.history = band.history || []).push({ turn, type: 'incursion',

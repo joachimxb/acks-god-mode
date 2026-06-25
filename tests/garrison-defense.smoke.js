@@ -233,5 +233,39 @@ ok('no march was ever started toward the departed band (held the domain, RR p.34
    !(cDuring.journeys || []).some(j => j && j.armyId === aDur.id && j.status === 'in-transit'));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Denned mid-chase (2026-06-25 follow-up): the eligibility gate excludes an ALREADY-settled band,
+// but a band that is already a committed reaction target can linger + DEN mid-chase (the slot-84
+// settle commits BEFORE the slot-88 drive-off). Driving it off must vacate that den too, or a lair
+// is left dangling — referencing a band that's been nulled off the map (the contradiction Joachim flagged).
+section('denned mid-chase — driving off a band that settled into a lair vacates the den (no dangling lair)');
+const cDen = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-seat' });     // co-located → muster (d1) → (d2) → resolve (d3)
+adv(cDen); adv(cDen);                                                        // deploy + muster completes — the force is afield, co-located
+ok('fixture: a reaction force is afield against the band', reactionArmies(cDen, 'grp-threat').length === 1);
+cDen.lairs.push({ id: 'lair-den', hexId: 'hex-seat', groupIds: ['grp-threat'], status: 'active', monsterCatalogKey: 'orc' });
+const bDen = cDen.groups.find(g => g && g.id === 'grp-threat');
+bDen.wanderState = null;                                                     // housed — it lingered + denned (JJ p.103) before the force resolved
+adv(cDen);                                                                   // slot-88 resolves the co-located contact → drive-off
+ok('the band is driven off (currentHexId null, outcome driven-off)', bDen.currentHexId === null && bDen.incursion.outcome === 'driven-off');
+const den = cDen.lairs.find(l => l && l.id === 'lair-den');
+ok('the den it had made is ABANDONED (not left active + dangling)', !!den && den.status === 'abandoned');
+ok('the abandoned den no longer lists the driven-off band', !!den && (den.groupIds || []).indexOf('grp-threat') < 0);
+ok('INVARIANT: no active lair references a band that was driven off the map',
+   !(cDen.lairs || []).some(l => l && (l.status === 'active' || l.status === 'unknown')
+      && (l.groupIds || []).some(gid => { const g = cDen.groups.find(x => x && x.id === gid); return g && g.currentHexId === null; })));
+
+section('shared den — driving one band off leaves the den standing for its co-tenant');
+const cShared = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-seat' });
+adv(cShared); adv(cShared);                                                  // deploy + muster — force afield, co-located
+cShared.groups.push(ACKS.blankGroup({ id: 'grp-cotenant', name: 'Orc kin', count: 6, currentHexId: 'hex-seat', currentDomainId: 'dom-r', lifecycleState: 'wild',
+  groupTemplate: { monsterCatalogKey: 'orc', creatureTypes: ['beastman', 'humanoid'], hitDice: '1' } }));
+cShared.lairs.push({ id: 'lair-shared', hexId: 'hex-seat', groupIds: ['grp-threat', 'grp-cotenant'], status: 'active', monsterCatalogKey: 'orc' });
+cShared.groups.find(g => g && g.id === 'grp-threat').wanderState = null;
+adv(cShared);                                                               // drive off grp-threat
+const shared = cShared.lairs.find(l => l && l.id === 'lair-shared');
+ok('the shared den STANDS (its co-tenant still holds it)', !!shared && shared.status === 'active');
+ok('the driven-off band was detached from the shared den', !!shared && (shared.groupIds || []).join() === 'grp-cotenant');
+ok('the co-tenant band is untouched (still standing at the hex)', (cShared.groups.find(g => g && g.id === 'grp-cotenant') || {}).currentHexId === 'hex-seat');
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — ' + pass + ' passed, ' + fail + ' failed');
 if(fail > 0){ console.log(failures.map(f => '  • ' + f).join('\n')); process.exit(1); }
