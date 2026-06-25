@@ -172,5 +172,37 @@ const cArrOff = arrive({ attitude: 'unfriendly', lingering: true, count: 8, auto
 ok('auto-defense OFF → an arrival is NOT same-day deployed', !reactionArmies(cArrOff, 'grp-arr').length);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Home garrison (D4 follow-up, 2026-06-25): a reaction force defending its OWN domain is fed by
+// that domain (its garrison cost, RR p.341) — it is NOT an army on campaign, so it never reads
+// out of supply (RR p.450) nor "occupies" its own land (RR p.458). The reaction force is often
+// LEADERLESS (the auto-sortie), which is exactly what used to mis-classify it as an enemy invader.
+section('home garrison — a reaction force in its OWN domain is fed by it, never out of supply / occupying');
+const cHome = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });   // band 1 hex off → the force marches within the domain
+let oosSeen = false, occSeen = false, supHomeSeen = false;
+for(let i = 0; i < 8; i++){
+  const prop = ACKS.proposeDayTick(cHome, 1, { force: true });
+  const flat = JSON.stringify(prop.pendingRecords || []);
+  if(/OUT OF SUPPLY|starving/i.test(flat)) oosSeen = true;
+  if(/OCCUPIED|occupies/i.test(flat)) occSeen = true;
+  const a = reactionArmies(cHome, 'grp-threat')[0];
+  if(a && typeof ACKS.armyInSupply === 'function'){ const s = ACKS.armyInSupply(cHome, a, {}); if(s && s.inSupply && s.homeSupplied) supHomeSeen = true; }
+  ACKS.commitDayTick(cHome, prop);
+}
+ok('a home reaction force is NEVER flagged out of supply (it is fed by its domain)', !oosSeen);
+ok('a home reaction force never "occupies" its own domain (it is friendly to it, even leaderless)', !occSeen);
+ok('the domain is not stamped occupied by its own sortie', !cHome.domains[0].occupiedBy);
+ok('armyInSupply reads the home reaction force as in-supply, home-fed', supHomeSeen);
+// the auto-sortie's mandate is its DOMAIN (RR p.341): when its band LEAVES the domain (migrates out),
+// the force stands down (recalls home) rather than chase it across the map — so it never goes on campaign.
+const cLeave = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+cLeave.hexes.push({ id: 'hex-foreign', domainId: 'dom-other', coord: { q: 9, r: 0 }, terrain: 'grassland' });
+adv(cLeave); adv(cLeave);                                                  // deploy + muster completes — the force is afield
+ok('fixture: an auto reaction force is afield', reactionArmies(cLeave, 'grp-threat').length === 1 && reactionArmies(cLeave, 'grp-threat')[0].autoReaction === true);
+cLeave.groups.find(g => g && g.id === 'grp-threat').currentHexId = 'hex-foreign';   // the band migrates OUT of the domain
+adv(cLeave);
+ok('the auto-sortie STANDS DOWN when its band leaves the domain (recalled, not chasing out of supply)', !reactionArmies(cLeave, 'grp-threat').length);
+ok('the units re-garrisoned after standing down', ACKS.domainGarrisonUnits(cLeave, 'dom-r').length === 1);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — ' + pass + ' passed, ' + fail + ' failed');
 if(fail > 0){ console.log(failures.map(f => '  • ' + f).join('\n')); process.exit(1); }

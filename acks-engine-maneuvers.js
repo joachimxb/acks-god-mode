@@ -271,6 +271,11 @@
   function domainFriendlyToArmy(campaign, domain, army){
     if(!domain || !army) return true;
     if((army.permittedDomainIds || []).indexOf(domain.id) >= 0) return true;
+    // A domain's OWN troops are never hostile to it — a garrison reaction force defending home, even
+    // when leaderless (the auto-sortie has no named commander). Without this a leaderless reaction force
+    // reads as an enemy army OCCUPYING its own domain (RR p.458). [D4 follow-up 2026-06-25]
+    const Ax = A();
+    if(typeof Ax.armyUnits === 'function' && Ax.armyUnits(campaign, army).some(u => u && u.ownerDomainId === domain.id)) return true;
     const leaderId = army.leaderCharacterId;
     if(!leaderId) return false;
     if(domain.rulerCharacterId === leaderId) return true;
@@ -1302,6 +1307,22 @@
     return (leader && leader.personalGp) || 0;
   }
 
+  // A garrison army standing in its OWN domain is at home — fed by that domain (its garrison cost
+  // already pays its upkeep, RR p.341) and never an invader of it. "Its own": the army carries at
+  // least one unit owned by the domain whose hex it occupies. Returns that home domain, else null.
+  // Exempts a garrison reaction force (the auto-sortie, often leaderless) from the on-campaign supply
+  // (RR p.450) and occupation (RR p.458) systems while it defends home; it goes "on campaign" — needing
+  // a supply base — only once it marches OUT of the domain. [D4 follow-up 2026-06-25]
+  function armyHomeDomain(campaign, army, hexIdOverride){
+    const Ax = A();
+    const hexId = hexIdOverride || (army && army.currentHexId);
+    if(!campaign || !army || !hexId) return null;
+    const hex = _hex(campaign, hexId);
+    if(!hex || !hex.domainId) return null;
+    const units = (typeof Ax.armyUnits === 'function') ? Ax.armyUnits(campaign, army) : [];
+    return units.some(u => u && u.ownerDomainId === hex.domainId) ? _domain(campaign, hex.domainId) : null;
+  }
+
   // armyInSupply — the three-condition check (RR p.450), short-circuited by Simplified mode.
   //   { inSupply, cost, canPay, baseValue, line, fraction, simplified, simplifiedTrigger, reasons[] }
   // fraction = the fed share (baseValue/cost, capped 1) — drives the underfed/starving ladder.
@@ -1316,6 +1337,10 @@
     const outOfSupplyDoubled = !!(wx && wx.outOfSupplyDoubled);
     if(cost > 0 && weatherSupplyMult !== 1) cost = Math.ceil(cost * weatherSupplyMult);
     if(cost <= 0) return { inSupply: true, cost: 0, canPay: true, baseValue: 0, line: { status: 'clear' }, fraction: 1, simplified: army.supplySimplified !== false, simplifiedTrigger: false, hungerless: true, weatherSupplyMult: 1, outOfSupplyDoubled, reasons: [] };
+    // A garrison at HOME draws no on-campaign supply — the domain feeds it (its garrison cost, RR p.341),
+    // so it can't starve in its own land (a leaderless reaction force has no leader funds to "pay" supply
+    // anyway). Only once it marches OUT of its domain does the supply check below apply. [D4 follow-up]
+    if(armyHomeDomain(campaign, army, o.armyHexId)) return { inSupply: true, cost: 0, canPay: true, baseValue: 0, line: { status: 'home' }, fraction: 1, simplified: army.supplySimplified !== false, simplifiedTrigger: false, hungerless: true, homeSupplied: true, weatherSupplyMult: 1, outOfSupplyDoubled, reasons: [] };
     const leader = _char(campaign, army && army.leaderCharacterId);
     const funds = _leaderAvailableFunds(campaign, leader);
     const canPay = funds >= cost;

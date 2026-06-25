@@ -6648,6 +6648,21 @@ function proposeMilitaryDay(campaign, ctx){
     if(!band || !bandAlive) continue;                              // gone — the army card prompts a recall
     const armyHex = effHex(army);
     if(!armyHex || armyHex !== band.currentHexId){
+      // A garrison defends its DOMAIN (RR p.341): once the band an AUTO-sortie answers has LEFT the
+      // defended domain (migrated to the border + across), the threat to the domain is gone — stand the
+      // force down (recall home) rather than chase it across the map and out of supply (RR p.450). The
+      // band lives on, migrating elsewhere — no longer this domain's problem; JJ p.104 "driven off." A
+      // MANUAL sally stays the GM's to recall or press on. [D4 follow-up 2026-06-25]
+      if(army.autoReaction && band.incursion && band.incursion.domainId){
+        const bandHexObj = band.currentHexId ? (campaign.hexes || []).find(h => h && h.id === band.currentHexId) : null;
+        if(!bandHexObj || bandHexObj.domainId !== band.incursion.domainId){
+          pendingRecords.push({ kind: 'reaction-stand-down', armyId: army.id, groupId: band.id,
+            domainId: band.incursion.domainId, name: armyName(army) + ' stands down',
+            label: '\u{1F6E1} ' + armyName(army) + ' stands down \u{2014} ' + (band.name || 'the band')
+              + ' has left the domain (RR p.341, JJ p.104)', status: 'pending' });
+          continue;
+        }
+      }
       // ── AUTO-CHASE (v2, JJ p.104) — not co-located: the sally force keeps after a band
       //    that wanders before it arrives. Each day, if the band has moved off the army's
       //    march target, re-route the march to the band's last-known hex (its move commits
@@ -7092,6 +7107,16 @@ function commitMilitaryRecord(campaign, record){
     }
     (army.history = army.history || []).push({ turn, type: 'reaction-chase',
       text: 'Pressed the pursuit — re-routed to follow ' + (band.name || 'the band') + ' to ' + record.newDestinationHexId + ' (JJ p.104)' });
+  } else if(record.kind === 'reaction-stand-down'){
+    // A garrison's mandate is its DOMAIN (RR p.341): the band an AUTO-sortie answered has left the
+    // defended domain — the threat is gone, so the force stands down (recalls home) rather than chase
+    // it out (and out of supply). The band lives on, migrating elsewhere. JJ p.104 "driven off."
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    if(!army || !army.reactionTargetGroupId) return;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    (army.history = army.history || []).push({ turn: campaign.currentTurn || 1, type: 'reaction-stand-down',
+      text: 'Stood down — ' + ((band && band.name) || 'the band') + ' left the domain (RR p.341, JJ p.104)' });
+    if(typeof A.recallReactionForce === 'function') A.recallReactionForce(campaign, army.id);
   } else if(record.kind === 'domain-invasion'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
