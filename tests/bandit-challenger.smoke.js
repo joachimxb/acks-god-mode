@@ -31,7 +31,7 @@ function mkCamp(opts){
   opts = opts || {};
   const c = A.blankCampaign();
   c.currentTurn = opts.turn || 1;
-  c.houseRules = { 'domain-morale-banditry': { enabled: true } };
+  c.houseRules = {};   // banditry is core RAW (RR pp.350–351) — no house rule, always on
   const ruler = A.blankCharacter({ id: 'chr-ruler', name: 'Lord Aldric', level: 8, kind: 'PC' });
   c.characters = [ruler];
   const d = A.blankDomain({ id: 'dom-grey', name: 'Greymarch' });
@@ -115,9 +115,12 @@ section('Offer battle → loot/pillage if unmet (RR p.351) → the −4 morale p
   const evBefore = (c.eventLog || []).length;
   A.processBanditryForTurn(c, { challengerRng: seq([0.0]) });
   ok('a steady pillaging challenger does not re-escalate (no new event)', (c.eventLog || []).filter(e => e.event && e.event.payload && e.event.payload.action === 'challenger-pillages').length === 1);
-  // rule-gated: turning the banditry rule off hides the −4 (principle 8)
-  c.houseRules['domain-morale-banditry'] = { enabled: false };
-  ok('the −4 penalty is rule-gated off when domain-morale-banditry is disabled', !A.moraleModifiersFor(c, d).some(m => m.value === -4 && /bandit lord/i.test(m.label)));
+  // RR p.354 — the pillage −4 is IN LIEU OF the occupation penalty (they do not stack): with the
+  // bandit lord pillaging, the cumulative enemy-army occupation row is suppressed; only the −4 applies.
+  d.banditryOccupationMonths = 3;   // would be a −2 occupation row on its own
+  const pmods = A.moraleModifiersFor(c, d);
+  ok('the pillage −4 still applies while the lord loots', pmods.some(m => m.value === -4 && /bandit lord/i.test(m.label)));
+  ok('the occupation row is suppressed while pillaging (in lieu of — RR p.354)', !pmods.some(m => /occupation/i.test(m.label)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

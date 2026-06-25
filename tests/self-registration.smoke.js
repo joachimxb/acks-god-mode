@@ -189,7 +189,7 @@ ok('registerCollection() with no name is a safe no-op', (function(){ try { const
 const EXP_HR_IDS = [
   "alternative-farming-methods", "auran-calendar", "auto-pause-on-encounter", "auto-pause-on-navigation-fail", "auto-pause-on-overbudget", "auto-pause-on-supplies-low",
   "auto-resolve-trivial-throws", "crew-hijinks", "custom-power-compendium", "demographics-auto-generate", "detailed-hijink-tracking",
-  "domain-morale-banditry", "dwarven-civilization", "dwarven-mining", "dwarven-mining-despoliation", "dwarven-mining-discovery", "dwarven-mining-non-dwarven",
+  "dwarven-civilization", "dwarven-mining", "dwarven-mining-despoliation", "dwarven-mining-discovery", "dwarven-mining-non-dwarven",
   "dwarven-mining-salt", "dwarven-mining-vagaries", "elite-troops", "elven-civilization", "experimental-mushroom-farming", "families-per-hex-tracking",
   "favor-duty-auto-roll", "gladiator-games", "gm-fiat-proficiency-throws", "gm-set-weather", "hidden-stashes", "ignore-encumbrance",
   "ignore-rations", "journey-batching-routine", "journey-fast-travel", "knowledge-tracking", "living-census", "living-expenses",
@@ -206,18 +206,18 @@ const EXP_HR_IDS = [
 const EXP_HR_CATS = ['domain','construction','mercantile','characters','world','encounters','military','rumors','knowledge','hijinks','cultural'];
 // The 7 default:true rules — the behaviour-critical set (isHouseRuleEnabled returns true for these
 // when a campaign hasn't toggled them). A wrong/missing default here silently flips every campaign.
-const EXP_HR_DEFAULTS = ['domain-morale-banditry','favor-duty-auto-roll','living-expenses','monster-pursuit','persistent-wandering-monsters','senate-auto-vote','syndicate-auto-tribute'];
+const EXP_HR_DEFAULTS = ['favor-duty-auto-roll','living-expenses','monster-pursuit','persistent-wandering-monsters','senate-auto-vote','syndicate-auto-tribute'];
 
 section('the seeded house-rule + category registry is byte-identical to the pre-refactor frozen literals');
 const hrIds = ACKS.HOUSERULES_REGISTRY.map(r => r.id);
-ok('exactly 72 house rules seeded', hrIds.length === 72, 'got ' + hrIds.length);
+ok('exactly 71 house rules seeded', hrIds.length === 71, 'got ' + hrIds.length);
 ok('no duplicate rule ids', new Set(hrIds).size === hrIds.length);
 ok('same rule-id set as before', sortedEq(hrIds, EXP_HR_IDS),
   'missing [' + EXP_HR_IDS.filter(k => !hrIds.includes(k)).join(',') + '] / extra [' + hrIds.filter(k => !EXP_HR_IDS.includes(k)).join(',') + ']');
 ok('exactly 11 categories seeded', ACKS.HOUSERULE_CATEGORIES.length === 11, 'got ' + ACKS.HOUSERULE_CATEGORIES.length);
 ok('same category-id set as before', sortedEq(ACKS.HOUSERULE_CATEGORIES.map(c => c.id), EXP_HR_CATS));
 const liveDefaults = ACKS.HOUSERULES_REGISTRY.filter(r => r.default === true).map(r => r.id);
-ok('the 7 default:true rules are exactly preserved', sortedEq(liveDefaults, EXP_HR_DEFAULTS),
+ok('the 6 default:true rules are exactly preserved', sortedEq(liveDefaults, EXP_HR_DEFAULTS),
   'got [' + liveDefaults.slice().sort().join(',') + ']');
 ok('every rule names a registered category', hrIds.every(() => true) &&
   ACKS.HOUSERULES_REGISTRY.every(r => EXP_HR_CATS.includes(r.category)),

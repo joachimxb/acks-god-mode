@@ -5557,7 +5557,7 @@ document.addEventListener('alpine:init', () => {
             <div x-show="banditCount(selectedDomain) > 0 || banditryBands(selectedDomain).length > 0" class="mt-3 p-2 rounded border-2" style="background:#f5e2e2; border-color:#7a1f1f">
               <p class="text-sm font-bold accent-red">⚔ Bandits in the domain: <span x-text="banditCount(selectedDomain).toLocaleString()"></span></p>
               <p class="text-sm mt-1">Per ACKS RR p.350: at morale -4, one able-bodied man per family becomes a bandit; at -3, one per two families; at -2, one per five. Bandits count as an enemy army and reduce income (already factored into the morale-driven income adjustment). Raise morale to disperse them, or hunt them down with the garrison — defeating bandits raises morale by 1 (the population falls by the bandits killed, RR p.351).</p>
-              <!-- #476 E10 — the materialized banditry bands (the domain-morale-banditry rule, default ON) -->
+              <!-- #476 E10 — the materialized banditry bands (RR pp.350–351, core RAW — always on) -->
               <p class="text-sm mt-1 font-semibold" x-show="banditryBands(selectedDomain).length > 0">
                 🏴 <span x-text="banditryBands(selectedDomain).length"></span> band<span x-show="banditryBands(selectedDomain).length !== 1">s</span> raid the domain
                 (<span x-text="banditryBands(selectedDomain).reduce((s,g) => s + Math.max(0,(g.count||0)-(g.casualties||0)), 0).toLocaleString()"></span> raiders) —
@@ -5572,11 +5572,11 @@ document.addEventListener('alpine:init', () => {
                   <button class="underline" @click="openCharacterEditor(banditChallenger(selectedDomain).characterId)" x-text="banditChallengerName(selectedDomain)"></button><span x-text="banditChallengerText(selectedDomain)"></span>
                 </p>
               </template>
-              <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && isHouseRuleEnabled('domain-morale-banditry')"
+              <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && !banditChallenger(selectedDomain)?.pillaging"
                  x-text="'⚠ Enemy-army occupation, month ' + (selectedDomain.banditryOccupationMonths || 0)
-                   + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
+                   + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + Math.min(4, (selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll (max −4)') : ' — the penalty builds from next month')
                    + ' (RR p.349 + p.351)'"></p>
-              <p class="text-xs mt-1 opacity-80" x-show="banditCount(selectedDomain) > 0 && banditryBands(selectedDomain).length === 0 && isHouseRuleEnabled('domain-morale-banditry')">🏴 They take the field at the next monthly turn — the bands materialize in the world when the month advances.</p>
+              <p class="text-xs mt-1 opacity-80" x-show="banditCount(selectedDomain) > 0 && banditryBands(selectedDomain).length === 0">🏴 They take the field at the next monthly turn — the bands materialize in the world when the month advances.</p>
             </div>
 
           </div>

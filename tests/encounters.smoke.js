@@ -2529,9 +2529,8 @@ section('E9 — an E6 wander-entry never lingers at a full hex (the entry still 
 // =============================================================================
 section('E10 — domain-morale banditry (RR pp.350–351): the monthly materialization');
 {
-  const rule = (ACKS.HOUSERULES_REGISTRY || []).find(r => r && r.id === 'domain-morale-banditry');
-  ok('domain-morale-banditry registered (category encounters, default ON, RR pp.350–351 cited)',
-    !!rule && rule.category === 'encounters' && rule.default === true && /350/.test(rule.source || ''));
+  ok('domain-morale-banditry is REMOVED — banditry is pure RAW (RR pp.350–351), not a house rule',
+    !(ACKS.HOUSERULES_REGISTRY || []).some(r => r && r.id === 'domain-morale-banditry'));
   ok('the event kind domain-banditry is known + Event-Wizard opted out',
     ACKS.isEventKindKnown('domain-banditry') && !ACKS.wizardEmittableKinds().includes('domain-banditry'));
   ok('blankGroup emits banditryDomainId (lazy null)', ACKS.blankGroup().banditryDomainId === null);
@@ -2642,23 +2641,26 @@ section('E10 — domain-morale banditry (RR pp.350–351): the monthly materiali
     && c.domains[0].banditryOccupationMonths === 0
     && banditryEvents(c).some(e => e.event.payload.action === 'disbanded' && /return to their fields/.test(e.result.narrativeSummary)));
 
-  // Rule OFF — no muster; already-risen bands stay as world entities (the founded-dens precedent).
+  // Banditry is core RAW — ALWAYS runs (the domain-morale-banditry house rule was removed). A domain
+  // that recovers to morale −1 disbands its bands; there is no rule to untick.
   c = mkB();
   c.domains[0].demographics.morale = -3;
   ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
   ok('(pre) the plague is live', ACKS.banditryBandsForDomain(c, 'dom-b').length > 0);
-  c.houseRules['domain-morale-banditry'] = { enabled: false };
-  const frozen = ACKS.banditryBandsForDomain(c, 'dom-b').length;
-  c.domains[0].demographics.morale = -1;   // would disband if the rule ran
+  ok('processBanditryForTurn reports ruleOn:true (always core RAW)',
+    ACKS.processBanditryForTurn(c, { rng: seq(0.5) }).ruleOn === true);
+  c.domains[0].demographics.morale = -1;   // recovered → bands disband, population untouched
   r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
-  ok('an explicit untick stops the reconcile — existing bands freeze in place (no disband, no muster)',
-    r.ruleOn === false && ACKS.banditryBandsForDomain(c, 'dom-b').length === frozen);
-  ok('…and the occupation row hides while the rule is off (principle 8)', (() => {
+  ok('recovery to −1 disbands the bands (always-on, no rule to untick)',
+    ACKS.banditryBandsForDomain(c, 'dom-b').length === 0);
+  // RR p.349 + p.352 — the enemy-army occupation penalty is "0, then −1/month, to a MAXIMUM of −4".
+  ok('the occupation row caps at −4 (RR p.352): month 4 → −2, month 11 → −4', (() => {
+    c.domains[0].banditryChallenger = null;   // isolate the occupation row (no pillage suppression)
     c.domains[0].banditryOccupationMonths = 3;
-    const row = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
-    delete c.houseRules['domain-morale-banditry'];
-    const rowOn = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
-    return !row && !!rowOn && rowOn.value === -2;
+    const r3 = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
+    c.domains[0].banditryOccupationMonths = 11;
+    const r11 = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
+    return !!r3 && r3.value === -2 && !!r11 && r11.value === -4;
   })());
 }
 
