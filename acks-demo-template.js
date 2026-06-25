@@ -116,7 +116,7 @@ global.ACKS_DEMO_TEMPLATE = {
       },
       "stronghold": {
         "type": "Castle (small)",
-        "buildValue": 75000,
+        "buildValue": 120000,
         "maintenancePerMonth": 31,
         "garrisonCapacity": 200,
         "structures": [
@@ -185,7 +185,8 @@ global.ACKS_DEMO_TEMPLATE = {
           "seats": 10,
           "leadingSenators": 2
         }
-      ]
+      ],
+      "dangerousBordersOverride": "secure"
     },
     {
       "schemaVersion": 2,
@@ -257,7 +258,7 @@ global.ACKS_DEMO_TEMPLATE = {
       },
       "stronghold": {
         "type": "Tower",
-        "buildValue": 15000,
+        "buildValue": 60000,
         "maintenancePerMonth": 0,
         "garrisonCapacity": 60,
         "structures": [
@@ -289,7 +290,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "council": null,
       "history": [],
       "notes": "Yorick's barony. Owes ~10% tribute to the March monthly.",
-      "treasuryStashId": "stash-4g63vys"
+      "treasuryStashId": "stash-4g63vys",
+      "dangerousBordersOverride": "secure"
     },
     {
       "schemaVersion": 2,
@@ -366,7 +368,7 @@ global.ACKS_DEMO_TEMPLATE = {
       },
       "stronghold": {
         "type": "Shrine-Chapter",
-        "buildValue": 18000,
+        "buildValue": 45000,
         "maintenancePerMonth": 0,
         "garrisonCapacity": 50,
         "structures": [
@@ -398,7 +400,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "council": null,
       "history": [],
       "notes": "Mira's barony. Smallest of the three, but the pilgrim trade keeps it solvent.",
-      "treasuryStashId": "stash-995bwaj"
+      "treasuryStashId": "stash-995bwaj",
+      "dangerousBordersOverride": "secure"
     },
     {
       "schemaVersion": 2,
@@ -472,9 +475,12 @@ global.ACKS_DEMO_TEMPLATE = {
         "moraleImpact": 0
       },
       "stronghold": {
-        "components": [],
         "maintenancePerMonth": 0,
-        "garrisonCapacity": 0
+        "garrisonCapacity": 200,
+        "type": "Keep",
+        "buildValue": 30000,
+        "structures": [],
+        "constructibleId": "cst-tidewrack-keep"
       },
       "monthlyLaborCapGp": 0,
       "specialists": [],
@@ -513,7 +519,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "council": null,
       "history": [],
       "notes": "An ancient, half-drowned Auran naval port at the far end of the salt coast, reached overland only by the Saltspur Pass — or by sea. Tidewrack never swore to the March; it kept its own customs after the Auran collapse and lives now on salt-fish, grey amber, and salvage from the Wrack. Ruled by the Tide-Warden, Sevrina Vael, who burns the Marquis’s letters unread.",
-      "treasuryStashId": "stash-hvp1bkl"
+      "treasuryStashId": "stash-hvp1bkl",
+      "dangerousBordersOverride": "secure"
     },
     {
       "schemaVersion": 2,
@@ -592,9 +599,12 @@ global.ACKS_DEMO_TEMPLATE = {
         "moraleImpact": 0
       },
       "stronghold": {
-        "components": [],
         "maintenancePerMonth": 0,
-        "garrisonCapacity": 0
+        "garrisonCapacity": 200,
+        "type": "Keep",
+        "buildValue": 30000,
+        "structures": [],
+        "constructibleId": "cst-gravewolf-clans-keep"
       },
       "monthlyLaborCapGp": 0,
       "specialists": [],
@@ -636,7 +646,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "treasuryStashId": "stash-3sekvnw",
       "governance": null,
       "domainType": "clanhold",
-      "dominantRace": "beastman"
+      "dominantRace": "beastman",
+      "dangerousBordersOverride": "secure"
     }
   ],
   "characters": [
@@ -7893,7 +7904,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "parentConstructibleId": null,
       "ownerCharacterId": null,
       "ownerDomainId": "dom-march-of-saltspur",
-      "buildValue": 75000,
+      "buildValue": 120000,
       "monthlyMaintenance": 0,
       "maxShp": null,
       "currentShp": null,
@@ -7926,7 +7937,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "parentConstructibleId": null,
       "ownerCharacterId": null,
       "ownerDomainId": "dom-barony-northwatch",
-      "buildValue": 15000,
+      "buildValue": 60000,
       "monthlyMaintenance": 0,
       "maxShp": null,
       "currentShp": null,
@@ -7959,7 +7970,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "parentConstructibleId": null,
       "ownerCharacterId": null,
       "ownerDomainId": "dom-barony-saltcombe",
-      "buildValue": 18000,
+      "buildValue": 45000,
       "monthlyMaintenance": 0,
       "maxShp": null,
       "currentShp": null,
@@ -8020,6 +8031,72 @@ global.ACKS_DEMO_TEMPLATE = {
         "lastApprenticeAttractionTurn": 5,
         "sanctumEstablished": true
       }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-tidewrack-keep",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "keep",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Keep",
+      "hexId": "hex-tidewrack-cove",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-tidewrack",
+      "buildValue": 30000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Keep\" (30 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-gravewolf-clans-keep",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "keep",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Keep",
+      "hexId": "hex-skarn-hold",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-gravewolf-clans",
+      "buildValue": 30000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Keep\" (30 000gp)."
+        }
+      ],
+      "notes": ""
     }
   ],
   "favorDutyObligations": [],
@@ -8403,7 +8480,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "id": "gar-saltspur-foot",
       "displayName": "Heavy Infantry",
       "unitTypeKey": "heavy-infantry",
-      "count": 60,
+      "count": 93,
       "monthlyWage": 12,
       "brPerSoldier": 0.083,
       "race": "man",
@@ -8487,7 +8564,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "id": "gar-northwatch-foot",
       "displayName": "Light Infantry",
       "unitTypeKey": "light-infantry",
-      "count": 25,
+      "count": 73,
       "monthlyWage": 6,
       "brPerSoldier": 0.034,
       "race": "man",
@@ -8543,7 +8620,7 @@ global.ACKS_DEMO_TEMPLATE = {
       "id": "gar-saltcombe-foot",
       "displayName": "Light Infantry (lay brothers)",
       "unitTypeKey": "light-infantry",
-      "count": 20,
+      "count": 85,
       "monthlyWage": 6,
       "brPerSoldier": 0.034,
       "race": "man",
@@ -8602,6 +8679,64 @@ global.ACKS_DEMO_TEMPLATE = {
       ],
       "notes": "",
       "calledUp": true
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-tidewrack-watch",
+      "displayName": "Tidewrack Watch",
+      "unitTypeKey": "heavy-infantry",
+      "count": 55,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.083,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-tidewrack"
+      },
+      "wageWaived": false
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-gravewolf-guard",
+      "displayName": "Chief's Guard",
+      "unitTypeKey": "heavy-infantry",
+      "count": 30,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.083,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-gravewolf-clans"
+      },
+      "wageWaived": false
     }
   ],
   "armies": [],
