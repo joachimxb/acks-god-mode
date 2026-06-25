@@ -5400,6 +5400,21 @@ const _component = {
         income: 0,
       });
     }
+    // Senator — a standing seat in a realm's senate (Politics P-5, RR pp.355-360).
+    // A senatorship that points at a real Character surfaces as that character's role;
+    // deep-links to the realm whose senate seats them. A senate seat carries no income.
+    const A = (typeof window !== 'undefined') ? window.ACKS : null;
+    if(A && typeof A.senatorshipsForCharacter === 'function'){
+      (A.senatorshipsForCharacter(this.currentCampaign, c.id) || []).forEach(sn => {
+        const senate = (typeof A.findSenate === 'function') ? A.findSenate(this.currentCampaign, sn.senateId) : null;
+        out.push({
+          kind: 'senator',
+          label: 'Senator' + (senate && senate.name ? ' of ' + senate.name : ''),
+          domainId: (senate && senate.realmDomainId) ? senate.realmDomainId : undefined,
+          income: 0,
+        });
+      });
+    }
     return out;
   },
   // Sum of all role incomes — RR p.425 "domain income" for the character.

@@ -10877,7 +10877,7 @@ document.addEventListener('alpine:init', () => {
                   <span class="inline-flex flex-wrap items-center gap-x-2">
                     <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + (r.domainId || r.view || '') + ':' + r.label">
                       <button @click.stop="if(r.view){ currentView='activities'; activitiesSubView=r.view; } else { selectedDomainId=r.domainId; currentView='domains'; domainsSubView='domains'; closeCharacterEditor && closeCharacterEditor(); }"
-                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : (r.kind === 'gladiator' ? '🏟 ' : '🏰 ')) + r.label + ' →'"></button>
+                              class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : (r.kind === 'gladiator' ? '🏟 ' : (r.kind === 'senator' ? '🏛 ' : '🏰 '))) + r.label + ' →'"></button>
                     </template>
                   </span>
                 </td>
