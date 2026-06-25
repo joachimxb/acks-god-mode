@@ -49,7 +49,8 @@ ok('README points at the Releases page', /\/releases\b/i.test(README));
 section('README scope claims match shipped subsystems (no "not yet built" for shipped features)');
 // These subsystems are shipped (per CHANGELOG). The old README listed them as "not yet built".
 // Guard: the README must NOT describe any of them as unbuilt/coming/sketched.
-const SHIPPED = ['mass warfare', 'battle', 'siege', 'hijink', 'religion', 'encounter', 'persistent'];
+const SHIPPED = ['mass warfare', 'battle', 'siege', 'hijink', 'religion', 'encounter', 'persistent',
+                 'arcane', 'magic research', 'sea voyage', 'voyage', 'construction', 'senate', 'politic', 'banking'];
 const NOT_BUILT_PHRASE = /\b(not yet built|sketched in the data layer|·\s*coming|isn['’]t built|doesn['’]t (?:ship|exist))\b/gi;
 // Pull the sentences/lines that use a "not built" phrase and make sure none of them names a shipped feature.
 const lines = README.split(/\r?\n/);
@@ -58,8 +59,7 @@ for (const ln of lines) {
   if (NOT_BUILT_PHRASE.test(ln)) {
     const low = ln.toLowerCase();
     for (const s of SHIPPED) {
-      // "construction wizard" legitimately remains a not-yet-surfaced UI; allow it explicitly.
-      if (low.indexOf(s) >= 0 && low.indexOf('construction') < 0) mislabelled.push(s + ' :: ' + ln.trim().slice(0, 90));
+      if (low.indexOf(s) >= 0) mislabelled.push(s + ' :: ' + ln.trim().slice(0, 90));
     }
   }
   NOT_BUILT_PHRASE.lastIndex = 0;

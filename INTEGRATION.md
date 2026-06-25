@@ -171,7 +171,7 @@ Two distinct version fields, for two distinct questions:
 - **`engineVersion`** (e.g. `"0.24.0"`) is the **engine release that *saved* the file** — equal to `package.json`'s `version` / `ACKS.ENGINE_VERSION`. It's stamped at **save time** (by `ACKS.stampCampaignForSave`), so it tells a reader the file's generation across releases. **It may be absent**: files written before this field existed (≤ v0.24), and the bundled `Templates/` (which are deliberately byte-identical to their migrated form, so loading one changes nothing — `engineVersion` is *not* injected on load). **Treat absent as "pre-engineVersion"; feature-detect either way.**
 
 ```js
-const writtenBy = campaign.engineVersion || '(pre-0.25, unknown)';
+const writtenBy = campaign.engineVersion || '(pre-engineVersion, unknown)';
 const hasWarfare = Array.isArray(campaign.units);   // feature-detect, don't trust a version number
 ```
 
