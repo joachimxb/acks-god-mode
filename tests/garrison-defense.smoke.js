@@ -118,10 +118,18 @@ ok('a hostile band → NOT auto-deployed (it gives battle — the GM adjudicates
 const c5 = mk({ count: 8, catalogKey: '__nope__', bandHex: 'hex-seat' });
 adv(c5);
 ok('a GM-priced band (no catalog BR — a dragon) → no auto-deploy', !(c5.armies || []).some(a => a && a.autoReaction));
-const c6 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });
+// (Q2, 2026-06-25) a DETECTED, decisively-outmatched DEN is auto-cleared now — sallied the same way a field
+// band is (the slot-88 drive-off + the den-vacate fix abandon the lair). Only an UNDETECTED / untagged den is left.
+const c6 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });   // mk tags it rulerAware:true (detected)
 c6.lairs = [{ id: 'lair-x', hexId: 'hex-seat', groupIds: ['grp-threat'], status: 'active' }];
 adv(c6);
-ok('a settled band (housed in a lair) → not auto-deployed', !(c6.armies || []).some(a => a && a.autoReaction));
+ok('a DETECTED settled den (weak, in a lair) → auto-cleared (Q2 — sallied like a field band)', (c6.armies || []).some(a => a && a.autoReaction));
+// an UNTAGGED seeded den (no incursion object — a pure ambient lair) reads as undetected → NOT auto-attacked
+const c6b = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-band' });
+delete c6b.groups.find(g => g.id === 'grp-threat').incursion;
+c6b.lairs = [{ id: 'lair-seed', hexId: 'hex-band', groupIds: ['grp-threat'], status: 'active', knownToPlayers: false }];
+adv(c6b);
+ok('an UNTAGGED seeded den (the ruler hasn’t assessed it) → not auto-attacked', !(c6b.armies || []).some(a => a && a.autoReaction));
 const c7 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });
 c7.groups.find(g => g.id === 'grp-threat').incursion.rulerAware = false;
 adv(c7);

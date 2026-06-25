@@ -5662,9 +5662,16 @@ function proposeMonsterBandDay(campaign, ctx){
           const rolled = (typeof A._rollDiceStr === 'function') ? A._rollDiceStr(spec, rng) : alive;
           fullCount = Math.max(alive, rolled);
         }
+        // The physical entry IS this domain's domain encounter (JJ p.103) — roll its disposition + the
+        // ruler's reconnaissance NOW, so the commit can tag the band into ⚔ Active Threats exactly like a
+        // Vagaries-drawn one. A SEPARATE per-key rng (not the band's wander rng) keeps the wander's
+        // linger/strength stream byte-stable (monster-persistence determinism untouched).
+        const _dObj = (campaign.domains || []).find(x => x && x.id === dom);
+        const tag = _dObj ? _domainEncounterReactionAndRecon(campaign, _dObj, hx, entry, alive,
+                              _jMulberry32(_jHash32('domain-entry|' + g.id + '|' + dom + '|' + worldOrd))) : null;
         domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
                              lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
-                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
+                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null, tag });
         // W2 interlock — the physical border crossing IS this domain's positive occurrence
         // today: the incursion consumer (slot 86, same tick) reads the stash off the shared
         // day ctx and skips its probability roll (JJ p.103 / E6 — never double-roll).
@@ -5722,6 +5729,7 @@ function commitMonsterBandRecord(campaign, record){
   }
   // The Vagaries occurrence stub — recorded on the Group; the Daily Domain Encounter
   // Probability machinery consumes these when Vagaries of Incursion lands (Phase 3 Military).
+  let taggedEntryDomainId = null;                  // a domain this band became a NEW encounter for this tick
   for(const de of (record.domainEntries || [])){
     const dom = (campaign.domains || []).find(d => d && d.id === de.domainId);
     g.history.push({ turn, type: 'incursion',
@@ -5729,6 +5737,37 @@ function commitMonsterBandRecord(campaign, record){
         + (de.hexFull
             ? ('migrates — the hex is at its lair cap (' + (de.lairCap ? (de.lairCap.count + ' of ' + de.lairCap.max) : 'full') + ', JJ p.69), too crowded to den')
             : ((de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)')) });
+    // Part 1 — the physical entry IS the domain encounter (JJ p.103): tag the band so it lands in
+    // ⚔ Active Threats with a disposition + reconnaissance, exactly like a Vagaries-drawn band. Skip if it
+    // already carries this domain's tag (a band lingering across days is the same ongoing encounter).
+    if(de.tag && dom && !(g.incursion && g.incursion.domainId === de.domainId)){
+      const em = (g.groupTemplate && g.groupTemplate.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(g.groupTemplate.monsterCatalogKey) : null;
+      g.incursion = {
+        domainId: de.domainId, attitude: de.tag.attitude,
+        disposition: de.lingers ? 'lingering' : 'migrating',
+        fullStrength: !!de.fullStrength,
+        treasureType: (de.fullStrength && em) ? (em.treasureType || '') : '',
+        rulerAware: !!(de.tag.recon && de.tag.recon.rulerAware),
+        monstersIntel: !!(de.tag.recon && de.tag.recon.monstersIntel),
+        arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null,
+        lastReconOrd: (turn * 30) + (record.dayInMonth || 1), via: 'wander'
+      };
+      g.history.push({ turn, type: 'incursion',
+        reason: 'becomes a domain encounter on entering ' + (dom.name || 'the domain') + ' (JJ p.103) — '
+          + de.tag.attitudeLabel + ', ' + (de.lingers ? 'lingering' : 'migrating') + (g.incursion.rulerAware ? '' : '; the ruler is unaware') });
+      taggedEntryDomainId = de.domainId;
+    }
+  }
+  // Part 1 — SAME-DAY response to a wandered-in encounter (mirrors commitIncursionRecord's tail): an
+  // auto-defending domain sorties the tick the band crosses in; a NEUTRAL band the garrison does NOT meet
+  // leaves the peasants uneasy (JJ p.103 −1, the same xenophobia clause the draw path fires). Runs BEFORE
+  // the settle/home early-returns below, against the band's end-of-walk position (g.currentHexId, set above).
+  if(taggedEntryDomainId){
+    const dom = (campaign.domains || []).find(d => d && d.id === taggedEntryDomainId);
+    if(dom){
+      const autoDeployed = !!autoDeployGarrisonReaction(campaign, dom, g);
+      if((g.incursion && g.incursion.attitude) === 'neutral' && !autoDeployed) dom.incursionXenophobiaPending = true;
+    }
   }
   // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
   // den binds THE Group, no second population; full strength gathers it to the lair count).
@@ -5908,6 +5947,43 @@ function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
   ]);
   const aware = k => (k === 'marginal' || k === 'success' || k === 'major');
   return { ruler, monsters, rulerAware: aware(ruler.result), monstersIntel: aware(monsters.result) };
+}
+// The JJ p.103 Domain Encounter Reaction (2d6 + morale + alignment) + the RR p.452 reconnaissance, as
+// ONE bundle — used to tag a band that becomes a domain encounter by some path OTHER than the slot-86
+// Vagaries draw: a band that physically WANDERS across the border (slot 84), or a pre-existing / seeded
+// LAIR a domain comes to assess. The draw path (proposeIncursionDay) keeps its own inline copy so that
+// seeded byte-stream stays untouched; this mirrors its reaction block. Caller passes a per-key seeded rng
+// (NOT the shared ctx.rng / wander rng) so tagging never perturbs another consumer's seeded stream.
+function _domainEncounterReactionAndRecon(campaign, d, encHex, entry, count, rng){
+  const A = _jACKS();
+  const garrisonBr = (typeof A.domainGarrisonPlatoonBr === 'function') ? A.domainGarrisonPlatoonBr(campaign, d) : 0;
+  const monsterBr = (entry && typeof entry.battleRating === 'number' && count)
+    ? ((typeof A.monsterPlatoonBr === 'function') ? A.monsterPlatoonBr(entry.battleRating, count) : null) : null;
+  const mods = [];
+  const morale = (d.demographics && typeof d.demographics.morale === 'number') ? d.demographics.morale : 0;
+  if(morale !== 0) mods.push({ label: 'domain morale score', value: morale });
+  const rulerCh = (typeof A.rulerCharacter === 'function') ? A.rulerCharacter(campaign, d) : null;
+  const dAl = String((rulerCh && rulerCh.alignment) || '').charAt(0).toUpperCase();
+  const mAl = String((entry && entry.alignment) || '').charAt(0).toUpperCase();
+  const brTops = (monsterBr != null) && (monsterBr > garrisonBr);
+  if(dAl && mAl){
+    if(dAl === 'L' && mAl === 'L') mods.push({ label: 'lawful domain, lawful monsters', value: 2 });
+    else if((dAl === 'L' || dAl === 'N') && mAl === 'C') mods.push({ label: 'lawful/neutral domain, chaotic monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+    else if(dAl === 'C' && mAl === 'L') mods.push({ label: 'chaotic domain, lawful monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+  }
+  const reactionRoll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const reactionTotal = reactionRoll + mods.reduce((s, m) => s + m.value, 0);
+  let band = (typeof A.domainEncounterReactionBand === 'function') ? A.domainEncounterReactionBand(reactionTotal) : { key: 'neutral', label: 'Neutral' };
+  const types = (entry && entry.creatureTypes) || [];
+  const mindCapped = types.some(t => t === 'animal' || t === 'vermin' || t === 'ooze' || t === 'construct');
+  let capped = false;
+  if(mindCapped && (band.key === 'mercantilist' || band.key === 'friendly')){
+    band = ((A.DOMAIN_REACTION_BANDS || []).find(b => b.key === 'neutral')) || { key: 'neutral', label: 'Neutral — exploratory' };
+    capped = true;
+  }
+  const recon = _incursionReconLite(campaign, d, encHex, entry, count, rng);
+  return { attitude: band.key, attitudeLabel: band.label, reaction: { roll: reactionRoll, total: reactionTotal, mods, capped },
+           recon, monsterBr, garrisonBr, sapient: !mindCapped };
 }
 // The JJ p.104 mass-combat trigger lines — GM guidance recorded with the verdict (the
 // battles themselves are W3/W6; deployment is the GM's call, so both branches print).
@@ -6179,18 +6255,38 @@ function commitIncursionRecord(campaign, record){
   // the monthly turn consumes the flag (clear it by hand if a manual sally answered the band instead).
   if(att === 'neutral' && !autoDeployed) d.incursionXenophobiaPending = true;
 }
-// The UI read: the live incursion bands standing in a domain (alive + still on the
-// domain's ground; a settled band keeps showing through its den's hex).
+// The active (not cleared/destroyed/abandoned) lair whose groupIds includes this band — its den, if any.
+function _lairForBand(campaign, groupId){
+  for(const l of ((campaign && campaign.lairs) || [])){
+    if(l && Array.isArray(l.groupIds) && l.groupIds.indexOf(groupId) >= 0
+       && l.status !== 'cleared' && l.status !== 'destroyed' && l.status !== 'abandoned') return l;
+  }
+  return null;
+}
+// The UI read: every live monster band a domain must reckon with — alive and physically present, whether
+// it (a) arrived as a domain encounter and STANDS on the domain's ground (the incursion tag), or (b) has
+// LAIRED in one of the domain's hexes (ANY den — a drawn/wandered arrival that settled, OR an ambient
+// seeded wilderness lair). Joachim 2026-06-25: lairing monsters belong in ⚔ Active Threats too; the
+// slot-87 reconcile tags an untagged lair band into a proper encounter (disposition + reconnaissance), so
+// after a tick every band here carries an incursion tag. A band off the mapped hexes (currentHexId null,
+// not laired) is handled by the coord-aware reaction layer (incursionBandStillInDomain), not shown here.
 function incursionBandsForDomain(campaign, domainId){
   const A = _jACKS();
   const out = [];
   for(const g of ((campaign && campaign.groups) || [])){
-    if(!g || !g.incursion || g.incursion.domainId !== domainId) continue;
+    if(!g) continue;
     const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
     if(alive <= 0) continue;
-    const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
-    if(!hex || hex.domainId !== domainId) continue;    // wandered off (or off the map) — no longer this domain's problem
-    out.push(g);
+    let inDomain = false;
+    if(g.incursion && g.incursion.domainId === domainId){                       // (a) tagged + standing on its ground
+      const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+      if(hex && hex.domainId === domainId) inDomain = true;
+    }
+    if(!inDomain){                                                              // (b) lairing in one of the domain's hexes
+      const lair = _lairForBand(campaign, g.id);
+      if(lair && lair.hexId){ const lh = (campaign.hexes || []).find(h => h && h.id === lair.hexId); if(lh && lh.domainId === domainId) inDomain = true; }
+    }
+    if(inDomain) out.push(g);
   }
   return out;
 }
@@ -6313,6 +6409,27 @@ function proposeIncursionReconDay(campaign, ctx){
   if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'vagaries-of-incursion'))) return { pendingRecords, notableEvents };
   const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
   const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  // Part 2 (Joachim 2026-06-25) — TAG any untagged band a domain must reckon with (a seeded / pre-existing
+  // lair the ruler comes to assess) as a domain encounter, so it joins ⚔ Active Threats with a disposition +
+  // reconnaissance (JJ p.103). incursionBandsForDomain now returns lairing bands too; an untagged one gets
+  // ONE tag (rolled per-key — isolated from the shared stream). The recon re-check below refines awareness
+  // on later ticks; a distant lair starts unaware, so the garrison can't auto-clear it until scouts find it.
+  for(const d of (campaign.domains || [])){
+    if(!d) continue;
+    for(const band of incursionBandsForDomain(campaign, d.id)){
+      if(!band || band.banditryDomainId) continue;                       // the domain's own bandits aren't an incursion
+      if(band.incursion && band.incursion.domainId === d.id) continue;   // already this domain's encounter
+      const aliveT = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(band) : Math.max(0, (band.count || 0) - (band.casualties || 0));
+      if(aliveT <= 0) continue;
+      const lair = _lairForBand(campaign, band.id);
+      const lairHex = (lair && lair.hexId) ? ((campaign.hexes || []).find(h => h && h.id === lair.hexId) || null) : null;
+      const em = (band.groupTemplate && band.groupTemplate.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(band.groupTemplate.monsterCatalogKey) : null;
+      const tag = _domainEncounterReactionAndRecon(campaign, d, lairHex, em, aliveT, _jMulberry32(_jHash32('incursion-tag|' + band.id + '|' + d.id + '|' + worldOrd)));
+      pendingRecords.push({ kind: 'incursion-tag', groupId: band.id, domainId: d.id, worldOrd,
+        attitude: tag.attitude, attitudeLabel: tag.attitudeLabel, treasureType: (em && em.treasureType) || '',
+        rulerAware: !!(tag.recon && tag.recon.rulerAware), monstersIntel: !!(tag.recon && tag.recon.monstersIntel) });
+    }
+  }
   for(const band of (campaign.groups || [])){
     if(!band || !band.incursion || band.incursion.rulerAware !== false || !band.incursion.domainId) continue;
     const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(band) : Math.max(0, (band.count || 0) - (band.casualties || 0));
@@ -6356,7 +6473,25 @@ function proposeIncursionReconDay(campaign, ctx){
   return { pendingRecords, notableEvents };
 }
 function commitIncursionReconRecord(campaign, record){
-  if(!campaign || !record || record.kind !== 'incursion-recon') return;
+  if(!campaign || !record) return;
+  // Part 2 — tag a lairing/standing band as the domain's encounter (disposition + recon-based awareness).
+  if(record.kind === 'incursion-tag'){
+    const b = (campaign.groups || []).find(g => g && g.id === record.groupId);
+    if(!b || (b.incursion && b.incursion.domainId === record.domainId)) return;   // replay / already tagged
+    const t = campaign.currentTurn || 1;
+    b.incursion = {
+      domainId: record.domainId, attitude: record.attitude, disposition: 'lingering',
+      fullStrength: false, treasureType: record.treasureType || '',
+      rulerAware: !!record.rulerAware, monstersIntel: !!record.monstersIntel,
+      arrivedAtTurn: t, arrivedOnDay: campaign.currentDayInMonth || null,
+      lastReconOrd: record.worldOrd, via: 'lair-assess', settled: true
+    };
+    (b.history = b.history || []).push({ turn: t, type: 'incursion',
+      reason: 'the domain takes note of a monster lair within its bounds (JJ p.103) — ' + (record.attitudeLabel || record.attitude)
+        + (b.incursion.rulerAware ? '' : '; the ruler is not yet aware of it') });
+    return;
+  }
+  if(record.kind !== 'incursion-recon') return;
   const band = (campaign.groups || []).find(g => g && g.id === record.groupId);
   if(!band || !band.incursion) return;
   band.incursion.lastReconOrd = record.worldOrd;            // pace the weekly cycle (advanced even on a failed roll)
@@ -7417,8 +7552,11 @@ function garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr){
   if(!campaign || !dom || !dom.autoResolveIncursions || !band) return null;
   if(!Array.isArray(unitIds) || !unitIds.length || !(forceBr > 0)) return null;     // no garrison → nothing sallies
   if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === band.id)) return null;   // a force already responds
-  if((campaign.lairs || []).some(l => l && Array.isArray(l.groupIds) && l.groupIds.indexOf(band.id) >= 0)) return null;  // settled
-  if(band.incursion && band.incursion.rulerAware === false) return null;            // undetected — can't sally (JJ p.103)
+  // (Q2, Joachim 2026-06-25) A DETECTED den is now auto-clearable too — driven off the same way a field
+  // band is (the slot-88 drive-off + the den-vacate fix abandon the lair). So NO settled-exclusion here.
+  // But an UNTAGGED band (a seeded den the ruler hasn't assessed) OR a detected-false one is undetected →
+  // can't sally (JJ p.103): the garrison clears only dens its reconnaissance has actually located.
+  if(!band.incursion || band.incursion.rulerAware === false) return null;           // undetected — can't sally (JJ p.103)
   const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
   if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) return null;               // GM-priced (a dragon) → never auto
   if(prev.outcome !== 'driven-off') return null;                                    // hostile → it gives battle; the GM's call

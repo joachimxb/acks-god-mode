@@ -162,6 +162,46 @@ const cP = mk({ bandHex: 'hex-seat', attitude: 'unfriendly', auto: false });    
 ACKS.commitDayTick(cP, ACKS.proposeDayTick(cP, 1, { force: true }));
 ok('the slot-87 consumer runs in proposeDayTick/commitDayTick (band at stronghold → aware)', band(cP).incursion.rulerAware === true);
 
+section('a band that WANDERS into a domain becomes a domain encounter (JJ p.103) — ⚔ Active Threats + xenophobia');
+// the wander engine (slot 84) tags the band in commitMonsterBandRecord off the domain-entry record's rolled tag.
+const cW = mk({ bandHex: 'hex-wild', attitude: 'neutral', garrisonCount: 0, auto: false });   // no garrison → can't auto-meet
+delete band(cW).incursion;                                                                     // a plain migrant, not yet an encounter
+ACKS.commitMonsterBandRecord(cW, { kind: 'monster-band-day', groupId: 'grp-threat', newHexId: 'hex-wild',
+  newWanderState: { coord: { q: 2, r: 0 }, halted: false }, settle: null, arrivedHome: null, dayInMonth: 2,
+  domainEntries: [{ domainId: 'dom-r', hexId: 'hex-wild', occurrence: true, lingers: false, lingerRoll: 99, lairPct: 0,
+    tag: { attitude: 'neutral', attitudeLabel: 'Neutral — exploratory', recon: { rulerAware: false, monstersIntel: false } } }] });
+const incW = band(cW).incursion;
+ok('the wandered-in band is tagged as a domain encounter (via "wander")', !!(incW && incW.domainId === 'dom-r' && incW.via === 'wander'));
+ok('it carries the rolled disposition + reconnaissance awareness', incW.attitude === 'neutral' && incW.rulerAware === false);
+ok('it now shows in ⚔ Active Threats', ACKS.incursionBandsForDomain(cW, 'dom-r').some(g => g && g.id === 'grp-threat'));
+ok('a NEUTRAL band crossing unchallenged leaves peasant unease (JJ p.103 −1)', cW.domains[0].incursionXenophobiaPending === true);
+const cWd = mk({ bandHex: 'hex-seat', attitude: 'unfriendly', garrisonCount: 120, auto: true });
+delete band(cWd).incursion;
+ACKS.commitMonsterBandRecord(cWd, { kind: 'monster-band-day', groupId: 'grp-threat', newHexId: 'hex-seat',
+  newWanderState: { coord: { q: 0, r: 0 }, halted: false }, settle: null, arrivedHome: null, dayInMonth: 2,
+  domainEntries: [{ domainId: 'dom-r', hexId: 'hex-seat', occurrence: true, lingers: false, lingerRoll: 99, lairPct: 0,
+    tag: { attitude: 'unfriendly', attitudeLabel: 'Unfriendly', recon: { rulerAware: true, monstersIntel: false } } }] });
+ok('a DETECTED wander-in band in an auto-defending domain sorties the same tick', rxnArmies(cWd).length === 1 && rxnArmies(cWd)[0].autoReaction === true);
+
+section('lairing monsters land in ⚔ Active Threats — even an ambient seeded den (Joachim 2026-06-25)');
+const cL = mk({ bandHex: 'hex-wild', attitude: 'neutral', garrisonCount: 120, auto: true });
+delete band(cL).incursion;                                                                     // a pure seeded lair band — no tag
+cL.lairs = [{ id: 'lair-seed', hexId: 'hex-wild', groupIds: ['grp-threat'], status: 'active', knownToPlayers: false }];
+ok('an untagged seeded den shows in Active Threats by its lair position', ACKS.incursionBandsForDomain(cL, 'dom-r').some(g => g && g.id === 'grp-threat'));
+recon(cL, 2);                                                                                  // the slot-87 reconcile assesses it
+const tagL = band(cL).incursion;
+ok('the slot-87 reconcile TAGS the seeded den as a domain encounter', !!(tagL && tagL.domainId === 'dom-r' && tagL.via === 'lair-assess' && tagL.disposition === 'lingering'));
+
+section('a den is auto-cleared only once DETECTED (Q2) — undetected dens are left for the GM');
+const cU = mk({ bandHex: 'hex-wild', attitude: 'unfriendly', garrisonCount: 120, auto: true });
+const bU = band(cU); bU.incursion.disposition = 'lingering'; bU.incursion.settled = true; bU.incursion.rulerAware = false;
+cU.lairs = [{ id: 'lair-u', hexId: 'hex-wild', groupIds: ['grp-threat'], status: 'active', knownToPlayers: false }];
+ok('an UNDETECTED den is not sallied against', !(ACKS.proposeGarrisonDefenseDay(cU, { dayInMonth: 2 }).pendingRecords || []).some(r => r.kind === 'garrison-defense'));
+const cD = mk({ bandHex: 'hex-wild', attitude: 'unfriendly', garrisonCount: 120, auto: true });
+const bD = band(cD); bD.incursion.disposition = 'lingering'; bD.incursion.settled = true; bD.incursion.rulerAware = true;
+cD.lairs = [{ id: 'lair-d', hexId: 'hex-wild', groupIds: ['grp-threat'], status: 'active', knownToPlayers: true }];
+ok('a DETECTED weak den IS sallied against (Q2 — auto-clear, settled-exclusion removed)', (ACKS.proposeGarrisonDefenseDay(cD, { dayInMonth: 2 }).pendingRecords || []).some(r => r.kind === 'garrison-defense' && r.groupId === 'grp-threat'));
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('=============================================');
 if(fail === 0) console.log('PASS — ' + pass + ' passed, 0 failed');

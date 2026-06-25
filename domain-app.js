@@ -3701,8 +3701,16 @@ const _component = {
   },
   // RAW (JJ p.103, RR p.452): a deliberate sally requires the ruler to have DETECTED the band.
   // An undetected incursion (rulerAware===false; undefined defaults to aware) offers no Deploy /
-  // 🎌-battle affordance — the garrison can't march on a threat it hasn't located.
-  rulerUnawareOfBand(g){ return !!(g && g.incursion && g.incursion.rulerAware === false); },
+  // 🎌-battle affordance — the garrison can't march on a threat it hasn't located. An UNTAGGED lairing
+  // band (a seeded den not yet assessed — the slot-87 reconcile tags it on the next day-tick) reads its
+  // awareness from the lair's knownToPlayers until then, so an undiscovered den shows ⚠ Unaware too.
+  rulerUnawareOfBand(g){
+    if(!g) return false;
+    if(g.incursion) return g.incursion.rulerAware === false;
+    const lair = ((this.currentCampaign && this.currentCampaign.lairs) || []).find(l => l && Array.isArray(l.groupIds)
+      && l.groupIds.indexOf(g.id) >= 0 && l.status !== 'cleared' && l.status !== 'destroyed' && l.status !== 'abandoned');
+    return !!(lair && !lair.knownToPlayers);
+  },
   garrisonDeployCanSubmit(){ return !this.rulerUnawareOfBand(this.garrisonDeployBand()) && !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
   garrisonDeploySubmit(){
     if(!this.garrisonDeployCanSubmit()) return;
