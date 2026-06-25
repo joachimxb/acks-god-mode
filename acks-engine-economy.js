@@ -561,6 +561,17 @@ function moraleModifiersFor(campaign, d){
   // home credit (RR p.341) + lord-provided wage-waived troops — all folded into garrisonAdequacySpend.
   const gpf = fam > 0 ? garrisonAdequacySpend(campaign, d)/fam : reqRate;
   if(gpf < reqRate && fam > 0) mods.push({ label: 'Garrison below required (' + reqRate + 'gp/family)', value: -Math.max(1, Math.ceil(reqRate - gpf)) });
+  // === I2 (audit 2026-06-24, Lane I) — RR p.349: a ruler whose treasury is insolvent cannot pay his
+  // garrison, so that month's garrison expenditure falls below the required rate. A sustained deficit
+  // therefore bites the morale roll, deepening −1 per consecutive insolvent month to −4 — the unpaid-
+  // garrison death spiral (morale falls → income collapses via incomeFactor → banditry rises). RAW core
+  // (not rule-gated). One-shot counter set by commitTurn AFTER the net is applied (the occupation idiom);
+  // reset to 0 the first solvent month, so the penalty recovers cleanly. A wealthy domain running a small
+  // deficit off reserves stays solvent and takes no row until the reserves actually run dry.
+  const unpaidMonths = d.unpaidGarrisonMonths || 0;
+  if(unpaidMonths >= 1){
+    mods.push({ label: 'Treasury insolvent — the garrison goes unpaid (month ' + unpaidMonths + ', RR p.349)', value: -Math.min(4, unpaidMonths) });
+  }
   // === Military W7 (burst4) — RR p.432: levying militia depresses domain morale (−1 by levying ≤1 per
   // 10 families, −2 by levying 2 per 10) until they are sent home. RAW core (not rule-gated). Demo: no
   // militia called up → 0, no row.

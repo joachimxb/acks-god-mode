@@ -4898,6 +4898,16 @@ function commitTurn(campaign, proposal, options){
     ACKS._applyDomainTreasuryDelta(campaign, d, _ownerNet, { reason:'monthly-net-income', label:'monthly net income' });
     if(_ownerNet) _turnWealthChildren.push({ amount: _ownerNet, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
+    // I2 (audit 2026-06-24, Lane I) — RR p.349 unpaid-garrison consequence. AFTER the month's net hits
+    // the treasury, a domain with peasants that ends insolvent (treasury < 0) could not pay its garrison;
+    // bump the one-shot counter moraleModifiersFor reads NEXT month (−1/consecutive insolvent month, cap
+    // −4). Solvency resets it. Lazy field (|| 0 default), no migration. The trigger is treasury sign, not
+    // monthly net — a rich domain absorbing a small deficit from reserves stays solvent and takes no hit.
+    if((d.demographics.peasantFamilies || 0) > 0 && ((d.treasury && d.treasury.gp) || 0) < 0){
+      d.unpaidGarrisonMonths = Math.min(4, (d.unpaidGarrisonMonths || 0) + 1);
+    } else if(d.unpaidGarrisonMonths){
+      d.unpaidGarrisonMonths = 0;
+    }
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(campaign, d, (d.demographics.peasantFamilies || 0) + popDelta);
     d.administersThisMonth = false;
