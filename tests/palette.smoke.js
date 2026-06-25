@@ -15,8 +15,9 @@
 // per-node semantic judgment to route onto the tokens; a deferred H1 follow-on, NOT a failure here):
 //     green, amber, yellow, red   (+ stone is the warm-neutral target; sky/blue/purple/etc. untouched)
 //
-// Scope = index.html (what the sweep covered). The domain-app*.js mixins build markup via template
-// strings and still carry raw palette utilities — folding them in is part of the deferred follow-on.
+// Scope = index.html + the domain-app*.js mixins. The 2026-06-25 follow-on swept the mixins' 14
+// straggler utilities (orange→amber, gray→stone) and extended this guard to cover them too.
+// (Routing the still-allowed green/amber/yellow/red families onto the --c-* tokens remains the next pass.)
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -39,23 +40,30 @@ const re = new RegExp('\\b(?:' + COLOR_PREFIX + ')-(' + FORBIDDEN.join('|') + ')
   ok('lint IGNORES allowed families + prose', !probe.test('bg-green-100 bg-amber-200 text-red-700 stone-50') && !probe.test('the emerald-vs-green drift; prose; committing grays Pace'));
 }
 
+// Scan index.html + every domain-app*.js mixin for an eliminated family.
+const dir = path.join(__dirname, '..');
+const files = ['index.html', ...fs.readdirSync(dir).filter(f => /^domain-app.*\.js$/.test(f)).sort()];
 const hits = [];
-let m;
-while((m = re.exec(html)) !== null){
-  const line = html.slice(0, m.index).split('\n').length;
-  hits.push({ token: m[0], family: m[1], line });
+for(const f of files){
+  const s = (f === 'index.html') ? html : fs.readFileSync(path.join(dir, f), 'utf8');
+  const r = new RegExp(re.source, 'g');  // fresh per file (reset lastIndex)
+  let m;
+  while((m = r.exec(s)) !== null){
+    const line = s.slice(0, m.index).split('\n').length;
+    hits.push({ file: f, token: m[0], family: m[1], line });
+  }
 }
 
-ok('no forbidden raw palette utility (emerald/orange/rose/gray/slate/zinc/neutral) in index.html',
+ok('no forbidden raw palette utility (emerald/orange/rose/gray/slate/zinc/neutral) in index.html + the domain-app*.js mixins',
    hits.length === 0,
-   hits.length ? (hits.length + ' found — e.g. ' + hits.slice(0, 12).map(h => h.token + '@' + h.line).join(', ')) : '');
+   hits.length ? (hits.length + ' found — e.g. ' + hits.slice(0, 12).map(h => h.token + '@' + h.file + ':' + h.line).join(', ')) : '');
 
 // Per-family breakdown when something slips in, so the failure points straight at the offender.
 if(hits.length){
   const byFam = {};
-  hits.forEach(h => { (byFam[h.family] = byFam[h.family] || []).push(h.line); });
+  hits.forEach(h => { (byFam[h.family] = byFam[h.family] || []).push(h.file + ':' + h.line); });
   for(const fam of FORBIDDEN){
-    if(byFam[fam]) ok('family "' + fam + '" is fully swept', false, byFam[fam].length + ' usage(s) at line(s) ' + byFam[fam].slice(0, 20).join(', '));
+    if(byFam[fam]) ok('family "' + fam + '" is fully swept', false, byFam[fam].length + ' usage(s) at ' + byFam[fam].slice(0, 20).join(', '));
   }
 }
 

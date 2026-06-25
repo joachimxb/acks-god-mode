@@ -1309,10 +1309,10 @@ const _component = {
   senateSenatorChips(senatorshipId){
     const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
     if(!s || !Array.isArray(s.influenceModifiers)) return [];
-    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-orange-200',
+    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-amber-200',
       seduced: 'bg-pink-200', 'intimidated-escaped': 'bg-red-300', 'seduced-ill-treated': 'bg-red-300', bewitched: 'bg-purple-200' };
     return s.influenceModifiers.filter(m => m && m.kind).map(m => ({
-      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-gray-200' }));
+      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-stone-200' }));
   },
   senateSenatorSecret(senatorshipId){
     const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
@@ -1699,7 +1699,7 @@ const _component = {
     if(s === 'enacted' || s === 'dispute-cleared') return 'bg-green-200 text-green-900';
     if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'bg-red-200 text-red-900';
     if(s === 'open') return 'bg-yellow-200 text-yellow-900';
-    return 'bg-gray-200';
+    return 'bg-stone-200';
   },
   // ── Phase 5 — "Bring a motion" CREATOR (raise the issue only: kind/matter/title → Table it) ──
   newMotion: { open: false, senateId: '', kind: 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '', title: '' },
@@ -5140,7 +5140,7 @@ const _component = {
     if(h>0){
       const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
       const cl=(src&&src.conLossHunger)||0;
-      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-amber-200 text-amber-900' });
     }
     // RAW dehydration (RR p.278): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor; loses
     // 1d6 CON/day (Provisioning V2).
@@ -9335,7 +9335,7 @@ const _component = {
       const ch = (camp.characters||[]).find(x => x && x.id === id);
       const conds = [];
       const h = m.foodDeficitDays || 0;
-      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'bg-amber-200 text-amber-900' });
       const d = m.waterDeficitDays || 0;
       if(d > 0) conds.push({ label:'Dehydrated', detail:'day '+d+((m.conLossThirst||0)>0?(' · −'+m.conLossThirst+' CON'):''), cls:'bg-sky-200 text-sky-900' });
       const inv = upd[id] || (ch && ch.inventory) || [];
@@ -9990,8 +9990,8 @@ const _component = {
   },
   _hijinkRow(h){
     const def = (window.ACKS && window.ACKS.hijinkDefinition) ? (window.ACKS.hijinkDefinition(h.type)||{}) : {};
-    const phaseCls = { 'planning':'bg-gray-200', 'performing':'bg-amber-200', 'laying-low':'bg-sky-200' }[h.status] || 'bg-gray-100';
-    const outCls = { 'complete':'bg-green-200', 'failed':'bg-gray-300', 'caught':'bg-red-200 text-red-900' }[h.status] || 'bg-gray-100';
+    const phaseCls = { 'planning':'bg-stone-200', 'performing':'bg-amber-200', 'laying-low':'bg-sky-200' }[h.status] || 'bg-stone-100';
+    const outCls = { 'complete':'bg-green-200', 'failed':'bg-stone-300', 'caught':'bg-red-200 text-red-900' }[h.status] || 'bg-stone-100';
     const take = (h.status==='complete') ? (h.rewardText || '—') : (h.status==='caught') ? ('charged: ' + (h.charge||'—')) : '—';
     const outText = (h.status==='complete') ? '✓ success' : (h.status==='caught') ? '✗ caught' : '✗ failed';
     return {

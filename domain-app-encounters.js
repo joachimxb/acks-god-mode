@@ -565,7 +565,7 @@
     this.showToast('✓ ' + (entry.label || entry.key));
   },
   encAttitudeClass(band){
-    return { hostile: 'border-red-600 bg-red-100 text-red-800', unfriendly: 'border-orange-500 bg-orange-100 text-orange-800',
+    return { hostile: 'border-red-600 bg-red-100 text-red-800', unfriendly: 'border-amber-500 bg-amber-100 text-amber-800',
              neutral: 'border-ink/40 bg-black/5', indifferent: 'border-sky-600 bg-sky-100 text-sky-900',
              friendly: 'border-green-600 bg-green-100 text-green-900' }[band] || 'border-ink/40';
   },
