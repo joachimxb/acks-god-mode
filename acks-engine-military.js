@@ -1061,11 +1061,12 @@ function deployGarrisonReaction(campaign, opts){
   const callUpUnitIds = (Array.isArray(opts.callUpUnitIds) ? opts.callUpUnitIds : []).filter(Boolean);
   if(!unitIds.length && !callUpUnitIds.length) return { ok: false, reason: 'no-units' };
   const army = createArmy(campaign, {
-    name: opts.name || (((dom && dom.name) || 'Domain') + ' reaction force'),
-    leaderCharacterId: opts.commanderCharacterId || null,
-    currentHexId: rallyHexId || null,
-    strategicStance: opts.stance || 'offensive',
-    unitIds, callUpUnitIds
+    id: opts.armyId || undefined,                        // a caller-stable id (D4 auto-deploy: the slot-89
+    name: opts.name || (((dom && dom.name) || 'Domain') + ' reaction force'),  // record pre-mints it so the
+    leaderCharacterId: opts.commanderCharacterId || null,                      // work-copy + real-campaign
+    currentHexId: rallyHexId || null,                                          // armies share an id, and the
+    strategicStance: opts.stance || 'offensive',                              // slot-88 resolution record
+    unitIds, callUpUnitIds                                                     // resolves on both)
   });
   army.reactionTargetGroupId = group.id;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;

@@ -108,6 +108,21 @@
     const a = this.armySelected(); if(!a || !a.reactionTargetGroupId || !this.currentCampaign) return null;
     return (this.currentCampaign.groups || []).find(g => g && g.id === a.reactionTargetGroupId) || null;
   },
+  // Band-centric reaction readers for the ⚔ Active Threats table (D4 deploy model): a band the
+  // garrison is answering stays on the list, marked responding, until the force arrives + recalls.
+  bandRespondingArmy(g){
+    if(!g || !this.currentCampaign) return null;
+    return (this.currentCampaign.armies || []).find(a => a && a.reactionTargetGroupId === g.id) || null;
+  },
+  bandRespondingStatus(g){
+    const a = this.bandRespondingArmy(g); if(!a) return '';
+    const camp = this.currentCampaign;
+    if(a.reactionBattleId && (camp.battles || []).some(b => b && b.id === a.reactionBattleId)) return 'in battle';
+    const marching = a.journeyId && (camp.journeys || []).some(j => j && j.id === a.journeyId && j.status === 'in-transit');
+    if(marching) return 'marching to engage';
+    if(a.currentHexId && g.currentHexId && a.currentHexId === g.currentHexId) return 'in position';
+    return 'mustering';
+  },
   armyReactionStatusText(){
     const a = this.armySelected(); if(!a) return '';
     const band = this.armyReactionTargetBand();
