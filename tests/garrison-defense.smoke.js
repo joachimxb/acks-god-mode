@@ -203,6 +203,35 @@ adv(cLeave);
 ok('the auto-sortie STANDS DOWN when its band leaves the domain (recalled, not chasing out of supply)', !reactionArmies(cLeave, 'grp-threat').length);
 ok('the units re-garrisoned after standing down', ACKS.domainGarrisonUnits(cLeave, 'dom-r').length === 1);
 
+// COORD-AWARE (2026-06-25 follow-up): a migrating band that wanders OFF the authored map keeps its true
+// position on wanderState.coord while currentHexId goes null — the stand-down must read the coord, not the
+// (null) hex id, so an off-map band is correctly judged "left the domain" rather than mishandled.
+section('coord-aware stand-down — a band that wandered off the authored map is still judged by its real position');
+const cOffMap = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+adv(cOffMap); adv(cOffMap);                                                 // deploy + muster completes — the force is afield
+ok('fixture: an auto reaction force is afield', reactionArmies(cOffMap, 'grp-threat').length === 1);
+const bandOff = cOffMap.groups.find(g => g && g.id === 'grp-threat');
+bandOff.currentHexId = null;                                                // wandered off the mapped hexes…
+bandOff.wanderState = { coord: { q: 30, r: 30 }, lastCoord: null, mileRemainder: 0, mode: null, halted: false };  // …but its true coord is known (no hex there)
+ok('the band is judged OUT of the domain by its coord even with no hex id', ACKS.incursionBandStillInDomain(cOffMap, bandOff) === false);
+adv(cOffMap);
+ok('the auto-sortie stands down for an off-map band (coord-aware — not stuck chasing a hexless ghost)', !reactionArmies(cOffMap, 'grp-threat').length);
+
+// The garrison holds its DOMAIN (RR p.341): if the band slips out WHILE the garrison is still forming up,
+// the muster-completion stands the force down instead of marching it OUT of the domain (and out of supply).
+section('band leaves during muster — the force stands down at muster-completion, never marching out');
+const cDuring = mk({ count: 8, garrisonCount: 200, bandHex: 'hex-band' });
+cDuring.hexes.push({ id: 'hex-foreign', domainId: 'dom-other', coord: { q: 9, r: 0 }, terrain: 'grassland' });
+adv(cDuring);                                                               // tick 1: deploy → the force is MUSTERING (forming up at the seat)
+const aDur = reactionArmies(cDuring, 'grp-threat')[0];
+ok('fixture: the force is mustering after the deploy tick', !!aDur && aDur.sortieMustering === true);
+cDuring.groups.find(g => g && g.id === 'grp-threat').currentHexId = 'hex-foreign';   // the band slips out of the domain WHILE forming up
+adv(cDuring);                                                               // tick 2: muster completes → band already gone → stand down (don't march out)
+ok('the force stands down at muster-completion (never marches out of the domain after a departed band)', !reactionArmies(cDuring, 'grp-threat').length);
+ok('the units re-garrisoned — the force never left the domain (no supply / occupation exposure)', ACKS.domainGarrisonUnits(cDuring, 'dom-r').length === 1);
+ok('no march was ever started toward the departed band (held the domain, RR p.341)',
+   !(cDuring.journeys || []).some(j => j && j.armyId === aDur.id && j.status === 'in-transit'));
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — ' + pass + ' passed, ' + fail + ' failed');
 if(fail > 0){ console.log(failures.map(f => '  • ' + f).join('\n')); process.exit(1); }

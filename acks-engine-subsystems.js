@@ -4900,7 +4900,7 @@ Object.assign(ACKS, {
   proposeMonsterBandDay, commitMonsterBandRecord,
   // Phase 3 Military W2 — the slot-86 incursions consumer (the Vagaries of Incursion,
   // JJ pp.100–106) + the domain-panel lookup.
-  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain,
+  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain, incursionBandStillInDomain,
   // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
@@ -6188,6 +6188,28 @@ function incursionBandsForDomain(campaign, domainId){
   return out;
 }
 
+// D4 follow-up (2026-06-25) — is this incursion band STILL standing in the domain it threatened?
+// COORD-AWARE: a migrating band that wanders off the authored map has currentHexId === null but keeps
+// its true position on wanderState.coord (the E6 walk carries the band across unauthored hexes — slot 84),
+// so the garrison's "is it still my problem?" decision must read the real position, not the nullable hex
+// id. The garrison holds its DOMAIN (RR p.341): it pursues a band WITHIN the domain but stands down when
+// the band crosses out — it does not abandon the domain to chase across the wilderness (which would march
+// the home garrison out of supply, RR p.450 — the bug the deploy model exposed, fixed the same day).
+function incursionBandStillInDomain(campaign, band){
+  if(!campaign || !band || !band.incursion || !band.incursion.domainId) return false;
+  const A = _jACKS();
+  let hex = band.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === band.currentHexId) || null) : null;
+  if(!hex && band.wanderState && band.wanderState.coord && typeof A.hexAtCoord === 'function'){
+    hex = A.hexAtCoord(campaign, band.wanderState.coord.q, band.wanderState.coord.r);
+  }
+  return !!(hex && hex.domainId === band.incursion.domainId);
+}
+// The band's display position when it has no authored hex (off-map): its true wander coord, else null.
+function incursionBandCoordLabel(band){
+  const ws = band && band.wanderState;
+  return (ws && ws.coord && typeof ws.coord.q === 'number') ? ('coord ' + ws.coord.q + ',' + ws.coord.r) : null;
+}
+
 // ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
 // "Domains with current morale scores of -2 or less will be plagued by bandits." The RAW
 // counts are already derived (banditCount, the economy module: −2 → 1 bandit per 5 peasant
@@ -6653,15 +6675,13 @@ function proposeMilitaryDay(campaign, ctx){
       // force down (recall home) rather than chase it across the map and out of supply (RR p.450). The
       // band lives on, migrating elsewhere — no longer this domain's problem; JJ p.104 "driven off." A
       // MANUAL sally stays the GM's to recall or press on. [D4 follow-up 2026-06-25]
-      if(army.autoReaction && band.incursion && band.incursion.domainId){
-        const bandHexObj = band.currentHexId ? (campaign.hexes || []).find(h => h && h.id === band.currentHexId) : null;
-        if(!bandHexObj || bandHexObj.domainId !== band.incursion.domainId){
-          pendingRecords.push({ kind: 'reaction-stand-down', armyId: army.id, groupId: band.id,
-            domainId: band.incursion.domainId, name: armyName(army) + ' stands down',
-            label: '\u{1F6E1} ' + armyName(army) + ' stands down \u{2014} ' + (band.name || 'the band')
-              + ' has left the domain (RR p.341, JJ p.104)', status: 'pending' });
-          continue;
-        }
+      if(army.autoReaction && band.incursion && band.incursion.domainId && !incursionBandStillInDomain(campaign, band)){
+        const bandWhere = band.currentHexId || incursionBandCoordLabel(band) || 'the wilderness';
+        pendingRecords.push({ kind: 'reaction-stand-down', armyId: army.id, groupId: band.id,
+          domainId: band.incursion.domainId, name: armyName(army) + ' stands down',
+          label: '\u{1F6E1} ' + armyName(army) + ' stands down \u{2014} ' + (band.name || 'the band')
+            + ' has slipped out of the domain (now at ' + bandWhere + '); the garrison holds its ground rather than chase it into the wild (RR p.341, JJ p.104)', status: 'pending' });
+        continue;
       }
       // ── AUTO-CHASE (v2, JJ p.104) — not co-located: the sally force keeps after a band
       //    that wanders before it arrives. Each day, if the band has moved off the army's
@@ -7262,9 +7282,12 @@ function proposeGarrisonDefenseDay(campaign, ctx){
   for(const army of (campaign.armies || [])){
     if(!army || !army.sortieMustering || !army.reactionTargetGroupId) continue;
     const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
+    // Neutral label: the muster is done + the force sallies. Whether it then MARCHES (the band still
+    // stands in the domain) or STANDS DOWN (the band slipped out — the garrison holds its ground, RR
+    // p.341) is decided in commit against the band's post-wander position (slot 84 commits first this tick).
     pendingRecords.push({ kind: 'garrison-sortie-march', armyId: army.id, groupId: army.reactionTargetGroupId,
-      name: (army.name || 'Reaction force') + ' marches out',
-      label: '\u{1F6E1} ' + (army.name || 'The reaction force') + ' has mustered \u{2014} it marches out to meet '
+      name: (army.name || 'Reaction force') + ' completes its muster',
+      label: '\u{1F6E1} ' + (army.name || 'The reaction force') + ' completes its muster and sallies against '
         + ((band && band.name) || 'the band') + ' (RR p.434, JJ p.104)', status: 'pending' });
   }
   for(const dom of campaign.domains){
@@ -7316,11 +7339,28 @@ function commitGarrisonDefenseRecord(campaign, record){
     if(!army || !army.sortieMustering) return;                     // already marched / recalled (replay guard)
     army.sortieMustering = false;
     const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    const turn = campaign.currentTurn || 1;
+    // The band may have wandered (slot 84 committed earlier THIS tick) out of the domain while the garrison
+    // formed up. The garrison holds its DOMAIN (RR p.341) — it marches out ONLY if the band still stands in
+    // the domain; otherwise an AUTO sortie stands down + recalls (don't march out of supply after a departed
+    // band — RR p.450), and a MANUAL sortie holds at the rally for the GM to recall or pursue by hand.
+    if(band && band.incursion && band.incursion.domainId && !incursionBandStillInDomain(campaign, band)){
+      const where = band.currentHexId || incursionBandCoordLabel(band) || 'the wilderness';
+      if(army.autoReaction){
+        (army.history = army.history || []).push({ turn, type: 'reaction-stand-down',
+          text: 'Stood down — ' + ((band && band.name) || 'the band') + ' slipped out of the domain (now at ' + where + ') before the garrison formed up; holds its ground (RR p.341, JJ p.104)' });
+        if(typeof A.recallReactionForce === 'function') A.recallReactionForce(campaign, army.id);
+      } else {
+        (army.history = army.history || []).push({ turn, type: 'sortie-held',
+          text: 'Mustered, but ' + ((band && band.name) || 'the band') + ' had left the domain (now at ' + where + ') — holding at the rally (RR p.341); recall or pursue by hand' });
+      }
+      return;
+    }
     const bandHexId = band ? (band.currentHexId || null) : null;
     if(bandHexId && army.currentHexId && bandHexId !== army.currentHexId && typeof A.startArmyMarch === 'function'){
       A.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: 'normal' });
     }
-    (army.history = army.history || []).push({ turn: campaign.currentTurn || 1, type: 'sortie-marched',
+    (army.history = army.history || []).push({ turn, type: 'sortie-marched',
       text: 'Mustered and marched out to engage ' + ((band && band.name) || 'the band') + ' (JJ p.104)' });
     return;
   }
