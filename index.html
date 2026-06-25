@@ -2778,7 +2778,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="mt-3 flex justify-between items-center">
       <button @click="marchModal.open=false" class="btn text-sm">Cancel</button>
-      <button @click="submitUnitMarch()" :disabled="!marchModal.destHexId" :class="marchModal.destHexId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🚶 Muster</button>
+      <button @click="submitUnitMarch()" :disabled="!marchModal.destHexId" :class="marchModal.destHexId ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">🚶 Muster</button>
     </div>
   </div>
 </div>
@@ -2808,7 +2808,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeLevyModal()" class="btn">Cancel</button>
-          <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : levyModal.source==='clanhold' ? '⚔ Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
+          <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : levyModal.source==='clanhold' ? '⚔ Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
         </div>
       </div>
     </template>
@@ -2850,7 +2850,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeRecruitModal()" class="btn">Cancel</button>
-          <button @click="submitRecruit()" :disabled="!recruitModalCanSubmit()" :class="recruitModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitModalCanSubmit() ? 'Pick a type with availability and set a number from 1 to the available count' : ''" x-text="'🪖 Recruit ' + (Math.floor(recruitModal.count)||0)"></button>
+          <button @click="submitRecruit()" :disabled="!recruitModalCanSubmit()" :class="recruitModalCanSubmit() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" :title="!recruitModalCanSubmit() ? 'Pick a type with availability and set a number from 1 to the available count' : ''" x-text="'🪖 Recruit ' + (Math.floor(recruitModal.count)||0)"></button>
         </div>
       </div>
     </template>
@@ -2889,7 +2889,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeRecruitSpecialistModal()" class="btn">Cancel</button>
-          <button @click="submitRecruitSpecialist()" :disabled="!recruitSpecialistCanSubmit()" :class="recruitSpecialistCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitSpecialistCanSubmit() ? 'Pick a type with availability this period' : ''">🎖 Recruit</button>
+          <button @click="submitRecruitSpecialist()" :disabled="!recruitSpecialistCanSubmit()" :class="recruitSpecialistCanSubmit() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" :title="!recruitSpecialistCanSubmit() ? 'Pick a type with availability this period' : ''">🎖 Recruit</button>
         </div>
       </div>
     </template>
@@ -3092,7 +3092,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
       <button @click="closeConstructionWizard()" class="btn">Cancel</button>
-      <button @click="submitConstructionWizard()" :disabled="!!constructionWizardSubmitReason()" :class="!constructionWizardSubmitReason() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="constructionWizardSubmitReason() || 'Begin construction'">🏗 Begin construction</button>
+      <button @click="submitConstructionWizard()" :disabled="!!constructionWizardSubmitReason()" :class="!constructionWizardSubmitReason() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" :title="constructionWizardSubmitReason() || 'Begin construction'">🏗 Begin construction</button>
     </div>
   </div>
 </div>
@@ -3145,10 +3145,10 @@ document.addEventListener('alpine:init', () => {
       <div class="p-4 text-sm italic opacity-70" x-text="'No followers available' + (followerArrival.proposal && followerArrival.proposal.reason ? ' (' + followerArrival.proposal.reason + ')' : '') + '.'"></div>
     </template>
     <div class="flex justify-between items-center gap-2 p-4 border-t border-ink/30">
-      <button @click="rerollFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? 'hover:bg-yellow-50' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm" title="Roll the arrival again">⟳ Re-roll</button>
+      <button @click="rerollFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary text-sm" title="Roll the arrival again">⟳ Re-roll</button>
       <div class="flex gap-2">
         <button @click="closeFollowerArrival()" class="btn">Cancel</button>
-        <button @click="submitFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold">🎺 Welcome them</button>
+        <button @click="submitFollowerArrival()" :disabled="!(followerArrival.proposal && followerArrival.proposal.ok)" :class="(followerArrival.proposal && followerArrival.proposal.ok) ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary">🎺 Welcome them</button>
       </div>
     </div>
   </div>
@@ -3215,7 +3215,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeTrainModal()" class="btn">Cancel</button>
-          <button @click="submitTrain()" :disabled="!trainModalCanSubmit()" :class="trainModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!trainModalCanSubmit() ? 'Pick a troop type at least one of this levy qualifies for' : ''" x-text="trainModalChosen() ? ('🎓 Train ' + trainModalCount()) : '🎓 Train'"></button>
+          <button @click="submitTrain()" :disabled="!trainModalCanSubmit()" :class="trainModalCanSubmit() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" :title="!trainModalCanSubmit() ? 'Pick a troop type at least one of this levy qualifies for' : ''" x-text="trainModalChosen() ? ('🎓 Train ' + trainModalCount()) : '🎓 Train'"></button>
         </div>
       </div>
     </template>
@@ -3437,7 +3437,7 @@ document.addEventListener('alpine:init', () => {
                           <option :value="String(i)" :selected="encModal.identityPickValue === String(i)" x-text="(en.lo === en.hi ? en.lo : en.lo + '–' + en.hi) + ' · ' + en.label"></option>
                         </template>
                       </select>
-                      <button @click="encModalApplyIdentityPick()" :disabled="encModal.identityPickValue === ''" :class="encModal.identityPickValue === '' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-100'" class="px-1.5 border border-ink rounded">apply</button>
+                      <button @click="encModalApplyIdentityPick()" :disabled="encModal.identityPickValue === ''" :class="encModal.identityPickValue === '' ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn">apply</button>
                       <button @click="encModal.identityPick = false" class="btn">×</button>
                     </div>
                   </div>
@@ -3454,7 +3454,7 @@ document.addEventListener('alpine:init', () => {
                   <div class="flex items-center gap-1.5 mt-1" x-show="encGarrisonPatrol().unitPresent">
                     <label>Patrollers slain this fight:</label>
                     <input type="number" min="0" :max="encGarrisonPatrol().patrolCount || undefined" x-model.number="encModal.garrisonKilled" class="border border-ink rounded px-1 py-0.5 w-16">
-                    <button @click="encApplyGarrisonCasualties()" :disabled="!(encModal.garrisonKilled > 0)" :class="(encModal.garrisonKilled > 0) ? 'hover:bg-red-100' : 'opacity-40 cursor-not-allowed'" class="px-1.5 py-0.5 border border-ink rounded" title="Permanently subtract the slain from the domain garrison (RR p.341)">⚰ Apply to garrison</button>
+                    <button @click="encApplyGarrisonCasualties()" :disabled="!(encModal.garrisonKilled > 0)" :class="(encModal.garrisonKilled > 0) ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-danger" title="Permanently subtract the slain from the domain garrison (RR p.341)">⚰ Apply to garrison</button>
                   </div>
                   <p class="opacity-60 italic mt-0.5" x-show="!encGarrisonPatrol().unitPresent">The source garrison unit is gone (disbanded since the meeting).</p>
                 </div>
@@ -3556,7 +3556,7 @@ document.addEventListener('alpine:init', () => {
                       <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.evGmMod" class="w-14"></label>
                     </div>
                     <label x-show="encModalEnc().surprise && encModalEnc().surprise.party.surprised" class="flex items-center gap-1.5 text-xs"><input type="checkbox" x-model="encModal.evAllowSurprised"> an unsurprised explorer guides — the party may evade though surprised</label>
-                    <button @click="encModalAttemptEvasion()" :disabled="encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised" :class="(encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200'" class="px-2 py-0.5 border border-ink rounded font-semibold">🏃 Attempt evasion</button>
+                    <button @click="encModalAttemptEvasion()" :disabled="encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised" :class="(encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised) ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-primary">🏃 Attempt evasion</button>
                     <span class="text-xs accent-red" x-show="encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised">The party is surprised — it cannot evade.</span>
                   </div>
                 </template>
@@ -3733,7 +3733,7 @@ document.addEventListener('alpine:init', () => {
               <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.inflMod" class="w-14"></label>
             </div>
             <div class="flex items-center gap-2 mt-1.5">
-              <button @click="encModalAttemptInfluence()" :disabled="!encInfluenceFits().fits" :class="encInfluenceFits().fits ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded font-semibold">🗣 Attempt influence</button>
+              <button @click="encModalAttemptInfluence()" :disabled="!encInfluenceFits().fits" :class="encInfluenceFits().fits ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary">🗣 Attempt influence</button>
               <span class="text-xs accent-red" x-show="!encInfluenceFits().fits" x-text="encInfluenceFits().reason"></span>
             </div>
             <p class="opacity-60 text-xs mt-1">Each attempt takes longer (round → turn → hour → work-day → week); the 3rd+ costs the speaker's day. A failed bribe backlashes one step toward Hostile (not when proficient). Once interacting, the party can no longer evade.</p>
@@ -3743,7 +3743,7 @@ document.addEventListener('alpine:init', () => {
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('parleyed')" class="btn" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('combat')" class="btn" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('dispersed')" class="btn" title="The meeting broke up without consequence">💨 Dispersed</button>
-            <button x-show="encResolutionVerbsVisible() && !encModal.settle && encSettleRuleOn()" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded" :title="encSettleTitle()">🏚 Settles as lair?</button>
+            <button x-show="encResolutionVerbsVisible() && !encModal.settle && encSettleRuleOn()" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-warn" :title="encSettleTitle()">🏚 Settles as lair?</button>
             <span class="text-xs opacity-60 self-center" x-show="encResolutionVerbsVisible() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
             <button @click="encModalResolve('dismissed')" class="btn accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
           </div>
@@ -3776,7 +3776,7 @@ document.addEventListener('alpine:init', () => {
               <!-- E3a, the evaded path (per Joachim 2026-06-11): the party fled — the band may
                    still den behind them. One linger roll decides it; a den founded here starts
                    UNKNOWN to the players (they ran; find it via search / track-home). -->
-              <button x-show="encSettleOfferOnResolved() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="text-xs px-1.5 border border-ink rounded ml-1" :title="encSettleTitle()">🏚 Settles as lair?</button>
+              <button x-show="encSettleOfferOnResolved() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-warn text-xs ml-1" :title="encSettleTitle()">🏚 Settles as lair?</button>
               <span class="text-xs opacity-60" x-show="encSettleOfferOnResolved() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
               <!-- E4k/E5 (Joachim 2026-06-11): 🐾 lives HERE, with the other outcome buttons.
                    A concluded real meeting can be TRACKED (E5 — any creature, with or without
@@ -4141,7 +4141,7 @@ document.addEventListener('alpine:init', () => {
 
     <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
       <button @click="musterArmyOpen = false" class="btn">Cancel</button>
-      <button @click="musterArmySubmit()" :disabled="!musterCanSubmit()" :class="!musterCanSubmit() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200 font-semibold'" class="px-3 py-1 border border-ink rounded">🎖 Muster army</button>
+      <button @click="musterArmySubmit()" :disabled="!musterCanSubmit()" :class="!musterCanSubmit() ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-primary">🎖 Muster army</button>
     </div>
   </div>
 </div>
@@ -4228,7 +4228,7 @@ document.addEventListener('alpine:init', () => {
 
     <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
       <button @click="garrisonDeployOpen = false" class="btn">Cancel</button>
-      <button @click="garrisonDeploySubmit()" :disabled="!garrisonDeployCanSubmit()" :class="!garrisonDeployCanSubmit() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200 font-semibold'" class="px-3 py-1 border border-ink rounded">⚔ Deploy</button>
+      <button @click="garrisonDeploySubmit()" :disabled="!garrisonDeployCanSubmit()" :class="!garrisonDeployCanSubmit() ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-primary">⚔ Deploy</button>
     </div>
   </div>
   </template>
@@ -4305,7 +4305,7 @@ document.addEventListener('alpine:init', () => {
               </div>
 
               <div class="flex justify-end items-center gap-2 pt-1">
-                <button @click="commitStashTransfer()" :disabled="!stashTransferAnythingSelected()" :class="stashTransferAnythingSelected() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" x-text="stashTransferDir==='deposit' ? 'Cache selected →' : '← Take selected'"></button>
+                <button @click="commitStashTransfer()" :disabled="!stashTransferAnythingSelected()" :class="stashTransferAnythingSelected() ? '' : 'opacity-40 cursor-not-allowed'" class="btn btn-primary" x-text="stashTransferDir==='deposit' ? 'Cache selected →' : '← Take selected'"></button>
               </div>
             </div>
           </template>
@@ -4451,7 +4451,7 @@ document.addEventListener('alpine:init', () => {
       <!-- Step 4 — submit gate -->
       <div class="wizard-submit-gate">
         <span class="wizard-submit-disabled-reason" x-text="tradeSubmitDisabledReason()"></span>
-        <button @click="tradeSubmit()" :disabled="!tradeCanSubmit()" :class="tradeCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold" x-text="trade.dir==='buy' ? '🛒 Buy' : '💰 Sell'"></button>
+        <button @click="tradeSubmit()" :disabled="!tradeCanSubmit()" :class="tradeCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary" x-text="trade.dir==='buy' ? '🛒 Buy' : '💰 Sell'"></button>
       </div>
     </div>
   </div>
@@ -4522,7 +4522,7 @@ document.addEventListener('alpine:init', () => {
       <div class="flex justify-end items-center gap-2 pt-1">
         <span x-show="forageActor() && !forageKindFits(forage.kind).fits" class="text-xs accent-red mr-auto" x-text="forageKindFits(forage.kind).reason"></span>
         <button @click="closeForage()" class="btn text-sm">Done</button>
-        <button @click="runForage()" :disabled="!forageActor() || !forageKindFits(forage.kind).fits" :class="(forageActor() && forageKindFits(forage.kind).fits) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
+        <button @click="runForage()" :disabled="!forageActor() || !forageKindFits(forage.kind).fits" :class="(forageActor() && forageKindFits(forage.kind).fits) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
       </div>
     </div>
   </div>
@@ -4595,7 +4595,7 @@ document.addEventListener('alpine:init', () => {
       <div class="flex justify-end items-center gap-2 pt-1">
         <span x-show="searchActor() && !searchFits().fits" class="text-xs accent-red mr-auto" x-text="searchFits().reason"></span>
         <button @click="closeSearchHex()" class="btn text-sm">Done</button>
-        <button @click="runSearchHour()" :disabled="!searchActor() || !searchFits().fits" :class="(searchActor() && searchFits().fits) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm">🔍 Search 1 hour</button>
+        <button @click="runSearchHour()" :disabled="!searchActor() || !searchFits().fits" :class="(searchActor() && searchFits().fits) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">🔍 Search 1 hour</button>
       </div>
     </div>
   </div>
@@ -4657,7 +4657,7 @@ document.addEventListener('alpine:init', () => {
       </template>
       <div class="flex justify-end items-center gap-2 pt-1">
         <button @click="closeTrackHome()" class="btn">Done</button>
-        <button @click="runTrackHome()" :disabled="!trackHome.actorId || !!trackHome.result" :class="(trackHome.actorId && !trackHome.result) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold">🐾 Track</button>
+        <button @click="runTrackHome()" :disabled="!trackHome.actorId || !!trackHome.result" :class="(trackHome.actorId && !trackHome.result) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary">🐾 Track</button>
       </div>
     </div>
   </div>
@@ -4826,7 +4826,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="!(_journeyDestPick && _journeyDestPick.pendingHexId)">
           <span class="opacity-70">click a hex on the map…</span>
         </template>
-        <button @click="journeyDestPickConfirm()" :disabled="!(_journeyDestPick && _journeyDestPick.pendingHexId)" :class="(_journeyDestPick && _journeyDestPick.pendingHexId) ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded">Use this hex</button>
+        <button @click="journeyDestPickConfirm()" :disabled="!(_journeyDestPick && _journeyDestPick.pendingHexId)" :class="(_journeyDestPick && _journeyDestPick.pendingHexId) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success">Use this hex</button>
         <button @click="journeyDestPickCancel()" class="btn" x-text="(_journeyDestPick && _journeyDestPick.journeyId) ? 'Cancel' : 'Cancel · back to journey'"></button>
       </div>
 
@@ -5879,8 +5879,8 @@ document.addEventListener('alpine:init', () => {
                 </span>
                 <button @click="showAgriModal = true"
                         :disabled="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0"
-                        :class="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
-                        class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                        :class="(agriculturalInvestableHexes(selectedDomain)||[]).length === 0 ? 'opacity-50 cursor-not-allowed' : ''"
+                        class="btn btn-primary text-sm"
                         title="Fund land improvement — opens a dialog to enter gp per hex. The budget builds at ~500gp/day on the Day Clock (RR p.174), each +1 step (25,000gp) taking ~50 days.">⚒ Fund improvements…</button>
               </div>
 
@@ -5925,8 +5925,8 @@ document.addEventListener('alpine:init', () => {
                       <button @click="showAgriModal=false" class="btn">Cancel</button>
                       <button @click="beginAgriculturalInvestment(selectedDomain, agAmounts); showAgriModal=false"
                               :disabled="agTotal() <= 0"
-                              :class="agTotal() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
-                              class="px-3 py-1 border border-ink rounded font-semibold">⚒ Fund improvements</button>
+                              :class="agTotal() <= 0 ? 'opacity-50 cursor-not-allowed' : ''"
+                              class="btn btn-primary">⚒ Fund improvements</button>
                     </div>
                   </div>
                 </div>
@@ -6051,8 +6051,8 @@ document.addEventListener('alpine:init', () => {
                     <button @click="showOrderModal=false" class="btn">Cancel</button>
                     <button @click="beginUrbanInvestment(selectedDomain, amounts); showOrderModal=false"
                             :disabled="total() <= 0"
-                            :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
-                            class="px-3 py-1 border border-ink rounded font-semibold">🏗 Order investment</button>
+                            :class="total() <= 0 ? 'opacity-50 cursor-not-allowed' : ''"
+                            class="btn btn-primary">🏗 Order investment</button>
                   </div>
                 </div>
               </div>
@@ -6096,9 +6096,9 @@ document.addEventListener('alpine:init', () => {
                     <button @click="showFoundModal=false" class="btn">Cancel</button>
                     <button @click="foundSettlementById(selectedDomain, foundHexId, foundName, foundCount); showFoundModal=false; foundHexId=''; foundName=''; foundCount=100"
                             :disabled="!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount"
-                            :class="(!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-200 hover:bg-yellow-300'"
+                            :class="(!foundHexId || !foundName || foundCount < 75 || foundCount > 249 || (selectedDomain.treasury.gp||0) < 10000 || (selectedDomain.demographics.peasantFamilies||0) < foundCount) ? 'opacity-50 cursor-not-allowed' : ''"
                             :title="!foundHexId ? 'Pick a hex' : (!foundName ? 'Name the settlement' : (foundCount < 75 ? 'Need at least 75 peasant families' : (foundCount > 249 ? 'Max 249 peasant families (RAW founding cap)' : ((selectedDomain.treasury.gp||0) < 10000 ? 'Need 10,000gp in treasury' : ((selectedDomain.demographics.peasantFamilies||0) < foundCount ? 'Not enough rural families' : 'Found this settlement')))))"
-                            class="px-3 py-1 border border-ink rounded font-semibold">🏘 Found · 10,000gp + <span x-text="foundCount"></span>p</button>
+                            class="btn btn-primary">🏘 Found · 10,000gp + <span x-text="foundCount"></span>p</button>
                   </div>
                 </div>
               </div>
@@ -6594,7 +6594,7 @@ document.addEventListener('alpine:init', () => {
                 <tr style="background:#ece0c0"><td colspan="11" class="py-1">
                   <span class="font-semibold">⚒ Conscripts</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'conscript') + ' / cap ' + domainLevyCap(selectedDomain,'conscript') + ' (raised ' + domainLevyEverRaised(selectedDomain,'conscript') + ')'"></span>
-                  <button @click="openLevyModal(selectedDomain,'conscript')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Conscript peasants — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Levy conscripts</button>
+                  <button @click="openLevyModal(selectedDomain,'conscript')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0) ? 'opacity-40 cursor-not-allowed' : ''" class="btn btn-warn text-xs ml-2" title="Conscript peasants — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Levy conscripts</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— the realm is too unhappy to levy (RR p.432)</span>
                   <span x-show="domainLevyEverRaised(selectedDomain,'conscript') > domainLevyCap(selectedDomain,'conscript')" class="text-xs accent-red ml-1" x-text="domainTypeInfo(selectedDomain)?.allowsConscription ? '⚠ over cap — the population fell; release some' : '⚠ Clanholds cannot field conscripts (RR p.433) — release them'"></span>
                   <div class="text-xs opacity-60 font-normal mt-0.5">≤1 per 10 families; no morale/revenue cost. Casualties are sticky and recover 5%/yr of cap (RR pp.430–431).</div>
@@ -6633,7 +6633,7 @@ document.addEventListener('alpine:init', () => {
                 <tr style="background:#ece0c0"><td colspan="11" class="py-1">
                   <span class="font-semibold">🛡 Militia</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'militia') + ' / cap ' + domainLevyCap(selectedDomain,'militia') + ' (raised ' + domainLevyEverRaised(selectedDomain,'militia') + ')'"></span>
-                  <button @click="openLevyModal(selectedDomain,'militia')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
+                  <button @click="openLevyModal(selectedDomain,'militia')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : ''" class="btn btn-warn text-xs ml-2" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
                   <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline ml-2" title="Stand all militia down to the rolls — no wages while home (RR p.432); trained+equipped credit the garrison (RR p.341); call up again without re-levying; ends the penalty">🏠 Send all home</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— too unhappy to levy (RR p.432)</span>
                   <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red ml-1" x-text="domainTypeInfo(selectedDomain)?.allowsMilitia ? '⚠ over cap' : '⚠ Clanholds cannot field militia (RR p.433) — release them'"></span>
@@ -6680,7 +6680,7 @@ document.addEventListener('alpine:init', () => {
                 <tr style="background:#ece0c0"><td colspan="11" class="py-1">
                   <span class="font-semibold">⚔ Clan warriors</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'clanhold') + ' / cap ' + domainLevyCap(selectedDomain,'clanhold') + ' (raised ' + domainLevyEverRaised(selectedDomain,'clanhold') + ')'"></span>
-                  <button @click="openLevyModal(selectedDomain,'clanhold')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy clan warriors — ≤1 per family; pre-trained & equipped; no wages, no morale/revenue cost (RR p.433)">⚔ Levy clan warriors</button>
+                  <button @click="openLevyModal(selectedDomain,'clanhold')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'clanhold')<=0) ? 'opacity-40 cursor-not-allowed' : ''" class="btn btn-warn text-xs ml-2" title="Levy clan warriors — ≤1 per family; pre-trained & equipped; no wages, no morale/revenue cost (RR p.433)">⚔ Levy clan warriors</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— the realm is too unhappy to levy (RR p.432)</span>
                   <span x-show="domainLevyEverRaised(selectedDomain,'clanhold') > domainLevyCap(selectedDomain,'clanhold')" class="text-xs accent-red ml-1">⚠ over cap — the population fell; release some</span>
                   <div class="text-xs opacity-60 font-normal mt-0.5">≤1 per family; no wages (spoils expected) and no morale/revenue cost; ⅓ veterans; arrive pre-trained and equipped (RR p.433). Casualties are sticky and recover 5%/yr of cap.</div>
@@ -7608,7 +7608,7 @@ document.addEventListener('alpine:init', () => {
       <template x-for="d in senateDissolvedRows()" :key="d.id">
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1">
           <span><strong x-text="d.name"></strong> — senatorial government abandoned. <span class="opacity-70" x-show="!d.canReestablish" x-text="'A survivor may re-establish it on/after turn ' + d.readyAtTurn + '.'"></span></span>
-          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🏛 Re-establish</button>
+          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm">🏛 Re-establish</button>
         </div>
       </template>
     </div>
@@ -8044,7 +8044,7 @@ document.addEventListener('alpine:init', () => {
           <div class="text-sm opacity-75" x-text="chronicleSubmitSummary()"></div>
           <div class="flex gap-2">
             <button @click="chronicleReset()" class="btn text-sm" :title="chronicleState.editingEventId ? 'Cancel editing and clear the wizard' : 'Clear the wizard'"><span x-text="chronicleState.editingEventId ? 'Cancel' : 'Reset'"></span></button>
-            <button @click="chronicleSubmit()" :disabled="!chronicleCanSubmit()" :class="chronicleCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" :title="chronicleSubmitDisabledReason() || 'Submit chronicle'" class="px-4 py-2 border-2 border-ink rounded text-sm font-semibold"><span x-text="chronicleState.editingEventId ? '💾 Save Changes' : '📝 Add to Chronicle'"></span></button>
+            <button @click="chronicleSubmit()" :disabled="!chronicleCanSubmit()" :class="chronicleCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" :title="chronicleSubmitDisabledReason() || 'Submit chronicle'" class="btn btn-primary text-sm"><span x-text="chronicleState.editingEventId ? '💾 Save Changes' : '📝 Add to Chronicle'"></span></button>
           </div>
         </div>
       </div>
@@ -8091,7 +8091,7 @@ document.addEventListener('alpine:init', () => {
           <div class="text-sm opacity-75" x-text="emitWizardSubmitSummary()"></div>
           <div class="flex gap-2">
             <button @click="emitWizardReset()" class="btn text-sm">Reset</button>
-            <button @click="emitWizardSubmit()" :disabled="!emitWizardCanSubmit()" :class="emitWizardCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" :title="emitWizardSubmitDisabledReason() || 'Emit'" class="px-4 py-2 border-2 border-ink rounded text-sm font-semibold">📨 Emit</button>
+            <button @click="emitWizardSubmit()" :disabled="!emitWizardCanSubmit()" :class="emitWizardCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" :title="emitWizardSubmitDisabledReason() || 'Emit'" class="btn btn-primary text-sm">📨 Emit</button>
           </div>
         </div>
       </div>
@@ -9300,7 +9300,7 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
         <div class="wizard-submit-gate flex items-center gap-2 flex-wrap">
-          <button @click="startJourneySubmit()" :disabled="!startJourneyCanSubmit()" :class="startJourneyCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" :title="startJourneySubmitDisabledReason() || 'Set out on the journey'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🧭 Start journey</button>
+          <button @click="startJourneySubmit()" :disabled="!startJourneyCanSubmit()" :class="startJourneyCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" :title="startJourneySubmitDisabledReason() || 'Set out on the journey'" class="btn btn-primary text-sm">🧭 Start journey</button>
           <button @click="startJourneyCancel()" class="btn text-sm">Cancel</button>
           <span class="wizard-submit-disabled-reason text-xs text-red-700" x-show="!startJourneyCanSubmit()" x-text="startJourneySubmitDisabledReason()"></span>
         </div>
@@ -9624,7 +9624,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? 'bg-sky-300 hover:bg-sky-400' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="px-4 py-1.5 border-2 border-ink rounded font-bold text-base" x-show="journeyDetail().status==='in-transit'">🚶 Complete Movement</button>
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit'">🚶 Complete Movement</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base bg-green-200 text-green-900 border-2 border-green-700">✓ Arrived</span>
           <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">🛑 Stopped</span>
           <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
@@ -9781,7 +9781,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="c in voyagesVesselCatalogOptions()" :key="'nvc-'+c.key"><option :value="c.key" x-text="c.label"></option></template>
                 </select>
               </div>
-              <button @click="voyagesCreateVesselSubmit()" :disabled="!voyagesNewVessel.catalogKey" :class="voyagesNewVessel.catalogKey ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">+ Build vessel</button>
+              <button @click="voyagesCreateVesselSubmit()" :disabled="!voyagesNewVessel.catalogKey" :class="voyagesNewVessel.catalogKey ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">+ Build vessel</button>
             </div>
             <!-- list -->
             <template x-if="voyagesVessels().length===0"><p class="text-xs italic opacity-60">No vessels yet. Pick a class above to build one (RR p.316: galleys, sailing ships, longships, barges, boats), then assign it to a journey to set sail.</p></template>
@@ -9900,8 +9900,8 @@ document.addEventListener('alpine:init', () => {
 
           <div class="flex items-center gap-3">
             <button @click="launchHijinkSubmit()" :disabled="!hijinkCanLaunch()"
-                    class="px-3 py-1 border border-ink rounded text-sm font-semibold"
-                    :class="hijinkCanLaunch() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🗡 Assign hijink</button>
+                    class="btn btn-success text-sm"
+                    :class="hijinkCanLaunch() ? '' : 'opacity-40 cursor-not-allowed'">🗡 Assign hijink</button>
             <span x-show="!hijinkCanLaunch() && hijinkLaunchDisabledReason()" class="text-xs italic opacity-70" x-text="hijinkLaunchDisabledReason()"></span>
           </div>
         </div>
@@ -9960,8 +9960,8 @@ document.addEventListener('alpine:init', () => {
             </div>
             <div class="flex items-center gap-3 mt-2">
               <button @click="synFormSubmit()" :disabled="!synCanForm()"
-                      class="px-3 py-1 border border-ink rounded text-sm font-semibold"
-                      :class="synCanForm() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🏛 Found syndicate</button>
+                      class="btn btn-success text-sm"
+                      :class="synCanForm() ? '' : 'opacity-40 cursor-not-allowed'">🏛 Found syndicate</button>
               <span x-show="!synCanForm() && synFormDisabledReason()" class="text-xs italic opacity-70" x-text="synFormDisabledReason()"></span>
             </div>
           </details>
@@ -9980,8 +9980,8 @@ document.addEventListener('alpine:init', () => {
                 <div class="flex items-center gap-2">
                   <span class="text-xs opacity-70" x-text="syn.memberCount + ' / ' + syn.maxMembers + ' members · eff. L' + syn.maxEffectiveLevel"></span>
                   <button @click="synCollect(syn.id)" :disabled="!syn.hasBoss || syn.collectedThisTurn || syn.tributeTotal <= 0"
-                          class="px-2 py-0.5 border border-ink rounded text-xs font-semibold"
-                          :class="(syn.hasBoss && !syn.collectedThisTurn && syn.tributeTotal > 0) ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-40 cursor-not-allowed'"
+                          class="btn btn-primary text-xs"
+                          :class="(syn.hasBoss && !syn.collectedThisTurn && syn.tributeTotal > 0) ? '' : 'opacity-40 cursor-not-allowed'"
                           :title="syn.collectedThisTurn ? 'Tribute already collected this turn' : (!syn.hasBoss ? 'No boss set' : '')">💰 Collect tribute<span x-show="syn.tributeTotal > 0" x-text="' (' + syn.tributeTotal.toLocaleString() + 'gp)'"></span></button>
                 </div>
               </div>
@@ -10024,7 +10024,7 @@ document.addEventListener('alpine:init', () => {
                     </template>
                     <template x-if="!synHj3(syn.id).guildChartered">
                       <button @click="synCharterGuild(syn.id)" :disabled="!synHj3(syn.id).canCharter"
-                              class="px-2 py-0.5 border border-ink rounded font-semibold"
+                              class="btn font-semibold"
                               :class="synHj3(syn.id).canCharter ? 'bg-purple-100 hover:bg-purple-200' : 'opacity-40 cursor-not-allowed'"
                               :title="synHj3(syn.id).canCharter ? 'Charter this syndicate as a criminal guild (formal organization, +50% membership cap)' : synHj3(syn.id).canCharterReason">🏷 Charter guild</button>
                     </template>
@@ -10931,7 +10931,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </select>
             </label>
-            <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">Create party</button>
+            <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">Create party</button>
             <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="btn text-sm">Cancel</button>
             <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
             <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
@@ -11011,7 +11011,7 @@ document.addEventListener('alpine:init', () => {
                   <button x-show="pt.activeJourneyId && journeyById(pt.activeJourneyId)" @click="journeyOpenDetail(pt.activeJourneyId)" class="btn btn-info text-sm" title="This party is on a journey — open it">⛺ on journey</button>
                   <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="btn btn-info text-sm" title="Start a journey with this whole party">🧭 Send on journey</button>
                   <!-- §12 — turn this party into an army (RR pp.435–437) -->
-                  <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : 'bg-amber-200 hover:bg-amber-300'" class="text-sm px-2 py-0.5 border border-ink rounded" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
+                  <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
                   <button @click="removeParty(pt.id)" class="btn text-sm accent-red">× delete</button>
                 </div>
               </div>
@@ -12193,8 +12193,8 @@ document.addEventListener('alpine:init', () => {
             </select>
             <button @click="if(_recruitStartPick){ recruitStart(_recruitStartPick); _recruitStartPick=''; }"
                     :disabled="!_recruitStartPick"
-                    :class="_recruitStartPick ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
-                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold">+ Start recruitment</button>
+                    :class="_recruitStartPick ? '' : 'opacity-50 cursor-not-allowed'"
+                    class="btn btn-primary text-sm">+ Start recruitment</button>
           </div>
         </div>
       </template>
@@ -12333,9 +12333,9 @@ document.addEventListener('alpine:init', () => {
                   </div>
                   <button @click="recruitStartSoliciting()"
                           :disabled="!recruitStartFits().fits"
-                          :class="recruitStartFits().fits ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                          :class="recruitStartFits().fits ? '' : 'opacity-50 cursor-not-allowed'"
                           :title="recruitStartFits().reason || 'Begin soliciting — week-1 candidates appear at once; advance the Day Clock for weeks 2–3'"
-                          class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
+                          class="btn btn-primary text-sm"
                           x-text="recruitStartFits().label"></button>
                 </div>
                 <div class="text-sm opacity-70" x-text="recruitBudgetLine()"></div>
@@ -12435,8 +12435,8 @@ document.addEventListener('alpine:init', () => {
                 <div class="font-semibold">Candidates</div>
                 <button @click="recruitEngageOne()"
                         :disabled="recruitState.engagedIds.length >= recruitRevealedAvailable()"
-                        :class="recruitState.engagedIds.length >= recruitRevealedAvailable() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
-                        class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
+                        :class="recruitState.engagedIds.length >= recruitRevealedAvailable() ? 'opacity-50 cursor-not-allowed' : ''"
+                        class="btn btn-primary text-sm"
                         x-text="'+ Engage candidate (' + recruitState.engagedIds.length + ' / ' + recruitRevealedAvailable() + ' engaged)'"></button>
               </div>
               <template x-if="recruitState.engagedIds.length === 0">
@@ -12542,9 +12542,9 @@ document.addEventListener('alpine:init', () => {
               <button @click="recruitCancel()" class="btn text-sm">Cancel</button>
               <button @click="recruitSubmit()"
                       :disabled="!recruitCanSubmit()"
-                      :class="recruitCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                      :class="recruitCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'"
                       :title="recruitSubmitDisabledReason() || 'Apply the recruitment event'"
-                      class="px-4 py-2 border-2 border-ink rounded text-sm font-semibold">✓ Submit recruitment</button>
+                      class="btn btn-primary text-sm">✓ Submit recruitment</button>
             </div>
           </div>
 
@@ -13212,7 +13212,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="d.disfiguring"><span class="text-xs opacity-60"> · disfiguring</span></template>
                     <template x-if="d.prognosisKnown"><span class="block text-xs" :class="d.willDie ? 'accent-red' : ''" x-text="'prognosis: ' + (d.willDie ? 'will die without a cure' : 'will recover')"></span></template>
                     <div class="flex gap-1 mt-0.5">
-                      <button @click="identifyDiseaseRow(characterEditing, d)" :disabled="d.identifiedLevel === 'prognosis'" :class="d.identifiedLevel === 'prognosis' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-50'" class="text-xs px-1 border border-ink/30 rounded" title="Record the party's Healing diagnosis (JJ p.84)" x-text="d.identifiedLevel === 'identified' ? '+ prognosis' : (d.identifiedLevel === 'prognosis' ? '✓ diagnosed' : '🔍 identify')"></button>
+                      <button @click="identifyDiseaseRow(characterEditing, d)" :disabled="d.identifiedLevel === 'prognosis'" :class="d.identifiedLevel === 'prognosis' ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-primary text-xs" title="Record the party's Healing diagnosis (JJ p.84)" x-text="d.identifiedLevel === 'identified' ? '+ prognosis' : (d.identifiedLevel === 'prognosis' ? '✓ diagnosed' : '🔍 identify')"></button>
                       <button @click="cureDiseaseRow(characterEditing, d)" class="btn text-xs" title="Cure (Healing proficiency / cure disease magic)">✚ cure</button>
                     </div>
                   </span>
@@ -13668,7 +13668,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="t in mountTrainingOptions(mountNew.catalogKey)" :key="t"><option :value="t" x-text="t"></option></template>
               </select>
             </label>
-            <button @click="mountAcquireSubmit(characterEditing)" :disabled="!mountNew.catalogKey" :class="mountNew.catalogKey ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">+ Acquire</button>
+            <button @click="mountAcquireSubmit(characterEditing)" :disabled="!mountNew.catalogKey" :class="mountNew.catalogKey ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">+ Acquire</button>
           </div>
           <template x-if="mounts.length === 0">
             <p class="text-xs italic opacity-60">No mounts. Acquire a riding horse to move faster and carry your gear on its back, or a pack animal (mule/donkey/ox) to haul cargo.</p>
@@ -14563,8 +14563,8 @@ document.addEventListener('alpine:init', () => {
         <button @click="closeLoyaltyRollModal()" class="btn">Cancel</button>
         <button @click="applyLoyaltyRoll()"
                 :disabled="!loyaltyRollState.rollResult"
-                :class="loyaltyRollState.rollResult ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
-                class="px-4 py-2 border-2 border-ink rounded font-semibold">✓ Apply</button>
+                :class="loyaltyRollState.rollResult ? '' : 'opacity-50 cursor-not-allowed'"
+                class="btn btn-primary">✓ Apply</button>
       </div>
     </div>
   </div>
@@ -14648,8 +14648,8 @@ document.addEventListener('alpine:init', () => {
         <button @click="closeCalamityModal()" class="btn">Cancel</button>
         <button @click="applyCalamityEmit()"
                 :disabled="calamityModalState.kind === 'transfer-of-employment' && !calamityModalState.newEmployerCharacterId"
-                :class="(calamityModalState.kind === 'transfer-of-employment' && !calamityModalState.newEmployerCharacterId) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
-                class="px-4 py-2 border-2 border-ink rounded font-semibold">✓ Apply</button>
+                :class="(calamityModalState.kind === 'transfer-of-employment' && !calamityModalState.newEmployerCharacterId) ? 'opacity-50 cursor-not-allowed' : ''"
+                class="btn btn-primary">✓ Apply</button>
       </div>
     </div>
   </div>
@@ -16046,8 +16046,8 @@ document.addEventListener('alpine:init', () => {
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
         <div class="flex items-center gap-3 mb-2 flex-wrap">
           <button @click="rollProfThrow()" :disabled="profThrowEffectiveTarget()==null"
-                  :class="profThrowEffectiveTarget()==null ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
-                  class="px-4 py-2 border-2 border-ink rounded font-semibold"
+                  :class="profThrowEffectiveTarget()==null ? 'opacity-50 cursor-not-allowed' : ''"
+                  class="btn btn-primary"
                   x-text="profThrow.result ? '🎲 Re-roll 1d20' : '🎲 Roll 1d20'"></button>
           <label class="text-sm flex items-center gap-1"><input type="checkbox" x-model="profThrow.secret"> Secret (GM rolls)</label>
           <template x-if="profThrowGmFiatOn()">
@@ -16444,8 +16444,8 @@ document.addEventListener('alpine:init', () => {
         <div class="flex gap-2">
           <button @click="closeRecordWoundModal()" class="btn">Cancel</button>
           <button @click="recordWoundApply()" :disabled="!recordWound.result"
-                  :class="recordWound.result ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
-                  class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply wound</button>
+                  :class="recordWound.result ? '' : 'opacity-50 cursor-not-allowed'"
+                  class="btn btn-primary">Apply wound</button>
         </div>
       </div>
     </div>
@@ -16735,7 +16735,7 @@ document.addEventListener('alpine:init', () => {
             <span class="opacity-60">treatise on</span>
             <input type="text" class="text-xs w-28" x-model="sageTreatiseNew.proficiency" placeholder="knowledge / loremastery …" list="treatiseProfList">
             <datalist id="treatiseProfList"><option value="knowledge"></option><option value="loremastery"></option><option value="healing"></option><option value="naturalism"></option><option value="theology"></option><option value="alchemy"></option><option value="engineering"></option></datalist>
-            <button @click="sageTreatiseMarkUi()" :disabled="!sageTreatiseNew.itemId" :class="sageTreatiseNew.itemId ? 'bg-indigo-100 hover:bg-indigo-200' : 'opacity-40 cursor-not-allowed'" class="px-1.5 border border-ink rounded">Mark</button>
+            <button @click="sageTreatiseMarkUi()" :disabled="!sageTreatiseNew.itemId" :class="sageTreatiseNew.itemId ? 'bg-indigo-100 hover:bg-indigo-200' : 'opacity-40 cursor-not-allowed'" class="btn">Mark</button>
           </div>
           <template x-if="sageTreatiseSelected() && sageTreatiseInfoUI()">
             <div class="mt-1 text-xs space-y-1">
@@ -16784,8 +16784,8 @@ document.addEventListener('alpine:init', () => {
       <!-- Consult + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
         <button @click="sageConsultSubmit()" :disabled="!(sageConsultForecastUI() && sageConsultForecastUI().available)"
-                :class="(sageConsultForecastUI() && sageConsultForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
-                class="px-4 py-2 border-2 border-ink rounded font-semibold" x-text="sageConsult.result ? '🔮 Consult again' : '🔮 Consult'"></button>
+                :class="(sageConsultForecastUI() && sageConsultForecastUI().available) ? '' : 'opacity-50 cursor-not-allowed'"
+                class="btn btn-primary" x-text="sageConsult.result ? '🔮 Consult again' : '🔮 Consult'"></button>
         <template x-if="sageConsult.result && sageConsult.result.ok">
           <div class="mt-2 space-y-1">
             <div class="text-sm font-mono" x-show="!sageConsult.result.throw.secret && sageConsult.result.throw.natural != null"
@@ -16889,7 +16889,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="!foray.proposal && !foray.lastCommit">
           <div class="wizard-submit-gate">
             <span class="text-xs opacity-60">A foray is one day of strenuous dedicated activity (RR p.279).</span>
-            <button @click="forayResolve()" :disabled="!forayCanResolve()" :class="forayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+            <button @click="forayResolve()" :disabled="!forayCanResolve()" :class="forayCanResolve() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary">🎲 Resolve foray</button>
           </div>
         </template>
 
@@ -17667,7 +17667,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="!wildForay.proposal">
           <div class="wizard-submit-gate">
             <span class="text-xs opacity-60">Abstract Wilderness resolves the COMBAT in one roll (JJ ch.13).</span>
-            <button @click="wildForayResolve()" :disabled="!wildForayCanResolve()" :class="wildForayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+            <button @click="wildForayResolve()" :disabled="!wildForayCanResolve()" :class="wildForayCanResolve() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary">🎲 Resolve foray</button>
           </div>
         </template>
 
@@ -17963,7 +17963,7 @@ document.addEventListener('alpine:init', () => {
       </template>
       <div class="wizard-submit-gate">
         <span class="text-xs opacity-60">Bribery / intimidation / seduction stand as a voting modifier until the senator's allegiance changes.</span>
-        <button @click="senateInfluenceSubmit()" :disabled="!senateInfluenceCanSubmit()" :class="senateInfluenceCanSubmit() ? 'bg-green-300 hover:bg-green-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply influence</button>
+        <button @click="senateInfluenceSubmit()" :disabled="!senateInfluenceCanSubmit()" :class="senateInfluenceCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success">Apply influence</button>
       </div>
     </div>
   </div>
@@ -18117,8 +18117,8 @@ document.addEventListener('alpine:init', () => {
       <!-- Commission + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
         <button @click="sageCommissionSubmit()" :disabled="!(sageCommissionForecastUI() && sageCommissionForecastUI().available)"
-                :class="(sageCommissionForecastUI() && sageCommissionForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
-                class="px-4 py-2 border-2 border-ink rounded font-semibold">📜 Commission research</button>
+                :class="(sageCommissionForecastUI() && sageCommissionForecastUI().available) ? '' : 'opacity-50 cursor-not-allowed'"
+                class="btn btn-primary">📜 Commission research</button>
         <template x-if="sageCommission.result && sageCommission.result.ok">
           <div class="mt-2 text-sm text-green-800" x-text="'Commissioned — the sage will research for ' + sageCommission.result.daysRequired + ' days. Advance the Day Clock to deliver the answer.'"></div>
         </template>
@@ -18206,7 +18206,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="border-t border-ink p-3 flex justify-end gap-2">
       <button @click="closeNewMotion()" class="btn text-sm">Cancel</button>
-      <button @click="tableNewMotion()" :disabled="!newMotionCanTable()" :class="newMotionCanTable() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm">📋 Table it</button>
+      <button @click="tableNewMotion()" :disabled="!newMotionCanTable()" :class="newMotionCanTable() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">📋 Table it</button>
     </div>
   </div>
   </template>
@@ -18361,7 +18361,7 @@ document.addEventListener('alpine:init', () => {
       <!-- Step 3 — roll the tally -->
       <div class="wizard-step-header"><span class="wizard-step-n">Step 3</span>Gather the votes</div>
       <div class="flex flex-wrap items-center gap-2">
-        <button @click="motionWizardRoll()" :disabled="!motionWizardCanRoll()" :class="motionWizardCanRoll() ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm" x-text="motionWizard.vote ? '⟳ Re-roll the vote' : '🗳 Roll the vote'"></button>
+        <button @click="motionWizardRoll()" :disabled="!motionWizardCanRoll()" :class="motionWizardCanRoll() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm" x-text="motionWizard.vote ? '⟳ Re-roll the vote' : '🗳 Roll the vote'"></button>
         <span class="text-xs opacity-60" x-show="!motionWizardCanRoll()" x-text="motionWizardRollHint()"></span>
       </div>
       <!-- Step 3 (pre-roll) — show WHO will vote + the modifiers each WOULD carry, before the dice (the
@@ -18538,13 +18538,13 @@ document.addEventListener('alpine:init', () => {
           <span class="text-sm opacity-70" x-text="'Roster: ' + gladRoster(gladSelectedSchool()).length + ' gladiator(s)'"></span>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🪖 Recruit gladiator</button>
-          <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Schedule bout</button>
-          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">🪖 Recruit gladiator</button>
+          <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">⚔ Schedule bout</button>
+          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
           <!-- === @b10-gladiators (team) — G3/G4 actions === -->
-          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)">💰 Run business month</button>
-          <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
-          <button @click="gladOpenSponsor()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold" title="A munerator sponsors a Munus — budget ≥0.5gp/family, ≤12 bouts/day, ≈equal sides (RAW p.22)">🎪 Sponsor a game</button>
+          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)">💰 Run business month</button>
+          <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-danger text-sm" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
+          <button @click="gladOpenSponsor()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-warn text-sm" title="A munerator sponsors a Munus — budget ≥0.5gp/family, ≤12 bouts/day, ≈equal sides (RAW p.22)">🎪 Sponsor a game</button>
         </div>
 
         <!-- === @b10-gladiators (team) — G3 school accounts (the monthly P&L preview) === -->
@@ -18626,8 +18626,8 @@ document.addEventListener('alpine:init', () => {
                 <span x-text="b.sideA.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' vs ' + b.sideB.combatantIds.map(id=>gladCombatantName(id)).join(', ') + ' — ' + b.kind"></span>
                 <div class="flex items-center gap-1.5">
                   <!-- @b11-gladiators G5 — the round-by-round tactical alternative to the abstract ▶ Resolve -->
-                  <button @click="gladOpenTacticalBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Fight it round by round (AXIOMS 4 p.27) — the tactical alternative to the abstract ▶ Resolve">⚔ Fight</button>
-                  <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-200 hover:bg-red-300' : 'opacity-50 cursor-not-allowed'" class="text-xs px-2 py-0.5 border border-ink rounded font-semibold whitespace-nowrap" title="Resolve it abstractly (1d10; AXIOMS 4 p.25)">▶ Resolve</button>
+                  <button @click="gladOpenTacticalBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-warn text-xs whitespace-nowrap" title="Fight it round by round (AXIOMS 4 p.27) — the tactical alternative to the abstract ▶ Resolve">⚔ Fight</button>
+                  <button @click="gladResolveBout(b.id)" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-danger text-xs whitespace-nowrap" title="Resolve it abstractly (1d10; AXIOMS 4 p.25)">▶ Resolve</button>
                 </div>
               </div>
             </template>
@@ -18750,7 +18750,7 @@ document.addEventListener('alpine:init', () => {
       </label>
       <div class="flex justify-end gap-2">
         <button @click="cl5Modal.open=false" class="btn text-sm">Cancel</button>
-        <button @click="cl5ConfirmTransform()" :disabled="!((cl5Modal.form||'').trim())" :class="((cl5Modal.form||'').trim()) ? 'bg-purple-200 hover:bg-purple-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🐺 Transform</button>
+        <button @click="cl5ConfirmTransform()" :disabled="!((cl5Modal.form||'').trim())" :class="((cl5Modal.form||'').trim()) ? 'bg-purple-200 hover:bg-purple-300' : 'opacity-50 cursor-not-allowed'" class="btn text-sm font-semibold">🐺 Transform</button>
       </div>
     </div>
   </div>
@@ -19328,7 +19328,7 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladTactState.logRounds"> Keep a verbose per-round log in the Event Log</label>
           <div class="flex justify-end gap-2">
             <button @click="gladCloseTactical()" class="btn text-sm">Cancel</button>
-            <button @click="gladTacticalFight()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? 'bg-red-300 hover:bg-red-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">⚔ Fight!</button>
+            <button @click="gladTacticalFight()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-danger text-sm">⚔ Fight!</button>
           </div>
         </div>
       </template>
@@ -19507,7 +19507,7 @@ document.addEventListener('alpine:init', () => {
       <p class="text-xs opacity-70">Schedules a single one-on-one bout from the school’s two ablest gladiators (≈equal sides). Add more in ⚔ Schedule bout, then 🏛 Hold the games.</p>
       <div class="flex justify-end gap-2">
         <button @click="gladG3.sponsor.open=false" class="btn text-sm">Cancel</button>
-        <button @click="gladSubmitSponsor()" :disabled="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget" :class="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget ? 'opacity-50 cursor-not-allowed' : 'bg-amber-300 hover:bg-amber-400'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🎪 Sponsor</button>
+        <button @click="gladSubmitSponsor()" :disabled="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget" :class="gladG3.sponsor.budgetGp < gladG3.sponsor.minBudget ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm">🎪 Sponsor</button>
       </div>
     </div>
   </div>
@@ -19564,8 +19564,8 @@ document.addEventListener('alpine:init', () => {
     <div class="flex items-center justify-end gap-2">
       <button @click="takeoverModal.open=false" class="btn text-sm">Cancel</button>
       <button @click="submitTakeover()" :disabled="!takeoverModal.newBossCharacterId"
-              class="px-3 py-1 border border-ink rounded text-sm font-semibold"
-              :class="takeoverModal.newBossCharacterId ? 'bg-amber-200 hover:bg-amber-300' : 'opacity-40 cursor-not-allowed'">⚔ Seize control</button>
+              class="btn btn-warn text-sm"
+              :class="takeoverModal.newBossCharacterId ? '' : 'opacity-40 cursor-not-allowed'">⚔ Seize control</button>
     </div>
   </div>
 </div>
