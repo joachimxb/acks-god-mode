@@ -4905,6 +4905,8 @@ Object.assign(ACKS, {
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
   proposeMilitaryDay, commitMilitaryRecord,
+  // D4 — the slot-89 garrison auto-defense consumer (opt-in per domain.autoResolveIncursions).
+  proposeGarrisonDefenseDay, commitGarrisonDefenseRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -7136,6 +7138,120 @@ function commitMilitaryRecord(campaign, record){
   }
 }
 
+// ── Garrison auto-defense (slot 89, D4 2026-06-25) — opt-in per domain via domain.autoResolveIncursions ──
+// When a low-threat incursion band stands in a domain whose ruler has set the garrison to auto-defend
+// (the ⚔ Active Threats checkbox), and the garrison's platoon BR is at least GARRISON_DEFENSE_BR_RATIO×
+// the band's, the garrison sallies on its own and clears it — the JJ pp.104–106 drive-off, but resolved
+// WITHOUT a GM-deployed reaction army, so an autonomous (sim) run DRAINS the incursion queue instead of
+// growing it (the 2026-06-24 audit's solo-sim finding). Registered AFTER the slot-88 military consumer
+// so a GM-deployed reaction force resolves first and the garrison only mops up what's left; pauseTriggers
+// [] — it never pauses (that is the point). The ratio gate is STRICTER than the manual drive-off
+// (forceBr > bandBr): a 1×–2× edge still pauses for the GM to fight or deploy by hand. Settled bands
+// (housed in a lair / dungeon den) and GM-priced bands (a dragon — no platoon BR) are never auto-resolved.
+// 🎨 The proportional garrison casualties are a documented tooling extension — RAW drive-off is bloodless;
+// light attrition (≤5% at the 2× margin, →0 as the odds widen) gives a sim stakes: a constantly-raided
+// realm attrits its garrison and must replace troops (the RR pp.350–351 deficit loop).
+const GARRISON_DEFENSE_BR_RATIO = 2;        // forceBr ≥ 2× bandBr → "the garrison clearly handles it"
+const GARRISON_DEFENSE_LOSS_RATE = 0.10;    // garrison loss fraction = (bandBr/forceBr) × rate …
+const GARRISON_DEFENSE_LOSS_CAP = 0.05;     // … capped at 5% (the worst case — exactly at the 2× margin)
+function proposeGarrisonDefenseDay(campaign, ctx){
+  const A = _jACKS();
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.domains) || !campaign.domains.length) return { pendingRecords, notableEvents };
+  for(const dom of campaign.domains){
+    if(!dom || !dom.autoResolveIncursions) continue;
+    const bands = (typeof A.incursionBandsForDomain === 'function') ? A.incursionBandsForDomain(campaign, dom.id) : [];
+    if(!bands.length) continue;
+    const units = (typeof A.domainGarrisonUnits === 'function') ? A.domainGarrisonUnits(campaign, dom.id) : [];
+    const unitIds = units.map(u => u && u.id).filter(Boolean);
+    if(!unitIds.length) continue;                                  // no garrison → nothing sallies
+    const forceBr = (typeof A.reactionForcePlatoonBr === 'function') ? A.reactionForcePlatoonBr(campaign, unitIds) : 0;
+    if(!(forceBr > 0)) continue;
+    const garrisonHead = units.reduce((s, u) => s + ((typeof A.unitActiveCount === 'function') ? A.unitActiveCount(u) : Math.max(0, (u.count || 0) - (u.casualties || 0))), 0);
+    for(const band of bands){
+      // a band a deployed reaction force is already marching on belongs to the slot-88 path
+      if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === band.id)) continue;
+      // a settled band (housed in a lair, incl. a dungeon den) is a standing feature, not an active raid
+      if((campaign.lairs || []).some(l => l && Array.isArray(l.groupIds) && l.groupIds.indexOf(band.id) >= 0)) continue;
+      const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
+      if(!prev || prev.bandBr == null || !(prev.bandBr > 0)) continue;     // GM-priced (a dragon) → never auto
+      if(forceBr < GARRISON_DEFENSE_BR_RATIO * prev.bandBr) continue;      // not decisive → leave it for the GM
+      const lossFraction = Math.min(GARRISON_DEFENSE_LOSS_CAP, (prev.bandBr / forceBr) * GARRISON_DEFENSE_LOSS_RATE);
+      const lossHead = Math.round(garrisonHead * lossFraction);
+      const hexId = band.currentHexId || ((typeof A.domainSeatHexId === 'function') ? A.domainSeatHexId(campaign, dom) : null);
+      const bandAlive = Math.max(0, (band.count || 0) - (band.casualties || 0));
+      const bandLabel = bandAlive + ' \u{00D7} ' + (band.name || 'monsters');
+      const verb = (prev.effectiveAttitude === 'hostile') ? 'repels' : 'drives off';
+      const lossText = lossHead > 0 ? (', ' + lossHead + ' lost') : ', no losses';
+      const label = '\u{1F6E1} ' + (dom.name || 'The domain') + ' garrison ' + verb + ' ' + bandLabel
+        + ' \u{2014} BR ' + forceBr.toFixed(2) + ' vs ' + prev.bandBr.toFixed(2) + lossText + ' (JJ p.104)';
+      pendingRecords.push({
+        kind: 'garrison-defense', domainId: dom.id, groupId: band.id, hexId: hexId || null,
+        unitIds: unitIds.slice(), forceBr, bandBr: prev.bandBr, lossHead,
+        attitude: prev.attitude, effectiveAttitude: prev.effectiveAttitude,
+        name: (dom.name || 'Garrison') + ' \u{1F6E1} ' + (band.name || 'band'),
+        label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'domain-warfare', type: 'garrison-defense', pauseTrigger: null,
+        primaryHexId: hexId || null, domainId: dom.id,
+        relatedEntities: [ { kind: 'domain', id: dom.id, role: 'subject' }, { kind: 'group', id: band.id, role: 'target' } ],
+        label,
+        payload: { action: 'garrison-defense', domainId: dom.id, groupId: band.id, hexId: hexId || '',
+                   forceBr, bandBr: prev.bandBr, attitude: prev.attitude, effectiveAttitude: prev.effectiveAttitude,
+                   casualties: lossHead, narrative: label }
+      });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+
+// Commit half of garrison auto-defense: apply the proportional garrison casualties across the
+// garrison units (the battles.js unit-loss pattern + a largest-remainder split so the total is
+// exact), then clear the band — a banditry band is quelled (RR p.351: +1 morale, the men
+// disperse), a monster band is repelled off the hex (the JJ p.104 drive-off). NO Battle entity
+// is created — that is what keeps the queue draining rather than spawning a battle per raid.
+function commitGarrisonDefenseRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'garrison-defense') return;
+  const A = _jACKS();
+  const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+  const dom = (campaign.domains || []).find(d => d && d.id === record.domainId) || null;
+  if(!band || !dom) return;
+  const turn = campaign.currentTurn || 1;
+  // 1) garrison casualties — distribute lossHead across the garrison units in proportion to each
+  //    unit's living strength. The shrinking units feed garrison BR / cost / adequacy, so a
+  //    constantly-raided realm has to replace troops (the RR pp.350–351 deficit loop).
+  const want = Math.max(0, Math.round(record.lossHead || 0));
+  if(want > 0){
+    const units = (record.unitIds || []).map(id => (typeof A.findUnit === 'function') ? A.findUnit(campaign, id) : null).filter(Boolean);
+    const active = u => Math.max(0, (u.count || 0) - (u.casualties || 0));
+    const total = units.reduce((s, u) => s + active(u), 0);
+    if(total > 0){
+      const alloc = units.map(u => { const ex = want * active(u) / total; const base = Math.floor(ex); return { u, base, frac: ex - base }; });
+      let assigned = alloc.reduce((s, a) => s + a.base, 0);
+      alloc.sort((x, y) => y.frac - x.frac);
+      for(let i = 0; assigned < want && alloc.length; i++, assigned++) alloc[i % alloc.length].base++;
+      for(const a of alloc){
+        const loss = Math.min(active(a.u), a.base);
+        if(loss <= 0) continue;
+        a.u.casualties = Math.min(a.u.count || 0, (a.u.casualties || 0) + loss);
+        if(!Array.isArray(a.u.history)) a.u.history = [];
+        a.u.history.push({ atTurn: turn, type: 'garrison-defense',
+          summary: loss + ' lost defending ' + (dom.name || dom.id) + ' from ' + (band.name || 'a band') });
+      }
+    }
+  }
+  // 2) clear the band off the domain — the JJ p.104 drive-off (the slot-88 reaction's resolution,
+  //    minus the army bookkeeping). The garrison only ever auto-resolves incursion bands (selected
+  //    via incursionBandsForDomain), which are disjoint from the E10 banditry bands (their own
+  //    monthly reconcile), so there is no banditry-quell branch to mirror here.
+  if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+  band.currentHexId = null;                              // off the hex — no longer the domain's problem
+  band.wanderState = null;
+  (band.history = band.history || []).push({ turn, type: 'incursion',
+    reason: 'driven off by the ' + (dom.name || dom.id) + ' garrison (JJ p.104) — auto-defense' });
+}
+
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
 // so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
@@ -7206,6 +7322,16 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 88,
     pauseTriggers: ['encounter', 'supplies-low'],
     commit: commitMilitaryRecord
+  });
+  // D4 (2026-06-25) — garrison auto-defense (slot 89): a domain whose ruler set the garrison to
+  // auto-defend (the ⚔ Active Threats checkbox) clears decisively-outmatched (BR ≥ 2×) incursion
+  // bands on its own. Runs AFTER the slot-88 military consumer so a GM-deployed reaction force
+  // resolves first; pauseTriggers [] — it auto-applies, so an autonomous run drains the queue.
+  ACKS.registerDayConsumer('garrison-defense', {
+    handler: proposeGarrisonDefenseDay,
+    order: 89,
+    pauseTriggers: [],
+    commit: commitGarrisonDefenseRecord
   });
 }
 

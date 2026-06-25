@@ -609,10 +609,11 @@ section('Registry / schema / event locks (§5.6 mandates)');
   ok('the W4 army schema fields all exist on blankArmy', ['reconModifier', 'concealmentModifier', 'alliedLeaderCharacterIds', 'permittedDomainIds', 'prisoners'].every(n => fields.indexOf(n) >= 0 && (n in factory)));
   const jf = (ACKS.fieldSchemaFor('journey') || { fields: [] }).fields.map(f => f.name);
   ok('journey.armyId in the schema + the factory', jf.indexOf('armyId') >= 0 && ('armyId' in ACKS.blankJourney({})));
-  ok('the military day consumer is registered at slot 88', (function(){
+  ok('the military day consumer is at slot 88; garrison-defense (D4) at slot 89 runs after it (last)', (function(){
     const cs = ACKS.dayConsumersInOrder ? ACKS.dayConsumersInOrder() : [];
     const m = cs.find(x => x.name === 'military');
-    return m && m.order === 88 && cs[cs.length - 1].name === 'military';
+    const g = cs.find(x => x.name === 'garrison-defense');
+    return m && m.order === 88 && g && g.order === 89 && cs[cs.length - 1].name === 'garrison-defense';
   })());
   ok('blankArmy seeds the W4 lazy fields', Array.isArray(factory.marchedOrds) && Array.isArray(factory.intelReports) && factory.pillage === null && factory.prisoners === 0 && factory.warMachines === null);
 }

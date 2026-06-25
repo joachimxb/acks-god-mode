@@ -6639,10 +6639,25 @@ document.addEventListener('alpine:init', () => {
 
           <!-- Active Threats / Reactions (2026-06-14, JJ pp.104–106) — the live incursion bands
                the ruler may deploy a force against. The deferred-reaction surface: a threat not
-               answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow. -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-show="incursionBands(selectedDomain).length > 0 || brigandArmies(selectedDomain).length > 0">
+               answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow.
+               D4 (2026-06-25): the box is ALWAYS shown (even with no threats) so the garrison
+               auto-defense checkbox has a home. -->
+          <div class="vellum border border-ink p-3 rounded mt-4">
             <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
-            <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
+            <!-- D4 — opt-in garrison auto-defense. Ticked, the garrison clears decisively-outmatched
+                 (BR ≥ 2×) incursion bands on its own each day (the slot-89 consumer), so they never
+                 reach this list and an autonomous run drains instead of piling up. Stronger threats
+                 still wait for the GM. Persists on the domain (markDirty + schedulePersist). -->
+            <label class="flex items-start gap-2 text-sm mb-2 cursor-pointer select-none">
+              <input type="checkbox" class="mt-0.5" x-model="selectedDomain.autoResolveIncursions" @change="markDirty(); schedulePersist();">
+              <span>🛡 <span class="font-semibold">Garrison auto-defends low-threat incursions</span>
+                <span class="opacity-60">— when the garrison's battle rating is ≥ 2× a band's, it sallies and clears it on its own (light losses), so the band never reaches this list. Stronger threats still wait for your orders. (JJ p.104)</span>
+              </span>
+            </label>
+            <template x-if="incursionBands(selectedDomain).length === 0 && brigandArmies(selectedDomain).length === 0">
+              <p class="text-sm italic opacity-60" x-text="selectedDomain.autoResolveIncursions ? 'No active threats — the garrison is clearing low-threat incursions automatically.' : 'No active threats — the domain is quiet.'"></p>
+            </template>
+            <p class="text-xs opacity-60 italic mb-2" x-show="incursionBands(selectedDomain).length > 0">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
             <table class="bookkeeping text-sm" x-show="incursionBands(selectedDomain).length > 0">
               <thead><tr><th>Band</th><th title="Whether the ruler’s reconnaissance has detected this band — a deliberate sally requires detection (JJ p.103, RR p.452)">Aware?</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
               <tbody>
