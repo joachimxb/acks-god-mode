@@ -1,0 +1,6 @@
+# Vendored third-party assets must NOT be line-ending-normalized: they are minified
+# bundles, and a CRLF rewrite bloats them and pointlessly changes their bytes. Keep them
+# exactly as fetched from the CDN. (audit T10, 2026-06-14. The earlier Subresource-Integrity
+# rationale here was dropped 2026-06-24 — there is no SRI hash; it is omitted by design for
+# file:// compatibility, see SECURITY.md and the CSP comment in index.html's <head>.)
+vendor/** -text

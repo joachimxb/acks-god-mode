@@ -6,10 +6,7 @@
 // =============================================================================
 const path = require('path');
 global.window = global;
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
-  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-subsystems.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let pass = 0, fail = 0; const failures = [];
@@ -143,7 +140,7 @@ section('realmFamiliesForDomain — own domain + sub-vassal realms (RR p.346)');
   sub.liegeId = 'dom-vassal'; sub.demographics.peasantFamilies = 200;
   c.domains.push(sub);
   const vassalDomain = c.domains.find(d => d.id === 'dom-vassal');
-  ok('vassal alone = 500 families', ACKS.totalFamilies(vassalDomain) === 500);
+  ok('vassal alone = 500 families', ACKS.totalFamilies(c, vassalDomain) === 500);
   ok('realm families = vassal 500 + sub-vassal 200 = 700', ACKS.realmFamiliesForDomain(c, vassalDomain) === 700);
 }
 
@@ -761,7 +758,8 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
 }
 {
   const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
-  c.domains.find(d=>d.id==='dom-lord').garrison = { units:[{ id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }] }; // 10,000gp troops ≫ 500gp scutage
+  // T6 single-home — station the lord's troops in campaign.units[] (the home garrisonCost reads).
+  ACKS.stationUnit(c, { id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }, { kind:'domain-garrison', id:'dom-lord' }); // 10,000gp troops ≫ 500gp scutage
   const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
   ACKS.payScutageObligation(c, scu.id, {});
   const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
@@ -956,6 +954,26 @@ function mkOfficeChain(){
   ok('schema has the constructionOrders array field', fdSchema.fields.some(f=>f.name==='constructionOrders' && f.type==='array'));
   ok('blankFavorDutyObligation seeds officeTitle ""', ACKS.blankFavorDutyObligation({}).officeTitle === '');
   ok('schema has the officeTitle field', fdSchema.fields.some(f=>f.name==='officeTitle'));
+}
+
+// =============================================================================
+section('Clanhold F&D restriction (RR p.354 — only the restricted set on a clanhold vassal)');
+{
+  const c = mkCampaign();
+  c.domains.find(d => d.id === 'dom-vassal').domainType = 'clanhold';   // the vassal is now a clanhold
+  // Excluded kinds are refused (the engine guard in _applyFavorDutyEdict — both manual + auto-roll).
+  ok('clanhold vassal: loan refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }) === null);
+  ok('clanhold vassal: office/title refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'office', officeTitle:'Thane' }) === null);
+  ok('clanhold vassal: call-to-council refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }) === null);
+  ok('clanhold vassal: charter-of-monopoly refused', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'charter-of-monopoly' }) === null);
+  ok('clanhold vassal: nothing was created by the refused edicts', (c.favorDutyObligations||[]).length === 0);
+  // Allowed: a gift (favor), a call to arms (duty), a custom edict (the Judge's freeform device, RR p.345).
+  ok('clanhold vassal: gift allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }) || {}).obligation);
+  ok('clanhold vassal: call-to-arms allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-arms' }) || {}).obligation);
+  ok('clanhold vassal: custom edict allowed', !!(ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Tribute of horses', isFavor:false }) || {}).obligation);
+  // Regression — an ORDINARY vassal is unrestricted.
+  const c2 = mkCampaign();
+  ok('ordinary vassal: loan allowed (regression)', !!(ACKS.applyFavorDutyEdictByKind(c2, { vassalDomainId:'dom-vassal', kind:'loan' }) || {}).obligation);
 }
 
 console.log('\n=============================================');

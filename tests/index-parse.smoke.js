@@ -15,6 +15,47 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 ok('index.html is non-trivial in size (not truncated to nothing)', html.length > 500000, html.length + ' bytes');
 ok('index.html ends cleanly with </html>', /<\/html>\s*$/.test(html));
 
+// ── Head / CSP integrity guard (audit A3, 2026-06-24) ──────────────────────────────────────────
+// The flagship Content-Security-Policy shipped byte-corrupted: a cache-bust `?v=` token was spliced
+// into the `http-equiv` attribute NAME (`http-equi???????v=…"Content-Security-Policy"`), so the
+// browser never saw a CSP and silently ignored the whole policy. CI didn't catch it because this
+// suite only compiled <script> bodies — it never checked <meta> well-formedness (audit T1/A1/A2).
+// These four assertions are the net that would have caught it.
+const head = html.slice(0, 6144);   // the <head>'s security-critical region is well within the first ~6 KB
+ok('CSP <meta http-equiv="Content-Security-Policy"> is intact (not corrupted by a cache-bust splice)',
+   /<meta\s+http-equiv="Content-Security-Policy"\s+content="/.test(html));
+for (const directive of ["object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"]) {
+  ok('CSP policy locks down ' + directive, html.includes(directive), 'directive missing from the policy');
+}
+ok('no run of 3+ "?" bytes in the <head> (the cache-bust-into-attribute corruption signature)',
+   !/\?{3,}/.test(head), 'first 6 KB');
+// No remote <script src="http(s)://…"> — Alpine + Tailwind are vendored under vendor/ (appsec I-1).
+// A re-introduced CDN tag both breaks the offline guarantee and re-opens the supply-chain surface.
+const remoteScript = html.match(/<script\b[^>]*\bsrc=["']https?:\/\/[^"']*["']/i);
+ok('no remote <script src="http(s)://…"> (deps are vendored same-origin)',
+   !remoteScript, remoteScript ? remoteScript[0] : '');
+
+// T5 chip 4 (2026-06-23): the domainApp() Alpine component was extracted from index.html's main
+// inline <script> to an external domain-app.js (loaded via <script src>). It carries the bulk of the
+// app logic now, so guard it the same way — non-trivial size + a clean compile via vm.Script.
+const appJs = fs.readFileSync(path.join(__dirname, '..', 'domain-app.js'), 'utf8');
+ok('domain-app.js is non-trivial in size (not truncated)', appJs.length > 500000, appJs.length + ' bytes');
+ok('index.html loads domain-app.js via <script src>', /<script src="domain-app\.js/.test(html));
+try { new vm.Script(appJs, { filename: 'domain-app.js' }); ok('domain-app.js compiles', true); }
+catch(e){ ok('domain-app.js compiles', false, (e.message || String(e))); }
+
+// T5 chip 5 (2026-06-23): feature method-groups are extracted from domain-app.js to
+// domain-app-<feature>.js mixin files (each pushes a members object onto a registry that
+// domainApp() merges with descriptor-preservation). Guard each the same way — non-trivial
+// size + a clean compile + index.html references it via <script src>.
+for (const mixin of ['domain-app-burst5.js', 'domain-app-military-w7.js', 'domain-app-mounts.js', 'domain-app-voyages.js', 'domain-app-favors-duties.js', 'domain-app-recruit.js', 'domain-app-map.js', 'domain-app-encounters.js', 'domain-app-warfare.js', 'domain-app-journeys.js', 'domain-app-inspector.js', 'domain-app-trade.js', 'domain-app-gladiators.js', 'domain-app-magic-research.js', 'domain-app-generators.js', 'domain-app-construction.js', 'domain-app-chronicle.js', 'domain-app-syndicates.js', 'domain-app-banking.js']) {
+  const mx = fs.readFileSync(path.join(__dirname, '..', mixin), 'utf8');
+  ok(mixin + ' is non-trivial in size (not truncated)', mx.length > 5000, mx.length + ' bytes');
+  ok('index.html loads ' + mixin + ' via <script src>', new RegExp('<script src="' + mixin.replace(/\./g, '\\.')).test(html));
+  try { new vm.Script(mx, { filename: mixin }); ok(mixin + ' compiles', true); }
+  catch(e){ ok(mixin + ' compiles', false, (e.message || String(e))); }
+}
+
 // Extract inline <script> blocks (those WITHOUT a src= attribute) and compile each.
 const reInline = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
 let m, n = 0, compiled = 0;
@@ -29,10 +70,10 @@ ok('found the expected inline <script> blocks', n >= 2, 'found ' + n);
 ok('every inline <script> compiles (' + compiled + '/' + n + ')', compiled === n);
 
 // The refactor's load-bearing symbols are present (cheap textual canary — not a parse, just a
-// guard that a careless delete didn't drop them).
-ok('domainApp() is defined', /function\s+domainApp\s*\(/.test(html));
-ok('domains getter exists (single home)', /get\s+domains\s*\(\)/.test(html));
-ok('_finishLoad helper exists', /_finishLoad\s*\(/.test(html));
+// guard that a careless delete didn't drop them). They now live in domain-app.js (chip 4).
+ok('domainApp() is defined', /function\s+domainApp\s*\(/.test(appJs));
+ok('domains getter exists (single home)', /get\s+domains\s*\(\)/.test(appJs));
+ok('_finishLoad helper exists', /_finishLoad\s*\(/.test(appJs));
 
 console.log('\n=============================================');
 console.log('index-parse.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

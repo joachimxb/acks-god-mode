@@ -15,10 +15,7 @@
 'use strict';
 const path = require('path');
 const DIR = path.join(__dirname, '..');
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
-  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-subsystems.js',
-].forEach(f => require(path.join(DIR, f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let pass = 0, fail = 0; const failures = [];
@@ -174,7 +171,8 @@ section('adventure-result clears a lair → status flips to cleared (campaign.la
 {
   const c = ACKS.blankCampaign({ name: 'clear' });
   c.currentTurn = 4;
-  c.domains = [ { id: 'dom-1', name: 'D', geography: { hexes: [ ACKS.blankHex({ id: 'hex-1', domainId: 'dom-1' }) ] } } ];
+  c.domains = [ { id: 'dom-1', name: 'D', geography: {} } ];
+  c.hexes = [ ACKS.blankHex({ id: 'hex-1', domainId: 'dom-1' }) ];   // single-home (T6)
   c.lairs = [ ACKS.blankLair({ id: 'lai-1', hexId: 'hex-1', status: 'active', monsterCatalogKey: 'goblin' }) ];
   const ev = ACKS.newEvent('adventure-result', { submittedBy: 'tool:test', payload: { outcome: 'cleared', hexId: 'hex-1', lairId: 'lai-1' } });
   ACKS.applyEvent(c, ev);

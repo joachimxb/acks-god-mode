@@ -72,9 +72,49 @@ function migrateRemoveTributePct(campaign){
 
 const SCHEMA_VERSION = 2;
 
+// ENGINE_VERSION — the engine's release/generation tag, equal to package.json's "version".
+//
+// Why this exists, separate from SCHEMA_VERSION: SCHEMA_VERSION is the BREAKING save-format
+// version (a clean break at 2; bumped only when old saves can no longer load). It has been 2
+// across every release, evolved forward by the idempotent reconcilers in migrateCampaign — so
+// it cannot tell a consumer WHICH generation of the tool wrote a file (a `schemaVersion: 2`
+// save might predate or postdate `units`/`armies`/`encounters`). ENGINE_VERSION fills that gap:
+// stamped onto saved campaigns (at SAVE time — see stampCampaignForSave, NOT in migrateCampaign,
+// so loading a template stays a byte-identical no-op and the field is absent from the shipped
+// templates), it lets a third-party reader version-detect across releases. See INTEGRATION.md.
+//
+// No build step (CLAUDE §4), so this is a hand-kept constant, NOT read from package.json at
+// runtime (package.json isn't reachable from a file:// browser load). tests/schema.smoke.js
+// asserts it equals package.json's "version" — the same release-checklist guard that pins the
+// README version (T1-C); bump both together on release.
+const ENGINE_VERSION = '0.50.0';
+
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
 // When in doubt, look up via ID_PREFIXES rather than hardcoding.
-const ID_PREFIXES = Object.freeze({
+// Self-registration kernel — the registerDayConsumer pattern generalized to the central prefix
+// list (CLAUDE §15.5 north star). ID_PREFIXES is an accumulating store, not a frozen literal: a
+// module that introduces a new entity calls ACKS.registerPrefix('thing','xyz') at load (a
+// typeof-guarded call, the registerDayConsumer idiom) instead of editing this central list. The
+// core + legacy set is seeded just below (values byte-identical to the old freeze). The reverse-
+// lookup Proxy readers in the other modules read global.ACKS.ID_PREFIXES at runtime, so they
+// observe every registration regardless of module load order.
+const ID_PREFIXES = {};
+function registerPrefix(kind, prefix){
+  if(!kind || !prefix) return ID_PREFIXES;
+  const existing = ID_PREFIXES[kind];
+  if(existing && existing !== prefix){
+    if(typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] ID-prefix conflict for "' + kind + '": "' + existing + '" already registered; ignoring "' + prefix + '".');
+    }
+    return ID_PREFIXES;
+  }
+  ID_PREFIXES[kind] = prefix;
+  return ID_PREFIXES;
+}
+// Seed the core + legacy prefix set. New entities do NOT extend this literal — they call
+// ACKS.registerPrefix from their own module (the §15.5 convention). The comments below are the
+// per-entity provenance, preserved verbatim from the original frozen list.
+Object.entries({
   campaign:             'cmp',
   domain:               'dom',
   character:            'chr',
@@ -114,9 +154,14 @@ const ID_PREFIXES = Object.freeze({
   journey:              'jrn',
   outpost:              'out',
   // Wave E (Architecture.md §3.5) — Religion + Sanctums relation entities, reserved 2026-05-30
+  // === Religion R0 (team 2026-06-13) — Deity reference entity (Phase_4_Religion_Plan.md §4.1, CORR-3).
+  // con/dfv/att pre-reserved; dei added now (the deity collection ships with R0).
+  deity:                'dei',
   congregation:         'con',
   divineFavor:          'dfv',
   attunement:           'att',
+  // Sanctums AD-B (2026-06-15) — the apprenticeship relation (an L0 apprentice ↔ a sanctum master, RR p.386).
+  apprenticeship:       'apr',
   // Wave F (Architecture.md §3.5) — Settlement Adventures relation entity, reserved 2026-05-30
   settlementVisit:      'svt',
   // Wave D (Architecture.md §3.5) + Phase 6 Codes shared — Oath relation entity, reserved 2026-05-30
@@ -126,11 +171,245 @@ const ID_PREFIXES = Object.freeze({
   constructible:        'cst',
   // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
   recruitmentDrive:     'rcd',
+  // Phase 2.7 Hijinks (HJ-1, world-front team session 2026-06-13) — registered canonically at integration
+  hijink:               'hij',
+  // === Hijinks HJ-2 (team 2026-06-13) — Syndicate (RR pp.358–362; campaign.syndicates[])
+  syndicate:            'syn',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
-  encounter:            'enc'
-});
+  encounter:            'enc',
+  // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
+  // NB lifted legacy garrison units KEEP their 'gar-' ids (id stability); 'unit-' is
+  // the prefix for units created after the lift.
+  unit:                 'unit',
+  army:                 'army',
+  // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record:
+  // sides + zones + the turn log + aftermath; resolved by acks-engine-battles.js).
+  battle:               'btl',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
+  // stronghold-investment record; resolved by acks-engine-sieges.js).
+  siege:                'sie',
+  // === Voyages V1 (burst4) — Phase 3 Voyages (#145): Vessel (RR Ch.7 Seafarers & Voyages,
+  // the RR p.316 Sea Vessels classes; resolved by acks-engine-voyages.js). ===
+  vessel:               'vsl',
+  // === Delves D2 (burst4) — the multi-foray clear-a-dungeon operation (Phase_3.5_Delves_Plan.md
+  // §4.2). The Dungeon prefix 'dun' is already registered above (since 2026-05-30); this adds Delve. ===
+  delve:                'dlv',
+  // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer
+  // (RR pp.355–360; acks-engine-politics.js). Wave D (Architecture §3.5).
+  senate:               'sen',
+  faction:              'fac',
+  senatorship:          'snr',
+  // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 (#150). Bout / Gladiator
+  // School / Game/Munus first-class entities (Phase_4_Gladiators_Plan.md §3). Arena → a
+  // Constructible + Sponsor → a field (NOT entities — arn-/spo- dropped, survey §4). ===
+  bout:                 'bot',
+  gladiatorSchool:      'gld',
+  game:                 'gam',
+  // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154.
+  // ClassTemplate (the point-buy class DEFINITION) + RaceTemplate (the +racial-build-point
+  // race); catalog/template tier. Resolved by acks-engine-custom-classes.js (Phase 6 W1). ===
+  customClass:          'ccl',
+  customRace:           'crc',
+  // === Magic Research (AD-M1, 2026-06-15) — Phase 4 the Arcane-Domain consumer (RR pp.388–393).
+  // The Research Project entity (campaign.researchProjects[]); resolved by acks-engine-magic-research.js. ===
+  researchProject:      'rsp',
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148). The shared Loan relation
+  // (campaign.loans[]; RR p.42 Access to Capital) + the BankAccount relation/wealth-handle
+  // (campaign.bankAccounts[]; RR p.313 custody). Resolved by acks-engine-banking.js.
+  loan:                 'lon',
+  bankAccount:          'bnk',
+  letterOfCredit:       'loc',           // === Banking B4/B5 (team burst9 2026-06-20) — the inter-market draw primitive (campaign.lettersOfCredit[])
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore data layer (Knowledge_Layer_Plan.md /
+  // Sages_Knowledge_RAW_Survey.md §6/§16). `lore` = a first-class fact (campaign.lore[]; rumors subsume in
+  // Wave B); `knowledge` = the per-knower relation (campaign.knowledge[]; character ↔ lore, the
+  // believed-vs-true / confidence + provenance link). Resolved by acks-engine-knowledge.js. ===
+  lore:                 'lor',
+  knowledge:            'knw',
+  // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission research-commission
+  // (campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). A work-in-progress entity advanced on
+  // the slot-64 day-tick + resolved on the shipped Proficiency-Throws die. Resolved by acks-engine-sages.js. ===
+  sageCommission:       'sag',
+  // === Mounts (Phase 2.5 MO-1, 2026-06-21) — the Mount entity (campaign.mounts[]; RR
+  // p.161 Domesticated Animals; resolved by acks-engine-mounts.js). Catalog+instance,
+  // owned by a character, surfaced in the Inventory tab, assigned to journeys. ===
+  mount:                'mnt'
+}).forEach(function(pair){ registerPrefix(pair[0], pair[1]); });
+
+// =============================================================================
+// Collection self-registration — the §15.5 family, slice 2 (after ID prefixes).
+// =============================================================================
+// The top-level `campaign.<name>[]` array collections are the second central append-target
+// generalized off the registerDayConsumer pattern. Before this, a module adding a collection
+// had to edit THREE sites — blankCampaign() (seed), lazyDefaultV1ScopeReservations() (load-time
+// backfill), and index.html's SIMPLE_ID_COLLECTIONS (the Import-Domain walker) — the dominant
+// team-session merge-conflict surface. Now each collection is a descriptor in this accumulating
+// store, and a module self-registers from its own file via ACKS.registerCollection(name, opts);
+// the three sites DERIVE from the store. Each descriptor carries three INDEPENDENT flags observed
+// across the three sites (the pre-refactor truth table):
+//   seedInBlank — blankCampaign() seeds it as an empty array on a fresh campaign.
+//   lazyDefault — migrateCampaign() backfills it on load (an old save without it gains [] ).
+//   importable  — Import-Domain copies it (id-collision-skip per the §8.9 importer mandate).
+// registerCollection DEFAULTS to the DEFENSIVE-READ posture { seedInBlank:true, lazyDefault:false,
+// importable:true } (Joachim 2026-06-20): a new collection is NOT migrate-injected, so no template
+// regen is ever forced (the byte-level migrate-no-op test stays green) — the team-session enabler.
+// A collection that genuinely needs eager backfill opts in with { lazyDefault:true }.
+const CAMPAIGN_COLLECTIONS = [];
+const CAMPAIGN_COLLECTION_INDEX = {};
+function registerCollection(name, opts){
+  if(!name || typeof name !== 'string') return CAMPAIGN_COLLECTIONS;
+  opts = opts || {};
+  const desc = {
+    name: name,
+    seedInBlank: opts.seedInBlank !== false,   // default true
+    lazyDefault: !!opts.lazyDefault,           // default false (defensive-read)
+    importable:  opts.importable  !== false    // default true
+  };
+  const existing = CAMPAIGN_COLLECTION_INDEX[name];
+  if(existing){
+    // idempotent: identical flags = silent no-op; differing flags = warn + keep the original
+    // (mirrors registerPrefix's conflict rule — the seed wins over a late differing registration).
+    if(existing.seedInBlank !== desc.seedInBlank || existing.lazyDefault !== desc.lazyDefault || existing.importable !== desc.importable){
+      if(typeof console !== 'undefined' && console.warn){
+        console.warn('[ACKS] collection "' + name + '" re-registered with different flags; keeping the original.');
+      }
+    }
+    return CAMPAIGN_COLLECTIONS;
+  }
+  CAMPAIGN_COLLECTION_INDEX[name] = desc;
+  CAMPAIGN_COLLECTIONS.push(desc);
+  return CAMPAIGN_COLLECTIONS;
+}
+function registeredCollections(){ return CAMPAIGN_COLLECTIONS.slice(); }
+function seededCollections(){     return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.seedInBlank; }).map(function(c){ return c.name; }); }
+function lazyDefaultCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.lazyDefault; }).map(function(c){ return c.name; }); }
+function importableCollections(){ return CAMPAIGN_COLLECTIONS.filter(function(c){ return c.importable; }).map(function(c){ return c.name; }); }
+
+// Seed the existing 58 collections with their EXACT pre-refactor flags (the truth table — captured
+// from main @ 8023191). New collections do NOT extend this literal; they call ACKS.registerCollection
+// from their own module (the §15.5 convention). Order = blankCampaign()'s collection order (so a fresh
+// campaign's array-key set is preserved), then the importer-only (seedInBlank:false) collections.
+// Provenance comments are grouped; per-collection detail lives in Data_Dictionary §1 + §13.2.
+[
+  // ── Core collections (predate the reservation system) ───────────────────────────────────────
+  ['domains',              { seedInBlank:true,  lazyDefault:false, importable:false }],  // special-cased in the importer (upsertDomain)
+  ['characters',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['parties',              { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['ventures',             { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['passiveInvestments',   { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['deities',              { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Religion R0 (the Deity reference entity)
+  ['banks',                { seedInBlank:true,  lazyDefault:false, importable:false }],  // legacy reserved; not walked by the importer
+  ['loans',                { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Banking B1 (the shared Loan relation)
+  ['hexes',                { seedInBlank:true,  lazyDefault:false, importable:false }],  // special-cased in the importer (id + (q,r) coord uniqueness)
+  ['settlements',          { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['rumors',               { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['stashes',              { seedInBlank:true,  lazyDefault:false, importable:true  }],  // Stash A (always-on core)
+  // ── Wave A relation collections (Architecture §3.5) ─────────────────────────────────────────
+  ['henchmanships',        { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['specialistContracts',  { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['hirelingContracts',    { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['magistracies',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['vassalages',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['tributaryAgreements',  { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['favorDutyObligations', { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // F&D-1 (lazy-injected)
+  // ── Wave B.5 + Group ────────────────────────────────────────────────────────────────────────
+  ['notableItems',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['itemCustody',          { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['groups',               { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── 2026-05-30 post-survey reservations (lazy-injected) ─────────────────────────────────────
+  ['journeys',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['outposts',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['dungeons',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['congregations',        { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['divineFavors',         { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['attunements',          { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['settlementVisits',     { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['oaths',                { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['vagaryOfIncursionEvents', { seedInBlank:true, lazyDefault:true, importable:true }],
+  ['projects',             { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Construction Wave A
+  ['constructibles',       { seedInBlank:true,  lazyDefault:true,  importable:true  }],
+  ['lairs',                { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Monster Persistence M0
+  // ── Hijinks (defensive-read, seeded) ────────────────────────────────────────────────────────
+  ['hijinks',              { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['syndicates',           { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── Arcane Domain (lazy-injected) ───────────────────────────────────────────────────────────
+  ['researchProjects',     { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Magic Research AD-M1
+  ['apprenticeships',      { seedInBlank:true,  lazyDefault:true,  importable:true  }],  // Sanctums AD-B
+  // ── Banking / Knowledge / Sages (defensive-read, seeded) ────────────────────────────────────
+  ['bankAccounts',         { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['lettersOfCredit',      { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['lore',                 { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['knowledge',            { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  ['sageCommissions',      { seedInBlank:true,  lazyDefault:false, importable:true  }],
+  // ── Importer-only collections (NOT seeded in blankCampaign — historically materialized by
+  //    migrate or seed-on-write, never by the factory; preserved exactly) ──────────────────────
+  ['encounters',           { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Encounter layer E1 (migrate-injected, not seeded)
+  ['units',                { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Military W1
+  ['armies',               { seedInBlank:false, lazyDefault:true,  importable:true  }],
+  ['battles',              { seedInBlank:false, lazyDefault:true,  importable:true  }],  // Military W3
+  ['sieges',               { seedInBlank:false, lazyDefault:false, importable:true  }],  // Military W6 (defensive-read)
+  ['vessels',              { seedInBlank:false, lazyDefault:false, importable:true  }],  // Voyages V1
+  ['delves',               { seedInBlank:false, lazyDefault:false, importable:true  }],  // Delves D2
+  ['senates',              { seedInBlank:false, lazyDefault:false, importable:true  }],  // Politics P-1
+  ['factions',             { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['senatorships',         { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['bouts',                { seedInBlank:false, lazyDefault:false, importable:true  }],  // Gladiators G1
+  ['gladiatorSchools',     { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['games',                { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['customClasses',        { seedInBlank:false, lazyDefault:false, importable:true  }],  // Custom Classes W1
+  ['customRaces',          { seedInBlank:false, lazyDefault:false, importable:true  }],
+  ['mounts',               { seedInBlank:false, lazyDefault:false, importable:true  }]   // Mounts MO-1 (defensive-read; migrate-no-op)
+].forEach(function(pair){ registerCollection(pair[0], pair[1]); });
+
+// =============================================================================
+// Load-migration self-registration — the §15.5 family, slice 4 (after house rules).
+// =============================================================================
+// migrateCampaign() runs an ordered sequence of idempotent per-LOAD passes — the normalize /
+// backfill / lift / reconcile steps that run on EVERY campaign load regardless of schemaVersion
+// (distinct from the versioned MIGRATIONS array below, which bumps schemaVersion). Before this it
+// was a hand-ordered block of ~19 bare calls inside migrateCampaign — a central append-target every
+// data-shape subsystem had to edit. Now each pass is a descriptor in this accumulating store, and a
+// module self-registers its pass from its own file via ACKS.registerLoadMigration(name, fn, {order}).
+// Unlike the prefix / collection / house-rule families (which are SETS), the passes are an ORDERED
+// PIPELINE with real dependencies (e.g. stash-item-shapes must run BEFORE reconcile-stashes; the
+// lairs / units / projects lifts run AFTER lazy-default seeds their collections), so a pass carries
+// an explicit `order` and the runner sorts by (order, registration-seq). The legacy 19 are seeded
+// just before migrateCampaign with orders 10..190 (gaps of 10 leave room to slot a new pass between
+// two existing ones). registerLoadMigration is a no-op on missing args; a same-name re-register with
+// a DIFFERENT fn warns + keeps the original (the registerPrefix / registerCollection conflict rule).
+const LOAD_MIGRATIONS = [];
+const LOAD_MIGRATION_INDEX = {};
+let _loadMigrationSeq = 0;
+function registerLoadMigration(name, fn, opts){
+  if(!name || typeof name !== 'string' || typeof fn !== 'function') return LOAD_MIGRATIONS;
+  opts = opts || {};
+  const existing = LOAD_MIGRATION_INDEX[name];
+  if(existing){
+    // idempotent: same fn = silent no-op; a different fn keeps the original (warn). An already-
+    // registered pass is never silently reordered (re-registering can't reshuffle the pipeline).
+    if(existing.fn !== fn && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] load-migration "' + name + '" re-registered with a different fn; keeping the original.');
+    }
+    return LOAD_MIGRATIONS;
+  }
+  const desc = { name: name, fn: fn, order: (typeof opts.order === 'number' ? opts.order : 1000), seq: _loadMigrationSeq++ };
+  LOAD_MIGRATION_INDEX[name] = desc;
+  LOAD_MIGRATIONS.push(desc);
+  return LOAD_MIGRATIONS;
+}
+// The passes in execution order — sorted by (order, registration-seq) so a same-order pass keeps its
+// registration order, and a new pass slots deterministically. Returns a fresh sorted array (callers
+// must not mutate the store).
+function registeredLoadMigrations(){
+  return LOAD_MIGRATIONS.slice().sort(function(a, b){ return (a.order - b.order) || (a.seq - b.seq); });
+}
+// Run every registered per-load pass in order, in place. migrateCampaign calls this after the
+// versioned MIGRATIONS schema-bump loop. Each pass is idempotent (safe to run on every load).
+function runLoadMigrations(campaign){
+  registeredLoadMigrations().forEach(function(p){ p.fn(campaign); });
+  return campaign;
+}
 
 function newId(prefix){
   if(!prefix) throw new Error('newId requires a prefix');
@@ -313,8 +592,17 @@ const SAVE_TABLES = Object.freeze({
   ]
 });
 
+// Class → save-progression archetype. The (X) in each class's "Class (X) Attack and Saving Throws"
+// table title IS the RAW archetype — assassins and bards advance "as fighters" (RR: "Assassin (Fighter)…",
+// "Bard (Fighter)…"), so both take the fighter row, not the thief row.
+// ⚠ Race-variant classes (dwarven vaultguard/craftpriest, elven spellsword/nightblade, Nobiran
+// wonderworker) print their OWN tables with the racial save bonus baked in (dwarven Hardy +3 Blast/+4
+// other; Nobiran Favor +2 all; the elven tables are bespoke). The engine approximates them with the
+// base human archetype here — a known simplification (it does NOT apply the racial adjustment); the
+// four BASE class tables (fighter/mage/cleric/thief) are RAW-exact and pinned by tests/save-tables.smoke.js.
 const CLASS_TO_SAVE_ARCHETYPE = Object.freeze({
   'fighter':'fighter','barbarian':'fighter','paladin':'fighter','explorer':'fighter',
+  'assassin':'fighter','bard':'fighter',
   'dwarven vaultguard':'fighter','vaultguard':'fighter',
   'elven spellsword':'fighter','spellsword':'fighter',
   'mage':'mage','wizard':'mage','warlock':'mage',
@@ -322,9 +610,8 @@ const CLASS_TO_SAVE_ARCHETYPE = Object.freeze({
   'cleric':'cleric','crusader':'cleric','priestess':'cleric','priest':'cleric',
   'shaman':'cleric','bladedancer':'cleric',
   'dwarven craftpriest':'cleric','craftpriest':'cleric',
-  'thief':'thief','assassin':'thief','venturer':'thief',
-  'elven nightblade':'thief','nightblade':'thief',
-  'bard':'thief'
+  'thief':'thief','venturer':'thief',
+  'elven nightblade':'thief','nightblade':'thief'
 });
 
 function classKey(className){return String(className||'').toLowerCase().trim();}
@@ -468,6 +755,18 @@ function rollMoraleExtra(moraleAfter,familiesK,rng){
   const sum=rollD10x(absMor*familiesK,rng);
   return moraleAfter>0?sum:-sum;
 }
+// RR p.353 — a clanhold whose chief actively raided/adventured this month grows faster ("treat the
+// clanhold as two population categories smaller on the p.340 growth table"). 🔧 The shipped growth model
+// is a simplified d10-per-thousand oracle with no explicit RR p.340 category brackets, so the bonus is
+// modelled as one EXTRA natural-increase roll — a clear, bounded "grows faster" increment in the same
+// dice unit (the magnitude is a tooling approximation, open to tuning). Returns the extra families this
+// month: 0 unless the domain is a clanhold whose chief raided AND morale is above collapse (≤ −4 ⇒ 0,
+// mirroring rollNaturalIncrease). Late-binds isClanhold (domain-variants.js loads after this file).
+function clanholdRaidGrowth(campaign,d,familiesK,moraleAfter,rng){
+  if(moraleAfter<=-4 || !d || !d.chiefRaidedThisMonth) return 0;
+  if(!(global.ACKS && typeof global.ACKS.isClanhold==='function' && global.ACKS.isClanhold(d))) return 0;
+  return rollD10x(familiesK,rng);
+}
 
 // =============================================================================
 // Foundation #241 — Rural population reconciliation.
@@ -482,11 +781,12 @@ function rollMoraleExtra(moraleAfter,familiesK,rng){
 // empty, the delta is split as evenly as possible. Urban settlement families
 // are tracked separately on `hex.settlement.families` and are not touched here.
 // =============================================================================
-function _ruralHexes(d){
-  return ((d && d.geography && d.geography.hexes) || []).filter(h => !h.settlement);
+function _ruralHexes(campaign, d){
+  // Single-home (T6): a domain's rural hexes are its canonical campaign.hexes with no settlement.
+  return hexesForDomain(campaign, d && d.id).filter(h => !settlementForHex(campaign, h.id));
 }
-function _redistributeRuralFamilies(d, newTotal){
-  const hexes = _ruralHexes(d);
+function _redistributeRuralFamilies(campaign, d, newTotal){
+  const hexes = _ruralHexes(campaign, d);
   if(hexes.length === 0) return;
   newTotal = Math.max(0, Math.floor(newTotal));
   if(newTotal === 0){
@@ -514,19 +814,19 @@ function _redistributeRuralFamilies(d, newTotal){
     }
   });
 }
-function setPeasantPopulation(d, newTotal){
+function setPeasantPopulation(campaign, d, newTotal){
   if(!d || !d.demographics) return;
   newTotal = Math.max(0, Math.floor(newTotal));
   d.demographics.peasantFamilies = newTotal;
-  _redistributeRuralFamilies(d, newTotal);
+  _redistributeRuralFamilies(campaign, d, newTotal);
 }
 // Inverse of setPeasantPopulation: derive the domain's peasant total FROM its rural
 // hexes. This is the canonical direction when families-per-hex-tracking is ON — the GM
 // edits per-hex family counts directly, so the hexes are the source of truth and the
 // domain total is simply their sum. Returns the new total.
-function syncRuralPopulationFromHexes(d){
+function syncRuralPopulationFromHexes(campaign, d){
   if(!d || !d.demographics) return 0;
-  const sum = _ruralHexes(d).reduce((s,h) => s + (h.families||0), 0);
+  const sum = _ruralHexes(campaign, d).reduce((s,h) => s + (h.families||0), 0);
   d.demographics.peasantFamilies = sum;
   return sum;
 }
@@ -544,15 +844,15 @@ function reconcileRuralPopulation(campaign){
   const perHexCanonical = isHouseRuleEnabled(campaign, 'families-per-hex-tracking');
   let fixed = 0;
   campaign.domains.forEach(d => {
-    const hexes = _ruralHexes(d);
+    const hexes = _ruralHexes(campaign, d);
     if(hexes.length === 0) return;
     const pf = (d.demographics && d.demographics.peasantFamilies) || 0;
     const hexSum = hexes.reduce((s,h) => s + (h.families||0), 0);
     if(pf === hexSum) return;
     if(perHexCanonical && hexSum > 0){
-      syncRuralPopulationFromHexes(d);   // hexes canonical → peasantFamilies = Σ(hex.families)
+      syncRuralPopulationFromHexes(campaign, d);   // hexes canonical → peasantFamilies = Σ(hex.families)
     } else {
-      _redistributeRuralFamilies(d, pf); // domain total canonical (or seeding empty hexes)
+      _redistributeRuralFamilies(campaign, d, pf); // domain total canonical (or seeding empty hexes)
     }
     fixed++;
   });
@@ -606,8 +906,19 @@ function suggestDomainClassification(d){
 }
 function effectiveDomainClassification(d){
   const stored = d && d.classification;
-  if(stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) return stored; // GM authored value wins
-  return suggestDomainClassification(d);
+  const authored = (stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) ? stored : suggestDomainClassification(d);
+  // === DC-2 (team) === classification advancement is PERMANENT (RR p.340). The effective tier is
+  // the MORE-ADVANCED of the GM-authored value and the advancement floor (d.classificationAdvancedTo,
+  // read DEFENSIVELY — absent on legacy/template domains ⇒ undefined ⇒ authored wins, a migrate-no-op).
+  // The GM may author HIGHER (start Civilized); the engine never silently lowers a domain below what
+  // it earned (canonical-setter discipline, principle #10). DOMAIN_CLASSIFICATIONS is most→least, so
+  // "more advanced" = the lower index. The floor is written only by processClassificationAdvancement.
+  const floor = d && d.classificationAdvancedTo;
+  if(floor && DOMAIN_CLASSIFICATIONS.indexOf(floor) !== -1 &&
+     DOMAIN_CLASSIFICATIONS.indexOf(floor) < DOMAIN_CLASSIFICATIONS.indexOf(authored)){
+    return floor;
+  }
+  return authored;
 }
 
 // =============================================================================
@@ -667,6 +978,10 @@ function validateUniqueIds(campaign){
   checkCollection(campaign.parties, 'parties');
   checkCollection(campaign.ventures, 'ventures');
   checkCollection(campaign.passiveInvestments, 'passiveInvestments');
+  // Phase 3 Military W1 — first-class Units + Armies (the nested garrison/company arrays
+  // mirror the SAME unit objects, so they are checked per-collection, never cross-collection).
+  checkCollection(campaign.units, 'units');
+  checkCollection(campaign.armies, 'armies');
   // Per-domain sub-collections
   (campaign.domains||[]).forEach(d => {
     const dl = 'domain['+d.id+']';
@@ -714,6 +1029,69 @@ const MIGRATIONS = [
   // { from: 2, to: 3, run: function(c){ /* in-place transforms */ return c; } }
 ];
 
+// Seed the legacy per-load passes with their EXACT pre-refactor execution order (orders 10..190 —
+// the hand-ordered block that used to live inline in migrateCampaign, node-captured from main @
+// 9b1273f). New passes do NOT extend this literal: a module self-registers its pass from its own
+// file via ACKS.registerLoadMigration with an explicit order (the §15.5 convention). The per-pass
+// provenance comments below are preserved verbatim from the old inline block. The ordering
+// dependencies (why each `order` is what it is):
+//   • character-proficiencies (60) after character-classification (50)
+//   • stash-item-shapes (100) BEFORE reconcile-stashes (110) — reconcile reads facet-shaped lines
+//   • the lairs/units/agricultural/stronghold lifts (140..170) after lazy-default-v1 (130) seeds
+//     campaign.lairs[] / units[] / armies[] / projects[]
+//   • stronghold-to-constructibles (170) after agricultural-to-projects (160)
+//   • sync-party-camp-stashes (190) after reconcile-party-membership (180) + domain-treasuries (90)
+//   • the stash/coins/wealth passes (orders 70,90,100,110,120,190) now self-register from
+//     acks-engine-stash.js (T5, 2026-06-23) — orders preserved, so the dependencies above still hold
+[
+  // Foundation #234 — drop legacy campaign.log[]. The Campaign Log view now derives from eventLog.
+  // Idempotent: subsequent loads find the field already gone and skip cleanly.
+  ['drop-legacy-log', function(c){ if(Array.isArray(c.log)){ delete c.log; } }, 10],
+  // Foundation #241 — reconcile rural population drift. Pre-fix campaigns may have peasantFamilies
+  // ≠ sum(rural hex.families). Idempotent: a no-op on already-consistent data.
+  ['reconcile-rural-population', reconcileRuralPopulation, 20],
+  // Foundation #244 — strip mining-tagged income.other entries when the dwarven-mining house rule is
+  // off (special signature: takes (domains, houseRules)). Covers domains stored inside current.domains;
+  // the Alpine session-restore path calls stripUnusedMiningEntries separately for its split domains array.
+  ['strip-unused-mining', function(c){ stripUnusedMiningEntries(c.domains || [], c.houseRules || {}); }, 30],
+  // 2026-06-05 — remove the retired tributePct field (auto-tribute is RAW realm-families now). Idempotent.
+  ['remove-tribute-pct', migrateRemoveTributePct, 40],
+  // Phase #440 stage 1 — additive five-axis classification (controlledBy / socialTier /
+  // lifecycleState / creatureTypes / isEnchantedCreature / hitDice). Idempotent.
+  ['character-classification', migrateAllCharacterClassification, 50],
+  // PT-0 — materialize the loose character.proficiencies[] into the canonical { key, ranks (, spec) }
+  // shape on disk. Guarded: a no-op when the proficiencies module isn't loaded (standalone engine use).
+  // Runs after the classification migration. The forward ideal is acks-engine-proficiencies.js
+  // self-registering this pass from its own file. See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
+  ['character-proficiencies', function(c){
+    if(global.ACKS && typeof global.ACKS.migrateAllCharacterProficiencies === 'function'){
+      global.ACKS.migrateAllCharacterProficiencies(c);
+    }
+  }, 60],
+  // #445 — Wave A relation backfill (liege / magistrates / tribute → henchmanships / … /
+  // tributaryAgreements). Additive; legacy fields preserved. Idempotent.
+  ['wave-a-relations', migrateLegacyToWaveARelations, 80],
+  // 2026-05-30 post-survey scope reservations — lazy backfill of additive collections + fields.
+  // Idempotent. See Data_Dictionary §13.2 + §13.3.
+  ['lazy-default-v1-reservations', lazyDefaultV1ScopeReservations, 130],
+  // #476 M0 (legacy-hex-lairs @140) + Military W1 (garrison-units-to-units @150) load passes now
+  // self-register from acks-engine-lairs.js / acks-engine-military.js (T5, 2026-06-23). Orders preserved.
+  // T6 single-home — strip the now-redundant nested UNIT mirrors (domain.garrison /
+  // character.mercenaryCompany), right after the @150 lift promotes them to campaign.units. The
+  // hex/settlement mirror is stripped later, in _finishLoad after the hex lift (NOT here). Idempotent.
+  ['strip-unit-mirror', stripUnitMirrors, 155],
+  // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
+  // lazy-default (guarantees campaign.projects[]) and reads campaign.hexes. Idempotent.
+  ['agricultural-to-projects', migrateAgriculturalToProjects, 160],
+  // Wave Construction-C — lift each domain's stronghold onto a first-class Constructible mirror
+  // (additive; the economy keeps reading the stronghold's own value — zero drift). Runs after the
+  // ag migration. Idempotent.
+  ['stronghold-to-constructibles', migrateStrongholdComponentsToConstructibles, 170],
+  // #521 follow-up — rebuild each party's member mirror + validate leader from character.partyId
+  // (Architecture §3.3). Idempotent; no-op on party-less templates.
+  ['reconcile-party-membership', reconcilePartyMembership, 180],
+].forEach(function(t){ registerLoadMigration(t[0], t[1], { order: t[2] }); });
+
 function migrateCampaign(raw){
   if(!raw || typeof raw !== 'object'){
     throw new Error('migrateCampaign: input is not an object');
@@ -736,74 +1114,149 @@ function migrateCampaign(raw){
     current = step.run(current);
     current.schemaVersion = step.to;
   }
-  // Foundation #234 — drop legacy campaign.log[]. The Campaign Log view now derives
-  // from eventLog. The string-only narrative entries the old field captured are not
-  // preserved (eventLog already has structured equivalents for everything that matters).
-  // Idempotent: subsequent loads find the field already gone and skip cleanly.
-  if(Array.isArray(current.log)){
-    delete current.log;
-  }
-  // Foundation #241 — reconcile rural population drift. Pre-fix campaigns may have
-  // peasantFamilies ≠ sum(rural hex.families) because the old monthly commit only updated
-  // the domain-level field. Idempotent: a no-op on already-consistent data.
-  reconcileRuralPopulation(current);
-  // Foundation #244 — strip mining-tagged income.other entries when the dwarven-mining
-  // house rule is off. See `stripUnusedMiningEntries` helper below; this call covers any
-  // domains stored inside `current.domains`. Callers that store domains separately (e.g. the
-  // Alpine UI splits `this.currentCampaign.domains` and `this.domains` apart) must also call
-  // `stripUnusedMiningEntries(separateDomainsArray, current.houseRules)` after migration.
-  stripUnusedMiningEntries(current.domains || [], current.houseRules || {});
-  // 2026-06-05 — remove the retired `tributePct` field (auto-tribute is RAW realm-families now). Idempotent.
-  migrateRemoveTributePct(current);
-  // Phase #440 stage 1 — additive five-axis classification migration. Idempotent.
-  // Walks campaign.characters[] and ensures every character has the canonical
-  // controlledBy / socialTier / lifecycleState / creatureTypes / isEnchantedCreature
-  // / hitDice fields. Legacy c.kind is preserved through stage 1 for display-string
-  // compat; stage 2 will land the deletion after the index.html sweep.
-  migrateAllCharacterClassification(current);
-  // Items I1 — character coin purse. Idempotent. Ensures every character has a
-  // coins:{pp,gp,ep,sp,cp} object (folding a legacy personalGp scalar into coins.gp)
-  // and keeps the personalGp mirror in lockstep (canonical-setter rule #10).
-  migrateAllCharacterCoins(current);
-  // #445 — Wave A relation backfill. Idempotent. Lifts character.liegeCharacterId,
-  // domain.magistrates, domain.liegeId, domain.expenses.tributeToLiege into
-  // henchmanships / specialistContracts / hirelingContracts / magistracies /
-  // vassalages / tributaryAgreements records. Additive; legacy fields preserved.
-  migrateLegacyToWaveARelations(current);
-  // #468 — Stash A.3 — materialize domain.treasury scalar into treasury-stash
-  // entities for each domain. Always-on core (the inventory-stash-system toggle
-  // was removed v0.17.0). Idempotent. Per Phase_2.95_Stash_Plan.md §6.3.
-  migrateAllDomainTreasuries(current);
-  // Items I1 (OQ9, 2026-06-03) — upgrade legacy coin|bulk|item stash/carry lines
-  // to the facet shape (facets[] + notableItemId) BEFORE reconcile reads them.
-  // Idempotent; skips free-text inventory strings.
-  migrateAllStashItemShapes(current);
-  // #469 — Stash A.4 — item-consolidation reconcile + treasury-scalar reconcile.
-  // Idempotent. Tidies legacy multi-entry stashes (e.g. multiple gp coin entries
-  // from pre-A.2 data) and catches any scalar drift from external writers.
-  reconcileAllStashes(current);
-  reconcileTreasuryScalars(current);
-  // 2026-05-30 post-survey scope reservations — lazy backfill of additive fields.
-  // Idempotent. Ensures Campaign/Hex/Character/Settlement/Event new optional fields
-  // exist on legacy saves. See Data_Dictionary.md §13.2 + §13.3.
-  lazyDefaultV1ScopeReservations(current);
-  // Phase 2.5 Monster Persistence (#476, M0) — lift legacy nested hex.lairs[] sub-entities to the
-  // first-class campaign.lairs[] collection (same pattern as the treasury→stash lift). Runs after
-  // lazyDefaultV1ScopeReservations guarantees campaign.lairs[]. Idempotent; a no-op on campaigns
-  // with no nested lairs (every shipped template). See migrateLegacyHexLairs below.
-  migrateLegacyHexLairs(current);
-  // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
-  // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
-  // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
-  migrateAgriculturalToProjects(current);
-  // #521 follow-up — rebuild each party's member mirror + validate leader from the
-  // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
-  reconcilePartyMembership(current);
-  // Items I1 / Stash B — every party has a camp stash that travels with it. Runs after
-  // membership reconcile (needs leader/members) + treasury migration. Always-on core;
-  // a no-op on party-less campaigns (e.g. the templates). Idempotent.
-  syncAllPartyCampStashes(current);
+  // Run the registered per-load migration passes in order (the self-registration kernel —
+  // Architecture §9.4 / CLAUDE §15.5). These are the idempotent normalize / backfill / lift /
+  // reconcile passes that run on EVERY load regardless of schemaVersion; each is registered with
+  // an explicit `order` (the legacy 19 are seeded above with orders 10..190) so a module can
+  // self-register its pass from its own file. Replaces the old hand-ordered inline block — same
+  // passes, same order; the per-pass provenance comments now live on the seed descriptors above.
+  runLoadMigrations(current);
   return current;
+}
+
+// finalizeCampaignLoad(campaign) — the post-migrate FINISH steps (G2, audit 2026-06-24). These ran
+// only in the UI's domain-app.js _finishLoad, so a headless integrator following INTEGRATION.md §5's
+// `migrateCampaign(raw)` recipe got a campaign with its hexes still trapped in the legacy nested
+// mirror (campaign.hexes === undefined) — the lift never ran. Lifting them into the engine makes one
+// code path for app + headless: array-ensure → the pre-lift lazy migrations (player-input → events,
+// stronghold → components, hex improvement/supervisor shapes, magistrate shape) → the #193 top-level
+// lift of hexes/settlements/rumors → agricultural-Project materialization → the T6 mirror strip.
+// Idempotent (every step is). Cross-module steps go through global.ACKS (guarded, so a partial-module
+// headless load degrades instead of throwing); the lift/strip/agri steps are in-file. Mutates + returns.
+function finalizeCampaignLoad(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.domains))      campaign.domains = [];
+  if(!Array.isArray(campaign.pendingEvents)) campaign.pendingEvents = [];
+  if(!Array.isArray(campaign.eventLog))     campaign.eventLog = [];
+  if(!Array.isArray(campaign.hexes))        campaign.hexes = [];
+  if(!Array.isArray(campaign.settlements))  campaign.settlements = [];
+  if(!Array.isArray(campaign.rumors))       campaign.rumors = [];
+  const A = global.ACKS || {};
+  const ds = campaign.domains;
+  if(A.migratePendingPlayerInputToEvents) A.migratePendingPlayerInputToEvents(campaign);
+  if(A.migrateStrongholdToComponents) ds.forEach(d => A.migrateStrongholdToComponents(d));
+  // #17/#18 read the NESTED hexes, so they must run BEFORE the lift empties domain.geography.hexes[].
+  if(A.migrateHexToAccumulatedImprovement) ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => A.migrateHexToAccumulatedImprovement(h)));
+  if(A.migrateHexToMultiSupervisor) ds.forEach(d => (d.geography && d.geography.hexes || []).forEach(h => A.migrateHexToMultiSupervisor(h)));
+  if(A.ensureMagistratesShape) ds.forEach(d => A.ensureMagistratesShape(d));
+  // #193 — lift hexes/settlements/rumors to the top-level collections (empties the nested arrays).
+  const liftSynth = { domains: ds, hexes: campaign.hexes, settlements: campaign.settlements, rumors: campaign.rumors };
+  liftToTopLevelCollections(liftSynth);
+  campaign.hexes = liftSynth.hexes;
+  campaign.settlements = liftSynth.settlements;
+  campaign.rumors = liftSynth.rumors;
+  // Construction-B — materialize agricultural Projects now that hexes are lifted (templates ship nested).
+  migrateAgriculturalToProjects(campaign);
+  // T6 single-home — strip the nested hex/settlement mirror (the lift already promoted any legacy data).
+  stripHexSettlementMirrors(campaign);
+  return campaign;
+}
+
+// loadCampaign(raw) — the COMPLETE headless load entry (G2): migrate, then finalize, then return the
+// ready-to-use campaign. This is what INTEGRATION.md §5 should advertise instead of bare migrateCampaign
+// — a Node bot / companion tool gets a campaign with its hexes already lifted into campaign.hexes,
+// exactly as the app does. The UI's _finishLoad calls finalizeCampaignLoad (it already migrated), so
+// the two share one finish implementation.
+function loadCampaign(raw){
+  return finalizeCampaignLoad(migrateCampaign(raw));
+}
+
+// stampCampaignForSave(campaign, opts?) — return a SAVE-READY deep clone of a campaign with the
+// generation/version metadata stamped: engineVersion = ENGINE_VERSION, savedAt = today, and the
+// canonical lastModifiedAt (campaign + each domain). PURE — never mutates the input.
+//
+// This is the headless serializer the data-layer contract documents (INTEGRATION.md): a Node bot
+// or companion tool writes `JSON.stringify(ACKS.stampCampaignForSave(campaign))` and the file
+// carries the engineVersion a later reader version-detects on. The in-app File-System-Access save
+// path (index.html serializedCampaign()) should route through this too so app-written and tool-
+// written files agree — that wiring is a one-liner gated on the index.html owner.
+//
+// Deliberately NOT called by migrateCampaign: stamping engineVersion on load would make every
+// shipped template gain the field, breaking the migrate-no-op invariant (migrations.smoke P3.6:
+// on-disk template === migrate(template)). engineVersion is a SAVE-time artifact, not a load-time
+// one — so it's absent from the templates (loading one changes nothing) and present only on files
+// a human or tool actually saved. A reader treats its absence as "pre-engineVersion" (≤ v0.24).
+function stampCampaignForSave(campaign, opts){
+  opts = opts || {};
+  const c = _deepCloneCampaignForSave(campaign);
+  // T6 single-home — the nested mirrors (geography.hexes / hex.settlement / garrison / mercenaryCompany)
+  // are gone from the data model; strip them from the save-clone so the on-disk file carries only the
+  // canonical top-level collections (campaign.hexes / .settlements / .units). Old files that still carry
+  // nested data load via the lift-then-strip path. Runs on the clone; pure wrt input.
+  stripNestedMirrors(c);
+  const today = opts.savedAt || new Date().toISOString().slice(0, 10);
+  c.engineVersion = ENGINE_VERSION;
+  c.savedAt = today;
+  c.lastModifiedAt = today;
+  if(Array.isArray(c.domains)){ for(const d of c.domains){ if(d) d.lastModifiedAt = today; } }
+  delete c.domainIds; // legacy field (index.html serializedCampaign drops it too)
+  return c;
+}
+function _deepCloneCampaignForSave(c){
+  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
+  return JSON.parse(JSON.stringify(c));
+}
+
+
+// =============================================================================
+// T6 — single-home: STRIP the nested mirrors (2026-06-21). The reader sweep made every
+// reader read the canonical top-level collection (campaign.hexes / .settlements / .units),
+// so the nested mirrors (domain.geography.hexes / hex.settlement / domain.garrison.units /
+// character.mercenaryCompany.units) are now pure redundancy. This deletes them in place so
+// the single home is the ONLY home — in memory after load (called from migrateCampaign for
+// units + index.html _finishLoad for hexes/settlements, each AFTER its forward-lift has
+// promoted any old-save nested data to top-level) and on disk (called at save time in
+// stampCampaignForSave + index.html serializedCampaign, replacing projectNestedMirrors).
+//
+// Deletes only the mirror arrays + their now-vestigial wrappers: domain.geography.hexes (the
+// geography object itself survives — it carries controlledHexes / controlledHexList);
+// domain.garrison (held only units + the dead totalMonthlyCost/totalBR caches); hex.settlement;
+// character.mercenaryCompany (held only units). Idempotent — a no-op once stripped. Pure wrt
+// every non-mirror field. Membership is unaffected: a hex's domain is hex.domainId, a unit's
+// owner is unit.stationedAt, a settlement's hex is settlement.hexId — all on the canonical entity.
+// Units half — strip domain.garrison + character.mercenaryCompany. Safe to run inside migrateCampaign
+// (order 155, right after the @150 garrison-units-to-units lift), because that lift has already
+// promoted any old-save nested units to campaign.units before this deletes the mirror.
+function stripUnitMirrors(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){ if(d && 'garrison' in d) delete d.garrison; }
+  }
+  if(Array.isArray(campaign.characters)){
+    for(const c of campaign.characters){ if(c && 'mercenaryCompany' in c) delete c.mercenaryCompany; }
+  }
+  return campaign;
+}
+// Hexes + settlements half — strip domain.geography.hexes + hex.settlement. Must run AFTER
+// liftToTopLevelCollections (index.html _finishLoad), NOT inside migrateCampaign: the hex lift runs in
+// _finishLoad, so the nested hexes of a nested-only template aren't on campaign.hexes yet at migrate
+// time — deleting them here would lose them. The geography object itself survives (controlledHexes etc.).
+function stripHexSettlementMirrors(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){ if(d && d.geography && 'hexes' in d.geography) delete d.geography.hexes; }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && 'settlement' in h) delete h.settlement; }
+  }
+  return campaign;
+}
+// The full strip (all four mirrors) — used at SAVE time (stampCampaignForSave + index.html
+// serializedCampaign), where every collection is already lifted, so it's safe to drop everything.
+function stripNestedMirrors(campaign){
+  stripUnitMirrors(campaign);
+  stripHexSettlementMirrors(campaign);
+  return campaign;
 }
 
 // 2026-05-30 — Lazy backfill of additive optional fields reserved during the
@@ -814,25 +1267,17 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!campaign || typeof campaign !== 'object') return campaign;
   // Campaign-level day-tick clock (Phase 2.95 Calendar #478)
   if(typeof campaign.currentDayInMonth !== 'number') campaign.currentDayInMonth = 1;
-  // Reserved top-level collections (Architecture.md §3.5 Waves E + F + Wave D oaths)
-  if(!Array.isArray(campaign.dungeons))           campaign.dungeons = [];
-  if(!Array.isArray(campaign.journeys))           campaign.journeys = [];
-  if(!Array.isArray(campaign.outposts))           campaign.outposts = [];
-  if(!Array.isArray(campaign.congregations))      campaign.congregations = [];
-  if(!Array.isArray(campaign.divineFavors))       campaign.divineFavors = [];
-  if(!Array.isArray(campaign.attunements))        campaign.attunements = [];
-  if(!Array.isArray(campaign.settlementVisits))   campaign.settlementVisits = [];
-  if(!Array.isArray(campaign.oaths))              campaign.oaths = [];
-  if(!Array.isArray(campaign.vagaryOfIncursionEvents)) campaign.vagaryOfIncursionEvents = [];
-  // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
-  if(!Array.isArray(campaign.projects))       campaign.projects       = [];
-  if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
-  // Favors & Duties (#230, F&D-1 — 2026-06-08) — the liege↔vassal obligation relation collection.
-  if(!Array.isArray(campaign.favorDutyObligations)) campaign.favorDutyObligations = [];
-  // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities.
-  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
-  // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions (D8).
-  if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
+  // Reserved top-level collections — backfilled from the §15.5 collection registry (the
+  // lazyDefault:true set). This loop reproduces the old explicit `if(!Array.isArray) = []`
+  // block exactly (the 19 lazy-injected collections: the §3.5 Waves E/F/D reservations,
+  // Construction, Favors & Duties, Lairs, the Encounter/Military entities, the Arcane Domain).
+  // A NEW collection defaults to DEFENSIVE-READ (lazyDefault:false → NOT backfilled here): its
+  // module reads `campaign.foo ?? []` + seeds on first write, so the 6 templates + demo stay
+  // TRUE migrate-no-ops with no regen (the team-session enabler — the banking/sages/burst5+9
+  // convention). To opt a collection into eager backfill, register it with { lazyDefault:true }.
+  for(const name of lazyDefaultCollections()){
+    if(!Array.isArray(campaign[name])) campaign[name] = [];
+  }
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -1064,11 +1509,14 @@ function agriculturalConstructionRatePerDay(campaign, domain, hex){
 // -> <=25,000gp (siege engineer), per RR p.174. A manually-set character.constructionSupervisorCap is
 // honored as a fallback/override (NPCs entered without proficiency detail). 0 = not a supervisor.
 // NOTE: RR p.174 says one rank of Siege Engineering counts as a skilled laborer, not a siege engineer;
-// a ranks check is a future refinement once the proficiency model tracks ranks (it stores names today).
+// a ranks check is a future refinement (the PT-0 model now tracks ranks via ACKS.proficiencyRanks).
 function constructionSupervisorCapForCharacter(character){
   if(!character) return 0;
   const manual = character.constructionSupervisorCap || 0;
-  const profs = (character.proficiencies || []).map(p => (typeof p === 'string' ? p : (p && p.key) || '').toLowerCase());
+  // PT-0: read the canonical {key} (or a legacy string / {name}); de-hyphenate so the slug key
+  // 'siege-engineering' still matches the 'siege engineering' substring needle below.
+  const profs = (character.proficiencies || []).map(p =>
+    (typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '').toLowerCase().replace(/-/g, ' '));
   let derived = 0;
   if(profs.some(p => p.includes('engineering') && !p.includes('siege'))) derived = 100000;      // Engineer
   else if(profs.some(p => p.includes('siege engineering'))) derived = 25000;                     // Siege Engineer
@@ -1240,6 +1688,126 @@ function migrateAgriculturalToProjects(campaign){
   return campaign;
 }
 
+// =============================================================================
+// Phase 4 Construction Wave C — lift stronghold components onto first-class Constructibles
+// =============================================================================
+// Foundation #16 stores a domain's stronghold as domain.stronghold.components[] ({type, name,
+// buildValue, structures[]}) — or, for un-converted saves, the legacy single-stronghold shape
+// ({type, buildValue, structures} on the stronghold itself; the UI's migrateStrongholdToComponents
+// converts it on load). The economy's strongholdValue (acks-engine-economy.js) reads either shape.
+//
+// This migration lifts each content-bearing stronghold onto a first-class Constructible
+// (campaign.constructibles[], constructibleKind:'stronghold-component') as an ADDITIVE MIRROR:
+//   • the economy is UNTOUCHED — strongholdValue still sums the components/legacy value (zero drift
+//     by construction; this only ADDS a constructibleId pointer to the source, which the economy and
+//     the W4 pillage path — which writes s.buildValue directly, acks-engine-maneuvers.js — both ignore);
+//   • the Constructible is the first-class, Inspector-visible, Wizard-extensible record (Wave C+ build
+//     onto it);
+//   • linked forward (source.constructibleId → the dedup key) + back (constructible.functionData
+//     .legacyComponentId, best-effort); migrateStrongholdToComponents carries the forward link onto the
+//     new component when the UI converts legacy→components, so a load→convert→save→reload never duplicates;
+//   • the mirror is reconciled to its source on every load (resync buildValue/name/subtype), so a GM edit
+//     or a pillage that mutates the source value doesn't leave the mirror stale;
+//   • idempotent (an existing live mirror is reconciled, not duplicated) — the shipped templates stay
+//     migrate-no-ops (migrations.smoke §P3.6) once regenerated through migrateCampaign.
+// It does NOT restructure the stronghold (no migrateStrongholdToComponents call here) — that would delete
+// s.buildValue, which W4 pillage reads/writes directly. The canonical-setter wiring (the Construction
+// Wizard's "+ build a component" writing the component AND its mirror through one setter) lands with
+// Wave C's Wizard. See Phase_4_Construction_Plan.md Wave C.
+
+// The stronghold's seat hex — robust at migrateCampaign time (campaign.hexes may not be lifted yet), so
+// read the domain's own nested geography.hexes first, falling back to the lifted top-level copy.
+// Deterministic + lift-state-independent → no drift between the regen write and a later reload.
+function _strongholdSeatHexId(campaign, dom){
+  const byId = Object.create(null);
+  if(dom.geography && Array.isArray(dom.geography.hexes)){
+    for(const h of dom.geography.hexes){ if(h && h.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && h.id && h.domainId === dom.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  const hexes = Object.keys(byId).map(k => byId[k]);
+  if(!hexes.length) return null;
+  const ruler = dom.rulerCharacterId ? (campaign.characters || []).find(c => c && c.id === dom.rulerCharacterId) : null;
+  if(ruler && ruler.currentHexId && hexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
+  let best = null, bestPop = -1;
+  for(const h of hexes){
+    // Migrate-time may run pre-lift: read the embedded settlement (nested-only file) then the
+    // canonical campaign.settlements (regenerated/single-home file). T6 back-compat.
+    const s = h.settlement || (Array.isArray(campaign.settlements) ? campaign.settlements.find(x => x && x.hexId === h.id) : null);
+    const pop = s ? (s.families || s.population || 0) : 0;
+    if(pop > bestPop){ bestPop = pop; best = h; }
+  }
+  return (best || hexes[0]).id;
+}
+
+function migrateStrongholdComponentsToConstructibles(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
+  if(!Array.isArray(campaign.domains)) return campaign;
+  const A = global.ACKS || {};
+  const blank = A.blankConstructible;
+  if(typeof blank !== 'function') return campaign;   // entities.js not loaded yet (never at runtime)
+  const byId = Object.create(null);
+  for(const c of campaign.constructibles){ if(c && c.id) byId[c.id] = c; }
+  for(const dom of campaign.domains){
+    if(!dom || !dom.stronghold) continue;
+    const s = dom.stronghold;
+    // Mirror BOTH shapes WITHOUT restructuring the stronghold: the Foundation-#16 components[] shape,
+    // and the legacy single-stronghold shape (the stronghold object itself is the one "component").
+    const refs = Array.isArray(s.components) ? s.components : [s];
+    let seatHexId = null, seatResolved = false;
+    for(const ref of refs){
+      if(!ref) continue;
+      const hasContent = ref.type || ref.name || (ref.buildValue || 0) > 0 ||
+        (Array.isArray(ref.structures) && ref.structures.length > 0);
+      if(!hasContent) continue;   // skip empty placeholder components — don't mint a Constructible for nothing
+      if(!seatResolved){ seatHexId = _strongholdSeatHexId(campaign, dom); seatResolved = true; }
+      const name = ref.name || ref.type || 'Stronghold component';
+      const subtype = ref.type ? slugify(ref.type) : null;
+      let cst = ref.constructibleId ? byId[ref.constructibleId] : null;
+      if(cst){
+        // Reconcile the mirror to its source (principle #10; resync-only, no history append). A no-op on
+        // already-synced data (the regenerated templates), so the migrate-no-op invariant holds; keeps the
+        // mirror correct after the source value changes (a GM edit, or a W4 pillage of s.buildValue).
+        cst.functionData = cst.functionData || {};
+        cst.buildValue = ref.buildValue || 0;
+        cst.name = name;
+        if(subtype) cst.constructibleSubtype = subtype;
+        cst.ownerDomainId = dom.id;
+        if(seatHexId && !cst.hexId) cst.hexId = seatHexId;
+        if(ref.id && !cst.functionData.legacyComponentId) cst.functionData.legacyComponentId = ref.id;
+        continue;
+      }
+      cst = blank({
+        constructibleKind: 'stronghold-component',
+        constructibleSubtype: subtype,
+        constructionState: 'complete',
+        damageState: 'intact',
+        ownership: 'domain',
+        siteType: 'stronghold-courtyard',
+        operationalState: 'operational',
+        name: name,
+        hexId: seatHexId,
+        ownerDomainId: dom.id,
+        buildValue: ref.buildValue || 0
+      });
+      cst.functionData = cst.functionData || {};
+      if(ref.id) cst.functionData.legacyComponentId = ref.id;
+      cst.history.push({
+        turn: (typeof campaign.currentTurn === 'number' ? campaign.currentTurn : null),
+        type: 'migrated',
+        narrative: 'Lifted onto the unified Constructible model from the stronghold component "' +
+          name + '" (' + (ref.buildValue || 0).toLocaleString() + 'gp).'
+      });
+      ref.constructibleId = cst.id;
+      campaign.constructibles.push(cst);
+      byId[cst.id] = cst;
+    }
+  }
+  return campaign;
+}
+
 // Foundation #244 — Helper used by both `migrateCampaign` and Alpine's session-restore path.
 // When the `dwarven-mining` house rule is OFF (the default), strip any "Mine royalties" or
 // similarly-tagged entries from `domain.income.other`. The pre-fix Dwarven Vault template had
@@ -1400,8 +1968,17 @@ function findRumor(campaign, rumorId){
 }
 
 function settlementForHex(campaign, hexId){
-  if(!campaign || !Array.isArray(campaign.settlements)) return null;
-  return campaign.settlements.find(s => s.hexId === hexId) || null;
+  if(!campaign) return null;
+  if(Array.isArray(campaign.settlements)){
+    const s = campaign.settlements.find(s => s.hexId === hexId);
+    if(s) return s;
+  }
+  // T6 single-home — back-compat bridge: an un-lifted input (an old save mid-migration, a test
+  // fixture that embeds a settlement on the hex but hasn't run the lift) may carry the settlement
+  // ONLY as hex.settlement. This is the SINGLE place that reads the embedded mirror; it's dead in
+  // production (the load strips hex.settlement after liftToTopLevelCollections promotes it here).
+  const h = findHex(campaign, hexId);
+  return (h && h.settlement) || null;
 }
 
 // ── Phase 2.5 Journeys (#475) — lookups + a pure hex-distance helper ──
@@ -1417,22 +1994,9 @@ function journeysWithParticipant(campaign, characterId){
   if(!campaign || !Array.isArray(campaign.journeys) || !characterId) return [];
   return campaign.journeys.filter(j => j && Array.isArray(j.participantCharacterIds) && j.participantCharacterIds.indexOf(characterId) >= 0);
 }
-// Resolve a hex by id from the canonical top-level collection, falling back to per-domain
-// geography (the UI keeps hexes split across domains' geography.hexes). Pure read.
+// Resolve a hex by id from the canonical campaign.hexes (single-home, T6). Pure read.
 function resolveHexAnywhere(campaign, hexId){
-  if(!campaign || !hexId) return null;
-  const top = findHex(campaign, hexId);
-  if(top) return top;
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      const hexes = d && d.geography && d.geography.hexes;
-      if(Array.isArray(hexes)){
-        const h = hexes.find(x => x && x.id === hexId);
-        if(h) return h;
-      }
-    }
-  }
-  return null;
+  return findHex(campaign, hexId);
 }
 // Axial hex distance between two {q, r} coords (cube-coordinate metric). Pure.
 function hexAxialDistance(a, b){
@@ -1441,22 +2005,16 @@ function hexAxialDistance(a, b){
   return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
 }
 // The authored hex at axial coord (q,r), or null. Accepts (campaign, q, r) or (campaign, {q,r}).
-// Checks the canonical top-level store first, then the reference-unified nested geography mirror.
-// Used by hex-by-hex journey resolution to look up the hexes a route passes through (a route
-// step over an UNauthored coord returns null, and the caller falls back to the journey's base
-// environment — so per-hex/per-side travel effects apply only where cartography exists).
+// Reads the canonical campaign.hexes (single-home, T6). Used by hex-by-hex journey resolution to look
+// up the hexes a route passes through (a route step over an UNauthored coord returns null, and the
+// caller falls back to the journey's base environment — so per-hex/per-side travel effects apply only
+// where cartography exists).
 function hexAtCoord(campaign, q, r){
   if(!campaign) return null;
   if(q && typeof q === 'object'){ r = q.r; q = q.q; }
   if(typeof q !== 'number' || typeof r !== 'number') return null;
   if(Array.isArray(campaign.hexes)){
     for(const h of campaign.hexes){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; }
-  }
-  if(Array.isArray(campaign.domains)){
-    for(const d of campaign.domains){
-      const gh = d && d.geography && d.geography.hexes;
-      if(Array.isArray(gh)){ for(const h of gh){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; } }
-    }
   }
   return null;
 }
@@ -1485,2531 +2043,31 @@ function rumorReachAt(rumor, settlementId){
 }
 
 // =============================================================================
-// Phase 2.95 Stash A — Stash lookups (pure-find subset, commit 3 / 2026-05-29).
-// Per Phase_2.95_Stash_Plan.md §6.2. Mutator-style helpers (findOrCreateStashAt,
-// auto-create domain treasury) land with A.2 canonical setters.
+// The Stash / wealth / inventory layer (Phase 2.95 Stash A/B + Items I1 + coins +
+// notable items + provisioning) was moved to acks-engine-stash.js (T5 monolith
+// decomposition, 2026-06-23). That module loads after this file and self-registers
+// its six stash/coins load-migration passes (orders 70/90/100/110/120/190).
+// _applyDomainTreasuryDelta (the canonical treasury setter) moved with it and is
+// exported there; the callers below use ACKS._applyDomainTreasuryDelta.
 // =============================================================================
 
-function findStash(campaign, stashId){
-  if(!campaign || !Array.isArray(campaign.stashes)) return null;
-  return campaign.stashes.find(st => st.id === stashId) || null;
-}
-
-// Personal + cache stashes owned by this character. Does not include party
-// stashes the character is a member of (use stashesAccessibleToCharacter for that).
-function stashesOwnedByCharacter(campaign, characterId){
-  if(!campaign || !Array.isArray(campaign.stashes)) return [];
-  return campaign.stashes.filter(st => st.ownerCharacterId === characterId);
-}
-
-// All stashes located at a given hex, regardless of owner kind.
-function stashesAtHex(campaign, hexId){
-  if(!campaign || !Array.isArray(campaign.stashes)) return [];
-  return campaign.stashes.filter(st => st.hexId === hexId);
-}
-
-// Defensive pure-find — returns null if no domain treasury stash exists for the
-// given domain. A.2 will add domainTreasuryFor() that creates lazily.
-function findDomainTreasury(campaign, domainId){
-  if(!campaign || !Array.isArray(campaign.stashes)) return null;
-  return campaign.stashes.find(st =>
-    st.kind === 'domain-treasury' && st.ownerDomainId === domainId
-  ) || null;
-}
-
-// Derived view — never stored. Personal stashes the character owns +
-// party stashes for any party they're a member of +
-// domain-treasuries of any domain whose rulerCharacterId matches them.
-// Order: personal → party → treasury (most-personal-first).
-function stashesAccessibleToCharacter(campaign, characterId){
-  if(!campaign || !characterId) return [];
-  const out = [];
-  // Personal + cache stashes
-  if(Array.isArray(campaign.stashes)){
-    for(const st of campaign.stashes){
-      if(st.ownerCharacterId === characterId) out.push(st);
-    }
-  }
-  // Party stashes for the party this character belongs to. character.partyId is the canonical
-  // membership truth (Architecture §3.3); read it directly so this works even before
-  // reconcilePartyMembership has rebuilt the party.memberCharacterIds mirror.
-  if(Array.isArray(campaign.stashes)){
-    const ch = Array.isArray(campaign.characters) ? campaign.characters.find(c => c && c.id === characterId) : null;
-    const myPartyId = ch && ch.partyId;
-    if(myPartyId){
-      for(const st of campaign.stashes){
-        if(st.ownerPartyId === myPartyId) out.push(st);
-      }
-    }
-  }
-  // Domain treasuries for domains this character currently rules
-  if(Array.isArray(campaign.domains) && Array.isArray(campaign.stashes)){
-    const ruledDomainIds = campaign.domains
-      .filter(d => d.rulerCharacterId === characterId)
-      .map(d => d.id);
-    if(ruledDomainIds.length){
-      const ruledSet = new Set(ruledDomainIds);
-      for(const st of campaign.stashes){
-        if(st.kind === 'domain-treasury' && st.ownerDomainId && ruledSet.has(st.ownerDomainId)) out.push(st);
-      }
-    }
-  }
-  return out;
-}
-
 // =============================================================================
-// Phase 2.95 Stash A.2 — canonical setters (#467 / 2026-05-29).
-// depositToStash + withdrawFromStash + transferBetweenStashes.
-// Per Phase_2.95_Stash_Plan.md §6.2. Coin items merge by denomination on
-// deposit; bulk and item entries append. Withdraw supports partial qty.
-// Each mutation stamps a history entry on the stash record.
+// The Group model + Units & Armies (Military W1) + levies/militia (W7) + the
+// Vagaries-of-Incursion derived reads (W2) were moved to acks-engine-military.js
+// (T5 monolith decomposition, 2026-06-23). That module loads after this file and
+// self-registers its garrison-units-to-units load-migration (order 150). The six
+// privates it exports (_resolveDomain / _levyMusterNoun / _completeTraining /
+// _musterDestinationHexId / _favorDutyMaterializeTroops / _favorDutyDematerializeTroops)
+// are reached here via ACKS.*.
 // =============================================================================
 
-// --- Internal helper: append a history entry to a stash ----------------------
-function _stampStashHistory(stash, atTurn, type, payload){
-  if(!stash) return;
-  if(!Array.isArray(stash.history)) stash.history = [];
-  stash.history.push(Object.assign({ turn: atTurn || 1, type }, payload || {}));
-}
-
-// --- Internal helper: brief summary of items for history payloads ------------
-// Used for both deposit + withdraw history entries. Returns a compact array
-// of {kind, label, qty} that's easier to audit than embedded full item objects.
-function _summarizeItems(items){
-  if(!Array.isArray(items)) return [];
-  return items.map(it => {
-    if(!it) return null;
-    const pf = primaryFacet(it);
-    if(pf === 'coin') return { kind:'coin', label: it.denomination || 'gp', qty: it.qty || 0 };
-    if(pf === 'bulk') return { kind:'bulk', label: it.name || it.label || '(unnamed)', unit: it.unit || 'stones', qty: it.qty || 0 };
-    return { kind: pf, label: it.name || '(unnamed)', qty: it.qty || 1, notableItemId: it.notableItemId || it.magicItemId || null };
-  }).filter(Boolean);
-}
-
-// --- Deposit ------------------------------------------------------------------
-// Add items[] to a stash. Coin entries merge by denomination; other kinds append.
-// Items can be passed as bare objects ({kind:'coin', denomination:'gp', qty:50})
-// — they're normalized through blankStashItem so they end up with proper IDs.
-function depositToStash(campaign, stashId, items, opts){
-  if(!campaign || !stashId) return null;
-  const stash = findStash(campaign, stashId);
-  if(!stash) return null;
-  if(!Array.isArray(items) || items.length === 0) return stash;  // no-op
-  if(!Array.isArray(stash.items)) stash.items = [];
-
-  const blankStashItem = (global.ACKS && global.ACKS.blankStashItem) || null;
-  const atTurn = (opts && opts.atTurn) || campaign.currentTurn || 1;
-
-  for(const incoming of items){
-    if(!incoming) continue;
-    const normalized = blankStashItem ? blankStashItem(incoming) : Object.assign({ id: 'si-?' }, incoming);
-
-    // Coin merges by denomination.
-    if(itemHasFacet(normalized, 'coin')){
-      const existing = stash.items.find(x =>
-        itemHasFacet(x, 'coin') && (x.denomination || 'gp') === (normalized.denomination || 'gp')
-      );
-      if(existing){
-        existing.qty = (existing.qty || 0) + (normalized.qty || 0);
-        continue;
-      }
-    }
-    // Bulk + item append as new records. A.4 reconcile can consolidate later.
-    stash.items.push(normalized);
-  }
-
-  _stampStashHistory(stash, atTurn, 'deposit', {
-    reason: (opts && opts.reason) || 'deposit',
-    source: (opts && opts.source) || null,
-    items: _summarizeItems(items)
-  });
-
-  // A.4 — canonical-setter invariant: keep treasury scalar in sync
-  _syncTreasuryScalarFor(campaign, stash);
-
-  return stash;
-}
-
-// --- Withdraw -----------------------------------------------------------------
-// Remove items from a stash. withdrawals: [{itemId, qty?}]. qty defaults to
-// the entry's full qty. Partial withdrawal: source qty reduces, a new detached
-// record (with a fresh id for coin/bulk; preserving id for full item-kind)
-// is returned for each withdrawal entry. Returns null on any validation
-// failure — withdraw is atomic: no partial effects if anything fails.
-function withdrawFromStash(campaign, stashId, withdrawals, opts){
-  if(!campaign || !stashId) return null;
-  const stash = findStash(campaign, stashId);
-  if(!stash) return null;
-  if(!Array.isArray(withdrawals) || withdrawals.length === 0){
-    return { stash, withdrawn: [] };  // no-op
-  }
-  if(!Array.isArray(stash.items)) return null;
-
-  // Validate everything first — atomicity.
-  const plan = [];
-  for(const w of withdrawals){
-    if(!w || !w.itemId) return null;
-    const entry = stash.items.find(it => it.id === w.itemId);
-    if(!entry) return null;
-    const requested = (w.qty != null) ? w.qty : (entry.qty != null ? entry.qty : 1);
-    if(typeof requested !== 'number' || requested <= 0) return null;
-    const have = (entry.qty != null) ? entry.qty : 1;
-    if(requested > have) return null;
-    plan.push({ entry, requested, isFull: requested === have });
-  }
-
-  // All validated. Apply.
-  const blankStashItem = (global.ACKS && global.ACKS.blankStashItem) || null;
-  const withdrawn = [];
-  for(const step of plan){
-    if(step.isFull){
-      // Remove entry from stash; return the original record (now detached).
-      const idx = stash.items.indexOf(step.entry);
-      if(idx >= 0) stash.items.splice(idx, 1);
-      withdrawn.push(step.entry);
-    } else {
-      // Partial: reduce source qty, build a detached copy with new id.
-      step.entry.qty = (step.entry.qty || 0) - step.requested;
-      const copySpec = Object.assign({}, step.entry, { id: undefined, qty: step.requested });
-      const copy = blankStashItem ? blankStashItem(copySpec) : Object.assign({ id: 'si-?' }, copySpec);
-      withdrawn.push(copy);
-    }
-  }
-
-  const atTurn = (opts && opts.atTurn) || campaign.currentTurn || 1;
-  _stampStashHistory(stash, atTurn, 'withdraw', {
-    reason: (opts && opts.reason) || 'withdraw',
-    destination: (opts && opts.destination) || null,
-    items: _summarizeItems(withdrawn)
-  });
-
-  // A.4 — canonical-setter invariant: keep treasury scalar in sync
-  _syncTreasuryScalarFor(campaign, stash);
-
-  return { stash, withdrawn };
-}
-
-// --- Transfer -----------------------------------------------------------------
-// Atomic move: withdraw from `fromStashId`, deposit into `toStashId`. Same
-// validation semantics as withdrawFromStash. History entries on both stashes
-// reference the counterparty.
-function transferBetweenStashes(campaign, fromStashId, toStashId, withdrawals, opts){
-  if(!campaign || !fromStashId || !toStashId) return null;
-  if(fromStashId === toStashId) return null;
-  const fromStash = findStash(campaign, fromStashId);
-  const toStash   = findStash(campaign, toStashId);
-  if(!fromStash || !toStash) return null;
-
-  const atTurn = (opts && opts.atTurn) || campaign.currentTurn || 1;
-  const reason = (opts && opts.reason) || 'transfer';
-
-  // Withdraw step writes its own history; we re-stamp with a richer payload below
-  // by passing reason + destination so the withdraw entry already references `to`.
-  const out = withdrawFromStash(campaign, fromStashId, withdrawals, {
-    atTurn,
-    reason,
-    destination: { kind:'stash', id: toStashId, label: toStash.name || null }
-  });
-  if(!out) return null;
-
-  // Deposit the withdrawn items into `to`. The deposit history entry references
-  // the source stash so both sides of the transfer carry counterparty context.
-  depositToStash(campaign, toStashId, out.withdrawn, {
-    atTurn,
-    reason,
-    source: { kind:'stash', id: fromStashId, label: fromStash.name || null }
-  });
-
-  return { fromStash, toStash, transferred: out.withdrawn };
-}
-
 // =============================================================================
-// Phase 2.95 Stash B (engine foundation, 2026-06-03) — carry↔stash transfers,
-// controller change, find-or-create, and the RAW carry-encumbrance bands the
-// character-sheet surface reads. Per Phase_2.95_Stash_Plan.md §6.2–§6.4 + §12.
+// Lairs (Monster Persistence #476) + the wilderness encounter-generation engine
+// were moved to acks-engine-lairs.js (T5 monolith decomposition, 2026-06-23).
+// That module loads after this file and self-registers its "legacy-hex-lairs"
+// load-migration (order 140). _rollDiceStr moved with it (exported there; the one
+// Military caller below uses ACKS._rollDiceStr).
 // =============================================================================
-
-// --- One-per-owner-per-hex find-or-create ("the windfall lands here" helper) --
-// ownerSpec: {characterId} | {partyId} | {domainId}. opts.kind overrides the
-// default kind for a character owner (personal | cache). Returns an existing
-// match (same owner + hex + kind) or a freshly created + pushed stash.
-function findOrCreateStashAt(campaign, ownerSpec, hexId, opts){
-  if(!campaign || !ownerSpec) return null;
-  opts = opts || {};
-  if(!Array.isArray(campaign.stashes)) campaign.stashes = [];
-  let ownerField, ownerId, kind;
-  if(ownerSpec.characterId){ ownerField='ownerCharacterId'; ownerId=ownerSpec.characterId; kind=opts.kind || 'personal'; }
-  else if(ownerSpec.partyId){ ownerField='ownerPartyId'; ownerId=ownerSpec.partyId; kind='party'; }
-  else if(ownerSpec.domainId){ ownerField='ownerDomainId'; ownerId=ownerSpec.domainId; kind='domain-treasury'; }
-  else return null;
-  const existing = campaign.stashes.find(s => s && s.hexId === hexId && s[ownerField] === ownerId && s.kind === kind);
-  if(existing) return existing;
-  const blankStash = (global.ACKS && global.ACKS.blankStash) || null;
-  if(!blankStash) return null;
-  const s = blankStash({ kind, hexId });
-  s[ownerField] = ownerId;
-  s.name = opts.name || (kind === 'domain-treasury' ? 'Treasury' : (kind === 'party' ? 'Party loot' : 'Cache'));
-  s.createdAtTurn = campaign.currentTurn || 1;
-  campaign.stashes.push(s);
-  return s;
-}
-
-// --- Private: atomic withdraw from a bare item array (carry inventory) --------
-// Mirrors withdrawFromStash's validate-then-apply atomicity. withdrawals:
-// [{itemId, qty?}]. Returns {ok, removed} (removed = detached item lines).
-function _withdrawFromItemArray(items, withdrawals){
-  if(!Array.isArray(items) || !Array.isArray(withdrawals)) return { ok:false, removed:[] };
-  const blankStashItem = (global.ACKS && global.ACKS.blankStashItem) || null;
-  const plan = [];
-  for(const w of withdrawals){
-    if(!w || !w.itemId) return { ok:false, removed:[] };
-    const entry = items.find(it => it && it.id === w.itemId);
-    if(!entry) return { ok:false, removed:[] };
-    const have = (entry.qty != null) ? entry.qty : 1;
-    const req = (w.qty != null) ? w.qty : have;
-    if(typeof req !== 'number' || req <= 0 || req > have) return { ok:false, removed:[] };
-    plan.push({ entry, req, isFull: req === have });
-  }
-  const removed = [];
-  for(const step of plan){
-    if(step.isFull){
-      const idx = items.indexOf(step.entry);
-      if(idx >= 0) items.splice(idx, 1);
-      removed.push(step.entry);
-    } else {
-      step.entry.qty = (step.entry.qty || 0) - step.req;
-      const copySpec = Object.assign({}, step.entry, { id: undefined, qty: step.req });
-      removed.push(blankStashItem ? blankStashItem(copySpec) : copySpec);
-    }
-  }
-  return { ok:true, removed };
-}
-
-// --- Carry → stash ("bank your coin at home") --------------------------------
-function transferCarryToStash(campaign, characterId, stashId, withdrawals, opts){
-  if(!campaign) return null;
-  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
-  const stash = findStash(campaign, stashId);
-  if(!ch || !stash) return null;
-  if(!Array.isArray(ch.inventory)) ch.inventory = [];
-  const out = _withdrawFromItemArray(ch.inventory, withdrawals);
-  if(!out.ok) return null;
-  depositToStash(campaign, stashId, out.removed, {
-    reason: (opts && opts.reason) || 'bank-carry',
-    source: { kind:'character', id: characterId, label: ch.name || null }
-  });
-  return { character: ch, stash, moved: out.removed };
-}
-
-// --- Stash → carry (warns over encumbrance, never blocks — RAW) --------------
-function transferStashToCarry(campaign, stashId, characterId, withdrawals, opts){
-  if(!campaign) return null;
-  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
-  const stash = findStash(campaign, stashId);
-  if(!ch || !stash) return null;
-  const out = withdrawFromStash(campaign, stashId, withdrawals, {
-    reason: (opts && opts.reason) || 'draw-from-stash',
-    destination: { kind:'character', id: characterId, label: ch.name || null }
-  });
-  if(!out) return null;
-  if(!Array.isArray(ch.inventory)) ch.inventory = [];
-  for(const it of out.withdrawn) ch.inventory.push(it);
-  const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
-  return { character: ch, stash, moved: out.withdrawn, overEncumbered: band.level === 'overloaded', band };
-}
-
-// --- Controller change (ruler succession on a domain-treasury; or owner swap) -
-// For domain-treasury: ownerDomainId is UNCHANGED (the domain still owns it) — the
-// controllerChanged history entry records who held office. For personal/cache:
-// sets the new owner. newOwner: {characterId} | {partyId} | {domainId}.
-function changeStashController(campaign, stashId, newOwner, opts){
-  if(!campaign || !newOwner) return null;
-  const stash = findStash(campaign, stashId);
-  if(!stash) return null;
-  const before = { ownerCharacterId: stash.ownerCharacterId, ownerPartyId: stash.ownerPartyId, ownerDomainId: stash.ownerDomainId };
-  if(stash.kind !== 'domain-treasury'){
-    if(newOwner.characterId !== undefined){ stash.ownerCharacterId = newOwner.characterId; stash.ownerPartyId = null; stash.ownerDomainId = null; }
-    else if(newOwner.partyId !== undefined){ stash.ownerPartyId = newOwner.partyId; stash.ownerCharacterId = null; stash.ownerDomainId = null; }
-  }
-  _stampStashHistory(stash, (opts && opts.atTurn) || campaign.currentTurn || 1, 'controllerChanged', {
-    reason: (opts && opts.reason) || 'controller-change',
-    from: before,
-    to: { ownerCharacterId: stash.ownerCharacterId, ownerPartyId: stash.ownerPartyId, ownerDomainId: stash.ownerDomainId },
-    officeHolderCharacterId: (newOwner.characterId !== undefined ? newOwner.characterId : null)
-  });
-  return stash;
-}
-
-// =============================================================================
-// Character ⇄ co-located stash transfer (Items I1 Step 3 — the GM-facing
-// "cache from inventory / draw from a cache" verbs, per Phase_2.95_Stash_Plan §6.2).
-// These operate on the SHIPPED carry shapes — the Phase 2.6 carry inventory
-// (index-addressed {name,stone,notes}, NO ids) + the character.coins purse — and
-// bridge them to/from facet stash items, so the §8.3 inventory→facet unification
-// is NOT a prerequisite. (transferCarryToStash/transferStashToCarry above stay the
-// id-based primitives for the future unified carry; the UI uses the two below.)
-// Coins are routed to/from character.coins (the purse), NOT carry lines.
-// =============================================================================
-
-// Phase-2.6 carry line ({name,stone,notes,notableItemId?}) → a facet stash-item
-// spec (depositToStash normalizes it). Stone → encumbranceSt so weight survives.
-// A facet-shaped line (future unified carry) passes through unchanged.
-function _carryLineToStashItem(line){
-  if(!line) return null;
-  if(Array.isArray(line.facets) && line.facets.length){
-    return Object.assign({}, line, { id: undefined });   // already facet-shaped — clone, fresh id on deposit
-  }
-  return {
-    facets: ['gear'],                                     // blankStashItem adds 'magical' if notableItemId set
-    name: line.name || '',
-    qty: (line.qty != null) ? line.qty : 1,
-    encumbranceSt: (line.stone != null) ? (parseFloat(line.stone) || 0) : null,
-    notableItemId: line.notableItemId || null,
-    notes: line.notes || ''
-  };
-}
-
-// Withdrawn facet stash item → a carry line. Keeps the full facet line (nothing
-// lost — a withdrawn valuable retains unitValueGp, a notable retains its pointer)
-// AND sets `stone` so the Phase 2.6 carry table renders its weight column.
-function _stashItemToCarryLine(item){
-  return Object.assign({}, item, {
-    stone: itemEncumbranceSt(item),
-    name: item.name || '',
-    notes: item.notes || ''
-  });
-}
-
-// --- Cache from carry → stash ("stash items/coins here") ----------------------
-// spec: { itemIndices:[int], coins:{pp,gp,ep,sp,cp} }. Items addressed by carry
-// index; coins drawn from the purse. Validate-all-then-apply (atomic). Returns
-// { ok, stash, movedItems, movedCoinGp } | { ok:false, error }.
-function cacheToStash(campaign, characterId, stashId, spec, opts){
-  if(!campaign) return { ok:false, error:'no-campaign' };
-  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
-  const stash = findStash(campaign, stashId);
-  if(!ch || !stash) return { ok:false, error:'not-found' };
-  spec = spec || {};
-  const indices = Array.isArray(spec.itemIndices) ? spec.itemIndices.slice() : [];
-  const coins = spec.coins || {};
-  if(!Array.isArray(ch.inventory)) ch.inventory = [];
-  reconcileCharacterCoins(ch);
-
-  // Validate item indices.
-  for(const ix of indices){
-    if(typeof ix !== 'number' || ix < 0 || ix >= ch.inventory.length || !Number.isInteger(ix)) return { ok:false, error:'bad-index' };
-  }
-  // Validate coins ≤ purse.
-  let anyCoin = false;
-  for(const d of COIN_DENOMINATIONS){
-    const amt = Number(coins[d]) || 0;
-    if(amt < 0) return { ok:false, error:'bad-coin' };
-    if(amt > (Number(ch.coins[d]) || 0)) return { ok:false, error:'insufficient-coin' };
-    if(amt > 0) anyCoin = true;
-  }
-  if(indices.length === 0 && !anyCoin) return { ok:false, error:'nothing-selected' };
-
-  // Apply: splice items high-index-first (so earlier indices stay valid), then coins.
-  const depositItems = [];
-  let movedItems = 0;
-  for(const ix of indices.slice().sort((a,b) => b - a)){
-    const line = ch.inventory[ix];
-    depositItems.push(_carryLineToStashItem(line));
-    ch.inventory.splice(ix, 1);
-    movedItems++;
-  }
-  let movedCoinGp = 0;
-  for(const d of COIN_DENOMINATIONS){
-    const amt = Number(coins[d]) || 0;
-    if(amt > 0){
-      depositItems.push({ facets:['coin'], denomination:d, qty:amt });
-      ch.coins[d] = (Number(ch.coins[d]) || 0) - amt;
-      movedCoinGp += amt * (COIN_GP_VALUE[d] != null ? COIN_GP_VALUE[d] : 1);
-    }
-  }
-  reconcileCharacterCoins(ch);   // keep personalGp mirror in lockstep (#10)
-
-  depositToStash(campaign, stashId, depositItems, {
-    reason: (opts && opts.reason) || 'cache-from-carry',
-    source: { kind:'character', id: characterId, label: ch.name || null },
-    atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
-  });
-  // GP Wave B (Architecture.md §4.3.6) — the cache/draw modal moved items but emitted no
-  // eventLog event; emit the item-transfer (+ a wealth-transfer for the coin leg) so the
-  // action surfaces in entity history. Suppressed when invoked as an item-transfer leg.
-  if(!(opts && opts.suppressEvent) && global.ACKS){
-    if(movedItems > 0 && global.ACKS.recordItemTransfer){
-      global.ACKS.recordItemTransfer(campaign, {
-        source: { kind:'character', id: characterId, label: ch.name || null },
-        destination: { kind:'stash', id: stashId, label: stash.name || null },
-        lines: depositItems.filter(d => (d.facets||[]).indexOf('coin') < 0).map(d => ({ name: d.name, qty: d.qty })),
-        bucket: 'cache', reason: (opts && opts.reason) || 'cache'
-      });
-    }
-    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
-      global.ACKS.recordWealthTransfer(campaign, {
-        source: { kind:'character-gp', id: characterId, label: ch.name || null },
-        destination: { kind:'stash', id: stashId, label: stash.name || null },
-        amount: movedCoinGp, bucket: 'cache', reason: (opts && opts.reason) || 'cache'
-      });
-    }
-  }
-  return { ok:true, stash, movedItems, movedCoinGp };
-}
-
-// --- Draw from a co-located stash → carry ("take items/coins") ----------------
-// spec: { itemIds:[id], coins:{pp,gp,ep,sp,cp} }. Coin lines route to the purse;
-// non-coin lines become carry lines (bridged). Warns over-encumbrance, never
-// blocks (RAW). Returns { ok, stash, band, overEncumbered } | { ok:false, error }.
-function drawFromStash(campaign, stashId, characterId, spec, opts){
-  if(!campaign) return { ok:false, error:'no-campaign' };
-  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
-  const stash = findStash(campaign, stashId);
-  if(!ch || !stash) return { ok:false, error:'not-found' };
-  spec = spec || {};
-  const itemIds = Array.isArray(spec.itemIds) ? spec.itemIds.slice() : [];
-  const coins = spec.coins || {};
-  if(!Array.isArray(stash.items)) stash.items = [];
-  if(!Array.isArray(ch.inventory)) ch.inventory = [];
-  reconcileCharacterCoins(ch);
-
-  const withdrawals = [];
-  for(const id of itemIds){
-    if(!stash.items.find(it => it && it.id === id)) return { ok:false, error:'item-not-found' };
-    withdrawals.push({ itemId: id });   // full withdrawal
-  }
-  for(const d of COIN_DENOMINATIONS){
-    const amt = Number(coins[d]) || 0;
-    if(amt < 0) return { ok:false, error:'bad-coin' };
-    if(amt === 0) continue;
-    const coinLine = stash.items.find(it => itemHasFacet(it, 'coin') && (it.denomination || 'gp') === d);
-    if(!coinLine || (coinLine.qty || 0) < amt) return { ok:false, error:'insufficient-coin' };
-    withdrawals.push({ itemId: coinLine.id, qty: amt });
-  }
-  if(withdrawals.length === 0) return { ok:false, error:'nothing-selected' };
-
-  const out = withdrawFromStash(campaign, stashId, withdrawals, {
-    reason: (opts && opts.reason) || 'draw-to-carry',
-    destination: { kind:'character', id: characterId, label: ch.name || null },
-    atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
-  });
-  if(!out) return { ok:false, error:'withdraw-failed' };
-
-  let movedCoinGp = 0; const movedItemLines = [];
-  for(const line of out.withdrawn){
-    if(itemHasFacet(line, 'coin')){
-      const d = line.denomination || 'gp';
-      ch.coins[d] = (Number(ch.coins[d]) || 0) + (line.qty || 0);
-      movedCoinGp += itemValueGp(line);
-    } else {
-      ch.inventory.push(_stashItemToCarryLine(line));
-      movedItemLines.push({ name: line.name || null, qty: (line.qty != null) ? line.qty : 1 });
-    }
-  }
-  reconcileCharacterCoins(ch);
-  // GP Wave B (Architecture.md §4.3.6) — emit the item-transfer (+ wealth-transfer coin leg).
-  if(!(opts && opts.suppressEvent) && global.ACKS){
-    if(movedItemLines.length && global.ACKS.recordItemTransfer){
-      global.ACKS.recordItemTransfer(campaign, {
-        source: { kind:'stash', id: stashId, label: stash.name || null },
-        destination: { kind:'character', id: characterId, label: ch.name || null },
-        lines: movedItemLines, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
-      });
-    }
-    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
-      global.ACKS.recordWealthTransfer(campaign, {
-        source: { kind:'stash', id: stashId, label: stash.name || null },
-        destination: { kind:'character-gp', id: characterId, label: ch.name || null },
-        amount: movedCoinGp, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
-      });
-    }
-  }
-  const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
-  return { ok:true, stash, band, overEncumbered: band.level === 'overloaded' };
-}
-
-// =============================================================================
-// Party camp stash (Items I1 / Stash B — "every party has a camp"). A party-owned
-// stash named "<Party>'s Camp" that TRAVELS with the party: its hexId mirrors
-// party.currentHexId (the party is the source of truth; the camp hex is a reconciled
-// mirror — Architecture §3.3). The Stash subsystem is always-on core, so the camp is
-// materialized for every non-disbanded party (the inventory-stash-system toggle was removed v0.17.0).
-// =============================================================================
-function partyCampStash(campaign, partyId){
-  if(!campaign || !partyId || !Array.isArray(campaign.stashes)) return null;
-  return campaign.stashes.find(s => s && s.kind === 'party' && s.ownerPartyId === partyId) || null;
-}
-// Idempotent find-or-create. Keeps the camp's hexId tracking the party, and its name
-// tracking the party while it is still the auto-name (never clobbers a GM rename — a
-// custom name that doesn't end in "'s Camp" is left alone). Returns the camp stash.
-function ensurePartyCampStash(campaign, party){
-  if(!campaign || !party || !party.id) return null;
-  if(!Array.isArray(campaign.stashes)) campaign.stashes = [];
-  let camp = partyCampStash(campaign, party.id);
-  if(!camp){
-    const _blankStash = (global.ACKS && global.ACKS.blankStash) || null;
-    if(!_blankStash) return null;
-    camp = _blankStash({ kind:'party', ownerPartyId: party.id, hexId: party.currentHexId || null, name: (party.name || 'Party') + "'s Camp" });
-    camp.createdAtTurn = campaign.currentTurn || 1;
-    campaign.stashes.push(camp);
-  }
-  camp.hexId = party.currentHexId || null;                                   // travels with the party
-  if(!camp.name || /'s Camp$/.test(camp.name)) camp.name = (party.name || 'Party') + "'s Camp";
-  return camp;
-}
-// Reconcile pass — ensure a camp for every non-disbanded party. Hooked into
-// migrateCampaign (load). The Stash subsystem is always-on core, so this runs
-// unconditionally; it is a no-op on party-less campaigns (e.g. the templates).
-function syncAllPartyCampStashes(campaign){
-  if(!campaign || !Array.isArray(campaign.parties)) return 0;
-  let n = 0;
-  for(const p of campaign.parties){ if(p && p.status !== 'disbanded' && ensurePartyCampStash(campaign, p)) n++; }
-  return n;
-}
-// Light follow — used by the party-movement handlers (journey commit, gm-fiat). Does NOT
-// create (creation is gated at ensure/sync); just keeps an existing camp at the party's hex.
-function syncPartyCampHex(campaign, party){
-  if(!campaign || !party) return;
-  const camp = partyCampStash(campaign, party.id);
-  if(camp) camp.hexId = party.currentHexId || null;
-}
-// Party dissolved → the leader takes the camp: re-home it as the leader's personal stash
-// (all items + coins travel with ownership — "the leader takes all the equipment"). No
-// leader → leave it as an ownerless cache at the hex so nothing is lost. (Splitting the
-// camp among members on disband is a queued future feature — Stash plan §15 / Mech Ext.)
-function handOffPartyCampToLeader(campaign, party){
-  if(!campaign || !party) return null;
-  const camp = partyCampStash(campaign, party.id);
-  if(!camp) return null;
-  const leaderId = party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null;
-  if(leaderId){
-    changeStashController(campaign, camp.id, { characterId: leaderId }, { reason:'party-disbanded' });
-    camp.kind = 'personal';
-    camp.name = (party.name || 'Party') + ' camp (dissolved)';
-    return { camp, leaderId };
-  }
-  camp.kind = 'cache'; camp.ownerPartyId = null;
-  camp.name = (party.name || 'Party') + ' camp (abandoned)';
-  return { camp, leaderId: null };
-}
-
-// --- RAW carry-encumbrance bands (RR pp.83–84) -------------------------------
-// Carry weight is in stone (coins: 1,000 = 1 st). Movement by load band:
-// exploration ft/turn, combat ft/round (≈ 1/3 exploration), expedition miles/day.
-// v1 surfaces the band on the sheet; propagating the penalty into other
-// subsystems is Phase 3 travel (Journeys already uses the 24-mi unencumbered base).
-const CARRY_ENCUMBRANCE_BANDS = [
-  { level:'unencumbered', label:'Unencumbered',    maxSt: 5,       explorationFeet:120, combatFeet:40, milesPerDay:24 },
-  { level:'light',        label:'Lightly loaded',  maxSt: 7,       explorationFeet: 90, combatFeet:30, milesPerDay:18 },
-  { level:'heavy',        label:'Heavily loaded',  maxSt:10,       explorationFeet: 60, combatFeet:20, milesPerDay:12 },
-  { level:'severe',       label:'Severely loaded', maxSt:20,       explorationFeet: 30, combatFeet:10, milesPerDay: 6 },
-  { level:'overloaded',   label:'Overloaded',      maxSt:Infinity, explorationFeet:  0, combatFeet: 0, milesPerDay: 0 }
-];
-function carryEncumbranceBandFor(totalSt){
-  const t = totalSt || 0;
-  for(const b of CARRY_ENCUMBRANCE_BANDS){ if(t <= b.maxSt) return b; }
-  return CARRY_ENCUMBRANCE_BANDS[CARRY_ENCUMBRANCE_BANDS.length - 1];
-}
-function carryEncumbranceLevel(character){ return carryEncumbranceBandFor(carryTotalEncumbrance(character)).level; }
-function carryEncumbranceInfo(character){
-  const totalSt = carryTotalEncumbrance(character);
-  return { totalSt, band: carryEncumbranceBandFor(totalSt) };
-}
-
-// =============================================================================
-// Phase 2.95 Stash A.3 — domain.treasury → treasury-stash migration (#468 / 2026-05-29).
-// Per Phase_2.95_Stash_Plan.md §6.3 + §8.2. Idempotent. Always-on core
-// (the inventory-stash-system toggle was removed v0.17.0).
-// =============================================================================
-
-// --- Capital-hex selection (pure) -------------------------------------------
-// Prefer the hex with the largest urban settlement; fall back to the first
-// hex in domain.geography.hexes. Returns null if the domain has no hexes
-// (orphan domain — migration defers).
-function _selectDomainCapitalHex(domain){
-  if(!domain || !domain.geography || !Array.isArray(domain.geography.hexes)) return null;
-  const hexes = domain.geography.hexes;
-  if(hexes.length === 0) return null;
-  let best = null;
-  let bestPop = -1;
-  for(const h of hexes){
-    if(h && h.settlement){
-      const pop = (h.settlement.urbanFamilies || 0);
-      if(pop > bestPop){
-        best = h;
-        bestPop = pop;
-      }
-    }
-  }
-  return best || hexes[0];
-}
-
-// --- Per-domain migration (idempotent) --------------------------------------
-// Returns the treasury stash (existing or freshly created). Three outcomes:
-//   (1) domain.treasuryStashId resolves to a valid domain-treasury stash → return it
-//   (2) Orphan: a domain-treasury stash for this domain exists but the pointer
-//       is missing/stale → re-link domain.treasuryStashId, return the orphan
-//   (3) Fresh: create stash at capital hex, seed with domain.treasury gp,
-//       link via domain.treasuryStashId
-//
-// domain.treasury scalar is PRESERVED in all cases — A.4 reconcile owns
-// the cross-field invariant.
-function migrateDomainTreasuryToStash(campaign, domain){
-  if(!campaign || !domain) return null;
-  if(!Array.isArray(campaign.stashes)) campaign.stashes = [];
-
-  // (1) Existing pointer resolves cleanly.
-  if(domain.treasuryStashId){
-    const existing = findStash(campaign, domain.treasuryStashId);
-    if(existing && existing.kind === 'domain-treasury' && existing.ownerDomainId === domain.id){
-      return existing;
-    }
-  }
-
-  // (2) Orphan: a treasury stash exists for this domain but pointer is stale.
-  const orphan = campaign.stashes.find(st =>
-    st.kind === 'domain-treasury' && st.ownerDomainId === domain.id
-  );
-  if(orphan){
-    domain.treasuryStashId = orphan.id;
-    return orphan;
-  }
-
-  // (3) Fresh creation.
-  const capitalHex = _selectDomainCapitalHex(domain);
-  if(!capitalHex) return null;  // Defer — domain has no hexes
-
-  const blankStash     = (global.ACKS && global.ACKS.blankStash)     || null;
-  const blankStashItem = (global.ACKS && global.ACKS.blankStashItem) || null;
-  if(!blankStash || !blankStashItem) return null;
-
-  // Canonical shape: domain.treasury = { gp: N }. Defensive against legacy
-  // scalar shape (some pre-Stash-A user data may have stored a bare number).
-  const treasuryRaw = domain.treasury;
-  const seedQty = (typeof treasuryRaw === 'number')
-    ? treasuryRaw
-    : (treasuryRaw && typeof treasuryRaw.gp === 'number' ? treasuryRaw.gp : 0);
-  const seedItems = seedQty > 0
-    ? [ blankStashItem({ kind:'coin', denomination:'gp', qty: seedQty }) ]
-    : [];
-
-  const stash = blankStash({
-    kind: 'domain-treasury',
-    name: (domain.name || 'Domain') + ' Treasury',
-    ownerDomainId: domain.id,
-    hexId: capitalHex.id,
-    items: seedItems,
-    createdAtTurn: campaign.currentTurn || 1,
-    history: [{
-      turn: campaign.currentTurn || 1,
-      type: 'created',
-      reason: 'treasury-migration',
-      seededFromScalarGp: seedQty
-    }]
-  });
-  campaign.stashes.push(stash);
-  domain.treasuryStashId = stash.id;
-  return stash;
-}
-
-// --- Orchestrator hook for migrateCampaign ----------------------------------
-// Always-on core (the inventory-stash-system toggle was removed v0.17.0): this
-// materializes a treasury stash for every domain on load. Returns the number of
-// domains that ended up with a treasuryStashId — useful diagnostic but not
-// strictly the number of newly-created stashes (orphan repair counts too).
-function migrateAllDomainTreasuries(campaign){
-  if(!campaign) return 0;
-  let linked = 0;
-  for(const d of (campaign.domains || [])){
-    const stash = migrateDomainTreasuryToStash(campaign, d);
-    if(stash) linked++;
-  }
-  return linked;
-}
-
-// --- Canonical gp read (the public API replacing direct domain.treasury) ----
-// Sum of gp-denominated coin entries in the domain's treasury stash. Returns
-// 0 if no treasury stash exists (caller decides whether to fall back to the
-// scalar). A.4 will add the canonical setter that keeps the scalar in sync.
-function domainTreasuryGp(campaign, domainId){
-  if(!campaign || !domainId) return 0;
-  const stash = findDomainTreasury(campaign, domainId);
-  if(!stash || !Array.isArray(stash.items)) return 0;
-  let total = 0;
-  for(const it of stash.items){
-    // gp-equivalent of every coin line (handles multi-denomination treasuries; a
-    // pure-gp treasury — the common case — is unchanged). Items I1, 2026-06-03.
-    if(it && itemHasFacet(it, 'coin')){
-      total += itemValueGp(it);
-    }
-  }
-  return total;
-}
-
-// =============================================================================
-// Phase 2.95 Stash A.4 — canonical-setter invariant + item-consolidation reconcile
-// (#469 / 2026-05-29). Per Phase_2.95_Stash_Plan.md §6.4 +
-// feedback-canonical-setters memory.
-// =============================================================================
-
-// --- Canonical-setter invariant: keep domain.treasury in sync with the stash --
-// Called by depositToStash + withdrawFromStash after their mutations. No-op for
-// non-treasury stashes. The "single mutation helper + load-time reconcile" half
-// of the canonical-setters doctrine: mutations write through here, load-time
-// reconcileTreasuryScalars catches any drift from external writers.
-function _syncTreasuryScalarFor(campaign, stash){
-  if(!campaign || !stash) return;
-  if(stash.kind !== 'domain-treasury' || !stash.ownerDomainId) return;
-  if(!Array.isArray(campaign.domains)) return;
-  const domain = campaign.domains.find(d => d.id === stash.ownerDomainId);
-  if(!domain) return;
-  // Canonical shape: { gp: N }. If a legacy scalar slipped through, normalize.
-  if(!domain.treasury || typeof domain.treasury !== 'object') domain.treasury = { gp: 0 };
-  domain.treasury.gp = domainTreasuryGp(campaign, domain.id);
-}
-
-// --- Apply a signed gp delta to a domain treasury (engine-internal callers) --
-// Routes through depositToStash whenever a treasuryStashId is linked (the Stash
-// subsystem is always-on core), otherwise mutates the scalar directly. The C.1
-// event-handler analog (_applyTreasuryDelta in acks-engine-events.js) does
-// the same thing but takes a domainId — this version takes the domain object
-// because commitTurn already has it in scope. Both routes preserve the A.4
-// invariant: after the call, domain.treasury.gp matches the stash sum.
-//
-// Zero-amount calls are no-ops (defensive).
-function _applyDomainTreasuryDelta(campaign, domain, amount, opts){
-  if(!campaign || !domain || !amount) return;
-  opts = opts || {};
-  // Stash subsystem is always-on core — route through the treasury stash whenever
-  // one is linked; the scalar fallback below covers the pre-migration window.
-  if(domain.treasuryStashId){
-    const stash = findStash(campaign, domain.treasuryStashId);
-    if(stash){
-      depositToStash(campaign, stash.id, [{ kind:'coin', denomination:'gp', qty: amount }], {
-        reason: opts.reason || (amount >= 0 ? 'monthly-credit' : 'monthly-debit'),
-        source: opts.label ? { kind:'label', label: opts.label } : null
-      });
-      // _syncTreasuryScalarFor inside depositToStash already updated domain.treasury.gp
-      return;
-    }
-  }
-  // Legacy fallback — rule off, or treasuryStashId unset (e.g. pre-migration).
-  if(!domain.treasury) domain.treasury = { gp: 0 };
-  domain.treasury.gp = (domain.treasury.gp || 0) + amount;
-}
-
-// --- Sweep all treasury scalars from their stashes' coin sums ----------------
-// One-shot reconcile pass. Used at load time after migration; useful as a
-// diagnostic to catch any pre-A.4 drift. Returns the number of domains whose
-// scalar was updated.
-function reconcileTreasuryScalars(campaign){
-  if(!campaign || !Array.isArray(campaign.domains)) return 0;
-  let count = 0;
-  for(const d of campaign.domains){
-    if(!d || !d.treasuryStashId) continue;
-    if(!d.treasury || typeof d.treasury !== 'object') d.treasury = { gp: 0 };
-    const newTotal = domainTreasuryGp(campaign, d.id);
-    if(d.treasury.gp !== newTotal){
-      d.treasury.gp = newTotal;
-      count++;
-    }
-  }
-  return count;
-}
-
-// --- Item-consolidation reconcile -------------------------------------------
-// Merge fungible facet-lines in stash.items (Items I1 facet model, 2026-06-03):
-//   - coin    facet: same denomination → sum qty
-//   - bulk    facet: same (name, unit) → sum qty + encumbranceSt
-//   - gear    facet (and NOT magical/valuable/notable, named) → sum qty + encumbranceSt
-// Coin is already merged on deposit by depositToStash, so this is a no-op for
-// coin in normal operation; we still pass through it defensively in case
-// historical data has multiple coin entries of the same denomination. Notable
-// (promoted), valuable, and unnamed lines never merge — each is distinct.
-//
-// Notes are kept from the FIRST entry (consolidation preserves the oldest
-// audit context). Returns true when any merge happened.
-function reconcileStashItems(stash){
-  if(!stash || !Array.isArray(stash.items) || stash.items.length < 2) return false;
-  const items = stash.items;
-  const coinBuckets = {};
-  const bulkBuckets = {};
-  const gearBuckets = {};
-  const out = [];
-  let merged = false;
-
-  for(const it of items){
-    if(!it){ continue; }
-    if(itemHasFacet(it, 'coin')){
-      const key = it.denomination || 'gp';
-      if(!coinBuckets[key]){ coinBuckets[key] = it; out.push(it); }
-      else { coinBuckets[key].qty = (coinBuckets[key].qty || 0) + (it.qty || 0); merged = true; }
-    } else if(itemHasFacet(it, 'bulk')){
-      const key = (it.name || it.label || '(unnamed)') + '|' + (it.unit || 'stones');
-      if(!bulkBuckets[key]){ bulkBuckets[key] = it; out.push(it); }
-      else {
-        bulkBuckets[key].qty           = (bulkBuckets[key].qty           || 0) + (it.qty           || 0);
-        bulkBuckets[key].encumbranceSt = (bulkBuckets[key].encumbranceSt || 0) + (it.encumbranceSt || 0);
-        merged = true;
-      }
-    } else if(itemHasFacet(it, 'gear') && !it.notableItemId && !itemHasFacet(it, 'magical') && !itemHasFacet(it, 'valuable') && it.name){
-      const key = it.name;
-      if(!gearBuckets[key]){ gearBuckets[key] = it; out.push(it); }
-      else {
-        gearBuckets[key].qty           = (gearBuckets[key].qty           || 0) + (it.qty           || 0);
-        gearBuckets[key].encumbranceSt = (gearBuckets[key].encumbranceSt || 0) + (it.encumbranceSt || 0);
-        merged = true;
-      }
-    } else {
-      // Notable/magical, valuable, unnamed — passthrough, never merge
-      out.push(it);
-    }
-  }
-
-  if(merged){
-    stash.items = out;
-    if(!Array.isArray(stash.history)) stash.history = [];
-    stash.history.push({
-      turn: 0,  // No campaign-turn context here; reconcile is load-time/diagnostic
-      type: 'reconciled',
-      reason: 'item-consolidation',
-      itemCountBefore: items.length,
-      itemCountAfter:  out.length
-    });
-  }
-  return merged;
-}
-
-// --- Sweep all stashes ------------------------------------------------------
-function reconcileAllStashes(campaign){
-  if(!campaign || !Array.isArray(campaign.stashes)) return 0;
-  let count = 0;
-  for(const st of campaign.stashes){
-    if(reconcileStashItems(st)) count++;
-  }
-  return count;
-}
-
-// =============================================================================
-// Items I1 (OQ9 resolved 2026-06-03) — item facets + valuation + promotion.
-// Composition over hierarchy (Architecture.md §2.2 + §3.7; DF_Study_2 §3.5): a
-// stash/carry line carries facets[] not a coin|bulk|item subtype. These accessors
-// are facet-canonical but fall back to the retired kind/magicItemId shape so an
-// un-migrated line still reads correctly (DF "resilient accessor" — a missed
-// migration stays harmless).
-// =============================================================================
-
-// ACKS II coin exchange, gp-equivalent. 1 pp = 5 gp; 1 gp = 10 sp = 100 cp;
-// 1 ep = 5 sp = 0.5 gp. (RR Money; gp/sp/cp ratio per Phase_2.95_Stash_Plan.md §5.2.)
-const COIN_GP_VALUE = { cp: 0.01, sp: 0.1, ep: 0.5, gp: 1, pp: 5 };
-
-function itemFacets(item){
-  if(!item) return [];
-  if(Array.isArray(item.facets) && item.facets.length) return item.facets;
-  // Legacy fallback — derive from the retired `kind` discriminator.
-  const k = item.kind;
-  let f;
-  if(k === 'coin') f = ['coin'];
-  else if(k === 'bulk') f = ['bulk'];
-  else if(k === 'valuable') f = ['valuable'];
-  else f = ['gear'];
-  if(item.magicItemId || item.notableItemId) f = f.concat('magical');
-  return f;
-}
-function itemHasFacet(item, facet){ return itemFacets(item).indexOf(facet) >= 0; }
-
-// Display precedence — the one facet that "names" the line.
-const _FACET_PRECEDENCE = ['coin','valuable','readable','magical','container','bulk','gear'];
-function primaryFacet(item){
-  const f = itemFacets(item);
-  for(const p of _FACET_PRECEDENCE){ if(f.indexOf(p) >= 0) return p; }
-  return f[0] || 'gear';
-}
-
-// Per-line stone weight (derived). Coin: 1,000 coins = 1 stone, any denomination
-// (RR p.83). Bulk in stones: weight = qty. Gear: explicit encumbranceSt, default
-// 1 stone when unset (Stash plan §12). Valuables/other: explicit or negligible.
-function itemEncumbranceSt(item){
-  if(!item) return 0;
-  if(itemHasFacet(item, 'coin')) return (item.qty || 0) / 1000;
-  if(item.encumbranceSt != null) return item.encumbranceSt;
-  if(item.stone != null) return parseFloat(item.stone) || 0;   // legacy Phase 2.6 carry-inventory weight
-  if(itemHasFacet(item, 'bulk')) return (item.unit === 'stones') ? (item.qty || 0) : 0;
-  if(itemHasFacet(item, 'gear')) return 1;
-  return 0;
-}
-
-// ── Phase 2.5 Provisioning — food/water inventory accessors (RR p.278) ───────
-// One daily ration = 1 stone = 2 lb food (1/6 st) + 1 gallon water (5/6 st). Food rides as discrete
-// ration items in carry inventory / the camp stash (weight = 1/6 st × daysRemaining, so a half-eaten
-// pack weighs less). Water is a metered fluid: the WATER CONTAINER items (waterskin 1/5 day, barrel
-// 20 days) set the capacity; the single waterDaysCarried counter on the holder is the contents (no
-// per-skin fill state — RAW meters by the daily gallon). See Provisioning §3.3–§3.5 + §5.
-const RATION_FOOD_ST_PER_DAY  = 1/6;   // 2 lb food
-const RATION_WATER_ST_PER_DAY = 5/6;   // 1 gallon water (only carried when no source — §4.3)
-
-// Day-capacity of a water-container item: explicit field on the line, else the catalog entry's
-// waterCapacityDays (by catalogId or matching name). Non-containers → 0.
-function waterContainerDaysFor(item){
-  if(!item) return 0;
-  if(typeof item.waterCapacityDays === 'number') return item.waterCapacityDays;
-  const cat = (global.ACKS && global.ACKS.EQUIPMENT_CATALOG) || [];
-  const hit = (item.catalogId && cat.find(e => e.id === item.catalogId)) ||
-              (item.name && cat.find(e => String(e.name).toLowerCase() === String(item.name).toLowerCase())) || null;
-  return (hit && typeof hit.waterCapacityDays === 'number') ? hit.waterCapacityDays : 0;
-}
-// Total drinking-water capacity (days) of a holder = Σ its container items. Holder = a character
-// (.inventory[]) or a stash (.items[]) — e.g. barrels in the party camp stash.
-function waterCapacityDays(holder){
-  if(!holder) return 0;
-  const lines = Array.isArray(holder.inventory) ? holder.inventory
-              : Array.isArray(holder.items) ? holder.items : [];
-  return lines.reduce((s, it) => s + waterContainerDaysFor(it), 0);
-}
-
-// Ration-line helpers. A ration line: { name, catalogId, rationType:'iron'|'standard', daysRemaining,
-// stone }. daysRemaining = person-day rations left in the pack (a fresh week-pack = 7); weight derives.
-function isRationLine(item){
-  return !!(item && (item.rationType === 'iron' || item.rationType === 'standard' ||
-    (typeof item.daysRemaining === 'number' && /ration/i.test(item.name || ''))));
-}
-function rationLineDays(item){ return isRationLine(item) ? Math.max(0, Number(item.daysRemaining) || 0) : 0; }
-function makeRationLine(opts){
-  opts = opts || {};
-  const type = (opts.rationType === 'standard') ? 'standard' : 'iron';
-  const days = Math.max(0, Number(opts.daysRemaining != null ? opts.daysRemaining : 7) || 0);
-  return {
-    name: (type === 'iron') ? 'Rations, Iron (one week)' : 'Rations, Standard (one week)',
-    catalogId: (type === 'iron') ? 'rations-iron-week' : 'rations-standard-week',
-    rationType: type,
-    daysRemaining: days,
-    stone: days * RATION_FOOD_ST_PER_DAY,   // food weight only (1/6 st/day); water rides in containers
-    notes: opts.notes || ''
-  };
-}
-// Total person-day food rations a holder (character .inventory / stash .items) can draw on.
-function rationDaysAvailable(holder){
-  if(!holder) return 0;
-  const lines = Array.isArray(holder.inventory) ? holder.inventory
-              : Array.isArray(holder.items) ? holder.items : [];
-  return lines.reduce((s, it) => s + rationLineDays(it), 0);
-}
-
-// Per-line gp value (derived). Coin: qty × denomination multiplier. Valuable:
-// qty × unitValueGp. Gear/bulk carry no liquid gp value here (sale price is a
-// mercantile concern, not stash wealth).
-function itemValueGp(item){
-  if(!item) return 0;
-  if(itemHasFacet(item, 'coin')){
-    const mult = COIN_GP_VALUE[item.denomination || 'gp'];
-    return (item.qty || 0) * (mult != null ? mult : 1);
-  }
-  if(itemHasFacet(item, 'valuable')){
-    return (item.qty || 0) * (item.unitValueGp || 0);
-  }
-  return 0;
-}
-
-// Stash / carry aggregates (derived; never stored — Stash plan §5.2 / §6.4).
-function stashTotalGp(stash){
-  if(!stash || !Array.isArray(stash.items)) return 0;
-  return stash.items.reduce((s, it) => s + itemValueGp(it), 0);
-}
-function stashTotalEncumbrance(stash){
-  if(!stash || !Array.isArray(stash.items)) return 0;
-  return stash.items.reduce((s, it) => s + itemEncumbranceSt(it), 0);
-}
-function carryTotalEncumbrance(character){
-  if(!character) return 0;
-  let total = 0;
-  if(Array.isArray(character.inventory)) total += character.inventory.reduce((s, it) => s + itemEncumbranceSt(it), 0);
-  total += characterCoinWeightSt(character);   // RR p.83 — carried coins weigh
-  return total;
-}
-
-// =============================================================================
-// Character coins — multi-denomination purse (RAW; RR pp.83-84). coins.gp is the
-// canonical gp store; character.personalGp is a synced mirror (canonical-setter
-// rule #10), kept current by reconcileCharacterCoins (load-time migration + after
-// any gm-fiat coins.* edit — see applyEvent_gmFiat). Coin weight derives: 1,000
-// coins of ANY denomination = 1 stone. gp-equivalent uses COIN_GP_VALUE
-// (cp .01 / sp .1 / ep .5 / gp 1 / pp 5).
-// =============================================================================
-const COIN_DENOMINATIONS = ['pp', 'gp', 'ep', 'sp', 'cp'];   // display order, high → low
-function normalizeCoins(coins, personalGpFallback){
-  const c = (coins && typeof coins === 'object') ? coins : null;
-  return {
-    pp: c ? (Number(c.pp) || 0) : 0,
-    gp: c ? (Number(c.gp) || 0) : (Number(personalGpFallback) || 0),
-    ep: c ? (Number(c.ep) || 0) : 0,
-    sp: c ? (Number(c.sp) || 0) : 0,
-    cp: c ? (Number(c.cp) || 0) : 0
-  };
-}
-function characterCoinCount(character){
-  if(!character || !character.coins) return 0;
-  return COIN_DENOMINATIONS.reduce((s, d) => s + (Number(character.coins[d]) || 0), 0);
-}
-function characterCoinValueGp(character){
-  if(!character || !character.coins) return 0;
-  return COIN_DENOMINATIONS.reduce((s, d) => s + (Number(character.coins[d]) || 0) * COIN_GP_VALUE[d], 0);
-}
-function characterCoinWeightSt(character){
-  return characterCoinCount(character) / 1000;   // RR p.83 — 1,000 coins = 1 stone
-}
-// Idempotent reconcile: ensure character.coins exists (folding a legacy personalGp
-// scalar into coins.gp the first time it's seen), then refresh the personalGp mirror
-// from the canonical coins.gp. Returns true iff it created the coins object.
-function reconcileCharacterCoins(character){
-  if(!character || typeof character !== 'object') return false;
-  let created = false;
-  if(!character.coins || typeof character.coins !== 'object'){
-    character.coins = normalizeCoins(null, character.personalGp);
-    created = true;
-  }
-  character.personalGp = Number(character.coins.gp) || 0;
-  return created;
-}
-function migrateAllCharacterCoins(campaign){
-  if(!campaign || !Array.isArray(campaign.characters)) return 0;
-  let n = 0;
-  for(const c of campaign.characters){ if(reconcileCharacterCoins(c)) n++; }
-  return n;
-}
-
-// Promotion: a fungible/gear line → tracked NotableItem (§3.7; wanderer→lair).
-// Creates a campaign.notableItems[] entry, points the line at it (notableItemId),
-// and tags the line with the magical/readable facet. Idempotent: a line that
-// already points at a notable returns that notable unchanged. Located-by-line —
-// no separate itemCustody record is created (the line's container IS the custody;
-// itemCustody is for UN-stashed notables: hoards, merchant stock — §3.7).
-function promoteLineToNotableItem(campaign, line, opts){
-  if(!campaign || !line) return null;
-  if(line.notableItemId) return findNotableItem(campaign, line.notableItemId);
-  const blankNotableItem = (global.ACKS && global.ACKS.blankNotableItem) || null;
-  if(!blankNotableItem) return null;
-  opts = opts || {};
-  if(!Array.isArray(campaign.notableItems)) campaign.notableItems = [];
-  const ni = blankNotableItem({
-    kind: opts.kind || 'masterwork',
-    name: opts.name || line.name || '',
-    baseCatalogKey: opts.baseCatalogKey || null,
-    intrinsic: opts.intrinsic || {},
-    history: opts.history || []
-  });
-  campaign.notableItems.push(ni);
-  line.notableItemId = ni.id;
-  const facet = opts.facet || (ni.kind === 'book' ? 'readable' : 'magical');
-  if(Array.isArray(line.facets) && line.facets.indexOf(facet) < 0) line.facets.push(facet);
-  return ni;
-}
-
-// Derived facet view of a NotableItem — uniform vocabulary with stash lines, so a
-// promoted item reads under the same facet model. NotableItem stored shape is NOT
-// restructured here (its intrinsic/provenance/identification stay as §3.7); this is
-// the bridge accessor.
-function notableItemFacets(ni){
-  if(!ni) return [];
-  const k = ni.kind;
-  if(k === 'book') return ['readable'];
-  if(k === 'potion' || k === 'scroll') return ['consumable','magical'];
-  if(k === 'regalia' || k === 'relic' || k === 'masterwork') return ['gear','valuable'];
-  return ['gear','magical'];  // weapons / armor / wands / rods / staves / misc-magic
-}
-
-// Migration: legacy {kind, magicItemId, label} stash/carry line → facet shape.
-// Idempotent — a line already carrying facets[] (and no legacy keys) is a no-op.
-// Non-object entries (free-text inventory strings) are skipped untouched (the
-// free-text→typed upgrade is Stash plan §8.3, a separate concern).
-function migrateStashItemShape(item){
-  if(!item || typeof item !== 'object') return false;
-  const hasFacets = Array.isArray(item.facets) && item.facets.length;
-  const hasLegacy = ('kind' in item) || ('magicItemId' in item) || ('label' in item);
-  // Only migrate genuine stash-item lines (a legacy kind/magicItemId/label present).
-  // Already-facet lines AND the Phase 2.6 carry-inventory {name,qty,stone,gp} shape
-  // (neither facets nor a legacy stash discriminator) are left untouched — the full
-  // carry-inventory→facet unification is Stash plan §8.3, deferred. itemEncumbranceSt
-  // reads the legacy `stone` field so encumbrance is correct over both shapes.
-  if(!hasLegacy) return false;
-  if(!hasFacets){
-    const k = item.kind;
-    if(k === 'coin') item.facets = ['coin'];
-    else if(k === 'bulk') item.facets = ['bulk'];
-    else if(k === 'valuable') item.facets = ['valuable'];
-    else item.facets = ['gear'];
-  }
-  if('magicItemId' in item){
-    if(item.magicItemId && !item.notableItemId) item.notableItemId = item.magicItemId;
-    delete item.magicItemId;
-  }
-  if(item.notableItemId && item.facets.indexOf('magical') < 0 && item.facets.indexOf('readable') < 0){
-    item.facets.push('magical');
-  }
-  if('label' in item){
-    if(item.label && !item.name) item.name = item.label;
-    delete item.label;
-  }
-  // Ensure the superset fields exist (stable Inspector schema + accessors).
-  if(!('name' in item)) item.name = '';
-  if(!('denomination' in item)) item.denomination = item.facets.indexOf('coin') >= 0 ? 'gp' : null;
-  if(!('valuableType' in item)) item.valuableType = null;
-  if(!('valuableTier' in item)) item.valuableTier = null;
-  if(!('unitValueGp' in item)) item.unitValueGp = null;
-  if(!('encumbranceSt' in item)) item.encumbranceSt = null;
-  if(!('unit' in item)) item.unit = (item.facets.indexOf('bulk') >= 0 ? 'stones' : null);
-  if(!('notableItemId' in item)) item.notableItemId = null;
-  if(!('containerStashId' in item)) item.containerStashId = null;
-  if(!('notes' in item)) item.notes = '';
-  delete item.kind;
-  return true;
-}
-
-// Sweep every stash + every character carry inventory. Idempotent. Hooked into
-// migrateCampaign before reconcileAllStashes so reconcile reads facet-shaped lines.
-function migrateAllStashItemShapes(campaign){
-  if(!campaign) return 0;
-  let n = 0;
-  for(const st of (campaign.stashes || [])){
-    for(const it of (st && Array.isArray(st.items) ? st.items : [])){
-      if(migrateStashItemShape(it)) n++;
-    }
-  }
-  for(const ch of (campaign.characters || [])){
-    for(const it of (ch && Array.isArray(ch.inventory) ? ch.inventory : [])){
-      if(migrateStashItemShape(it)) n++;
-    }
-  }
-  return n;
-}
-
-// =============================================================================
-// Phase Wave B.5 — Notable items + custody lookups (pure-find subset, 2026-05-29).
-// Per Architecture.md §3.7. Mutator-style helpers (promoteToNotable, transferCustody)
-// land with the future B.5.2 setters commit.
-// =============================================================================
-
-function findNotableItem(campaign, itemId){
-  if(!campaign || !Array.isArray(campaign.notableItems)) return null;
-  return campaign.notableItems.find(it => it.id === itemId) || null;
-}
-
-function findItemCustody(campaign, custodyId){
-  if(!campaign || !Array.isArray(campaign.itemCustody)) return null;
-  return campaign.itemCustody.find(cu => cu.id === custodyId) || null;
-}
-
-// Returns the currently-active custody record for a given item. Per §3.7, a notable
-// item has at most one active custody (status==='active') at a time; superseded
-// transfers have their prior records flipped to status==='ended'.
-function currentCustodyOfItem(campaign, itemId){
-  if(!campaign || !Array.isArray(campaign.itemCustody)) return null;
-  return campaign.itemCustody.find(cu => cu.itemId === itemId && cu.status === 'active') || null;
-}
-
-// All notable items currently in a given custodian's possession. The custodian
-// is keyed by (kind, id) pair — same shape used on itemCustody records.
-function notableItemsInCustodian(campaign, custodianKind, custodianId){
-  if(!campaign || !Array.isArray(campaign.itemCustody)) return [];
-  if(!Array.isArray(campaign.notableItems)) return [];
-  const liveCustody = campaign.itemCustody.filter(cu =>
-    cu.status === 'active' &&
-    cu.custodianKind === custodianKind &&
-    cu.custodianId === custodianId
-  );
-  const itemIds = new Set(liveCustody.map(cu => cu.itemId));
-  return campaign.notableItems.filter(it => itemIds.has(it.id));
-}
-
-// Convenience wrapper: notable items currently held by a character.
-function notableItemsHeldByCharacter(campaign, characterId){
-  return notableItemsInCustodian(campaign, 'character', characterId);
-}
-
-// Notable items physically located at a hex. Includes direct hex custodians
-// (lost caches, abandoned hoards) AND transitively-resolved items held by
-// characters whose currentHexId matches. Excludes items in characters that
-// are travelling (currentHexId === null).
-function notableItemsAtHex(campaign, hexId){
-  if(!campaign || !hexId) return [];
-  const out = [];
-  if(Array.isArray(campaign.itemCustody)){
-    // Direct hex custodianship
-    const hexCustody = campaign.itemCustody.filter(cu =>
-      cu.status === 'active' && cu.custodianKind === 'hex' && cu.custodianId === hexId
-    );
-    const hexItemIds = new Set(hexCustody.map(cu => cu.itemId));
-    if(Array.isArray(campaign.notableItems)){
-      for(const it of campaign.notableItems){
-        if(hexItemIds.has(it.id)) out.push(it);
-      }
-    }
-    // Items held by characters located at this hex
-    if(Array.isArray(campaign.characters)){
-      const charactersAtHex = new Set(
-        campaign.characters
-          .filter(c => c.currentHexId === hexId)
-          .map(c => c.id)
-      );
-      if(charactersAtHex.size){
-        const charItemIds = new Set(
-          campaign.itemCustody
-            .filter(cu => cu.status === 'active' && cu.custodianKind === 'character' && charactersAtHex.has(cu.custodianId))
-            .map(cu => cu.itemId)
-        );
-        if(Array.isArray(campaign.notableItems)){
-          for(const it of campaign.notableItems){
-            if(charItemIds.has(it.id) && !hexItemIds.has(it.id)) out.push(it);
-          }
-        }
-      }
-    }
-  }
-  return out;
-}
-
-// =============================================================================
-// #442 — Group entity lookups (count-level abstraction, Architecture.md §2.4).
-// A Group represents N identical entities (kobold pack, bandit gang, town militia,
-// future DaW Unit) sharing a monsterCatalogKey template. Used where individuated
-// Creature records would be wasteful. Phase 3 Military's Unit specializes this.
-// Setters (spawnCreatureFromGroup, applyCasualties) land later with Phase 3.
-// =============================================================================
-
-function findGroup(campaign, groupId){
-  if(!campaign || !Array.isArray(campaign.groups)) return null;
-  return campaign.groups.find(g => g.id === groupId) || null;
-}
-
-function groupsAtHex(campaign, hexId){
-  if(!campaign || !Array.isArray(campaign.groups)) return [];
-  return campaign.groups.filter(g => g.currentHexId === hexId);
-}
-
-// All groups whose template matches a given monsterCatalogKey. Useful for "where
-// are all the kobolds in this world?" — answers across hexes and lifecycle states.
-function groupsByCatalogKey(campaign, monsterCatalogKey){
-  if(!campaign || !Array.isArray(campaign.groups)) return [];
-  return campaign.groups.filter(g =>
-    g.groupTemplate && g.groupTemplate.monsterCatalogKey === monsterCatalogKey
-  );
-}
-
-// All groups currently under this character's command (reverse-derived from the
-// commanderCharacterId pointer on each group). A character may command 0..N groups.
-function groupsCommandedBy(campaign, characterId){
-  if(!campaign || !Array.isArray(campaign.groups)) return [];
-  return campaign.groups.filter(g => g.commanderCharacterId === characterId);
-}
-
-// Active member count = count − casualties, clamped at 0. Defensive: handles
-// missing/negative casualties without going negative.
-function groupActiveCount(group){
-  if(!group) return 0;
-  const count = group.count || 0;
-  const casualties = group.casualties || 0;
-  return Math.max(0, count - casualties);
-}
-
-// =============================================================================
-// Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lair lookups + the legacy lift.
-// Lairs are first-class placed entities (campaign.lairs[]); see blankLair (§3.1). These pure
-// finds mirror the Group/Outpost lookup shape; the encounter pipeline (M3) and discovery (M4)
-// build on them. RAW core — catalog-free.
-// =============================================================================
-function findLair(campaign, lairId){
-  if(!campaign || !Array.isArray(campaign.lairs)) return null;
-  return campaign.lairs.find(l => l && l.id === lairId) || null;
-}
-// All lairs in a hex, any status (the encounter pool + UI filter by status downstream).
-function lairsAtHex(campaign, hexId){
-  if(!campaign || !Array.isArray(campaign.lairs) || !hexId) return [];
-  return campaign.lairs.filter(l => l && l.hexId === hexId);
-}
-// All lairs of a given monster type — "where do the dire wolves den in this world?"
-function lairsByMonsterKey(campaign, monsterCatalogKey){
-  if(!campaign || !Array.isArray(campaign.lairs)) return [];
-  return campaign.lairs.filter(l => l && l.monsterCatalogKey === monsterCatalogKey);
-}
-function activeLairs(campaign){
-  if(!campaign || !Array.isArray(campaign.lairs)) return [];
-  return campaign.lairs.filter(l => l && l.status === 'active');
-}
-function clearedLairs(campaign){
-  if(!campaign || !Array.isArray(campaign.lairs)) return [];
-  return campaign.lairs.filter(l => l && l.status === 'cleared');
-}
-// Derived inhabitant total = Σ active group counts (count − casualties) + individuated leader
-// Characters. Pure; recompute on demand — lair.totalInhabitantCount is only a cache.
-function lairInhabitantCount(campaign, lair){
-  if(!lair) return 0;
-  let n = 0;
-  if(Array.isArray(lair.groupIds) && campaign && Array.isArray(campaign.groups)){
-    for(const gid of lair.groupIds){
-      const g = campaign.groups.find(x => x && x.id === gid);
-      if(g) n += groupActiveCount(g);
-    }
-  }
-  if(Array.isArray(lair.leaderCharacterIds)) n += lair.leaderCharacterIds.length;
-  return n;
-}
-
-// Lift legacy nested hex.lairs[] sub-entities ({id,name,creatureType,hd,numberAppearing,description})
-// to the first-class campaign.lairs[] collection (blankLair §3.1). Same pattern as the treasury→stash
-// lift. No shipped template carries populated nested lairs, so this is purely defensive for old
-// community saves — and a no-op (returns 0) on every template, preserving the migrate-no-op invariant.
-// Mirrors the migrateAgriculturalToProjects hex-collection idiom (reads BOTH campaign.hexes and each
-// domain.geography.hexes; migrateCampaign runs before liftToTopLevelCollections). Idempotent: an
-// entry already lifted (id present in campaign.lairs) is dropped, and each hex's nested array is
-// cleared once processed, so a second pass finds nothing. Returns the count lifted.
-function migrateLegacyHexLairs(campaign){
-  if(!campaign || typeof campaign !== 'object') return 0;
-  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
-  const existingIds = new Set(campaign.lairs.map(l => l && l.id).filter(Boolean));
-  const hexById = Object.create(null);
-  const addHexes = (arr) => { if(Array.isArray(arr)){ for(const h of arr){ if(h && h.id && !hexById[h.id]) hexById[h.id] = h; } } };
-  addHexes(campaign.hexes);
-  if(Array.isArray(campaign.domains)){ for(const d of campaign.domains){ if(d && d.geography) addHexes(d.geography.hexes); } }
-  let lifted = 0;
-  for(const hexId of Object.keys(hexById)){
-    const hex = hexById[hexId];
-    if(!hex || !Array.isArray(hex.lairs) || hex.lairs.length === 0) continue;
-    for(const legacy of hex.lairs){
-      if(!legacy || typeof legacy !== 'object') continue;
-      if(legacy.id && existingIds.has(legacy.id)) continue;  // already lifted — drop the nested dup
-      // No clean target for creatureType/hd/numberAppearing in the §3.1 shape, so fold them into
-      // notes with a citation; description → notes. Authored content → status:'active'.
-      const bits = [];
-      if(legacy.creatureType)   bits.push('Creature: ' + legacy.creatureType);
-      if(legacy.hd)             bits.push('HD: ' + legacy.hd);
-      if(legacy.numberAppearing)bits.push('No. appearing: ' + legacy.numberAppearing);
-      const noteParts = [];
-      if(legacy.description) noteParts.push(legacy.description);
-      if(bits.length)        noteParts.push('(legacy ' + bits.join(', ') + ')');
-      const lair = global.ACKS.blankLair({
-        id: legacy.id || undefined,
-        name: legacy.name || '',
-        status: 'active',
-        hexId: hex.id,
-        establishedBy: 'gm-fiat',
-        notes: noteParts.join(' ').trim()
-      });
-      campaign.lairs.push(lair);
-      existingIds.add(lair.id);
-      lifted++;
-    }
-    hex.lairs = [];  // canonical home is campaign.lairs[]; clear the nested array once lifted
-  }
-  return lifted;
-}
-
-// =============================================================================
-// #476 Monster Persistence M1 — Lair lifecycle setters (Phase_2.5_Monster_Persistence_Plan.md §13).
-// These are the CANONICAL mutation primitives for a lair's lifecycle — callers (the Lair Wizard,
-// the Inspector, event handlers like adventure-result, the future collision consumer) go through
-// them, never mutating campaign.lairs[] directly, so every transition is coherent + audited. Each
-// stamps a {turn,type,reason,...} entry on lair.history (the same convention as the Wave A relation
-// setters + stash history). Status semantics (blankLair §3.2): active | cleared (inhabitants gone,
-// structure remains — RAW §3.2, NOT deleted) | abandoned (left of their own accord) | destroyed
-// (the structure itself razed) | unknown (placed, undetailed — the hex-seeding shell) | dynamic
-// (authored but unplaced — the JJ p.195 dynamic-lair pool, revealed into a hex on demand). Catalog-
-// free: none of this needs MONSTER_CATALOG (that gates generation, M2/M3).
-// =============================================================================
-
-// Internal: stamp a lifecycle entry on a lair's history[]. Mirrors the Wave A / stash convention.
-function _lairHistory(lair, turn, type, reason, extra){
-  if(!lair) return;
-  if(!Array.isArray(lair.history)) lair.history = [];
-  lair.history.push(Object.assign({ turn: (turn === undefined || turn === null) ? null : turn, type: type, reason: reason || type }, extra || {}));
-}
-
-// Author a lair into campaign.lairs[] (the Lair Wizard's / Inspector's create path; also used by
-// seedHexLairs + migrateLegacyHexLairs callers). opts is a blankLair opts bag. Stamps a 'created'
-// history entry. establishedAtTurn defaults to the campaign's current turn. Returns the new lair.
-function createLair(campaign, opts){
-  if(!campaign || typeof campaign !== 'object') return null;
-  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
-  const o = Object.assign({}, opts || {});
-  if(o.establishedAtTurn === undefined) o.establishedAtTurn = campaign.currentTurn || 1;
-  const lair = global.ACKS.blankLair(o);
-  _lairHistory(lair, lair.establishedAtTurn, 'created', (opts && opts.createReason) || lair.establishedBy || 'created');
-  campaign.lairs.push(lair);
-  return lair;
-}
-
-// Internal: resolve a lair's bound Groups (campaign.groups[] referenced by lair.groupIds).
-function _lairBoundGroups(campaign, lair){
-  if(!lair || !Array.isArray(lair.groupIds) || !campaign || !Array.isArray(campaign.groups)) return [];
-  return lair.groupIds.map(gid => campaign.groups.find(g => g && g.id === gid)).filter(Boolean);
-}
-
-// Clear a lair — RAW §3.2: inhabitants are driven off / slain and treasure taken, but the structure
-// REMAINS (status:'cleared', not deletion; it can later repopulate). Idempotent (already-cleared →
-// no-op return). Stamps clearedAtTurn + clearedByEventId (when an event drove it). The canonical
-// setter the adventure-result handler delegates to. Bound Groups take FULL casualties so
-// groupsAtHex/groupActiveCount agree with the status (opts.leaveGroups:true skips — e.g. the GM
-// narrates a rout that scattered survivors; the persistence layer owns what becomes of them).
-// GM-authored leader Characters are NOT auto-killed — too destructive for a setter; GM decides.
-function clearLair(campaign, lairId, opts){
-  const lair = findLair(campaign, lairId);
-  if(!lair) return null;
-  if(lair.status === 'cleared') return lair;
-  const o = opts || {};
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
-  lair.status = 'cleared';
-  lair.clearedAtTurn = turn;
-  if(o.byEventId) lair.clearedByEventId = o.byEventId;
-  if(o.leaveGroups !== true){
-    for(const g of _lairBoundGroups(campaign, lair)) g.casualties = Math.max(g.casualties || 0, g.count || 0);
-    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
-  }
-  _lairHistory(lair, turn, 'cleared', o.reason || 'cleared', o.byEventId ? { byEventId: o.byEventId } : null);
-  return lair;
-}
-
-// Mark a lair discovered by the players (hex-search / tracking / GM reveal — §6/§7). Sets
-// knownToPlayers + lastVisitedTurn, appends a discoveryHistory entry, and stamps history.
-// Idempotent on knownToPlayers (re-discovery just refreshes lastVisitedTurn + logs a visit).
-function discoverLair(campaign, lairId, opts){
-  const lair = findLair(campaign, lairId);
-  if(!lair) return null;
-  const o = opts || {};
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
-  const firstTime = !lair.knownToPlayers;
-  lair.knownToPlayers = true;
-  lair.lastVisitedTurn = turn;
-  if(!Array.isArray(lair.discoveryHistory)) lair.discoveryHistory = [];
-  lair.discoveryHistory.push({ turn: turn, by: o.by || null, method: o.method || 'gm-reveal' });
-  _lairHistory(lair, turn, firstTime ? 'discovered' : 'revisited', o.reason || (firstTime ? 'discovered' : 'revisited'), o.by ? { by: o.by } : null);
-  return lair;
-}
-
-// Abandon a lair — its inhabitants leave of their own accord (migration, depletion, fear). Structure
-// remains (status:'abandoned'). Idempotent. Distinct from 'cleared' (driven out by adventurers).
-// Bound Groups DEPART alive: counts kept, currentHexId → null (gone somewhere unspecified — v1 is
-// hex-local, so "away" has no coordinate; the persistence layer will give them destinations).
-// opts.leaveGroups:true keeps them standing at the hex.
-function abandonLair(campaign, lairId, opts){
-  const lair = findLair(campaign, lairId);
-  if(!lair) return null;
-  if(lair.status === 'abandoned') return lair;
-  const o = opts || {};
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
-  lair.status = 'abandoned';
-  if(o.leaveGroups !== true){
-    for(const g of _lairBoundGroups(campaign, lair)) g.currentHexId = null;
-  }
-  _lairHistory(lair, turn, 'abandoned', o.reason || 'abandoned');
-  return lair;
-}
-
-// Destroy a lair — the structure itself is razed/collapsed (status:'destroyed'); the site no longer
-// functions as a lair. Idempotent. (Clearing leaves a reoccupiable structure; destroying does not.)
-// Destroying a still-ACTIVE lair wipes its bound Groups like clearLair (the inhabitants perish with
-// the structure; opts.leaveGroups:true skips); a cleared/abandoned lair's groups are already settled.
-function destroyLair(campaign, lairId, opts){
-  const lair = findLair(campaign, lairId);
-  if(!lair) return null;
-  if(lair.status === 'destroyed') return lair;
-  const o = opts || {};
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
-  const wasActive = (lair.status === 'active' || lair.status === 'unknown');
-  lair.status = 'destroyed';
-  if(wasActive && o.leaveGroups !== true){
-    for(const g of _lairBoundGroups(campaign, lair)) g.casualties = Math.max(g.casualties || 0, g.count || 0);
-    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
-  }
-  _lairHistory(lair, turn, 'destroyed', o.reason || 'destroyed');
-  return lair;
-}
-
-// Reveal a dynamic-pool lair into a hex (the JJ p.195 dynamic lair, §12.5(b) / D5): bind hexId,
-// flip status:'dynamic' → 'active', record establishedBy:'dynamic-reveal'. opts.knownToPlayers sets
-// discovery (when the party found it on the roll). Returns the lair (or null). Refuses a non-dynamic
-// lair (use the other setters for those).
-function revealDynamicLair(campaign, lairId, hexId, opts){
-  const lair = findLair(campaign, lairId);
-  if(!lair || !hexId) return null;
-  if(lair.status !== 'dynamic') return lair;  // only pooled dynamic lairs are revealed
-  const o = opts || {};
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
-  lair.hexId = hexId;
-  lair.status = 'active';
-  lair.establishedBy = 'dynamic-reveal';
-  lair.establishedAtTurn = turn || lair.establishedAtTurn;
-  if(o.knownToPlayers === true) lair.knownToPlayers = true;
-  // The lair's population moves with it: a pool lair generated while unplaced has its bound Groups
-  // (and any GM-authored leader Characters) at currentHexId:null — bind them to the revealed hex.
-  for(const g of _lairBoundGroups(campaign, lair)) g.currentHexId = hexId;
-  if(Array.isArray(lair.leaderCharacterIds) && Array.isArray(campaign && campaign.characters)){
-    for(const cid of lair.leaderCharacterIds){
-      const ch = campaign.characters.find(c => c && c.id === cid);
-      if(ch) ch.currentHexId = hexId;
-    }
-  }
-  _lairHistory(lair, turn, 'revealed', o.reason || 'dynamic-reveal', { hexId: hexId });
-  return lair;
-}
-
-// --- M3 catalog-gated generation (Plan §5.3) --------------------------------
-// generateLair is the SHARED generation primitive: the M3 collision consumer calls it for a fresh
-// lair, the Lair Wizard "Generate from catalog" mode calls it on demand, and revealing an 'unknown'
-// seeded shell or a 'dynamic' pool lair populates it via opts.lairId. It rolls the RAW lair
-// population (numberAppearing.lair) into a Group bound to the lair (the structured-population model,
-// flat-count for v1 — Plan §3.3) and records the Treasure Type from the catalog. NB: full hoard
-// CONTENTS materialization (stash + monster-hoard custody + Notable-item promotion, Plan §3.4) is
-// DEFERRED to a treasure-generation wave that consumes the Treasure-Type tables (Treasure_Tome
-// survey) — v1 records lair.treasureType so the hoard can be rolled later.
-
-// Roll an "XdY±Z" (or plain integer) dice string. rng injectable. Clamped ≥0.
-function _rollDiceStr(s, rng){
-  const r = rng || Math.random;
-  const str = String(s == null ? '' : s).trim();
-  if(/^\d+$/.test(str)) return parseInt(str, 10);
-  const m = str.match(/^(\d*)d(\d+)\s*([+\-]\s*\d+)?$/i);
-  if(!m){ const n = parseInt(str, 10); return isNaN(n) ? 0 : n; }
-  const n = m[1] ? parseInt(m[1], 10) : 1, d = parseInt(m[2], 10), mod = m[3] ? parseInt(m[3].replace(/\s+/g, ''), 10) : 0;
-  let t = mod; for(let i = 0; i < n; i++) t += 1 + Math.floor(r() * d);
-  return Math.max(0, t);
-}
-
-// Generate (or populate) a lair from the MONSTER_CATALOG. opts: { monsterCatalogKey, hexId, lairId?,
-// establishedBy?, count?, atTurn?, knownToPlayers?, name?, reason? }. With lairId, populates an
-// existing lair (e.g. a revealed dynamic/unknown shell); else creates a fresh active lair. Returns
-// { lair, group, entry, count } (entry null + group null when the key isn't in the catalog — the
-// lair shell is still returned so the GM can author it via the Inspector).
-function generateLair(campaign, opts, rng){
-  if(!campaign || typeof campaign !== 'object') return null;
-  const o = Object.assign({}, opts || {});
-  const r = rng || Math.random;
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
-  const entry = global.ACKS.findMonster ? global.ACKS.findMonster(o.monsterCatalogKey) : null;
-
-  // get-or-create the lair. Populating an 'unknown' (placed) shell activates it; a 'dynamic' pool
-  // lair STAYS dynamic — populated-but-unplaced (the pre-rolled JJ p.195 drop-in) — until
-  // revealDynamicLair binds it to a hex (which also moves its population there).
-  let lair;
-  if(o.lairId){
-    lair = findLair(campaign, o.lairId);
-    if(!lair) return null;
-    if(o.hexId) lair.hexId = o.hexId;
-    if(lair.status === 'unknown') lair.status = 'active';
-    if(o.knownToPlayers === true) lair.knownToPlayers = true;
-  } else {
-    lair = createLair(campaign, {
-      hexId: o.hexId || null,
-      monsterCatalogKey: o.monsterCatalogKey || '',
-      status: 'active',
-      establishedBy: o.establishedBy || 'gm-fiat',
-      establishedAtTurn: turn,
-      knownToPlayers: o.knownToPlayers === true,
-      name: o.name || (entry ? entry.name + ' lair' : '')
-    });
-  }
-  if(!lair) return null;
-
-  // record catalog identity + treasure type (hoard contents deferred — see header)
-  if(entry){
-    lair.monsterCatalogKey = entry.key;
-    if(lair.lairPct == null) lair.lairPct = entry.lairPct;
-    if(!lair.treasureType) lair.treasureType = entry.treasureType || '';
-    if(!(lair.name || '').trim()) lair.name = entry.name + ' lair';   // a populated seeded shell gets the same default name as the fresh path
-  }
-
-  // roll the population into a bound Group
-  let group = null, count = 0;
-  if(entry){
-    count = (o.count != null) ? o.count
-          : Math.max(1, _rollDiceStr((entry.numberAppearing && (entry.numberAppearing.lair || entry.numberAppearing.wandering)) || '1', r));
-    if(!Array.isArray(campaign.groups)) campaign.groups = [];
-    group = global.ACKS.blankGroup({
-      name: entry.name,
-      groupTemplate: { monsterCatalogKey: entry.key, creatureTypes: (entry.creatureTypes || []).slice(), hitDice: entry.hd || null },
-      count: count,
-      currentHexId: lair.hexId || null,
-      socialTier: 'independent',
-      lifecycleState: 'wild'
-    });
-    campaign.groups.push(group);
-    if(!Array.isArray(lair.groupIds)) lair.groupIds = [];
-    lair.groupIds.push(group.id);
-    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
-  }
-
-  _lairHistory(lair, turn, 'generated', o.reason || (entry ? 'catalog:' + entry.key : 'no-catalog-entry'),
-    { monsterCatalogKey: o.monsterCatalogKey || (entry && entry.key) || null, count: count, treasureType: lair.treasureType || '' });
-  return { lair: lair, group: group, entry: entry, count: count };
-}
-
-// Pool-first encounter selector (Plan §5.2 / D5) — PURE. Given an encounter has fired at a hex,
-// decide what it IS by consulting the per-hex POOL before any fresh generation: an existing ACTIVE
-// lair populates the encounter (random pick if several — D5); else the hex's seeded-but-undetailed
-// 'unknown' SHELLS surface as populate candidates (D4 — the seeded count IS the hex's placed pool,
-// Plan §4/§5.2.3; a generateLair {lairId} call fleshes the one the GM picks); else a pooled
-// 'dynamic' lair may be revealed into the hex; else it's a fresh roll (the seam Phase 3 #141 /
-// a generateLair call fills). Returns a proposal { source:'existing-lair'|'seeded-shell'|
-// 'dynamic-pool'|'fresh', hexId, lair?, lairId?, contents?, candidates?, encounterKind?,
-// fragment? }; NEVER mutates — the caller (the journey encounter, the GM, or a future all-actor
-// slot-80 consumer with the territory-class probability, M8/Vagaries) acts on it.
-//
-// M4 lair-vs-wandering (RAW, MM p.15 / survey §16.3): meeting the monsters of a lair'd hex is
-// usually a WANDERING FRAGMENT of the lair population away from home (no hoard, lair not located),
-// and only Lair-% of the time the lair itself. When the picked lair carries a usable lairPct
-// (0 < pct < 100) the proposal rolls 1d100: ≤ pct → encounterKind 'at-lair'; > → 'wandering-fragment'
-// with a suggested fragment size (the catalog's numberAppearing.wandering when resolvable). A
-// fragment encounter is the track-home hook (§6.2): the lair exists but stays undiscovered until
-// tracked/searched. No usable pct (null / 0 / ≥100 / GM-authored bare lair) → 'at-lair' (the
-// pre-M4 behaviour). rng draws stay deterministic under a seeded preview (same stream → same day).
-function lairEncounterProposal(campaign, hexId, opts){
-  const o = opts || {};
-  const r = o.rng || Math.random;
-  const atHex = lairsAtHex(campaign, hexId) || [];
-  const here = atHex.filter(l => l && l.status === 'active');
-  if(here.length){
-    const lair = here.length === 1 ? here[0] : here[Math.floor(r() * here.length)];
-    // The lair's own lairPct wins; a GM-authored lair without one falls back to the catalog's
-    // (the monster's nature). Pin lairPct:100 on the lair to mean "they're always at home."
-    const entry = (typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(lair.monsterCatalogKey) : null;
-    const pct = (typeof lair.lairPct === 'number') ? lair.lairPct : ((entry && typeof entry.lairPct === 'number') ? entry.lairPct : null);
-    let encounterKind = 'at-lair', fragment = null;
-    if(pct != null && pct > 0 && pct < 100){
-      const d100 = 1 + Math.floor(r() * 100);
-      if(d100 > pct){
-        encounterKind = 'wandering-fragment';
-        const spec = entry && entry.numberAppearing && entry.numberAppearing.wandering;
-        const alive = lairInhabitantCount(campaign, lair);
-        let count = spec ? _rollDiceStr(spec, r) : null;
-        if(count != null && alive > 0) count = Math.max(1, Math.min(count, alive));  // a fragment can't outnumber the lair's living population
-        fragment = { count: count };
-      }
-    }
-    return {
-      source: 'existing-lair', hexId: hexId, lairId: lair.id, lair: lair,
-      encounterKind: encounterKind, fragment: fragment,
-      contents: {
-        monsterCatalogKey: lair.monsterCatalogKey || '',
-        groupIds: (lair.groupIds || []).slice(),
-        totalInhabitantCount: lairInhabitantCount(campaign, lair),
-        treasureType: lair.treasureType || '',
-        knownToPlayers: !!lair.knownToPlayers
-      }
-    };
-  }
-  if(o.includeSeededShells !== false){
-    const shells = atHex.filter(l => l && l.status === 'unknown');
-    if(shells.length) return { source: 'seeded-shell', hexId: hexId, candidates: shells.slice() };
-  }
-  if(o.includeDynamicPool !== false){
-    const pool = (Array.isArray(campaign && campaign.lairs) ? campaign.lairs : []).filter(l => l && l.status === 'dynamic' && !l.hexId);
-    if(pool.length) return { source: 'dynamic-pool', hexId: hexId, candidates: pool.slice() };
-  }
-  return { source: 'fresh', hexId: hexId };
-}
-
-// --- D4 hex-density seeding (JJ p.69; Plan §4) -------------------------------
-// The COUNT half of RAW wilderness stocking (catalog-free). lairDiceForTerrain maps a hex's terrain
-// → the LAIRS_PER_HEX dice spec (alias-normalized); rollLairCount rolls it; seedHexLairs creates that
-// many empty status:'unknown' shells the GM then fleshes (Lair Wizard / Inspector) or the catalog
-// populates (M2/M3). Seeding is OPT-IN — never auto-called — and only UNSETTLED hexes seed (a domain
-// hex seeds none unless forced; securing clears lairs, RR p.338).
-
-// Roll a lair-count dice spec {n,d,mod}; clamped to ≥0 (steppe 1d3−1 can roll 0). rng injectable.
-function rollLairCount(spec, rng){
-  if(!spec || !spec.d || !spec.n) return 0;
-  const r = rng || Math.random;
-  let total = spec.mod || 0;
-  for(let i=0;i<spec.n;i++) total += 1 + Math.floor(r()*spec.d);
-  return Math.max(0, total);
-}
-
-// Resolve a terrain value → { key, spec:{n,d,mod}, label } from LAIRS_PER_HEX (alias-normalized),
-// or null for unknown terrain. 'water' resolves to a zero spec (no land lairs). Catalog-sourced, so
-// it reads through global.ACKS (set by acks-engine-catalogs.js, which loads first).
-function lairDiceForTerrain(terrain){
-  const T = global.ACKS.LAIRS_PER_HEX || {};
-  const ALIAS = global.ACKS.LAIR_TERRAIN_ALIAS || {};
-  let key = String(terrain || '').toLowerCase().trim();
-  if(!key) return null;
-  if(!(key in T) && (key in ALIAS)) key = ALIAS[key];
-  const spec = T[key];
-  if(!spec) return null;
-  const label = (typeof global.ACKS.lairDiceLabel === 'function') ? global.ACKS.lairDiceLabel(spec) : '';
-  return { key: key, spec: spec, label: label };
-}
-
-// lairDiceForHex(hex) — the SUB-TYPE-aware lair dice (Phase_2.5_Terrain_Model_Plan.md). Composes the
-// hex's (terrain, terrainSubtype) into the LAIRS_PER_HEX key (JJ p.69). Every sub-type of a RAW-SPLIT
-// base (desert/grassland/hills/mountains/scrubland) now has its own explicit row, so it resolves to its
-// exact RAW count; the fallback to the bare base only fires for a RAW "(any)" base (barrens/forest/swamp
-// — one value for all sub-types) or a hex with no sub-type set. Closes the M1 coarse-default gap: a hex
-// that carries a sub-type seeds the RAW-correct density (forested mountain 2d4 vs rocky/snowy 1d4+1).
-function lairDiceForHex(hex){
-  if(!hex) return null;
-  const base = (global.ACKS.terrainBase ? global.ACKS.terrainBase(hex.terrain) : String(hex.terrain || '').toLowerCase().trim());
-  if(!base) return null;
-  let sub = String(hex.terrainSubtype || '').toLowerCase().trim();
-  if(sub === 'low') sub = 'sparse';   // RAW "low, sparse" synonyms; LAIRS_PER_HEX keys it 'scrubland-sparse'
-  return (sub && lairDiceForTerrain(base + '-' + sub)) || lairDiceForTerrain(base);
-}
-
-// Seed a hex's wilderness lairs (D4). Rolls the terrain count and creates that many empty
-// status:'unknown' shells (establishedBy:'hex-seeding'). OPT-IN — callers invoke it explicitly
-// (a button / wizard mode), never on bulk map generation. Returns the created lairs ([] if the
-// hex is missing, belongs to a domain (RAW: domain hexes seed none) without opts.force, has
-// unknown terrain, or the count rolls 0). opts: { count? (override the roll), rng?, atTurn?,
-// terrain? (override hex.terrain), force? (seed a domain hex anyway) }.
-function seedHexLairs(campaign, hexId, opts){
-  if(!campaign) return [];
-  const o = opts || {};
-  const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
-  if(!hex) return [];
-  if(hex.domainId && !o.force) return [];                 // RAW: settled (domain) hexes seed none
-  // Sub-type-aware (T1): default reads the hex's full (terrain, terrainSubtype); an explicit
-  // opts.terrain override stays the string path. Falls back to the bare terrain if neither resolves.
-  const dice = o.terrain ? lairDiceForTerrain(o.terrain) : (lairDiceForHex(hex) || lairDiceForTerrain(hex.terrain));
-  if(!dice) return [];
-  const count = (o.count !== undefined) ? Math.max(0, o.count|0) : rollLairCount(dice.spec, o.rng);
-  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
-  const out = [];
-  for(let i=0; i<count; i++){
-    out.push(createLair(campaign, {
-      status: 'unknown',
-      hexId: hex.id,
-      terrain: dice.key,
-      establishedBy: 'hex-seeding',
-      establishedAtTurn: turn,
-      createReason: 'hex-seeding'
-    }));
-  }
-  return out;
-}
-
-// --- §6.3 securing consequence (RR p.338 + p.277; Plan M4) --------------------
-// The lairs standing in the way of securing a hex for settlement: every still-live lair record —
-// 'active' (inhabited) or 'unknown' (seeded/undetailed; RAW: an UNdiscovered hostile lair "will
-// almost certainly disrupt settlement"). Cleared / abandoned / destroyed structures don't block;
-// an unplaced 'dynamic' pool entry isn't in any hex. Pure read — the hex card surfaces it now;
-// Domain Completion DC-0 consumes it as the securing gate. (Whether a specific harmless lair —
-// the RAW lammasu — blocks stays GM judgment: clear it, or mark it cleared/abandoned.)
-function hexSecuringBlockers(campaign, hexId){
-  return (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown'));
-}
-
-// --- E9 maximum lairs per hex (JJ p.69) ---------------------------------------
-// "The maximum number of lairs that theoretically could be present": civilized 33% /
-// borderlands 50% / outlands 66% of the unsettled amount; a domainless hex's ceiling is
-// the amount itself. The unsettled amount = the terrain's lair-dice MAXIMUM (deterministic
-// — a cap can't be a die roll); 🔧 rounding = NEAREST (the printed 33%/66% are ⅓/⅔ —
-// civilized grassland 3 × 33% must read 1, not floor's 0). SETTLING monsters respect the
-// cap ("it is simply too crowded for them" — they move to another hex): the E3a settle
-// offer refuses `hex-full` and an E6 wander-entry never lingers at a full hex. The count
-// is LIVING dens (active + unknown shells; cleared / abandoned / destroyed structures are
-// vacant real estate, an unplaced dynamic lair sits in no hex). DISCOVERY stays ungated
-// (an E4 in-lair verdict / a tracked band's founded den reveal what was already there),
-// and GM authoring (Lair Wizard / createLair / Inspector / forced seeding) stays sovereign
-// — the cap governs the world's own settlement, not the Judge. Returns null when no lair
-// dice resolve (unknown terrain — no cap defined, nothing gates); water's zero dice read
-// max 0 (v1: no land lairs in open ocean).
-
-// The maximum of a lair-count dice spec {n,d,mod}, clamped ≥0: 1d4+1 → 5, 2d8 → 16, 1d3−1 → 2.
-function lairDiceMax(spec){
-  if(!spec || !spec.d || !spec.n) return 0;
-  return Math.max(0, (spec.n * spec.d) + (spec.mod || 0));
-}
-
-function hexLairCapacity(campaign, hexId){
-  if(!campaign) return null;
-  const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
-  if(!hex) return null;
-  const dice = lairDiceForHex(hex) || lairDiceForTerrain(hex.terrain);
-  if(!dice) return null;                               // unknown terrain — no cap defined
-  const A = global.ACKS || {};
-  const territoryClass = (typeof A.territoryClassForHex === 'function') ? A.territoryClassForHex(campaign, hex) : 'unsettled';
-  const PCT = A.LAIR_CAP_PCT_BY_TERRITORY || {};
-  const pct = (typeof PCT[territoryClass] === 'number') ? PCT[territoryClass] : 1.0;
-  const diceMax = lairDiceMax(dice.spec);
-  const max = Math.round(diceMax * pct);
-  const count = (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown')).length;
-  return { count, max, full: count >= max, territoryClass, pct, diceStr: dice.label, diceMax, terrainKey: dice.key };
-}
-
-// =============================================================================
-// #476 ENCOUNTER LAYER (E1) — the Encounter entity + the draw seam (D8–D12).
-// An encounter is a reified COMMITTED INTERACTION between two sides (Architecture
-// §3.13's third worked application): the multi-day influence ladder, the stored
-// intimidation roll, and the pursuit phase are state with no other home. The RAW
-// catalogs + pure resolvers live in acks-engine-catalogs.js; the GM-facing step
-// verbs (which emit events) in acks-engine-events.js; the triggers (journey hex-
-// entry, search-hour, rest-night) in their owning modules. Resolved encounters
-// persist as world memory (D9 derives prior attitude from them at E2).
-// =============================================================================
-
-// --- Lookups (pure) -----------------------------------------------------------
-function findEncounter(campaign, encounterId){
-  return ((campaign && campaign.encounters) || []).find(e => e && e.id === encounterId) || null;
-}
-function encountersAtHex(campaign, hexId){
-  return ((campaign && campaign.encounters) || []).filter(e => e && e.hexId === hexId);
-}
-function activeEncounters(campaign){
-  return ((campaign && campaign.encounters) || []).filter(e => e && e.status === 'active');
-}
-function encounterDisplayName(campaign, enc){
-  if(!enc) return '';
-  if(enc.name) return enc.name;
-  const mk = enc.monsterSide && enc.monsterSide.monsterCatalogKey;
-  const mName = mk && global.ACKS && typeof global.ACKS.monsterDisplayName === 'function'
-    ? global.ACKS.monsterDisplayName(mk) : (mk || '');
-  const what = mName || (enc.category === 'civilized' ? 'civilized encounter'
-    : enc.category === 'monster' ? 'monster encounter' : 'encounter');
-  return what + (enc.hexId ? ' at ' + enc.hexId : '');
-}
-// priorReactionBetween — D9: prior attitude is DERIVED from encounter history, never
-// stored on Lair/Group. "The same monsters" = the same lair binding OR an overlapping
-// bound Group (a bare catalog key is deliberately NOT identity — any goblin is not THIS
-// goblin band); "the same party" = the same party id OR any overlapping character (so
-// the memory follows the people across re-formed parties). Returns the most recent
-// RESOLVED prior meeting (the subject itself + no-encounter non-meetings excluded)
-// with its last standing attitude — or null when these sides have never met.
-function priorReactionBetween(campaign, encounter){
-  if(!campaign) return null;
-  const enc = (typeof encounter === 'string') ? findEncounter(campaign, encounter) : encounter;
-  if(!enc) return null;
-  const ms0 = enc.monsterSide || {};
-  const myLair = ms0.lairId || null;
-  const myGroups = ms0.groupIds || [];
-  // E4m — a side bound to a pursuing band carries the chase encounter's id: the chase
-  // itself IS a prior meeting with that band (the sprung caught-encounter recalls the
-  // evade it sprang from), and two meetings referencing the same chase are the same band.
-  const myPursuit = ms0.pursuitEncounterId || null;
-  if(!myLair && !myGroups.length && !myPursuit) return null;     // unbound fresh monsters — no identity to remember
-  const ps0 = enc.partySide || {};
-  const myParty = ps0.partyId || null;
-  const myChars = ps0.characterIds || [];
-  const when = e => ((e.resolvedAtTurn || e.occurredAtTurn || 0) * 100) + (e.resolvedOnDayInMonth || e.occurredOnDayInMonth || 0);
-  let best = null;
-  for(const e of (campaign.encounters || [])){
-    if(!e || e.id === enc.id || e.status !== 'resolved' || e.outcome === 'no-encounter') continue;
-    const ms = e.monsterSide || {};
-    if(!((myLair && ms.lairId === myLair) || (ms.groupIds || []).some(g => myGroups.includes(g))
-         || (myPursuit && (e.id === myPursuit || ms.pursuitEncounterId === myPursuit)))) continue;
-    const ps = e.partySide || {};
-    if(!((myParty && ps.partyId === myParty) || (ps.characterIds || []).some(c => myChars.includes(c)))) continue;
-    if(!best || when(e) >= when(best)) best = e;   // latest wins; array order breaks ties
-  }
-  if(!best) return null;
-  return {
-    encounterId: best.id, encounter: best,
-    outcome: best.outcome,
-    reaction: (best.reaction && best.reaction.current) || null,
-    atTurn: best.resolvedAtTurn || best.occurredAtTurn || null,
-    onDayInMonth: best.resolvedOnDayInMonth || best.occurredOnDayInMonth || null
-  };
-}
-
-// --- Creation + resolution (state-only; event emission lives in events.js) ----
-// createEncounter — the bare constructor + collection push + history stamp. Most
-// callers want createEncounterFromDraw (below), which fills the sides from a draw.
-function createEncounter(campaign, opts){
-  if(!campaign) return null;
-  const o = opts || {};
-  if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
-  if(o.id){
-    const existing = findEncounter(campaign, o.id);
-    if(existing) return existing;                       // idempotent on an explicit id (commit replays)
-  }
-  const enc = global.ACKS.blankEncounter(Object.assign({
-    occurredAtTurn: campaign.currentTurn || 1,
-    occurredOnDayInMonth: campaign.currentDayInMonth || null
-  }, o));
-  enc.history.push({ turn: enc.occurredAtTurn, type: 'created', reason: o.createReason || enc.trigger || 'gm-authored' });
-  campaign.encounters.push(enc);
-  return enc;
-}
-// resolveEncounter — flip to resolved with an outcome (idempotent). Outcomes:
-// no-encounter | evaded | parleyed | dispersed | combat | settled-as-lair | dismissed.
-// 'combat' records "GM resolves" until #141; 'settled-as-lair' is E3's linger branch.
-function resolveEncounter(campaign, encounterId, outcome, opts){
-  const enc = findEncounter(campaign, encounterId);
-  if(!enc) return null;
-  const o = opts || {};
-  if(enc.status === 'resolved') return enc;             // idempotent
-  enc.status = 'resolved';
-  enc.outcome = outcome || enc.outcome || 'dismissed';
-  enc.resolvedAtTurn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
-  enc.resolvedOnDayInMonth = (o.onDayInMonth === undefined) ? (campaign.currentDayInMonth || null) : o.onDayInMonth;
-  if(o.resolvedByEventId) enc.resolvedByEventId = o.resolvedByEventId;
-  enc.history.push({ turn: enc.resolvedAtTurn, type: 'resolved', reason: enc.outcome, note: o.note || '' });
-  return enc;
-}
-
-// --- The identity roll + the RAW 6a lair binding (E4, revising D12) -------------
-
-// Resolve a hex (or a sparse-route override) to the identity-table inputs and roll the
-// JJ 1d100. Returns the identity {natural, label, key, tableKey|columnKey, rarity, page}
-// or null when no table maps (water, unknown terrain, tables module absent).
-function _drawIdentityForHex(campaign, hexId, ctx, category, rarity, rng){
-  const A = global.ACKS;
-  if(typeof A.rollEncounterIdentity !== 'function') return null;
-  const hex = hexId && Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
-  const tKey = ctx.terrainKey || (hex && typeof A.terrainKey === 'function' ? A.terrainKey(hex) : null);
-  if(!tKey) return null;
-  const hasRiver = (ctx.hasRiver !== undefined) ? !!ctx.hasRiver
-    : !!(hex && Array.isArray(hex.riverSides) && hex.riverSides.length);
-  return A.rollEncounterIdentity({ terrainKey: tKey, hasRiver: hasRiver, category: category, rarity: rarity, rng: rng });
-}
-
-// E4m — the world's loose monster bands (derived, never stored): the bands ABROAD that a
-// wandering draw can meet — the pool-first principle extended off the lair map (Joachim
-// 2026-06-11: "a wandering group that is pursuing someone should be eligible to be found
-// by a third party on the same hex — the mechanic like a pre-existing lair being found").
-// Two kinds:
-//   • pursuer — an active chase (phase 'pursuit', offered|pursuing): the band IS the chase
-//     encounter's monster side, placed at the trail's anchor hex (🔧 v1 — the chase model is
-//     straight-line; the band itself trails by gapMiles within the hex's reach).
-//   • migrant — a living Group housed by no living lair (an abandoned den's survivors, or a
-//     free-authored band) standing at its currentHexId. A group bound to an active chase
-//     reads as the pursuer row, never twice.
-// The ONE derivation both consumers read: the 6a binding (who answers a wandering verdict)
-// and the 🐉 Monsters Groups table (what roams the world). Rows carry monsterKey (catalog-
-// resolved so aliases fold), the living count, the hex, and the refs the binding records.
-function looseMonsterBands(campaign){
-  const A = global.ACKS;
-  const rows = [];
-  if(!campaign) return rows;
-  const LIVING = { active: 1, unknown: 1, dynamic: 1 };
-  const settled = new Set(), deadHome = {};
-  for(const l of (campaign.lairs || [])){
-    if(!l) continue;
-    for(const gid of (l.groupIds || [])){ if(LIVING[l.status]) settled.add(gid); else if(!(gid in deadHome)) deadHome[gid] = l.id; }
-  }
-  const chasing = new Set();
-  for(const e of (campaign.encounters || [])){
-    const p = e && e.pursuit;
-    if(!e || e.status !== 'active' || e.phase !== 'pursuit' || !p || p.direction === 'party' || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
-    const ms = e.monsterSide || {};
-    for(const gid of (ms.groupIds || [])) chasing.add(gid);
-    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
-    rows.push({
-      kind: 'pursuer', encounterId: e.id,
-      monsterKey: entry ? entry.key : ((ms.monsterCatalogKey) || null),
-      label: p.pursuerLabel || ms.label || (entry && entry.name) || '',
-      count: (ms.count != null) ? ms.count : null,
-      hexId: p.lastPartyHexId || e.hexId || null,
-      groupIds: (ms.groupIds || []).slice(),
-      lairId: ms.lairId || null,
-      pursuitStatus: p.status, gapMiles: (p.gapMiles == null ? null : p.gapMiles),
-      quarry: { partyId: (e.partySide && e.partySide.partyId) || null,
-                characterIds: ((e.partySide && e.partySide.characterIds) || []).slice() }
-    });
-  }
-  // E5 — a band being TRACKED is abroad too: a definite entity at its trail-head hex, met
-  // as itself by anyone else's wandering draw (its own trackers excluded — the catch owns
-  // that meeting). A tracked migrant Group reads as the tracked row, never twice.
-  const tracked = new Set();
-  for(const e of (campaign.encounters || [])){
-    const p = e && e.pursuit;
-    if(!e || !p || p.direction !== 'party' || p.status !== 'tracking') continue;
-    const ms = e.monsterSide || {};
-    const q = p.quarry || {};
-    if(q.groupId) tracked.add(q.groupId);
-    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
-    rows.push({
-      kind: 'tracked', encounterId: e.id,
-      monsterKey: entry ? entry.key : ((ms.monsterCatalogKey) || null),
-      label: p.quarryLabel || ms.label || (entry && entry.name) || '',
-      count: (p.countTracked != null && p.countTracked !== 0) ? p.countTracked : ((ms.count != null) ? ms.count : null),
-      hexId: q.hexId || null,
-      groupIds: q.groupId ? [q.groupId] : (ms.groupIds || []).slice(),
-      lairId: ms.lairId || null,
-      quarryCoord: q.coord ? { q: q.coord.q, r: q.coord.r } : null,
-      halted: !!q.halted,
-      trackedBy: { characterId: p.trackerCharacterId || null, partyId: p.trackerPartyId || null,
-                   name: p.trackerName || '', journeyId: p.journeyId || null }
-    });
-  }
-  for(const g of (campaign.groups || [])){
-    if(!g || settled.has(g.id) || chasing.has(g.id) || tracked.has(g.id)) continue;
-    const alive = (typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
-    if(alive <= 0) continue;
-    const tpl = g.groupTemplate || {};
-    const entry = (tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
-    const ws = g.wanderState || null;
-    // E10 — a morale-banditry band (RR pp.350–351): the domain's OWN disaffected men,
-    // raiding within their domain. Its own roster kind — the band consumer fences its
-    // wander to the domain, it never dens or heads home, and the 6a abroad verdict binds
-    // it as 'banditry-band'. Takes precedence over any (defensive) homing state.
-    if(g.banditryDomainId){
-      const dom = (campaign.domains || []).find(d => d && d.id === g.banditryDomainId);
-      rows.push({
-        kind: 'banditry', groupId: g.id,
-        monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
-        label: g.name || (entry && entry.name) || '',
-        count: alive,
-        hexId: g.currentHexId || null,
-        groupIds: [g.id],
-        lairId: null,
-        banditryDomainId: g.banditryDomainId,
-        banditryDomainName: (dom && dom.name) || null,
-        halted: !!(ws && ws.halted)
-      });
-      continue;
-    }
-    // E6 — a post-chase band walking back to its den (pursuitAftermath set the state):
-    // its own roster kind, carrying the den ref so a chase sprung from MEETING it re-homes.
-    if(ws && ws.mode === 'heading-home' && ws.destLairId){
-      rows.push({
-        kind: 'homing', groupId: g.id,
-        monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
-        label: g.name || (entry && entry.name) || '',
-        count: alive,
-        hexId: g.currentHexId || null,
-        groupIds: [g.id],
-        lairId: ws.destLairId,
-        destLairId: ws.destLairId
-      });
-      continue;
-    }
-    rows.push({
-      kind: 'migrant', groupId: g.id,
-      monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
-      label: g.name || (entry && entry.name) || '',
-      count: alive,
-      hexId: g.currentHexId || null,
-      groupIds: [g.id],
-      lairId: null,
-      deadHomeLairId: deadHome[g.id] || null,
-      halted: !!(ws && ws.halted)                  // E6 — the GM's parking lever (else it wanders)
-    });
-  }
-  return rows;
-}
-
-// RAW JJ p.43 step 6a: once the table names the creature, roll against its MM Lair
-// characteristic to decide whether the meeting is AT its lair or with creatures abroad —
-// then bind the verdict to the world. An existing active den of that monster answers
-// (the world remembers — D5 as written: "an existing lair populates a lair encounter");
-// otherwise an in-lair result DETAILS one of the hex's seeded shells, or REVEALS a
-// key-matched pooled dynamic lair (RAW's own parenthetical: "a dynamic lair can be used
-// if one is available"), or — monster category only — MINTS a fresh den (the Judge's
-// improvised lair, automated; 🔧 civilized folk "at home" with no den entity just count
-// at lair size). A wandering result binds FIRST to a LOOSE BAND of that monster at the
-// hex (E4m — a pursuing band or migrant Group is a definite entity; it beats the conjured
-// fragment; the chase whose own quarry is drawing is excluded — meeting your pursuer is
-// the chase's catch, not the table's), then where a den of that monster exists it is a
-// FRAGMENT of it (MM p.15 — capped at the living population, no hoard, the lair unlocated).
-// PURE — counts + picks pre-rolled into the returned intent; mutation happens at
-// createEncounterFromDraw (the trigger's commit point). opts.partySide {partyId,
-// characterIds} = the drawing group (the quarry exclusion).
-function bindEncounterIdentity(campaign, hexId, identity, opts){
-  const o = opts || {};
-  const r = o.rng || Math.random;
-  const A = global.ACKS;
-  const entry = (identity && identity.key && typeof A.findMonster === 'function') ? A.findMonster(identity.key) : null;
-  if(!entry) return { mode: 'wandering', inLair: false, lairRoll: null, lairPct: null, count: null };
-  const pct = (typeof entry.lairPct === 'number') ? entry.lairPct : 0;
-  const lairRoll = 1 + Math.floor(r() * 100);
-  const inLair = pct > 0 && lairRoll <= pct;
-  const atHex = hexId ? (lairsAtHex(campaign, hexId) || []) : [];
-  const sameMonster = l => l && ((A.findMonster(l.monsterCatalogKey) || {}).key === entry.key);
-  const densHere = atHex.filter(l => l && l.status === 'active' && sameMonster(l));
-  const pick = list => list.length === 1 ? list[0] : list[Math.floor(r() * list.length)];
-  const wanderSpec = (entry.numberAppearing && entry.numberAppearing.wandering) || '1';
-  const lairSpec = (entry.numberAppearing && (entry.numberAppearing.lair || entry.numberAppearing.wandering)) || '1';
-  if(inLair){
-    if(densHere.length){
-      const lair = pick(densHere);
-      return { mode: 'existing-lair', inLair: true, lairRoll, lairPct: pct, lairId: lair.id, count: lairInhabitantCount(campaign, lair) || null };
-    }
-    const shells = atHex.filter(l => l && l.status === 'unknown');
-    if(shells.length && hexId){
-      const shell = pick(shells);
-      return { mode: 'populate-shell', inLair: true, lairRoll, lairPct: pct, shellLairId: shell.id, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
-    }
-    const dyn = (Array.isArray(campaign && campaign.lairs) ? campaign.lairs : []).filter(l => l && l.status === 'dynamic' && !l.hexId && sameMonster(l));
-    if(dyn.length){
-      const lair = pick(dyn);
-      return { mode: 'reveal-dynamic', inLair: true, lairRoll, lairPct: pct, lairId: lair.id, count: lairInhabitantCount(campaign, lair) || null };
-    }
-    if((o.category || 'monster') === 'monster' && hexId)
-      return { mode: 'fresh-lair', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
-    return { mode: 'wandering', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
-  }
-  // E4m — a loose band of this monster standing at the hex answers the abroad verdict
-  // first: the band met IS the known band (pursuer or migrant), not a conjured one.
-  if(hexId){
-    const me = (o.partySide || {});
-    const myChars = me.characterIds || [];
-    const bands = looseMonsterBands(campaign).filter(band => {
-      if(band.hexId !== hexId || !band.monsterKey || band.monsterKey !== entry.key) return false;
-      if(band.kind === 'pursuer'){
-        const q = band.quarry || {};
-        if(me.partyId && q.partyId && me.partyId === q.partyId) return false;
-        if((q.characterIds || []).some(id => myChars.includes(id))) return false;
-      }
-      if(band.kind === 'tracked'){
-        // E5 — the trackers never meet their own quarry through the table (the catch owns it).
-        const tb = band.trackedBy || {};
-        if(me.partyId && tb.partyId && me.partyId === tb.partyId) return false;
-        if(tb.characterId && myChars.includes(tb.characterId)) return false;
-      }
-      return true;
-    });
-    if(bands.length){
-      const band = pick(bands);
-      return { mode: 'loose-band', inLair: false, lairRoll, lairPct: pct,
-               bandKind: band.kind, encounterId: band.encounterId || null, groupId: band.groupId || null,
-               lairId: band.lairId || null, count: (band.count != null) ? band.count : Math.max(1, _rollDiceStr(wanderSpec, r)) };
-    }
-  }
-  if(densHere.length){
-    const lair = pick(densHere);
-    const alive = lairInhabitantCount(campaign, lair);
-    let count = Math.max(1, _rollDiceStr(wanderSpec, r));
-    if(alive > 0) count = Math.max(1, Math.min(count, alive));
-    return { mode: 'fragment', inLair: false, lairRoll, lairPct: pct, lairId: lair.id, count };
-  }
-  return { mode: 'wandering', inLair: false, lairRoll: pct > 0 ? lairRoll : null, lairPct: pct, count: Math.max(1, _rollDiceStr(wanderSpec, r)) };
-}
-
-// --- The draw seam (§15.2; E4 lands the 1d100 identity tables, revising D12) ----
-// encounterDraw(campaign, hexId, context) — ONE function, two identity regimes:
-//   • TABLE-FIRST (the default — RAW JJ p.43 steps 4–6a, the travel + rest-night
-//     procedure): the 1d20 category draw → monster rarity → the 1d100 identity table
-//     for the hex's terrain → the Lair % binding (bindEncounterIdentity above). The
-//     hex's lairs participate by MATCHING the rolled monster, not by overriding it.
-//   • LAIR-FIRST (context.lairFirst — the RR p.276 search-hour: "stumbled onto one
-//     of the lairs in the hex"): the M3 pool answers before any table —
-//     lairEncounterProposal unchanged.
-// Water / unknown terrain (no table) falls back to the pre-E4 pool-then-gm-pick fill.
-// context: { road?, night?, resting?, knownRoute?, rng?, lairFirst?, includeDynamicPool?,
-//            territoryClass?, terrainKey?, hasRiver? (sparse-route environment overrides),
-//            partySide? {partyId, characterIds} (the drawing group — E4m quarry exclusion) }.
-// PURE except rng consumption — no campaign mutation; triggers materialize entities
-// from the returned draw at their commit point (createEncounterFromDraw).
-function encounterDraw(campaign, hexId, context){
-  const ctx = context || {};
-  const rng = ctx.rng || Math.random;
-  const A = global.ACKS;
-  const hex = Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
-  const territoryClass = ctx.territoryClass
-    || (typeof A.territoryClassForHex === 'function' ? A.territoryClassForHex(campaign, hex) : 'unsettled');
-  const cat = A.rollEncounterCategory({
-    territoryClass, road: !!ctx.road, night: !!ctx.night,
-    resting: !!ctx.resting, knownRoute: !!ctx.knownRoute, rng
-  });
-  const draw = {
-    hexId: hexId || null, territoryClass, columnKey: cat.columnKey,
-    category: cat.category, demoted: cat.demoted || null, rolls: cat.rolls,
-    rarity: null, rarityRoll: null, identity: null, identityRoll: null, binding: null, proposal: null
-  };
-  // The pre-E4 pool-then-gm-pick fill — kept for the search path + unmappable terrain.
-  const poolFill = () => {
-    const prop = hexId ? lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: ctx.includeDynamicPool === true })
-                       : { source: 'fresh', hexId: null };
-    draw.proposal = prop;
-    draw.identity = (prop && prop.source === 'existing-lair') ? 'pool' : 'gm-pick';
-  };
-  if(cat.category === 'monster'){
-    const rar = A.rollEncounterRarity(territoryClass, rng);
-    draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
-    if(ctx.lairFirst){
-      poolFill();
-      // E4n — the hex held nothing to stumble onto (no active den, no seeded shell,
-      // no pool candidate): the search-hour's meeting is an ordinary wandering
-      // encounter, so the JJ tables name it exactly as the travel/rest draws do.
-      // Lair-first PRECEDENCE stands (RR p.276) — only the empty-pool fallback
-      // upgrades from the pre-E4 "GM identifies" fill.
-      if(draw.proposal && draw.proposal.source === 'fresh'){
-        const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
-        if(ident){
-          draw.proposal = null;
-          draw.identityRoll = ident; draw.identity = 'table';
-          draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng, partySide: ctx.partySide });
-        }
-      }
-    }
-    else {
-      const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
-      if(ident){
-        draw.identityRoll = ident; draw.identity = 'table';
-        draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng, partySide: ctx.partySide });
-      } else poolFill();
-    }
-  } else if(cat.category === 'civilized'){
-    const ident = _drawIdentityForHex(campaign, hexId, ctx, 'civilized', null, rng);
-    if(ident){
-      draw.identityRoll = ident; draw.identity = 'table';
-      draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'civilized', rng, partySide: ctx.partySide });
-    } else draw.identity = 'gm-pick';
-  }
-  return draw;
-}
-
-// --- Apply a 6a binding to a monster side (shared: creation + identity reroll) ---
-// MUTATES the campaign for the lair-touching modes: populate-shell details a seeded
-// shell (generateLair on it), reveal-dynamic places a pooled lair (RAW's parenthetical),
-// fresh-lair mints the Judge's improvised den. Each stamps side.minted — the unwind
-// receipt _unwindEncounterMinting reverses (day revert / identity reroll). The party
-// meets an in-lair creature AT the den (RR 6c: the distance is to the lair), so a
-// detailed/revealed/minted den lands knownToPlayers:true. A shell or pooled lair that
-// changed since the preview (GM touched it) degrades to a fresh mint.
-function _applyIdentityBinding(campaign, side, identity, binding, opts){
-  const o = opts || {};
-  const A = global.ACKS;
-  const turn = (o.atTurn === undefined) ? ((campaign && campaign.currentTurn) || 1) : o.atTurn;
-  side.identity = Object.assign({}, identity);
-  side.binding = binding ? { mode: binding.mode, inLair: !!binding.inLair, lairRoll: (binding.lairRoll === undefined ? null : binding.lairRoll), lairPct: (binding.lairPct === undefined ? null : binding.lairPct) } : null;
-  side.monsterCatalogKey = (identity && identity.key) || '';
-  side.label = (identity && identity.label) || '';
-  side.source = 'table';
-  side.minted = null;
-  side.pursuitEncounterId = null;   // E4m — a rebind away from a pursuing band drops the chase link
-  const b = binding || { mode: 'wandering', count: null };
-  const bindToLair = (lair, kind, count) => {
-    side.lairId = lair.id;
-    side.encounterKind = kind;
-    side.groupIds = (lair.groupIds || []).slice();
-    side.count = (count != null) ? count : (lairInhabitantCount(campaign, lair) || null);
-  };
-  const wanderingFallback = () => { side.lairId = null; side.groupIds = []; side.encounterKind = 'wandering'; side.count = (b.count == null ? null : b.count); };
-  const freshMint = () => {
-    if(!identity || !identity.key || !o.hexId){ wanderingFallback(); return; }
-    const gen = generateLair(campaign, { hexId: o.hexId, monsterCatalogKey: identity.key, count: b.count,
-                                         establishedBy: 'encounter-in-lair', knownToPlayers: true, atTurn: turn }, o.rng);
-    if(gen && gen.lair){
-      bindToLair(gen.lair, 'at-lair', b.count);
-      side.minted = { mode: 'fresh-lair', lairId: gen.lair.id, groupId: gen.group ? gen.group.id : null };
-    } else wanderingFallback();
-  };
-  if(b.mode === 'existing-lair' || b.mode === 'fragment'){
-    const lair = findLair(campaign, b.lairId);
-    if(lair){
-      side.source = 'existing-lair';
-      if(b.mode === 'fragment'){ side.lairId = lair.id; side.encounterKind = 'wandering-fragment'; side.count = b.count; }
-      else bindToLair(lair, 'at-lair', b.count);
-    } else wanderingFallback();
-  } else if(b.mode === 'populate-shell'){
-    const shell = findLair(campaign, b.shellLairId);
-    if(shell && shell.status === 'unknown' && identity && identity.key){
-      const prior = { status: shell.status, monsterCatalogKey: shell.monsterCatalogKey || '', treasureType: shell.treasureType || '',
-                      name: shell.name || '', lairPct: (shell.lairPct === undefined ? null : shell.lairPct),
-                      knownToPlayers: !!shell.knownToPlayers, groupIds: (shell.groupIds || []).slice(), historyLen: (shell.history || []).length };
-      const gen = generateLair(campaign, { lairId: shell.id, monsterCatalogKey: identity.key, count: b.count,
-                                           knownToPlayers: true, atTurn: turn }, o.rng);
-      if(gen && gen.lair){
-        bindToLair(gen.lair, 'at-lair', b.count);
-        side.minted = { mode: 'populate-shell', lairId: gen.lair.id, groupId: gen.group ? gen.group.id : null, priorLair: prior };
-      } else wanderingFallback();
-    } else freshMint();
-  } else if(b.mode === 'reveal-dynamic'){
-    const lair = findLair(campaign, b.lairId);
-    if(lair && lair.status === 'dynamic' && o.hexId){
-      const priorGroups = _lairBoundGroups(campaign, lair).map(g => ({ groupId: g.id, hexId: g.currentHexId || null }));
-      const priorLeaders = (lair.leaderCharacterIds || []).map(cid => {
-        const ch = (campaign.characters || []).find(c => c && c.id === cid);
-        return { characterId: cid, hexId: ch ? (ch.currentHexId || null) : null };
-      });
-      const prior = { establishedBy: lair.establishedBy || null, establishedAtTurn: lair.establishedAtTurn || null,
-                      knownToPlayers: !!lair.knownToPlayers, historyLen: (lair.history || []).length,
-                      groups: priorGroups, leaders: priorLeaders };
-      revealDynamicLair(campaign, lair.id, o.hexId, { knownToPlayers: true, atTurn: turn, reason: 'encounter-in-lair' });
-      bindToLair(lair, 'at-lair', b.count);
-      side.minted = { mode: 'reveal-dynamic', lairId: lair.id, prior: prior };
-    } else freshMint();
-  } else if(b.mode === 'fresh-lair'){
-    freshMint();
-  } else if(b.mode === 'loose-band'){
-    // E4m — the band met IS a known loose band: a pursuing band (the chase encounter's
-    // monster side, linked via pursuitEncounterId so D9 recalls it and the chase can
-    // reconcile on resolution) or a migrant Group. Nothing is minted — the identity
-    // reroll re-binds freely, no unwind receipt. A stale ref (the GM resolved the chase
-    // or the group died between propose and commit) degrades to a plain wandering band.
-    let bound = false;
-    if(b.bandKind === 'pursuer' && b.encounterId){
-      const chase = findEncounter(campaign, b.encounterId);
-      const pp = chase && chase.pursuit;
-      if(chase && chase.status === 'active' && chase.monsterSide && pp && (pp.status === 'offered' || pp.status === 'pursuing')){
-        const cms = chase.monsterSide;
-        side.source = 'pursuing-band';
-        side.pursuitEncounterId = chase.id;
-        side.lairId = cms.lairId || null;          // a fragment-that-pursues keeps its den ref
-        side.groupIds = (cms.groupIds || []).slice();
-        side.encounterKind = 'wandering';
-        side.count = (cms.count != null) ? cms.count : (b.count == null ? null : b.count);
-        bound = true;
-      }
-    } else if(b.bandKind === 'migrant' && b.groupId){
-      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
-      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
-      if(g && alive > 0){
-        side.source = 'migrant-band';
-        side.lairId = null;
-        side.groupIds = [g.id];
-        side.encounterKind = 'wandering';
-        side.count = alive;
-        bound = true;
-      }
-    } else if(b.bandKind === 'tracked' && b.encounterId){
-      // E5 — the band met IS the quarry of someone else's follow: the tracked meeting's
-      // monster side, linked via pursuitEncounterId so D9 recalls it (and a 'dispersed'
-      // here ends the follow — the trail has no band left on it).
-      const trk = findEncounter(campaign, b.encounterId);
-      const tp = trk && trk.pursuit;
-      if(trk && trk.monsterSide && tp && tp.direction === 'party' && tp.status === 'tracking'){
-        const tms = trk.monsterSide;
-        const qg = (tp.quarry && tp.quarry.groupId) || null;
-        side.source = 'tracked-band';
-        side.pursuitEncounterId = trk.id;
-        side.lairId = tms.lairId || null;          // a banded fragment keeps its den ref
-        side.groupIds = qg ? [qg] : (tms.groupIds || []).slice();
-        side.encounterKind = 'wandering';
-        side.count = (b.count != null) ? b.count : (tms.count != null ? tms.count : null);
-        bound = true;
-      }
-    } else if(b.bandKind === 'homing' && b.groupId){
-      // E6 — a post-chase band walking home: met as itself, the side keeping the DEN ref —
-      // so a chase sprung from this meeting re-homes after it (the directive's "pick up a
-      // new pursuit … and return home after that pursuit").
-      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
-      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
-      if(g && alive > 0){
-        side.source = 'homing-band';
-        side.lairId = (g.wanderState && g.wanderState.destLairId) || b.lairId || null;
-        side.groupIds = [g.id];
-        side.encounterKind = 'wandering';
-        side.count = alive;
-        bound = true;
-      }
-    } else if(b.bandKind === 'banditry' && b.groupId){
-      // E10 — a morale-banditry band (RR pp.350–351): met as itself, the side carrying the
-      // plagued domain so the panel names whose men these are. No den ref — it never lairs;
-      // the settle offer refuses 'banditry-band'.
-      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
-      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
-      if(g && alive > 0){
-        side.source = 'banditry-band';
-        side.banditryDomainId = g.banditryDomainId || null;
-        side.lairId = null;
-        side.groupIds = [g.id];
-        side.encounterKind = 'wandering';
-        side.count = alive;
-        bound = true;
-      }
-    }
-    if(!bound) wanderingFallback();
-  } else {
-    wanderingFallback();
-    if(b.inLair) side.encounterKind = 'wandering';   // civilized "at home" — no den entity (🔧), count at lair size
-  }
-  return side;
-}
-
-// Reverse what _applyIdentityBinding minted — the journey-day revert + the identity
-// reroll/choose verbs. Surgical: a fresh den (+ its group) is removed; a detailed shell
-// reverts to its pre-populate snapshot (created group dropped); a revealed pooled lair
-// returns to the pool with its population un-placed.
-function _unwindEncounterMinting(campaign, minted){
-  if(!campaign || !minted) return;
-  const lair = findLair(campaign, minted.lairId);
-  if(minted.mode === 'fresh-lair'){
-    if(Array.isArray(campaign.lairs)) campaign.lairs = campaign.lairs.filter(l => !(l && l.id === minted.lairId));
-    if(minted.groupId && Array.isArray(campaign.groups)) campaign.groups = campaign.groups.filter(g => !(g && g.id === minted.groupId));
-    return;
-  }
-  if(minted.mode === 'populate-shell' && lair && minted.priorLair){
-    const p = minted.priorLair;
-    const createdGroups = (lair.groupIds || []).filter(id => (p.groupIds || []).indexOf(id) < 0);
-    lair.status = p.status; lair.monsterCatalogKey = p.monsterCatalogKey; lair.treasureType = p.treasureType;
-    lair.name = p.name; lair.lairPct = p.lairPct; lair.knownToPlayers = p.knownToPlayers;
-    lair.groupIds = (p.groupIds || []).slice();
-    if(createdGroups.length && Array.isArray(campaign.groups)) campaign.groups = campaign.groups.filter(g => !(g && createdGroups.indexOf(g.id) >= 0));
-    if(Array.isArray(lair.history) && typeof p.historyLen === 'number') lair.history.length = Math.min(lair.history.length, p.historyLen);
-    return;
-  }
-  if(minted.mode === 'reveal-dynamic' && lair && minted.prior){
-    const p = minted.prior;
-    lair.status = 'dynamic'; lair.hexId = null;
-    lair.establishedBy = p.establishedBy; lair.establishedAtTurn = p.establishedAtTurn; lair.knownToPlayers = p.knownToPlayers;
-    for(const gp of (p.groups || [])){ const g = (campaign.groups || []).find(x => x && x.id === gp.groupId); if(g) g.currentHexId = gp.hexId; }
-    for(const lp of (p.leaders || [])){ const ch = (campaign.characters || []).find(c => c && c.id === lp.characterId); if(ch) ch.currentHexId = lp.hexId; }
-    if(Array.isArray(lair.history) && typeof p.historyLen === 'number') lair.history.length = Math.min(lair.history.length, p.historyLen);
-  }
-}
-
-// --- Materialize an Encounter entity from a draw -------------------------------
-// Called at a trigger's COMMIT point (journey day commit / search verb / rest-night
-// consumer commit) — never during a pure propose pass. Only meeting categories
-// (monster / civilized) become entities; terrain discoveries (dangerous / valuable /
-// unique) have no sides and stay day-log notables. opts: { id? (stable preview id),
-// trigger, partySide{}, light?, rng?, atTurn?, onDayInMonth? }.
-function createEncounterFromDraw(campaign, draw, opts){
-  if(!campaign || !draw) return null;
-  if(draw.category !== 'monster' && draw.category !== 'civilized') return null;
-  const o = opts || {};
-  const A = global.ACKS;
-  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null };
-  const prop = draw.proposal;
-  if(draw.identityRoll){
-    // E4 — the table named the creature; the 6a binding rides the draw verbatim
-    // (counts + picks pre-rolled with the trigger's seeded rng — preview byte-stable).
-    _applyIdentityBinding(campaign, monsterSide, draw.identityRoll, draw.binding, {
-      hexId: draw.hexId || null, atTurn: o.atTurn, rng: o.rng
-    });
-  } else if(prop && prop.source === 'existing-lair'){
-    monsterSide.source = 'existing-lair';
-    monsterSide.lairId = prop.lairId;
-    monsterSide.monsterCatalogKey = (prop.contents && prop.contents.monsterCatalogKey) || '';
-    monsterSide.encounterKind = prop.encounterKind || 'at-lair';
-    if(prop.encounterKind === 'wandering-fragment'){
-      monsterSide.count = (prop.fragment && prop.fragment.count) || null;
-    } else {
-      monsterSide.groupIds = (prop.contents && prop.contents.groupIds) ? prop.contents.groupIds.slice() : [];
-      monsterSide.count = (prop.contents && prop.contents.totalInhabitantCount) || null;
-    }
-  } else if(prop && prop.source === 'seeded-shell'){
-    monsterSide.source = 'seeded-shell';                // GM populates one of the hex's shells
-  } else if(prop && prop.source === 'dynamic-pool'){
-    monsterSide.source = 'dynamic';
-  }
-  const createOpts = {
-    scale: 'wilderness',
-    trigger: o.trigger || 'gm-authored',
-    hexId: draw.hexId || null,
-    category: draw.category,
-    rarity: draw.rarity || null,
-    partySide: o.partySide || {},
-    monsterSide,
-    createReason: o.trigger || 'draw'
-  };
-  if(o.id) createOpts.id = o.id;
-  if(o.atTurn !== undefined) createOpts.occurredAtTurn = o.atTurn;
-  if(o.onDayInMonth !== undefined) createOpts.occurredOnDayInMonth = o.onDayInMonth;
-  const enc = createEncounter(campaign, createOpts);
-  if(!enc) return null;
-  // A trigger that pre-rolled the distance with its SEEDED rng (the journey preview) hands it
-  // in verbatim — the entity matches the reviewed proposal byte-for-byte.
-  if(o.distance && enc.distance == null){
-    enc.distance = o.distance;
-    enc.history.push({ turn: enc.occurredAtTurn, type: 'distance', reason: (o.distance.distanceFt != null ? o.distance.distanceFt : '?') + " ft (" + (o.distance.terrainRow || 'terrain') + ")" });
-  }
-  // Pre-roll the distance when the terrain resolves (RR pp.280–281): identity-independent,
-  // so it lands at creation; sides' counts refine the visibility cap when known.
-  if(enc.distance == null && typeof A.computeEncounterDistance === 'function'){
-    const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === enc.hexId) : null;
-    const rowKey = hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null;
-    if(rowKey){
-      enc.distance = A.computeEncounterDistance({
-        terrainRow: rowKey,
-        light: o.light || 'daylight',
-        sideACount: (enc.partySide && enc.partySide.sizeCount) || null,
-        sideBCount: (enc.monsterSide && enc.monsterSide.count) || null,
-        rng: o.rng || Math.random
-      });
-      if(enc.distance) enc.history.push({ turn: enc.occurredAtTurn, type: 'distance', reason: enc.distance.distanceFt + " ft (" + (enc.distance.terrainRow || 'terrain') + ")" });
-    }
-  }
-  return enc;
-}
 
 // =============================================================================
 // #443 — Wave A relation setters (Architecture.md §3.5, 2026-05-29).
@@ -4336,6 +2394,16 @@ function revokeFavorDutyObligation(campaign, obligationId, atTurn, reason){
   record.revokedAtTurn = atTurn != null ? atTurn : (campaign.currentTurn || 1);
   if(!Array.isArray(record.history)) record.history = [];
   record.history.push({ turn: record.revokedAtTurn, type: 'revoked', reason: reason || 'revoked' });
+  // === Military W7 (burst4) — disband any troops a Call-to-Arms / Troops obligation materialized.
+  if(record.kind === 'call-to-arms' || record.kind === 'troops'){
+    try { ACKS._favorDutyDematerializeTroops(campaign, record); } catch(e){ /* best-effort */ }
+  }
+  // === Politics P-2 (burst5) — vacate the senate seat an Office favor materialized on a senatorial
+  //     realm (Phase_4_Politics_Plan.md §10). The single revoke chokepoint catches every path
+  //     (manual revoke, the 1d20 table-revocation, …); a no-op when not senatorial / never seated.
+  if(record.kind === 'office' && global.ACKS && typeof global.ACKS.syncOfficeSenateSeat === 'function'){
+    try { global.ACKS.syncOfficeSenateSeat(campaign, record, 'revoke'); } catch(e){ /* best-effort */ }
+  }
   return record;
 }
 
@@ -4374,9 +2442,54 @@ function favorDutyObligationsForVassalDomain(campaign, vassalDomainId){
 // the tribute realm-family walk (tributeOwed).
 function realmFamiliesForDomain(campaign, domain){
   if(!domain) return 0;
-  let families = global.ACKS.totalFamilies(domain);
-  for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(v);
+  let families = global.ACKS.totalFamilies(campaign, domain);
+  for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(campaign, v);
   return families;
+}
+
+// RR p.434 — the realm's standing-army capacity (the Vassal Troops by Realm Size table — the quick
+// "what armies can a realm of this size field" reference). The realm = this domain + its sub-vassal
+// chain (the same basis realmFamiliesForDomain sums). Returns the RAW tier caps (max standing army,
+// realm-troops wage budget, the avg garrison baseline) + a light comparison to the realm's CURRENT
+// fielded force (every Unit homed in a realm domain — garrisons + field armies). A standing army is
+// funded by Scutage from vassals (1gp+/family — shipped F&D-6) + parceled across their domains via
+// the Troops favor (shipped); vassal-reliant realms field conscripts, standing armies hire mercenaries
+// (RR p.433). Pure derived read — no stored field, no new entity/rule/event. Null if no domain.
+function realmStandingArmyCapacity(campaign, domainOrId){
+  const A = global.ACKS;
+  const d = ACKS._resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  const realmFamilies = realmFamiliesForDomain(campaign, d);
+  const tier = A.vassalTroopsForRealmFamilies(realmFamilies);
+  if(!tier) return null;
+  // The realm's domain set: this domain + every sub-vassal domain (the realmFamiliesForDomain basis).
+  const realmDomainIds = new Set([d.id]);
+  for(const { domain:v } of A.vassalChainUnder(campaign, d.id)) if(v && v.id) realmDomainIds.add(v.id);
+  // Current realm military force: every Unit OWNED by a realm domain (garrisoned or afield). Ownership
+  // is resolved via the canonical unitOwnerDomainId accessor (explicit ownerDomainId, else the garrison
+  // station), falling back to the raw field.
+  let troops = 0, wages = 0;
+  for(const u of (campaign.units || [])){
+    if(!u) continue;
+    const home = (A.unitOwnerDomainId ? A.unitOwnerDomainId(campaign, u) : null) || u.ownerDomainId || null;
+    if(home && realmDomainIds.has(home)){
+      troops += ACKS.unitActiveCount(u);
+      wages  += ACKS.unitWageMonthly(campaign, u);
+    }
+  }
+  const maxArmy  = (tier.maxStandingArmy && tier.maxStandingArmy.max) || 0;
+  const maxWages = (tier.maxRealmTroopsWages && tier.maxRealmTroopsWages.max) || 0;
+  return {
+    tier: tier.key, title: tier.title, page: tier.page || 434,
+    realmFamilies,
+    avgPersonalGarrisonWages: tier.avgPersonalGarrisonWages || 0,
+    maxStandingArmy: maxArmy,  maxStandingArmyText:  (tier.maxStandingArmy  || {}).text || '',
+    maxRealmTroopsWages: maxWages, maxRealmTroopsWagesText: (tier.maxRealmTroopsWages || {}).text || '',
+    currentRealmTroops: troops, currentRealmTroopWages: wages,
+    fitsArmyCap:    maxArmy  ? troops <= maxArmy  : true,
+    fitsWageBudget: maxWages ? wages  <= maxWages : true,
+    timePeriod: tier.timePeriod || 'season'
+  };
 }
 
 // The scutage rate in gp/family (RR p.347 — default 1gp/family; a lower rate is "demand less", RR p.345).
@@ -5057,25 +3170,12 @@ function removeRumorReach(rumor, settlementId){
 
 // --- Migration: lift nested storage to top-level collections ---
 
-// Canonical setter (CLAUDE #10): `hex.domainId` is the truth; each domain's nested `geography.hexes[]`
-// is a reference-unified MIRROR that must follow it. Ensure `hex` lives in exactly its domainId's
-// geography.hexes (creating the array if needed) and in NO other domain's, and that it's present in
-// the top-level campaign.hexes. Idempotent. The gm-fiat handler calls this whenever a hex's domainId
-// is set (the hex panel, the Inspector, the Event Wizard, an integrator) so the move never drifts from
-// the mirror; index.html's mapRehomeHex does the same move for the (unlogged, bulk) map editor.
+// Canonical setter (CLAUDE #10): `hex.domainId` is the truth — and, single-home (T6), the ONLY home.
+// Setting hex.domainId IS the move; there's no nested geography.hexes mirror to follow it. This just
+// ensures the hex is present in the canonical campaign.hexes. Kept (the gm-fiat hex-domainId edit calls
+// it) but reduced to that one invariant. Idempotent.
 function reconcileHexDomainMembership(campaign, hex){
   if(!campaign || !hex) return;
-  const want = hex.domainId || null;
-  (campaign.domains || []).forEach(d => {
-    if(!d) return;
-    if(d.id === want){
-      if(!d.geography) d.geography = {};
-      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-      if(!d.geography.hexes.some(h => h && h.id === hex.id)) d.geography.hexes.push(hex);
-    } else if(d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id)){
-      d.geography.hexes = d.geography.hexes.filter(h => h && h.id !== hex.id);
-    }
-  });
   if(Array.isArray(campaign.hexes) && !campaign.hexes.some(h => h && h.id === hex.id)) campaign.hexes.push(hex);
 }
 
@@ -5150,33 +3250,25 @@ function liftToTopLevelCollections(campaign){
         legacySettlement.rumors = [];
       }
     });
-    // NOTE: We intentionally do NOT clear d.geography.hexes[]. Hexes (and their settlement
-    // references) live by reference in both campaign.hexes[] and d.geography.hexes[] during
-    // this transition pass. Old code that walks the legacy path keeps working, mutations
-    // through either path propagate to both. The next schema bump (or a future cleanup pass)
-    // can remove the legacy field; for now we ship both as views of the same data.
-    //
-    // Ref re-unification: after a save→load round-trip, the JSON parse creates two separate
-    // JS objects for each hex (one in d.geography.hexes, one in campaign.hexes). Replace each
-    // legacy entry with the top-level reference, matched by id, so mutations stay coherent.
+    // Single-home (T6): the nested d.geography.hexes mirror is stripped right after this lift
+    // (stripHexSettlementMirrors, index.html _finishLoad), so there is NO reference re-unification.
+    // But preserve the load-bearing BACKFILL onto the canonical (top-level) survivor: when
+    // campaign.hexes already held this hex as a SEPARATE object (a save round-trip / shared file whose
+    // top-level hexes lack domainId, or a pre-hexId settlement), the forward-lift above backfilled the
+    // discarded nested copy, not the survivor — so adopt the domain claim (membership IS the claim,
+    // CLAUDE #10) onto the top-level hex, and the hex link onto the top-level settlement.
     if(Array.isArray(d.geography.hexes)){
-      d.geography.hexes = d.geography.hexes.map(h => {
+      for(const h of d.geography.hexes){
+        if(!h || !h.id) continue;
         const topRef = campaign.hexes.find(x => x.id === h.id);
-        if(!topRef) return h;
-        // Backfill domainId on the SURVIVING (canonical, top-level) copy. The per-hex backfill
-        // above runs on the geography copy `h`, but when campaign.hexes already held this hex
-        // (a save round-trip, a pre-backfill session cache, or a shared .acks.json whose
-        // top-level hexes lack domainId), that geography copy is discarded here in favour of
-        // topRef — so the backfill would be lost unless we also apply it to topRef. Membership
-        // in d.geography.hexes[] IS the domain claim (CLAUDE #10): adopt it onto the scalar.
+        if(!topRef) continue;
         if(!topRef.domainId) topRef.domainId = d.id;
-        // Also re-unify h.settlement against campaign.settlements
-        if(topRef.settlement && topRef.settlement.id){
-          const topSet = campaign.settlements.find(s => s.id === topRef.settlement.id);
-          if(topSet) topRef.settlement = topSet;
+        const embedded = h.settlement;
+        if(embedded && embedded.id){
+          const topSet = campaign.settlements.find(s => s.id === embedded.id);
+          if(topSet && !topSet.hexId) topSet.hexId = h.id;
         }
-        return topRef;
-      });
+      }
     }
   });
 }
@@ -5377,7 +3469,13 @@ function processPassiveInvestmentsForTurn(campaign){
     if(destDomainId){
       const destDomain = (campaign.domains||[]).find(d => d.id === destDomainId);
       if(destDomain){
-        destDomain.treasury.gp = (destDomain.treasury.gp||0) + gp;
+        // Route through the canonical treasury setter (NOT a raw scalar write): it
+        // deposits to the domain's treasury stash and keeps domain.treasury.gp in
+        // lockstep, so the load-time reconcileTreasuryScalars pass no longer clobbers
+        // the payout. A scalar-only write left the stash sum un-incremented, so on the
+        // next load reconcile rewrote the scalar back down — the payout silently
+        // vanished on reload (Stash C.2 / GP Wave B canonical-setter doctrine).
+        ACKS._applyDomainTreasuryDelta(campaign, destDomain, gp, { reason:'passive-investment', label:(inv.name || inv.ownerName || 'passive investment') });
         destLabel = destDomain.name + ' treasury';
       }
     }
@@ -5717,7 +3815,7 @@ function _favorDutyResolveNote(entry, ctx){
     case 'troops':
       return base + ' GM: place the stationed garrison under the vassal (Phase 3 Military).';
     case 'office':
-      return base + ' The +1 to the holder’s vassals’ loyalty rolls applies automatically (RR p.348). GM: if the lord’s realm is senatorial, the holder is owed a senate seat (RR p.355 — deferred to the senatorial-realms phase).';
+      return base + ' The +1 to the holder’s vassals’ loyalty rolls applies automatically (RR p.348). On a senatorial realm the holder is automatically seated as a leading senator (RR p.355 — set the seat’s influence on the senatorship); on a non-senatorial realm the seat is a no-op.';
     case 'charter-of-monopoly':
       return base + ' GM: apply the merchandise monopoly in M&M (2× volume, +1 price step).';
     case 'grant-of-land':
@@ -5734,8 +3832,8 @@ function _favorDutyResolveNote(entry, ctx){
 function _favorDutyMoveGp(campaign, fromDomain, toDomain, amount, reason, flows){
   const amt = Math.round(Number(amount) || 0);
   if(amt <= 0) return null;
-  if(fromDomain) _applyDomainTreasuryDelta(campaign, fromDomain, -amt, { reason: reason, label: 'favor-duty: ' + reason });
-  if(toDomain)   _applyDomainTreasuryDelta(campaign, toDomain,   +amt, { reason: reason, label: 'favor-duty: ' + reason });
+  if(fromDomain) ACKS._applyDomainTreasuryDelta(campaign, fromDomain, -amt, { reason: reason, label: 'favor-duty: ' + reason });
+  if(toDomain)   ACKS._applyDomainTreasuryDelta(campaign, toDomain,   +amt, { reason: reason, label: 'favor-duty: ' + reason });
   const flow = { from: fromDomain ? fromDomain.id : null, to: toDomain ? toDomain.id : null, amount: amt, reason };
   if(Array.isArray(flows)) flows.push(flow);
   return flow;
@@ -5788,7 +3886,15 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, 
   const ch = (campaign.characters || []).find(c => c.id === vassalRulerCharacterId) || null;
   const loyaltyScore = ch ? (ch.loyalty || 0) : 0;
   const officeBonus = officeLoyaltyBonusFor(campaign, vassalRulerCharacterId);   // RR p.348 Office favor (F&D-8)
-  const effMod = (Number(modifier) || 0) + officeBonus;
+  // === @b10-religion (team) — Religion R3 consecrate-ruler (RR p.422): a vassal of a consecrated ruler
+  // gets +1 to their loyalty rolls (−1 if the rite went awry). The POSITIVE bonus is non-stacking with the
+  // Office favor's +1 (OQ5 — take the max); an awry −1 is a curse that still applies. Late-bound (religion.js
+  // loads after this module); absent / no live buff ⇒ 0 ⇒ effMod identical to the shipped behavior.
+  const consecrationBonus = (global.ACKS && typeof global.ACKS.domainConsecrationVassalLoyaltyBonus === 'function')
+    ? (global.ACKS.domainConsecrationVassalLoyaltyBonus(campaign, vassalRulerCharacterId) || 0) : 0;
+  const religiousBonus = consecrationBonus < 0 ? (officeBonus + consecrationBonus) : Math.max(officeBonus, consecrationBonus);
+  // === end @b10-religion ===
+  const effMod = (Number(modifier) || 0) + religiousBonus;
   const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
   const rr = global.ACKS.rollLoyalty(loyaltyScore, effMod, { d1, d2 });
   if(ch){
@@ -5798,7 +3904,8 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, 
     if(!Array.isArray(ch.loyaltyHistory)) ch.loyaltyHistory = [];
     ch.loyaltyHistory.push({
       turn: campaign.currentTurn || 1, delta: after - before, reason: opts.reason || 'favor-duty-excess',
-      reasonNote: (opts.reasonNote || 'over-demanded duties (RR p.347)') + (officeBonus ? ' [+1 office, RR p.348]' : ''),
+      reasonNote: (opts.reasonNote || 'over-demanded duties (RR p.347)') + (officeBonus ? ' [+1 office, RR p.348]' : '')
+        + (consecrationBonus ? (' [' + (consecrationBonus > 0 ? '+1 consecrated ruler' : '−1 consecration awry') + ', RR p.422]') : ''),
       rollResult: rr, outcome: rr.bandKey, newValue: after
     });
   }
@@ -5854,6 +3961,12 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   rng = rng || Math.random;
   const { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, currentTurn } = ctx;
   const roll = ctx.roll != null ? ctx.roll : null;
+  // RR p.354 — a clanhold vassal can only be offered/demanded the clanhold-restricted F&D set (a
+  // 'custom' edict is the Judge's freeform device, RR p.345, always allowed). Refuse an excluded kind —
+  // the real limitation, enforced for BOTH the manual composer AND the monthly auto-roll (both paths
+  // funnel here). The caller (Phase A / applyFavorDutyEdictByKind) handles the null.
+  if(entry && entry.kind && entry.kind !== 'custom' && global.ACKS && typeof global.ACKS.favorDutyKindAllowedForDomain === 'function'
+     && !global.ACKS.favorDutyKindAllowedForDomain(vassalDomain, entry.kind)) return null;
 
   // Compute the gp amount: a GM amount override (RR p.345 — "a lord may always choose to demand
   // less when demanding a duty"; a favor's value may likewise be set), else the RAW basis. The
@@ -5920,6 +4033,21 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
     // (an *ongoing* custom edict with gp recurs in Phase B instead — no on-grant move, to avoid double-billing)
     if(entry.isFavor) _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'custom-favor', flows);
     else              _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'custom-duty', flows);
+  }
+
+  // === Military W7 (burst4) — materialize the Call-to-Arms duty / Troops favor into real Units
+  //     (the shipped F&D left these as GM-resolve notes). No-op for every other kind.
+  if(entry.kind === 'call-to-arms' || entry.kind === 'troops'){
+    try { ACKS._favorDutyMaterializeTroops(campaign, obligation, { liegeId, vassalDomain, liegeDomain, race: 'man' }); }
+    catch(e){ /* materialization is best-effort — never block the edict on a troop-muster hiccup */ }
+  }
+  // === Politics P-2 (burst5) — the F&D Office→senate-seat hook (the deferred F&D-8 dependency,
+  //     Phase_4_Politics_Plan.md §10; RR p.348 + p.355). Granting an Office favor on a realm whose
+  //     apex governance is senatorial auto-seats the officeholder as a leading senator. A no-op when
+  //     the realm isn't senatorial (the Office favor behaves as shipped — title + the +1 vassal-loyalty).
+  if(entry.kind === 'office' && global.ACKS && typeof global.ACKS.syncOfficeSenateSeat === 'function'){
+    try { global.ACKS.syncOfficeSenateSeat(campaign, obligation, 'grant'); }
+    catch(e){ /* best-effort — never block the edict on a seating hiccup */ }
   }
 
   // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).
@@ -6342,6 +4470,10 @@ function processFavorsAndDutiesForTurn(campaign, options){
 
     // Apply the edict via the shared core (the same path the manual GM-pick UI calls).
     const r = _applyFavorDutyEdict(campaign, { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, roll, currentTurn }, rng);
+    if(!r){   // RR p.354 — the rolled kind isn't available to a clanhold vassal; record it + skip (no edict this month)
+      result.logEntries.push('Favor/Duty — ' + (vassalDomain.name || vassalDomainId) + ': rolled ' + entry.kind + ', not available to a clanhold vassal (RR p.354) — skipped.');
+      continue;
+    }
     r.gpFlows.forEach(f => result.gpFlows.push(f));
     if(r.loyaltyResult){
       result.loyaltyRolls.push({ vassalDomainId, vassalRulerCharacterId: vassalRulerId, modifier: r.balance.loyaltyModifier, bandKey: r.loyaltyResult.bandKey });
@@ -6371,7 +4503,7 @@ function processFavorsAndDutiesForTurn(campaign, options){
       // Gated on the auto-pay toggle (scutageAutoPay) — it bills automatically each month while on.
       const amt = scutageMonthlyGp(campaign, o);
       if(amt > 0 && o.scutageAutoPay === true && liegeDomain){
-        _applyDomainTreasuryDelta(campaign, liegeDomain, +amt, { reason:'scutage', label:'favor-duty: scutage (collected)' });
+        ACKS._applyDomainTreasuryDelta(campaign, liegeDomain, +amt, { reason:'scutage', label:'favor-duty: scutage (collected)' });
         o.scutageLastPaidTurn = currentTurn;   // audit: the last month scutage actually settled
         const flow = { from: vassalDomain.id, to: liegeDomain.id, amount: amt, reason:'scutage' };
         result.gpFlows.push(flow);
@@ -6439,7 +4571,7 @@ function processFavorsAndDutiesForTurn(campaign, options){
   // wage), every vassal who paid him scutage makes a Henchman Loyalty roll at -4.
   for(const key of Object.keys(scutageReceivedByLiege)){
     const acc = scutageReceivedByLiege[key];
-    const troopSpend = global.ACKS.garrisonCost(acc.liegeDomain);
+    const troopSpend = global.ACKS.garrisonCost(campaign, acc.liegeDomain);
     if(troopSpend > acc.total) continue;                                   // lord spent enough on troops — no penalty
     for(const p of acc.payers){
       if(!p.vassalRulerId) continue;
@@ -6514,13 +4646,19 @@ function proposeMonthlyTurn(campaign, options){
         domainId: d.id,
         domainName: d.name,
         classification: effectiveDomainClassification(d),
-        ruler: global.ACKS.effectiveRuler(campaign, d),
+        // W4 — RR p.458: while OCCUPIED the monthly morale machinery runs under the
+        // OCCUPIER's personal authority (the base morale recomputes from him); the
+        // moraleModifiersFor occupation-penalty row rides on top. Unoccupied domains
+        // (the universal case) read effectiveRuler exactly as before.
+        ruler: (d.occupiedBy && d.occupiedBy.leaderCharacterId && global.ACKS.occupierRulerSummary)
+          ? global.ACKS.occupierRulerSummary(campaign, d)
+          : global.ACKS.effectiveRuler(campaign, d),
         tithePaid: d.expenses.tithePaid !== false,
         tributePaid: d.expenses.tributePaid !== false,
         administersThisMonth: !!d.administersThisMonth,
         hasLiege: !!d.liegeId,
         moraleBefore: d.demographics.morale,
-        populationBefore: global.ACKS.totalFamilies(d),
+        populationBefore: global.ACKS.totalFamilies(campaign, d),
         treasuryBefore: d.treasury.gp || 0,
         income: global.ACKS.incomeBreakdown(campaign, d).map(r => ({...r})),
         expenses: global.ACKS.expenseBreakdown(campaign, d).map(r => ({...r})),
@@ -6529,8 +4667,9 @@ function proposeMonthlyTurn(campaign, options){
         moraleRoll: rollD6(rng) + rollD6(rng),
         event: global.ACKS.sampleEvent(d.demographics.morale),
         hasPlayerInput: !!d.pendingPlayerInput,
-        urbanInvestments: global.ACKS.hexSettlements(d).map(({hexIndex, settlement}) => ({
+        urbanInvestments: global.ACKS.hexSettlements(campaign, d).map(({hexIndex, hex, settlement}) => ({
           hexIndex,
+          hexId: hex.id,
           settlementName: settlement.name || '(unnamed)',
           marketClass: global.ACKS.settlementMarketClass(settlement),
           currentFamilies: settlement.families || 0,
@@ -6541,7 +4680,7 @@ function proposeMonthlyTurn(campaign, options){
         // (not a boolean). The GM can allocate any value. proposeMonthlyTurn pre-seeds it from
         // hex.queuedImprovementGp (set in the Hexes tab prep section). commitTurn adds gpAmount
         // to hex.landImprovementInvested and ratchets +1 per 25k accumulated.
-        agriculturalOrders: (d.geography?.hexes || []).map((h, hexIndex) => {
+        agriculturalOrders: hexesForDomain(campaign, d.id).map((h, hexIndex) => {
           const base = h.valuePerFamily || 0;
           const bonus = h.landImprovementBonus || 0;
           const invested = h.landImprovementInvested || 0;
@@ -6577,15 +4716,30 @@ function proposeMonthlyTurn(campaign, options){
     }
   }).filter(p => !p._error);
 
-  // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun).
+  // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun). A
+  // direct in-file call (not late-bound), so it stays inline; the late-bound previews come from the
+  // monthly-consumer registry below (audit E2).
   const livingExpenseProposal = processLivingExpensesForTurn(campaign, { dryRun: true });
+
+  // Late-bound monthly-consumer PREVIEWS (the dryRun half of the propose-ratify gate) — driven by the
+  // SAME registry commitTurn runs, so the propose + commit lists can't drift (audit E2). aging /
+  // banking / syndicate-tribute each registered a .preview; the rest have none (no meaningful dryRun).
+  const _previews = {};
+  for(const mc of monthlyConsumersInOrder()){
+    if(typeof mc.preview !== 'function') continue;
+    try { _previews[mc.name] = mc.preview(campaign, { rng }); }
+    catch(e){ /* never let a monthly-consumer preview fail the turn proposal */ }
+  }
 
   return {
     error: null,
     turnEventProposals,
     turnVentureProposals,
     turnProposal,
-    livingExpenseProposal
+    livingExpenseProposal,
+    agingProposal: _previews['aging'] || { ran: false },
+    bankingProposal: _previews['banking'] || { ran: false },
+    syndicateTributeProposal: _previews['syndicate-tribute'] || { ran: false }
   };
 }
 
@@ -6606,54 +4760,75 @@ function commitTurn(campaign, proposal, options){
   if(!Array.isArray(campaign.pendingEvents)) campaign.pendingEvents = [];
   if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
 
-  // === EVENT APPLY PASS ===
-  // Per Decision 2 (locked): timed events sort by gameTimeAt; untimed by submittedAt.
-  // Domains live on the campaign (single home; the caller passes an attached campaign), so
-  // applyEvent handlers traverse campaign.domains directly — no swap/restore needed.
+  // === EVENT APPLY PASS ===  (F1 + F2 — pre-validate, then one batch snapshot for the apply)
+  // Per Decision 2 (locked): timed events sort by gameTimeAt; untimed by submittedAt. Domains live on
+  // the campaign (single home), so applyEvent handlers traverse campaign.domains directly.
+  //
+  // F2 (audit 2026-06-24): the GM's accepted-event batch is the transactional unit.
+  //  1. PRE-VALIDATE every accepted event. One that fails its own schema mutates nothing, so it is
+  //     rejected WITHOUT an apply attempt — exactly as the pre-F2 per-event flow did (validateEvent
+  //     threw before any snapshot). This keeps the common "malformed integrator event" case off the
+  //     rollback path entirely, so a caller holding a campaign.domains[i] reference across the commit
+  //     stays valid (the rollback only ever clones+swaps on a genuine handler throw).
+  //  2. Apply the VALID events on a FAST path with per-event rollback suppressed ({transactional:false})
+  //     — the whole batch costs ONE clone (cheap; F1 excludes the unbounded eventLog), not one-per-event.
+  //  3. Only if a VALID event's handler throws mid-run (rare) do we roll the whole batch back and RE-RUN
+  //     it resiliently (per-event rollback, reject-and-continue) — preserving exactly the pre-F2 outcome.
   {
-    const accepted = turnEventProposals.filter(ep => ep.decision === 'accept').map(ep => ep.event);
-    const rejected = turnEventProposals.filter(ep => ep.decision === 'reject');
-    const sortedAccepted = global.ACKS.sortEventsForApply(accepted);
+    const acceptedProposals = turnEventProposals.filter(ep => ep.decision === 'accept');
+    const rejectedProposals = turnEventProposals.filter(ep => ep.decision === 'reject');
 
-    sortedAccepted.forEach(ev => {
-      try {
-        const epProposal = turnEventProposals.find(ep => ep.eventId === ev.id);
-        if(epProposal && epProposal.gmNotes != null) ev.gmNotes = epProposal.gmNotes;
-        const applyResult = global.ACKS.applyEvent(campaign, ev);
-        ev.status = global.ACKS.EVENT_STATUS.APPLIED;
-        ev.appliedAtTurn = currentTurnNum;
-        campaign.eventLog.push({
-          event: ev,
-          result: applyResult.result,
-          appliedAtTurn: currentTurnNum,
-          appliedAt: new Date().toISOString()
-        });
-        logEntries.push('[event applied] ' + ev.kind + ' by ' + ev.submittedBy + ': ' + (applyResult.result?.narrativeSummary || ''));
-      } catch(e){
-        ev.status = global.ACKS.EVENT_STATUS.REJECTED;
-        ev.appliedAtTurn = currentTurnNum;
-        ev.gmNotes = (ev.gmNotes || '') + (ev.gmNotes ? ' · ' : '') + 'engine error: ' + e.message;
-        campaign.eventLog.push({
-          event: ev,
-          result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Engine error: ' + e.message },
-          appliedAtTurn: currentTurnNum,
-          appliedAt: new Date().toISOString()
-        });
-      }
+    const _applyOne = (ev, transactional) => {
+      const ep = turnEventProposals.find(x => x.eventId === ev.id);
+      if(ep && ep.gmNotes != null) ev.gmNotes = ep.gmNotes;
+      const applyResult = global.ACKS.applyEvent(campaign, ev, transactional ? undefined : { transactional: false });
+      ev.status = global.ACKS.EVENT_STATUS.APPLIED;
+      ev.appliedAtTurn = currentTurnNum;
+      campaign.eventLog.push({ event: ev, result: applyResult.result, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+      logEntries.push('[event applied] ' + ev.kind + ' by ' + ev.submittedBy + ': ' + (applyResult.result?.narrativeSummary || ''));
+    };
+    const _rejectErr = (ev, errMessage) => {
+      ev.status = global.ACKS.EVENT_STATUS.REJECTED;
+      ev.appliedAtTurn = currentTurnNum;
+      ev.gmNotes = (ev.gmNotes || '') + (ev.gmNotes ? ' · ' : '') + 'engine error: ' + errMessage;
+      campaign.eventLog.push({ event: ev, result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Engine error: ' + errMessage }, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+    };
+
+    // (1) pre-validate — split valid from malformed without applying anything.
+    const validIds = [], invalidIds = [];
+    acceptedProposals.forEach(ep => {
+      try { global.ACKS.validateEvent(ep.event); validIds.push(ep.eventId); }
+      catch(e){ invalidIds.push([ep.eventId, e.message]); }
     });
+    const _liveById = () => new Map((campaign.pendingEvents || []).map(e => [e.id, e]));
+    const _liveValid = () => { const byId = _liveById(); return global.ACKS.sortEventsForApply(validIds.map(id => byId.get(id)).filter(Boolean)); };
 
-    rejected.forEach(ep => {
-      const ev = ep.event;
+    // (2) FAST path — one batch snapshot, no per-event clone.
+    if(validIds.length){
+      const _batchSnap = global.ACKS.cloneCampaignForRollback(campaign);
+      const _logMark = logEntries.length;
+      let _fastFailed = false;
+      try { _liveValid().forEach(ev => _applyOne(ev, false)); }
+      catch(e){ _fastFailed = true; }
+      // (3) handler threw — roll the whole batch back, then re-run resiliently (per-event rollback).
+      if(_fastFailed){
+        global.ACKS.restoreCampaignForRollback(campaign, _batchSnap);
+        logEntries.length = _logMark;
+        _liveValid().forEach(ev => { try { _applyOne(ev, true); } catch(err){ _rejectErr(ev, err.message); } });
+      }
+    }
+
+    // Reject the pre-validation failures — AFTER the apply, so a slow-path restore can't truncate them.
+    { const byId = _liveById(); invalidIds.forEach(([id, msg]) => { const ev = byId.get(id); if(ev) _rejectErr(ev, msg); }); }
+
+    // GM-rejected events (decision === 'reject') — by id off the live pendingEvents.
+    { const byId = _liveById(); rejectedProposals.forEach(ep => {
+      const ev = byId.get(ep.eventId) || ep.event;
       if(ep.gmNotes != null) ev.gmNotes = ep.gmNotes;
       ev.status = global.ACKS.EVENT_STATUS.REJECTED;
       ev.appliedAtTurn = currentTurnNum;
-      campaign.eventLog.push({
-        event: ev,
-        result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Rejected by GM' + (ep.gmNotes ? ': ' + ep.gmNotes : '') },
-        appliedAtTurn: currentTurnNum,
-        appliedAt: new Date().toISOString()
-      });
-    });
+      campaign.eventLog.push({ event: ev, result: { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: 'Rejected by GM' + (ep.gmNotes ? ': ' + ep.gmNotes : '') }, appliedAtTurn: currentTurnNum, appliedAt: new Date().toISOString() });
+    }); }
 
     // Remove applied + rejected from pendingEvents; skip-this-turn stays.
     campaign.pendingEvents = campaign.pendingEvents.filter(e => e.status === global.ACKS.EVENT_STATUS.PENDING);
@@ -6686,8 +4861,9 @@ function commitTurn(campaign, proposal, options){
     const naturalIncrease = rollNaturalIncrease(familiesK, moraleAfter, rng);
     const naturalDecrease = rollNaturalDecrease(familiesK, rng);
     const moraleExtra = rollMoraleExtra(moraleAfter, familiesK, rng);
-    const popDelta = naturalIncrease - naturalDecrease + moraleExtra;
-    const populationAfter = Math.max(0, global.ACKS.totalFamilies(d) + popDelta);
+    const raidGrowth = clanholdRaidGrowth(campaign, d, familiesK, moraleAfter, rng);   // RR p.353 — clanhold raid bonus (0 otherwise)
+    const popDelta = naturalIncrease - naturalDecrease + moraleExtra + raidGrowth;
+    const populationAfter = Math.max(0, global.ACKS.totalFamilies(campaign, d) + popDelta);
 
     const snapshotBefore = {
       peasantFamilies: d.demographics.peasantFamilies,
@@ -6695,26 +4871,53 @@ function commitTurn(campaign, proposal, options){
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
-    _applyDomainTreasuryDelta(campaign, d, net, { reason:'monthly-net-income', label:'monthly net income' });
-    if(net) _turnWealthChildren.push({ amount: net, bucket:'monthly-net-income', reason:'monthly net income' });
+    // W4 — RR p.458: while OCCUPIED (not conquered) the peasants and their revenues are
+    // the occupier's; the urban families stay the owner's until conquest. A positive
+    // month splits by the peasant-attributable share of gross income (peasantIncomeShare);
+    // a negative month stays the owner's burden (the occupier does not subsidize 🔧).
+    let _ownerNet = net;
+    if(d.occupiedBy && d.occupiedBy.leaderCharacterId && net > 0 && global.ACKS.peasantIncomeShare){
+      const _occShare = global.ACKS.peasantIncomeShare(campaign, d);
+      const _occupierGp = Math.max(0, Math.round(net * _occShare));
+      if(_occupierGp > 0){
+        _ownerNet = net - _occupierGp;
+        const _occupier = (campaign.characters || []).find(c => c && c.id === d.occupiedBy.leaderCharacterId);
+        if(_occupier){
+          const _occDom = (campaign.domains || []).find(x => x && x.rulerCharacterId === _occupier.id) || null;
+          const _handle = (_occupier.payKeepFromTreasury !== false && _occDom)
+            ? { kind: 'treasury', id: _occDom.id } : { kind: 'character-gp', id: _occupier.id };
+          const _spec = { amount: _occupierGp, source: { kind: 'external', label: 'occupation of ' + (d.name || 'a domain') },
+                          destination: _handle, reason: 'Occupation revenue from ' + (d.name || 'a domain'), bucket: 'occupation-revenue' };
+          try {
+            if(global.ACKS.applyWealthTransfer) global.ACKS.applyWealthTransfer(campaign, _spec);
+            if(global.ACKS.recordWealthTransfer) global.ACKS.recordWealthTransfer(campaign, _spec, { submittedBy: 'engine', campaignLogHidden: true });
+          } catch(e){ /* the turn still settles; the event log just misses the transfer record */ }
+        }
+      }
+    }
+    ACKS._applyDomainTreasuryDelta(campaign, d, _ownerNet, { reason:'monthly-net-income', label:'monthly net income' });
+    if(_ownerNet) _turnWealthChildren.push({ amount: _ownerNet, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
-    setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
+    setPeasantPopulation(campaign, d, (d.demographics.peasantFamilies || 0) + popDelta);
     d.administersThisMonth = false;
+    d.chiefRaidedThisMonth = false;   // RR p.353 — the raid bonus is per-month; the GM re-affirms the chief raided each month
 
     // Urban settlement growth (RR p.351).
     const urbanInvestmentResults = [];
     const urbanGrowthResults = [];
     let totalInvestmentSpent = 0, totalUrbanFamiliesGained = 0;
-    (d.geography?.hexes || []).forEach((hex, hexIdx) => {
-      if(!hex.settlement) return;
-      const s = hex.settlement;
+    hexesForDomain(campaign, d.id).forEach((hex, hexIdx) => {
+      const s = settlementForHex(campaign, hex.id);
+      if(!s) return;
       const before = s.families || 0;
       const settK = Math.max(1, Math.ceil(before / 1000));
-      const natInc = rollNaturalIncrease(settK, moraleAfter);
-      const natDec = rollNaturalDecrease(settK);
-      const moraleExtraUrban = rollMoraleExtra(moraleAfter, settK);
-      const invLine = (p.urbanInvestments || []).find(inv => inv.hexIndex === hexIdx);
+      const natInc = rollNaturalIncrease(settK, moraleAfter, rng);
+      const natDec = rollNaturalDecrease(settK, rng);
+      const moraleExtraUrban = rollMoraleExtra(moraleAfter, settK, rng);
+      // Single-home (T6): match the order by hexId (order-independent); fall back to the legacy
+      // positional hexIndex for older proposals that predate the hexId stamp.
+      const invLine = (p.urbanInvestments || []).find(inv => inv.hexId ? inv.hexId === hex.id : inv.hexIndex === hexIdx);
       const investAmount = Math.floor(invLine?.amount || 0);
       const thousands = Math.floor(investAmount / 1000);
       let investImmigrants = 0;
@@ -6742,7 +4945,7 @@ function commitTurn(campaign, proposal, options){
         });
       }
     });
-    _applyDomainTreasuryDelta(campaign, d, -totalInvestmentSpent, { reason:'urban-investment', label:'urban settlement investment' });
+    ACKS._applyDomainTreasuryDelta(campaign, d, -totalInvestmentSpent, { reason:'urban-investment', label:'urban settlement investment' });
     if(totalInvestmentSpent) _turnWealthChildren.push({ amount: -totalInvestmentSpent, bucket:'urban-investment', reason:'urban settlement investment' });
 
     // Agricultural investments (RR p.341, p.174) — Foundation #17 incremental model + Foundation #18
@@ -6772,7 +4975,10 @@ function commitTurn(campaign, proposal, options){
     };
     (p.agriculturalOrders || []).forEach(ord => {
       const gpAmount = Math.max(0, Number(ord.gpAmount) || 0);
-      const hex = d.geography?.hexes?.[ord.hexIndex];
+      // Single-home (T6): resolve the order's hex by hexId (order-independent); fall back to the
+      // legacy positional hexIndex for older proposals that predate the hexId stamp.
+      const dHexes = hexesForDomain(campaign, d.id);
+      const hex = (ord.hexId && dHexes.find(h => h.id === ord.hexId)) || dHexes[ord.hexIndex];
       if(!hex) return;
       // Ensure migration is applied lazily — old saves may still have only the singular field.
       if(!Array.isArray(hex.constructionSupervisorCharacterIds)){
@@ -6879,7 +5085,7 @@ function commitTurn(campaign, proposal, options){
         });
         return;
       }
-      _applyDomainTreasuryDelta(campaign, d, -affordable, { reason:'agricultural-improvement', label:'agricultural land improvement' });
+      ACKS._applyDomainTreasuryDelta(campaign, d, -affordable, { reason:'agricultural-improvement', label:'agricultural land improvement' });
       if(affordable) _turnWealthChildren.push({ amount: -affordable, bucket:'agricultural-improvement', reason:'agricultural land improvement' });
       totalAgriculturalSpent += affordable;
       laborConsumed += affordable;
@@ -6952,7 +5158,7 @@ function commitTurn(campaign, proposal, options){
       } catch(e){ /* mirror is additive — never let it fail the economic turn */ }
     });
     // Clear queue prep — the order has been consumed regardless of how much the GM ultimately spent.
-    (d.geography?.hexes || []).forEach(hex => { if(hex.queuedImprovementGp) hex.queuedImprovementGp = 0; });
+    hexesForDomain(campaign, d.id).forEach(hex => { if(hex.queuedImprovementGp) hex.queuedImprovementGp = 0; });
 
     // Foundation #18 followup — Construction Notability rumors (M&M p.4).
     // For each hex where we committed agricultural construction spending this turn, compare the
@@ -7004,7 +5210,7 @@ function commitTurn(campaign, proposal, options){
     // still have landImprovementProjects[] entries that haven't migrated yet).
     const projectsCompleted = [];
     const upcomingTurn = currentTurnNum + 1;
-    (d.geography?.hexes || []).forEach((hex, hxi) => {
+    hexesForDomain(campaign, d.id).forEach((hex, hxi) => {
       if(!Array.isArray(hex.landImprovementProjects) || hex.landImprovementProjects.length === 0) return;
       const remaining = [];
       hex.landImprovementProjects.forEach(proj => {
@@ -7025,7 +5231,7 @@ function commitTurn(campaign, proposal, options){
 
     const snapshotAfter = {
       peasantFamilies: d.demographics.peasantFamilies,
-      urbanFamilies: global.ACKS.effectiveUrbanFamilies(d),
+      urbanFamilies: global.ACKS.effectiveUrbanFamilies(campaign, d),
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
@@ -7072,17 +5278,23 @@ function commitTurn(campaign, proposal, options){
       }
     } catch(e){ /* swallow per original */ }
 
-    // Award XP to ruler (RR p.423; henchman rulers get half).
-    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, net - totalInvestmentSpent - totalAgriculturalSpent);
+    // Award XP to ruler from domain income (RR p.342 / p.423). Domain income is the EXPLICIT
+    // exception to the henchman ½-share: a henchman vassal subtracts their wage (inside
+    // domainXpFromNet → domainRulerXpAward) but does NOT reduce domain XP by 50% — RR p.342:
+    // "they do not reduce earned XP from domains by 50%." So NO ×0.5 here, henchman or PC vassal
+    // alike. (audit 2026-06-24 / acks-authority C1 — the old ×0.5 double-penalized henchman rulers.)
+    // While occupied, the owner's XP basis is the net HE actually kept (_ownerNet — the occupier's
+    // share earned the occupier gp, not the deposed lord XP).
+    const _xpBasisNet = _ownerNet - totalInvestmentSpent - totalAgriculturalSpent;
+    const _rulerXpEarned = global.ACKS.domainRulerXpAward(campaign, d, _xpBasisNet);
     let rulerXpAwarded = 0;
-    if(xpEarned && xpEarned > 0){
+    if(_rulerXpEarned > 0){
       const rulerCh = global.ACKS.rulerCharacter(campaign, d);
       if(rulerCh){
-        const henchPenalty = rulerCh.liegeCharacterId ? 0.5 : 1.0;
-        rulerXpAwarded = Math.round(xpEarned * henchPenalty);
+        rulerXpAwarded = _rulerXpEarned;
         rulerCh.xp = (rulerCh.xp || 0) + rulerXpAwarded;
         addCharacterHistory(campaign, rulerCh, 'xp',
-          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (net - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
+          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + _xpBasisNet.toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp)',
           { xp: rulerXpAwarded, source: 'domain', domainId: d.id }
         );
       }
@@ -7166,22 +5378,27 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let Favors & Duties fail the monthly commit */ }
   }
 
-  // === DOMAIN BANDITRY (RR pp.350–351 — #476 E10) ===
-  // Morale at −2 or worse turns the domain's own men bandit. The processor (subsystems
-  // module) settles last month's casualties as population loss, reconciles the placed
-  // banditry bands to the RAW banditCount (rising / swelling / waning / disbanding), and
-  // advances the enemy-army occupation counter the morale roll reads (RR p.349 + p.351).
-  // Runs AFTER the per-domain morale + population resolution (it reads moraleAfter) and is
-  // gated on committed > 0 + the domain-morale-banditry rule (default ON) inside the helper.
-  let banditryResult = { ruleOn: false };
-  if(committed > 0){
-    try {
-      if(typeof global.ACKS.processBanditryForTurn === 'function'){
-        banditryResult = global.ACKS.processBanditryForTurn(campaign, { rng }) || banditryResult;
-        (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
-      }
-    } catch(e){ /* never let banditry fail the monthly commit */ }
+  // === MONTHLY-TURN CONSUMERS (audit E2, 2026-06-24) ===
+  // The dozen late-bound monthly processors — banking · banditry (+ its one-shot W2/W4 morale-flag
+  // clear) · recruitment & commerce vagaries · classification advancement · religion · aging ·
+  // syndicate tribute · levy replenishment · construction vagaries · terrain transformation · the
+  // arcane-power refresh · sanctum apprentices — now run from the registerMonthlyConsumer registry
+  // (orders 10–130, the pre-refactor order — and thus the seeded RNG draw sequence — preserved
+  // exactly). Each closure owns its existence-guard + default result; the loop owns the committed>0
+  // gate, the per-consumer try (so one processor can never fail the core monthly commit), and the
+  // logEntries fan-out. agingResult is the one result the return surfaces (CL-1 propose-ratify).
+  const monthlyResults = {};
+  for(const mc of monthlyConsumersInOrder()){
+    if(mc.gateCommitted && !(committed > 0)) continue;
+    let r = null;
+    try { r = mc.run(campaign, { rng, committed }); }
+    catch(e){ /* never let a monthly consumer fail the core monthly commit */ }
+    if(r){
+      monthlyResults[mc.name] = r;
+      if(Array.isArray(r.logEntries)) r.logEntries.forEach(l => logEntries.push(l));
+    }
   }
+  const agingResult = monthlyResults['aging'] || { ran: false };
 
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
@@ -7255,7 +5472,7 @@ function commitTurn(campaign, proposal, options){
           // projected hex (the panel writes the budget field directly) so the month-end drip finds +
           // advances them; also clears capped budgets. Idempotent.
           migrateAgriculturalToProjects(campaign);
-          global.ACKS.runDayTickToMonthEnd(campaign);
+          global.ACKS.runDayTickToMonthEnd(campaign, rng);
         }
       } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
       campaign.currentDayInMonth = 1;
@@ -7272,6 +5489,7 @@ function commitTurn(campaign, proposal, options){
     levelUpResults,
     livingExpenseResult,
     favorDutyResult,
+    agingResult,                 // CL-1 (burst4) — the monthly aging pass result
     loyaltyDrifts,
     rumorDrifts,
     newCurrentTurn: campaign.currentTurn,
@@ -7344,6 +5562,123 @@ function dayConsumersInOrder(){
     .map(name => Object.assign({ name }, DAY_CONSUMERS[name]))
     .sort((a, b) => (a.order - b.order) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
+
+// ── Monthly-turn consumer registry (audit E2, 2026-06-24) ──
+// The registerDayConsumer pattern, generalized to the MONTHLY turn. Before this, commitTurn ran a
+// dozen copy-pasted `if(typeof global.ACKS.processXForTurn==='function'){…}` existence-guards and
+// proposeMonthlyTurn duplicated the dryRun half — adding a monthly consumer meant editing both lists
+// in this central file. Now each entry is a registered consumer; commitTurn iterates `.run` and
+// proposeMonthlyTurn iterates `.preview`, so the two lists can't drift and a future module can
+// self-register its own pass from its own file (the §15.5 north star) instead of editing here.
+//   run(campaign, ctx)     -> result (with optional .logEntries[]); ctx = { rng, committed }
+//   preview(campaign, ctx) -> the dryRun proposal surfaced by proposeMonthlyTurn (optional)
+//   order                  -> execution slot (lower first; preserves the pre-refactor order, hence
+//                             the RNG draw sequence the seeded-determinism tests pin)
+//   gateCommitted          -> default true: only run on a real month (committed > 0)
+const MONTHLY_CONSUMERS = {};
+function registerMonthlyConsumer(name, spec){
+  if(!name || !spec || typeof spec.run !== 'function') return;
+  MONTHLY_CONSUMERS[name] = {
+    order: (typeof spec.order === 'number') ? spec.order : 50,
+    run: spec.run,
+    preview: (typeof spec.preview === 'function') ? spec.preview : null,
+    gateCommitted: spec.gateCommitted !== false
+  };
+}
+function unregisterMonthlyConsumer(name){ if(name) delete MONTHLY_CONSUMERS[name]; }
+function monthlyConsumersInOrder(){
+  return Object.keys(MONTHLY_CONSUMERS)
+    .map(name => Object.assign({ name }, MONTHLY_CONSUMERS[name]))
+    .sort((a, b) => (a.order - b.order) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// The core monthly consumers. Each closure resolves its late-bound processor via global.ACKS at RUN
+// time (the modules load after this file), exactly as the inline existence-guards did — so registration
+// at load is safe even though the processors don't exist yet. Orders 10–130 reproduce the pre-refactor
+// execution order verbatim (and thus the seeded RNG sequence). All are gated on committed > 0.
+registerMonthlyConsumer('banking', {                          // RR p.42 + p.313 — #148 B2 (interest accrual)
+  order: 10,
+  run: (campaign, ctx) => (typeof global.ACKS.processBankingForTurn === 'function')
+    ? (global.ACKS.processBankingForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processBankingForTurn === 'function')
+    ? (global.ACKS.processBankingForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('banditry', {                         // RR pp.350–351 — #476 E10 (domain banditry)
+  order: 20,
+  run: (campaign, ctx) => (typeof global.ACKS.processBanditryForTurn === 'function')
+    ? (global.ACKS.processBanditryForTurn(campaign, { rng: ctx.rng }) || { ruleOn: false }) : { ruleOn: false }
+});
+registerMonthlyConsumer('banditry-flags-clear', {             // W2/W4 one-shot flags consumed after the morale roll
+  order: 25,
+  run: (campaign) => {
+    (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
+    (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
+    return null;
+  }
+});
+registerMonthlyConsumer('recruitment-vagaries', {             // W8 — JJ pp.110–112 (default-OFF rule, helper no-ops)
+  order: 30,
+  run: (campaign, ctx) => (typeof global.ACKS.processRecruitmentVagariesForTurn === 'function')
+    ? (global.ACKS.processRecruitmentVagariesForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('commerce-vagary-expiry', {           // W8 — JJ p.111 (timed commerce-vagary expiry; no rng)
+  order: 40,
+  run: (campaign) => (typeof global.ACKS.processCommerceVagaryExpiryForTurn === 'function')
+    ? (global.ACKS.processCommerceVagaryExpiryForTurn(campaign) || {}) : null
+});
+registerMonthlyConsumer('classification-advancement', {       // DC-2 — RR p.340 (Outlands→Borderlands→Civilized)
+  order: 50,
+  run: (campaign, ctx) => (typeof global.ACKS.processClassificationAdvancement === 'function')
+    ? (global.ACKS.processClassificationAdvancement(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('religion', {                         // R1 — RR pp.421–425, #146 (divine power / congregations)
+  order: 60,
+  run: (campaign, ctx) => (typeof global.ACKS.processReligionForTurn === 'function')
+    ? (global.ACKS.processReligionForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('aging', {                            // CL-1 — RR p.19, #7 (monthly aging; result surfaced)
+  order: 70,
+  run: (campaign, ctx) => (typeof global.ACKS.processAgingForTurn === 'function')
+    ? (global.ACKS.processAgingForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processAgingForTurn === 'function')
+    ? (global.ACKS.processAgingForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('syndicate-tribute', {                // HJ-2 — RR p.362 (monthly syndicate tribute)
+  order: 80,
+  run: (campaign, ctx) => (typeof global.ACKS.processSyndicateTributeForTurn === 'function')
+    ? (global.ACKS.processSyndicateTributeForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false },
+  preview: (campaign) => (typeof global.ACKS.processSyndicateTributeForTurn === 'function')
+    ? (global.ACKS.processSyndicateTributeForTurn(campaign, { dryRun: true }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('levy-replenishment', {               // RR p.430 designer's note (in-file; always on; no rng)
+  order: 90,
+  run: (campaign) => {
+    const healed = global.ACKS.processLevyReplenishmentForTurn(campaign);
+    return (healed > 0) ? { logEntries: ['Conscript/militia replenishment: ' + healed + ' recovered (RR p.430)'] } : { ran: true };
+  }
+});
+registerMonthlyConsumer('construction-vagaries', {            // Construction Wave I (default-OFF rules, helper no-ops)
+  order: 100,
+  run: (campaign, ctx) => (typeof global.ACKS.processConstructionVagariesForTurn === 'function')
+    ? (global.ACKS.processConstructionVagariesForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('terrain-transformation', {           // P5-TERR — JJ p.412 (default-OFF rule, helper no-ops)
+  order: 110,
+  run: (campaign, ctx) => (typeof global.ACKS.processTerrainTransformationForTurn === 'function')
+    ? (global.ACKS.processTerrainTransformationForTurn(campaign, { rng: ctx.rng }) || {}) : null
+});
+registerMonthlyConsumer('arcane', {                           // AD-E — RR p.388 (arcane-power refresh; dormant w/o dungeons)
+  order: 120,
+  run: (campaign, ctx) => (typeof global.ACKS.processArcaneForTurn === 'function')
+    ? (global.ACKS.processArcaneForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+registerMonthlyConsumer('sanctums', {                         // AD-B — RR p.386 (sanctum apprentices; dormant w/o sanctums)
+  order: 130,
+  run: (campaign, ctx) => (typeof global.ACKS.processSanctumsForTurn === 'function')
+    ? (global.ACKS.processSanctumsForTurn(campaign, { rng: ctx.rng }) || { ran: false }) : { ran: false }
+});
+// NOTE: Magic-Research accrual is NOT a monthly consumer — it moved to the Day Clock (SR-1, RR p.388;
+// the slot-56 'magic-research' day consumer + runDayTickToMonthEnd), so it must not run here too.
 
 // Build the per-day context handed to each consumer (Calendar §14).
 function dayTickContext(campaign, dayInMonth){
@@ -7429,12 +5764,48 @@ function dayTickActivityInFlight(campaign){
   // E8 — a KNOWINGLY-lost journey too: the world keeps ticking over the held party
   // (its camp checks + survival run on the Day Clock while it searches for the landmark).
   if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost'))) return true;
+  // Delves D1 — a convalescing (incapacitated) character is day-aware activity in flight: the
+  // slot-58 convalescence consumer (acks-engine-mortal-wounds.js, loads after this module —
+  // call-time lookup) needs the Day Clock engaged to heal them (e.g. an officer wounded in a battle).
+  const convFn = global.ACKS && typeof global.ACKS.anyConvalescing === 'function' ? global.ACKS.anyConvalescing : null;
+  if(convFn && convFn(campaign)) return true;
   // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
   // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
   if(budgeted(campaign.hexes)) return true;
   if(Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.geography && budgeted(d.geography.hexes))) return true;
+  // Delves D5 (team burst11) — an active holed-up SettlementVisit is day-aware activity in flight:
+  // the slot-66 settlement-incidents consumer (acks-engine-delves.js) makes its 1/day urban-incident
+  // check while the party recuperates/studies/trains in town (JJ p.80).
+  if(Array.isArray(campaign.settlementVisits) && campaign.settlementVisits.some(v => v && v.status === 'active' && v.mode === 'holed-up')) return true;
+  // Urban investment paid over time (RR p.353): a settlement with a committed investment budget is
+  // day-aware activity in flight — its 500gp/day drip runs on the Day Clock (slot-51 consumer).
+  if(Array.isArray(campaign.settlements) && campaign.settlements.some(s => s && (s.investmentBudgetGp || 0) > 0)) return true;
+  // Magic Research (SR-1) — an in-progress research project is day-aware activity in flight: the slot-56
+  // 'magic-research' consumer accrues its per-day rate on the Day Clock (RR p.388).
+  if(Array.isArray(campaign.researchProjects) && campaign.researchProjects.some(p => p && p.status === 'in-progress')) return true;
   return false;
+}
+
+// What HOLDS the world clock (Review tab, 2026-06-13): sub-day-scale situations that need
+// the GM resolved before another day passes — active Encounters (the RAW pre-combat walk)
+// and Battles still in motion (setup / fighting / awaiting aftermath; ~10-minute battle
+// turns). The advance buttons grey while any exist. Month-grained obligations (the
+// pendingEvents queue — player plans, scheduled loyalty checks) deliberately do NOT hold
+// the day clock: they ride until the month commit, where the turn resolution forces a
+// decision per event (eventsTargetingTurn). Pure derived read.
+function dailyAdvanceBlockers(campaign){
+  if(!campaign) return [];
+  const out = [];
+  (ACKS.activeEncounters(campaign) || []).forEach(e => {
+    out.push({ kind: 'encounter', id: e.id, label: ACKS.encounterDisplayName(campaign, e) });
+  });
+  // activeBattles lives in acks-engine-battles.js (loads after this module) — call-time lookup.
+  const battlesFn = global.ACKS && typeof global.ACKS.activeBattles === 'function' ? global.ACKS.activeBattles : null;
+  ((battlesFn ? battlesFn(campaign) : []) || []).forEach(b => {
+    out.push({ kind: 'battle', id: b.id, label: (b.name || b.id) + (b.status === 'ended' ? ' — awaiting aftermath' : '') });
+  });
+  return out;
 }
 
 // PROPOSE half of the day-tick commit pipeline (Calendar §10). Advances up to `days`
@@ -7628,12 +5999,24 @@ function emitDayTickEvents(campaign, proposal){
 // days = 30 - currentDay, so an untouched month advances ~29 day-ticks of work and a
 // partially-ticked month tops up to day 30. Forced (no pause). Used by commitTurn at the
 // monthly rollover, and by the UI "Tick to Month End" control.
-function runDayTickToMonthEnd(campaign){
+function runDayTickToMonthEnd(campaign, rng){
   const dim = (campaign && campaign.currentDayInMonth) || 1;
   const days = (30 - dim);
   if(days <= 0) return { committed: 0, eventsEmitted: 0 };
-  const proposal = proposeDayTick(campaign, days, { force: true });
-  return commitDayTick(campaign, proposal, null);
+  // When the caller seeds the turn (commitTurn passes its rng), route the day-tick's
+  // randomness through that seed too, so "advance month" is reproducible end-to-end.
+  // The day consumers (incursions, band generation, vagaries, newId) call Math.random
+  // directly — otherwise unseeded — so a seeded monthly commit was not actually
+  // deterministic across its subsumed day-tick. Restored in finally; the interactive
+  // day-advance path (no rng) is unaffected and stays on Math.random.
+  const realRandom = Math.random;
+  if(rng && rng !== realRandom){ Math.random = rng; }
+  try {
+    const proposal = proposeDayTick(campaign, days, { force: true });
+    return commitDayTick(campaign, proposal, null);
+  } finally {
+    Math.random = realRandom;
+  }
 }
 
 // Legacy primitive, retained for back-compat: advance the REAL campaign by daysElapsed
@@ -7714,6 +6097,164 @@ function isSiteEligibleForKind(campaign, hex, kind, subtype){
   }
   // Strongholds, sanctums, dungeons, hideouts, civic monuments, traps, fortifications, roads — generally OK on any hex
   return { eligible:true, reason:null };
+}
+
+// ── Construction Wave G — builder class-restriction advisory (RR pp.386–388 + JJ p.121; 2026-06-21) ──
+// The class-bound kinds (sanctum / dungeon / vault) carry a class-restriction. JJ p.121: anyone CAN build
+// any structure, so this NEVER blocks — it's a soft heads-up the Wizard surfaces. A kind's class-bound
+// downstream EFFECT only fires for the matching class:
+//   • sanctum / dungeon — an ARCANE caster of L9+ (RR p.386): a mage's sanctum draws apprentices/companions
+//     (attractToSanctum), a mage's (L9+) dungeon auto-attunes on completion (onDungeonConstructed). A
+//     non-mage builds the structure, but it draws nothing / isn't attuned until an eligible mage owns/attunes.
+//   • vault — a DWARVEN stronghold (RR p.353 / BTA): the Vaultguard/Craftpriest bonuses (the dwarven-
+//     civilization wave) apply only for a dwarf.
+// The "builder" is the owner character; for a domain-owned project we read the domain's ruler. Late-binds
+// isArcaneCaster (acks-engine-sanctums.js, loads after this). Returns { matched, advisory, ownerName }.
+function constructionBuilderClassAdvisory(campaign, opts){
+  opts = opts || {};
+  const kind = opts.kind;
+  if(kind !== 'sanctum' && kind !== 'dungeon' && kind !== 'vault') return { matched:true, advisory:'', ownerName:null };
+  const chars = (campaign && campaign.characters) || [];
+  let owner = null;
+  if(opts.ownerCharacterId) owner = chars.find(c => c && c.id === opts.ownerCharacterId) || null;
+  else if(opts.ownerDomainId){
+    const dom = (campaign && (campaign.domains || []).find(d => d && d.id === opts.ownerDomainId)) || null;
+    if(dom) owner = chars.find(c => c && c.id === dom.rulerCharacterId) || null;
+  }
+  const ownerName = owner ? (owner.name || owner.id) : null;
+  if(kind === 'vault'){
+    const isDwarf = !!owner && /dwarf|dwarven|vaultguard|craftpriest/i.test(((owner.race || '') + ' ' + (owner.class || '')));
+    if(isDwarf) return { matched:true, advisory:'', ownerName };
+    if(!owner)  return { matched:false, advisory:'A vault is a dwarven stronghold (RR p.353) — assign a dwarven Vaultguard/Craftpriest owner for the dwarven bonuses. It still builds without one.', ownerName:null };
+    return { matched:false, advisory:ownerName + ' is not a dwarf — the vault builds, but the dwarven Vaultguard/Craftpriest bonuses won’t apply (JJ p.121).', ownerName };
+  }
+  // sanctum / dungeon — arcane L9+
+  const A = global.ACKS || {};
+  const arcane = !!owner && typeof A.isArcaneCaster === 'function' && A.isArcaneCaster(owner);
+  const l9 = !!owner && (Number(owner.level) || 0) >= 9;
+  if(arcane && l9) return { matched:true, advisory:'', ownerName };
+  const effect   = (kind === 'sanctum') ? 'draws apprentices + companions' : 'auto-attunes the owner';
+  const fallback = (kind === 'sanctum') ? 'draws no apprentices until an arcane caster owns it' : 'won’t attune until an arcane L9+ caster attunes to it';
+  if(!owner) return { matched:false, advisory:'Assign an arcane caster (L9+) owner so the ' + kind + ' ' + effect + ' on completion (RR p.386). It still builds without one.', ownerName:null };
+  const why = !arcane ? (ownerName + ' is not an arcane caster') : (ownerName + ' is below 9th level');
+  return { matched:false, advisory:why + ' — the ' + kind + ' builds, but ' + fallback + ' (JJ p.121).', ownerName };
+}
+
+// ── Construction Wave C — Construction Wizard engine (the creation verb + forecast; 2026-06-18) ──
+// The day-tick consumer (proposeConstructionDay) already ADVANCES a structure Project — it accrues
+// totalDailyOutputCf(workerCounts) per day toward laborRequired, completes at laborRequired, and the
+// construction-completed event mints the Constructible. What was missing is the START: a setter that
+// CREATES the Project (computing laborRequired from totalCost) + a forecast the Wizard previews. These
+// fill that gap; the advance + completion machinery is unchanged.
+
+// RR p.174: a STRUCTURE or VESSEL construction must be overseen by a siege engineer (≤25,000gp) or
+// engineer (≤100,000gp). Land improvement (agricultural-improvement) is neither — it needs no engineer.
+function projectRequiresSupervisor(project){
+  return !!project && project.constructibleKind !== 'agricultural-improvement';
+}
+
+// Combined on-site supervisor COST cap (RR p.174 — engineer ≤100,000gp / siege engineer ≤25,000gp;
+// caps additive). On-site = supervisor.currentHexId unset OR === the project's site hex (the
+// agriculturalSupervisorAdequacy convention). Returns { ok, totalCap, report, blockReason }. The cap
+// must cover the project's total cost. (Distinct from supervisorCapTotal, which is the WORKER-COUNT
+// cap the day-tick uses to throttle output — N supervisors × 100 workers each.)
+function projectSupervisorCostAdequacy(campaign, project){
+  const ids = (project && Array.isArray(project.supervisorCharacterIds)) ? project.supervisorCharacterIds : [];
+  const cost = (project && project.totalCost) || 0;
+  const report = []; let totalCap = 0;
+  const findCh = (id) => ((campaign && campaign.characters) || []).find(c => c && c.id === id) || null;
+  if(!ids.length) return { ok:false, totalCap:0, report, blockReason:'no supervisor assigned' };
+  ids.forEach(sid => {
+    const sup = findCh(sid);
+    if(!sup){ report.push({ id:sid, name:'(missing)', onSite:false, cap:0, reason:'character not found' }); return; }
+    const cap = constructionSupervisorCapForCharacter(sup);
+    const onSite = !sup.currentHexId || sup.currentHexId === project.siteHexId;
+    if(cap <= 0){ report.push({ id:sid, name:sup.name, onSite, cap, reason:'not a construction supervisor (needs Engineering or Siege Engineering)' }); return; }
+    if(!onSite){ report.push({ id:sid, name:sup.name, onSite:false, cap, reason:'not on-site (at a different hex)' }); return; }
+    report.push({ id:sid, name:sup.name, onSite:true, cap }); totalCap += cap;
+  });
+  if(totalCap <= 0){
+    const issues = report.filter(r => r.reason).map(r => r.name + ': ' + r.reason).join('; ');
+    return { ok:false, totalCap:0, report, blockReason:'no eligible on-site supervisor (' + (issues || 'none') + ')' };
+  }
+  if(totalCap < cost) return { ok:false, totalCap, report, blockReason:'combined on-site supervisor cap (' + totalCap.toLocaleString() + 'gp) below project cost (' + cost.toLocaleString() + 'gp)' };
+  return { ok:true, totalCap, report, blockReason:'' };
+}
+
+// PURE forecast for a Project — the Wizard preview AND a project card read it. Mirrors the day-tick
+// math (proposeConstructionDay) exactly: crew cf/day, the worker-cap throttle when realistic, mage-assist
+// multiplier, days to completion from the cf remaining. Plus the RR p.174 supervisor-cost adequacy.
+function projectConstructionForecast(campaign, project){
+  const A = global.ACKS || {};
+  const out = { totalCost:0, laborRequired:0, laborInvested:0, remainingCf:0, pctComplete:0,
+    dailyCf:0, dailyGp:0, dailyWageGp:0, workerTotal:0, workerCap:0, capLimited:false,
+    daysToComplete:null, daysElapsed:0, requiresSupervisor:false, supervisorOk:true,
+    supervisorCostCap:0, supervisorReport:[], supervisorBlockReason:'', realistic:true };
+  if(!project) return out;
+  const cfPerGp = A.CONSTRUCTION_CF_PER_GP || 30;
+  const totalCost = project.totalCost || 0;
+  const laborRequired = project.laborRequired || Math.round(totalCost * cfPerGp);
+  const laborInvested = project.laborInvested || 0;
+  const wc = project.workerCounts || {};
+  const workerTotal = Object.values(wc).reduce((s,n) => s + (n||0), 0);
+  let dailyCf = A.totalDailyOutputCf ? A.totalDailyOutputCf(wc) : 0;
+  const realistic = !isHouseRuleEnabled(campaign, 'abstract-construction');
+  const workerCap = supervisorCapTotal(project);
+  let capLimited = false;
+  if(realistic && workerCap > 0 && workerTotal > workerCap){ dailyCf = dailyCf * (workerCap / workerTotal); capLimited = true; }
+  if(isHouseRuleEnabled(campaign, 'mage-assisted-construction') && project.magicAssist && project.magicAssist.multipliers){
+    const mult = Object.values(project.magicAssist.multipliers).reduce((s,n) => s + (n||0), 1);
+    dailyCf = dailyCf * mult;
+  }
+  const dailyWageGp = A.totalDailyWageGp ? A.totalDailyWageGp(wc) : 0;
+  const remainingCf = Math.max(0, laborRequired - laborInvested);
+  const daysToComplete = dailyCf > 0 ? Math.ceil(remainingCf / dailyCf) : null;   // null = never (no productive crew)
+  const pctComplete = laborRequired > 0 ? Math.min(100, Math.round(laborInvested / laborRequired * 100)) : 0;
+  const requiresSupervisor = projectRequiresSupervisor(project);
+  const sup = projectSupervisorCostAdequacy(campaign, project);
+  Object.assign(out, { totalCost, laborRequired, laborInvested, remainingCf, pctComplete,
+    dailyCf, dailyGp: dailyCf / cfPerGp, dailyWageGp, workerTotal, workerCap, capLimited,
+    daysToComplete, daysElapsed: project.daysElapsed || 0, requiresSupervisor,
+    supervisorOk: (!requiresSupervisor || !realistic) ? true : sup.ok,
+    supervisorCostCap: sup.totalCap, supervisorReport: sup.report, supervisorBlockReason: sup.blockReason, realistic });
+  return out;
+}
+
+// The creation verb the Construction Wizard calls (Architecture §10.8). Builds a Project, computes
+// laborRequired from totalCost (cf = gp × CONSTRUCTION_CF_PER_GP), and pushes it to campaign.projects
+// in 'under-construction' state so the day-tick advances it immediately. Returns the Project. Does NOT
+// emit an event (the UI emits construction-project-started for the audit trail + the 'started' history;
+// the handler is idempotent on an already-started project). opts.start === false leaves it 'planning'.
+function startConstructionProject(campaign, opts={}){
+  if(!campaign) return null;
+  if(!Array.isArray(campaign.projects)) campaign.projects = [];
+  const blank = (global.ACKS && global.ACKS.blankProject) || null;
+  if(typeof blank !== 'function') return null;
+  const totalCost = Math.max(0, Number(opts.totalCost) || 0);
+  const p = blank({
+    id: opts.id,
+    constructibleKind: opts.constructibleKind || 'stronghold-component',
+    constructibleSubtype: opts.constructibleSubtype || null,
+    name: opts.name || '',
+    siteHexId: opts.siteHexId || null,
+    siteSettlementId: opts.siteSettlementId || null,
+    siteConstructibleId: opts.siteConstructibleId || null,
+    ownerCharacterId: opts.ownerCharacterId || null,
+    ownerDomainId: opts.ownerDomainId || null,
+    isRepair: opts.isRepair === true,
+    repairTargetConstructibleId: opts.repairTargetConstructibleId || null,
+    totalCost,
+    workerCounts: opts.workerCounts || {},
+    supervisorCharacterIds: Array.isArray(opts.supervisorCharacterIds) ? opts.supervisorCharacterIds.filter(Boolean) : [],
+    completionSpec: opts.completionSpec || null,
+    notes: opts.notes || ''
+  });
+  p.laborRequired = (typeof opts.laborRequired === 'number') ? opts.laborRequired
+    : (global.ACKS && global.ACKS.constructionLaborForGp ? global.ACKS.constructionLaborForGp(totalCost) : Math.round(totalCost * 30));
+  p.lifecycleState = (opts.start === false) ? 'planning' : 'under-construction';
+  if(p.lifecycleState === 'under-construction') p.startedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : null;
+  campaign.projects.push(p);
+  return p;
 }
 
 // ── A.6 — Day-tick consumer for construction (with monthly fallback) ──
@@ -7860,7 +6401,11 @@ function proposeConstructionDay(campaign, dayContext){
       fromDaysElapsed: fromDaysElapsed, newDaysElapsed: newDaysElapsed,
       willComplete: willComplete, primaryHexId: p.siteHexId || null
     });
-    if(willComplete){
+    // === @b13-construction (team) — Wave D: vessels + war machines own their completion audit
+    // (vessel-launched via the voyages seam; war-machine-built via materializeWaveDConstructible),
+    // so suppress the generic construction-completed log notable for those two kinds — otherwise the
+    // Event Log would carry a redundant "X completed" line alongside the kind-specific audit.
+    if(willComplete && p.constructibleKind !== 'vessel' && p.constructibleKind !== 'war-machine'){
       notableEvents.push({
         kind: 'construction-completed', type: 'construction-complete', projectId: p.id,
         primaryHexId: p.siteHexId || null,
@@ -7885,7 +6430,7 @@ function commitConstructionRecord(campaign, record){
     if(record.agriculturalDrip){
       const calc = computeAgriculturalDrip(campaign, p, record.daysAdded || 1);
       if(calc.drip > 0 && calc.domain && calc.hex){
-        _applyDomainTreasuryDelta(campaign, calc.domain, -calc.drip, { reason: 'agricultural-improvement', label: 'agricultural land improvement (construction)' });
+        ACKS._applyDomainTreasuryDelta(campaign, calc.domain, -calc.drip, { reason: 'agricultural-improvement', label: 'agricultural land improvement (construction)' });
         calc.hex.improvementBudgetGp = Math.max(0, (calc.hex.improvementBudgetGp || 0) - calc.drip);
         calc.hex.landImprovementInvested = (calc.hex.landImprovementInvested || 0) + calc.drip;
         global.ACKS.ratchetAgriculturalImprovement(calc.hex);
@@ -7906,8 +6451,151 @@ function commitConstructionRecord(campaign, record){
       turn: campaign.currentTurn || null, type: 'completed',
       narrative: 'Project completed after ' + p.daysElapsed + ' days of work.'
     });
+    // ── Materialize the completed Constructible on the Day Clock (Wave E fix, 2026-06-21) ──
+    // The shipped day-tick LOGS construction-completed but never applyEvent()s it (emitDayTickEvents
+    // only emits the narrative log line), so before this fix a project completing on the Day Clock
+    // produced NO Constructible for any kind except vessel + war-machine — strongholds (Wave C),
+    // settlement buildings (Wave E), sanctums (AD-B), and the rest all completed empty. The two
+    // special materializers stay: a WAR MACHINE mints via materializeWaveDConstructible (the Wave-D
+    // analog) and a VESSEL via the voyages day-tick consumer (off lifecycleState:'complete'). EVERY
+    // OTHER kind now runs the full construction-completed handler here — spawning the Constructible +
+    // growing the stronghold (Wave C) + firing the sanctum (AD-B) / dungeon (AD-C) hooks — the same
+    // path the event-apply already runs. Idempotent: the project is 'complete' now, so it yields no
+    // further day-tick record (proposeConstructionDay skips non-under-construction projects).
+    try {
+      const A = global.ACKS;
+      if(p.constructibleKind === 'war-machine'){
+        if(A && typeof A.materializeWaveDConstructible === 'function') A.materializeWaveDConstructible(campaign, p);
+      } else if(p.constructibleKind !== 'vessel' && A && typeof A.applyEvent === 'function' && typeof A.newEvent === 'function'){
+        A.applyEvent(campaign, A.newEvent('construction-completed', { payload: { projectId: p.id }, submittedBy: 'engine', status: 'applied', targetTurn: campaign.currentTurn || 1 }));
+      }
+    } catch(_e){}
   }
 }
+
+// ── 'levy-muster' day-consumer (RR p.430; W7 levy-arrival staging) ──────────────────────────────────
+// PURE peek: one record per mustering levy with batch(es) arriving on/before the simulated day; the
+// commit tops up the unit's arrived `count` from `musterPending`. A domain levy arrives ½/¼/remainder
+// over 3 weeks (the batches landing at +7/+14/+21 days — the barony time period, RR pp.430/434). Reads
+// ctx.dayInMonth like the training consumer. Routine (no pauseTrigger). order 46 — after recruitment
+// (45), before training (48): you muster, THEN train. commitTurn drives it to month end via
+// runDayTickToMonthEnd, so a levy musters across Advance-Months. Records carry the per-batch DELTA
+// (arriving), so applying them in day order to the real campaign reproduces the work-clone's progression.
+function proposeLevyMusterDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  if(!campaign || !Array.isArray(campaign.units)) return out;
+  const dayInMonth = (ctx && ctx.dayInMonth) || (campaign.currentDayInMonth || 1);
+  const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  for(const u of campaign.units){
+    const ms = u && u.musterState;
+    if(!ms) continue;
+    if(ms.destination){
+      // MOVE muster (mobilizing an existing unit) — the whole unit arrives at its destination.
+      if((ms.arrivesAtOrd || 0) > dayOrd) continue;
+      out.pendingRecords.push({ kind: 'levy-muster', move: true, unitId: u.id });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'unit-muster', transient: true, primaryHexId: ACKS._musterDestinationHexId(campaign, ms.destination),
+        label: (u.displayName || 'A unit') + ' completes its muster and takes up its post.', payload: { unitId: u.id } });
+      continue;
+    }
+    if((u.musterPending || 0) <= 0) continue;
+    // RAISE muster (levy / realm recruitment) — soldiers arrive in ½/¼/remainder batches.
+    let target = 0;
+    for(const b of (ms.schedule || [])){ if(b.atOrd <= dayOrd) target += b.count; }
+    const arriving = target - (ms.arrivedSoFar || 0);
+    if(arriving <= 0) continue;
+    const complete = (target >= ms.total);
+    const noun = ACKS._levyMusterNoun(u.source);
+    const isLevy = (u.source === 'militia' || u.source === 'conscript');
+    const doneWord = isLevy ? 'levy complete' : 'muster complete';
+    const stillVerb = isLevy ? 'still levying' : 'still mustering';
+    out.pendingRecords.push({ kind: 'levy-muster', unitId: u.id, arriving });
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-muster', transient: true, primaryHexId: null,
+      label: (u.displayName || 'A levy') + ': ' + arriving + ' ' + noun + ' arrive' + (complete ? ' — ' + doneWord + ' (' + ms.total + ')' : ' (' + (ms.total - target) + ' ' + stillVerb + ')'),
+      payload: { unitId: u.id } });
+  }
+  return out;
+}
+function commitLevyMusterRecord(campaign, record){
+  if(!record || record.kind !== 'levy-muster') return;
+  const u = ACKS.findUnit(campaign, record.unitId);
+  const ms = u && u.musterState;
+  if(!ms) return;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  if(record.move || ms.destination){
+    // MOVE muster — station the whole unit at its destination, clear the muster.
+    const dest = ms.destination;
+    ACKS.stationUnit(campaign, u, dest ? { kind: dest.kind, id: dest.id } : null);
+    u.musterState = null; u.musterPending = 0;
+    if(dest && dest.kind === 'army'){
+      const army = ACKS.findArmy(campaign, dest.id);
+      if(army){
+        if(!Array.isArray(army.divisions)) army.divisions = [];
+        let div = army.divisions.find(d => d && d.role === 'main') || army.divisions[0] || null;
+        if(!div && army.leaderCharacterId){
+          div = { name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: [], role: 'main' };
+          army.divisions.push(div);
+        }
+        if(div){ if(!Array.isArray(div.unitIds)) div.unitIds = []; if(!div.unitIds.includes(u.id)) div.unitIds.push(u.id); }
+        (army.history = army.history || []).push({ turn, type: 'reinforcement-arrived', narrative: (u.displayName || u.unitTypeKey || 'A unit') + ' completed its muster and joined ' + (army.name || 'the army') + '.' });
+      }
+    }
+    (u.history = u.history || []).push({ turn, type: 'mustered', text: 'Muster complete — took up its post.' });
+    return;
+  }
+  // RAISE muster — top up arrived soldiers.
+  const arriving = Math.max(0, record.arriving || 0);
+  u.count = (u.count || 0) + arriving;
+  u.musterPending = Math.max(0, (u.musterPending || 0) - arriving);
+  ms.arrivedSoFar = (ms.arrivedSoFar || 0) + arriving;
+  if((u.musterPending || 0) <= 0 || ms.arrivedSoFar >= ms.total){
+    u.musterPending = 0;
+    u.musterState = null;
+    const isLevy = (u.source === 'militia' || u.source === 'conscript');
+    u.history.push({ turn, type: isLevy ? 'levied' : 'mustered', text: (isLevy ? 'Levy complete — ' : 'Muster complete — ') + ACKS.unitActiveCount(u) + ' ' + ACKS._levyMusterNoun(u.source) + ' assembled' });
+  }
+}
+registerDayConsumer('levy-muster', {
+  handler: proposeLevyMusterDay,
+  order: 46,
+  pauseTriggers: [],
+  commit: commitLevyMusterRecord
+});
+
+// ── 'levy-training' day-consumer (RR p.431; W7 training timer) ───────────────────────────────────────
+// PURE peek: one record per in-training levy whose training completes on/before the simulated day; the
+// commit converts it to its trained troop type via _completeTraining. Reads ctx.dayInMonth (the simulated
+// day during a multi-day propose — work.currentDayInMonth isn't advanced until after the handler runs).
+// Routine (no pauseTrigger). order 48 — after recruitment (45), before construction (50). commitTurn
+// drives it to month end via runDayTickToMonthEnd, so multi-month training completes across Advance-Months.
+function proposeLevyTrainingDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  if(!campaign || !Array.isArray(campaign.units)) return out;
+  const dayInMonth = (ctx && ctx.dayInMonth) || (campaign.currentDayInMonth || 1);
+  const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  const A = global.ACKS;
+  for(const u of campaign.units){
+    const ts = u && u.trainingState;
+    if(!ts || ts.completesAtOrd == null || ts.completesAtOrd > dayOrd) continue;
+    const row = (A && A.findTroopType) ? A.findTroopType(ts.targetTroopType, { race: u.race || 'man' }) : null;
+    const label = (row && row.label) || ts.targetTroopType;
+    out.pendingRecords.push({ kind: 'levy-training', unitId: u.id, targetTroopType: ts.targetTroopType, count: ts.count, label });
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-training', transient: true, primaryHexId: null,
+      label: (u.displayName || 'A levy') + ': training complete — now ' + ACKS.unitActiveCount(u) + ' ' + label,
+      payload: { unitId: u.id } });
+  }
+  return out;
+}
+function commitLevyTrainingRecord(campaign, record){
+  if(!record || record.kind !== 'levy-training') return;
+  const u = ACKS.findUnit(campaign, record.unitId);
+  if(u && u.trainingState) ACKS._completeTraining(campaign, u);
+}
+registerDayConsumer('levy-training', {
+  handler: proposeLevyTrainingDay,
+  order: 48,
+  pauseTriggers: [],
+  commit: commitLevyTrainingRecord
+});
 
 // Register the construction consumer in the §14 shape (Calendar §14). The day-tick
 // orchestrator (proposeDayTick/commitDayTick) fans out to it; commitTurn drives it to
@@ -7919,6 +6607,162 @@ registerDayConsumer('construction', {
   pauseTriggers: [],
   commit: commitConstructionRecord
 });
+
+// ── Urban investment paid over time (RR p.353 + RR p.351 + RR p.350) ─────────────────────────────
+// RAW makes ordering urban investment a decree whose cost "is immediately paid" by default, but
+// explicitly allows the Judge to "deduct the expense at a rate of 500gp per day" (RR p.353). For
+// ACKS God Mode that 500gp/day drip is THE behaviour — the tool exists to do the bookkeeping RAW
+// itself calls "usually more bookkeeping than its worth" (Joachim 2026-06-23). The committed gp
+// (settlement.investmentBudgetGp) is paid out of the treasury at URBAN_INVESTMENT_RATE_PER_DAY on
+// the Day Clock, raising the settlement's total investment (and so its max-population cap, RR p.350),
+// and the FAMILIES FOLLOW THE BUILD: for every 1,000gp actually paid, 1d10 new urban families
+// immigrate (RR p.351) — people move into the city as the infrastructure is built (Joachim's ruling).
+//
+// Reproducibility: the k-th 1,000gp-of-drip rolls a FIXED seeded 1d10, keyed on
+// (campaign, settlement.id, k = floor(investmentDripPaid/1000)). So the propose half, the commit
+// half, and a re-opened day review all agree regardless of how the days are chunked, and the
+// treasury-authoritative recompute at commit can never drift the immigration off its seed.
+const URBAN_INVESTMENT_RATE_PER_DAY = 500; // gp/day (RR p.353 — the investment-deduction rate)
+
+function _urbanFamilyHash32(str){
+  let h = 0x811c9dc5;
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function _urbanMulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// One seeded 1d10 for a settlement's k-th family-milestone (k = the 1,000gp boundary just crossed).
+function _urbanMilestoneFamilies(campaign, settlement, k){
+  const seed = _urbanFamilyHash32(String((campaign && (campaign.seed || campaign.id || campaign.name)) || 'acks')
+    + ':' + String(settlement.id) + ':uinv:' + k);
+  return 1 + Math.floor(_urbanMulberry32(seed)() * 10);   // 1d10 (plain, RR p.351 — not exploding)
+}
+
+// PURE projection of ONE drip step for a settlement carrying a committed investment budget. Pays
+// min(rate*days, budget, treasury) out of the treasury, rolls the family-milestones that payment
+// crosses (seeded), and clamps the would-be arrivals to the settlement's NEW cap (RR p.350). Returns
+// a result object (paid 0 + blockReason when it can't progress). Does NOT mutate.
+function computeUrbanInvestmentDrip(campaign, domain, settlement, days){
+  days = (typeof days === 'number' && days > 0) ? days : 1;
+  const out = { paid: 0, families: 0, capped: false, settlement, domain,
+    budget: (settlement && settlement.investmentBudgetGp) || 0,
+    treasury: (domain && domain.treasury && domain.treasury.gp) || 0,
+    newInvestment: (settlement && settlement.totalInvestment) || 0, cap: 0,
+    blockReason: '', treasuryLimited: false };
+  if(!campaign || !domain || !settlement) return out;
+  const budget = settlement.investmentBudgetGp || 0;
+  if(budget <= 0){ out.blockReason = 'no budget'; return out; }
+  const treasury = Math.max(0, (domain.treasury && domain.treasury.gp) || 0);
+  const want = URBAN_INVESTMENT_RATE_PER_DAY * days;
+  const paid = Math.max(0, Math.min(want, budget, treasury));
+  out.paid = paid;
+  out.treasuryLimited = treasury < want && treasury < budget;
+  if(paid <= 0){ out.blockReason = treasury <= 0 ? 'treasury empty' : 'idle'; return out; }
+  // Family-milestones crossed: the 1,000gp boundaries between dripPaid and dripPaid + paid.
+  const before = settlement.investmentDripPaid || 0;
+  const mBefore = Math.floor(before / 1000), mAfter = Math.floor((before + paid) / 1000);
+  let fam = 0;
+  for(let k = mBefore + 1; k <= mAfter; k++) fam += _urbanMilestoneFamilies(campaign, settlement, k);
+  out.newInvestment = (settlement.totalInvestment || 0) + paid;
+  out.cap = global.ACKS.urbanMaxFamilies(out.newInvestment);
+  // RR p.353 — a clanhold caps urban families at min(249, 12.5% of peasants), whatever the investment
+  // (defence-in-depth: beginUrbanInvestment already blocks ordering, but a domain flipped to clanhold
+  // mid-investment could still have an in-flight budget). clanholdMaxUrbanFamilies → null for non-clanholds.
+  if(global.ACKS.clanholdMaxUrbanFamilies){
+    const chCap = global.ACKS.clanholdMaxUrbanFamilies(domain);
+    if(chCap != null) out.cap = out.cap > 0 ? Math.min(out.cap, chCap) : chCap;
+  }
+  const wouldBe = (settlement.families || 0) + fam;
+  if(out.cap > 0 && wouldBe > out.cap){ out.families = Math.max(0, out.cap - (settlement.families || 0)); out.capped = true; }
+  else out.families = fam;
+  return out;
+}
+
+// §10.2 day-handler for urban investment (order 51 — right after construction's drip at 50). PURE:
+// projects one day's drip per domain settlement with a committed budget WITHOUT mutating.
+function proposeUrbanInvestmentDay(campaign, ctx){
+  const days = (ctx && typeof ctx.days === 'number') ? ctx.days : 1;
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.domains)) return { pendingRecords, notableEvents, encounters: [] };
+  for(const d of campaign.domains){
+    if(!d) continue;
+    let setts; try { setts = global.ACKS.hexSettlements(campaign, d) || []; } catch(e){ setts = []; }
+    for(const entry of setts){
+      const settlement = entry && entry.settlement, hex = entry && entry.hex;
+      if(!settlement || (settlement.investmentBudgetGp || 0) <= 0) continue;
+      const calc = computeUrbanInvestmentDrip(campaign, d, settlement, days);
+      if(calc.paid <= 0) continue;
+      const budgetLeft = Math.max(0, (settlement.investmentBudgetGp || 0) - calc.paid);
+      const label = (settlement.name || 'settlement') + ': +' + Math.round(calc.paid) + 'gp invested'
+        + (calc.families > 0 ? ' (+' + calc.families + ' famil' + (calc.families === 1 ? 'y' : 'ies') + (calc.capped ? ', at cap' : '') + ')' : '')
+        + ' · ' + budgetLeft.toLocaleString() + 'gp budget left'
+        + (calc.treasuryLimited ? ' · limited by treasury' : '');
+      pendingRecords.push({
+        kind: 'urban-investment-progress', settlementId: settlement.id, domainId: d.id,
+        paid: calc.paid, families: calc.families, daysAdded: days, budgetLeftAfter: budgetLeft,
+        primaryHexId: (hex && hex.id) || settlement.hexId || null, label
+      });
+      if(calc.families > 0){
+        notableEvents.push({
+          kind: 'urban-investment', type: 'immigration', settlementId: settlement.id, domainId: d.id,
+          primaryHexId: (hex && hex.id) || settlement.hexId || null, campaignLogHidden: true,
+          label: (settlement.name || 'settlement') + ' — +' + calc.families + ' urban famil' + (calc.families === 1 ? 'y' : 'ies') + ' (investment, RR p.351)'
+        });
+      }
+    }
+  }
+  return { pendingRecords, notableEvents, encounters: [] };
+}
+
+// COMMIT half: recompute the drip authoritatively against CURRENT state (so the treasury depletes
+// correctly across sequential records) and apply it — debit treasury, advance dripPaid + total
+// investment, add the (seeded, clamped) families, draw down the budget, audit on completion.
+function commitUrbanInvestmentRecord(campaign, record){
+  if(!campaign || !record || !record.settlementId) return;
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId) || null;
+  const settlement = (campaign.settlements || []).find(s => s && s.id === record.settlementId) || null;
+  if(!d || !settlement) return;
+  const calc = computeUrbanInvestmentDrip(campaign, d, settlement, record.daysAdded || 1);
+  if(calc.paid <= 0) return;
+  global.ACKS._applyDomainTreasuryDelta(campaign, d, -calc.paid, { reason: 'urban-investment', label: 'urban investment — ' + (settlement.name || 'settlement') });
+  settlement.investmentDripPaid = (settlement.investmentDripPaid || 0) + calc.paid;
+  settlement.totalInvestment = (settlement.totalInvestment || 0) + calc.paid;
+  settlement.investmentBudgetGp = Math.max(0, (settlement.investmentBudgetGp || 0) - calc.paid);
+  if(calc.families > 0) settlement.families = (settlement.families || 0) + calc.families;
+  if((settlement.investmentBudgetGp || 0) <= 0 && Array.isArray(d.history)){
+    d.history.push({
+      kind: 'urban-investment-complete', date: 'Turn ' + (campaign.currentTurn || 1),
+      settlementId: settlement.id, settlementName: settlement.name || '(unnamed)',
+      totalInvestmentAfter: settlement.totalInvestment, familiesAfter: settlement.families
+    });
+  }
+}
+
+registerDayConsumer('urban-investment', {
+  handler: proposeUrbanInvestmentDay,
+  order: 51,
+  pauseTriggers: [],
+  commit: commitUrbanInvestmentRecord
+});
+
+// Admin "complete now": pay the whole remaining budget at once (rolling every family-milestone the
+// payment crosses), clamped by the treasury. Returns { paid, families, remaining } or null.
+function flushUrbanInvestment(campaign, domain, settlement){
+  if(!campaign || !domain || !settlement) return null;
+  const budget = settlement.investmentBudgetGp || 0;
+  if(budget <= 0) return null;
+  const famBefore = settlement.families || 0, paidBefore = settlement.investmentDripPaid || 0;
+  const days = Math.ceil(budget / URBAN_INVESTMENT_RATE_PER_DAY) + 1;   // enough to clear it (treasury permitting)
+  commitUrbanInvestmentRecord(campaign, { settlementId: settlement.id, domainId: domain.id, daysAdded: days });
+  return { paid: (settlement.investmentDripPaid || 0) - paidBefore, families: (settlement.families || 0) - famBefore,
+           remaining: settlement.investmentBudgetGp || 0 };
+}
 
 // Activity-budget heads-up (#346 AB-3 / Joachim 2026-06-05): a READ-ONLY day consumer that flags
 // any active character whose committed undertakings push them OVER their RAW day budget (e.g.
@@ -8042,30 +6886,106 @@ function constructiblesForDomain(campaign, domainId){
 // []. The `(e.event)||e` unwrap also tolerates a bare event object, should one ever be stored flat.)
 function _eventContextOf(e){ const ev = (e && e.event) || e; return (ev && ev.context) || null; }
 
+// ── eventLog index (perf audit 2026-06-14, T11) ──────────────────────────────
+// A once-per-build inverted index over the eventLog's context envelope, so the
+// derived-history accessors + characterActivityBudget read an O(1) keyed slice
+// instead of a full O(N) scan each. Built lazily and MEMOIZED in a module-level
+// WeakMap keyed by the campaign (dirty-keyed by eventLog.length, so it never
+// serializes into a save and rebuilds when entries are appended). The eventLog is
+// effectively append-only between renders, so length is a sufficient dirty key —
+// the day-tick / monthly machinery only ever pushes; on the rare in-place edit a
+// callsite can pass {fresh:true} to force a rebuild.
+//
+//   byHex          Map<hexId, entry[]>         primaryHexId ∪ involvedHexIds
+//   bySettlement   Map<settlementId, entry[]>  context.settlementId
+//   byRelated      Map<"kind:id", entry[]>     context.relatedEntities (covers
+//                                              character/group/domain/party/journey/…)
+//   activityCost   entry[]                     only entries whose payload carries an
+//                                              activityCost.slot (the tiny subset the
+//                                              activity budget scans for, RR p.272/#346)
+// Index ONE log entry into an (existing) index — factored out so _buildEventLogIndex (full) and
+// the F4 incremental append (tail-only) share the exact same per-entry logic.
+function _indexOneEventLogEntry(idx, entry){
+  const push = (map, key, e) => { let a = map.get(key); if(!a){ a = []; map.set(key, a); } a.push(e); };
+  const ev = (entry && entry.event) || entry;
+  const c = (ev && ev.context) || null;
+  if(c){
+    if(c.primaryHexId) push(idx.byHex, c.primaryHexId, entry);
+    if(Array.isArray(c.involvedHexIds)){
+      for(const h of c.involvedHexIds){ if(h && h !== c.primaryHexId) push(idx.byHex, h, entry); }
+    }
+    if(c.settlementId) push(idx.bySettlement, c.settlementId, entry);
+    const rels = c.relatedEntities;
+    if(Array.isArray(rels)){
+      const seen = new Set();
+      for(const r of rels){
+        if(r && r.kind && r.id){
+          const k = r.kind + ':' + r.id;
+          if(!seen.has(k)){ seen.add(k); push(idx.byRelated, k, entry); }   // an entry that names an entity twice still lists once
+        }
+      }
+    }
+  }
+  if(ev && ev.payload && ev.payload.activityCost && ev.payload.activityCost.slot) idx.activityCost.push(entry);
+}
+function _buildEventLogIndex(campaign){
+  const idx = { byHex: new Map(), bySettlement: new Map(), byRelated: new Map(), activityCost: [], len: 0 };
+  const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  for(const entry of log) _indexOneEventLogEntry(idx, entry);
+  idx.len = log.length;
+  return idx;
+}
+
+// Memoized accessor — rebuilds only when the eventLog grows (or fresh:true).
+// The cache lives in a module-level WeakMap keyed by the campaign object, NOT on the
+// campaign itself. Storing it on the campaign breaks under Alpine: currentCampaign is a
+// reactive Proxy, so writing a property here either retriggers the very render that read it
+// (a reactive loop) or makes Alpine deep-proxy the whole index (Maps of thousands of entries)
+// — the app hangs on load with a large eventLog. A WeakMap is invisible to the reactive graph
+// (no dependency tracked, no trigger fired, no deep-wrap) and still never serializes into a save.
+const _eventLogIndexCache = new WeakMap();   // campaign → { ...idx, len }
+function _eventLogIndexFor(campaign, opts){
+  if(!campaign || typeof campaign !== 'object') return _buildEventLogIndex(campaign || null);
+  const log = Array.isArray(campaign.eventLog) ? campaign.eventLog : [];
+  const len = log.length;
+  const cached = _eventLogIndexCache.get(campaign);
+  if(!(opts && opts.fresh) && cached){
+    if(cached.len === len) return cached;
+    // F4 (audit 2026-06-24): the eventLog is append-only between renders, so on a length INCREASE
+    // index just the new tail onto the cached maps (O(new entries)) rather than rebuilding the whole
+    // index (O(N)). During a turn's many pushes this turns repeated O(N) rebuilds into O(total
+    // appended). A DECREASE (an in-place edit / a truncation / an F1 rollback) can't be patched
+    // incrementally → fall through to a full rebuild.
+    if(len > cached.len){
+      for(let i = cached.len; i < len; i++) _indexOneEventLogEntry(cached, log[i]);
+      cached.len = len;
+      return cached;
+    }
+  }
+  const idx = _buildEventLogIndex(campaign);
+  try { _eventLogIndexCache.set(campaign, idx); } catch(e){ /* non-extensible/non-object key — skip caching */ }
+  return idx;
+}
+
+// The accessors return a COPY of the per-entity slice (the old .filter() contract: a fresh array
+// the caller may .reverse()/.sort() in place). The slice is one entity's events — small — so the
+// copy is cheap, and it keeps the shared index array uncorrupted.
 function hexHistory(campaign, hexId){
   if(!campaign || !hexId || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => {
-    const c = _eventContextOf(e);
-    if(!c) return false;
-    if(c.primaryHexId === hexId) return true;
-    if(Array.isArray(c.involvedHexIds) && c.involvedHexIds.indexOf(hexId) >= 0) return true;
-    return false;
-  });
+  const a = _eventLogIndexFor(campaign).byHex.get(hexId);
+  return a ? a.slice() : [];
 }
 
 function settlementHistory(campaign, settlementId){
   if(!campaign || !settlementId || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => { const c = _eventContextOf(e); return c && c.settlementId === settlementId; });
+  const a = _eventLogIndexFor(campaign).bySettlement.get(settlementId);
+  return a ? a.slice() : [];
 }
 
 function _filterByRelatedEntity(campaign, kind, id){
   if(!campaign || !id || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => {
-    const c = _eventContextOf(e);
-    const rels = c && c.relatedEntities;
-    if(!Array.isArray(rels)) return false;
-    return rels.some(r => r && r.kind === kind && r.id === id);
-  });
+  const a = _eventLogIndexFor(campaign).byRelated.get(kind + ':' + id);
+  return a ? a.slice() : [];
 }
 
 function constructibleHistory(campaign, id){ return _filterByRelatedEntity(campaign, 'constructible', id); }
@@ -8246,6 +7166,24 @@ function characterActivityBudget(campaign, charId, opts){
     }
   }
 
+  // ── Magic research (Phase 4 AD-M1; budget plan §13 — "research = dedicated-ongoing") ──
+  // An in-progress research project DEDICATES the researcher's day (RR p.388 — 8 h/day at the full
+  // research rate). Each named ASSISTANT likewise dedicates their day. RAW research IS per-day
+  // downtime even though the engine ACCRUES the labour MONTHLY (processResearchForTurn; the per-day
+  // accrual grain is deferred, consistent with the arcane core) — so the budget tracks per-day
+  // OCCUPANCY: a researching mage reads as busy today (and is travel-capped), while the pool still
+  // fills at the monthly turn. 'awaiting-throw' = labour-complete, waiting on a discrete throw (not
+  // ongoing work) → not counted. Read from campaign.researchProjects (plain data) — no magic-research
+  // module call, so no load-order coupling (this accessor is engine-core; that module loads later).
+  for(const p of ((campaign && campaign.researchProjects) || [])){
+    if(!p || p.status !== 'in-progress') continue;
+    const isResearcher = p.researcherCharacterId === charId;
+    const isAssistant  = Array.isArray(p.assistantCharacterIds) && p.assistantCharacterIds.indexOf(charId) >= 0;
+    if(!isResearcher && !isAssistant) continue;
+    const rc = costFor('research');
+    activities.push({ kind:'research', label: (rc.label || 'Magic research') + (p.name ? (' — ' + p.name) : '') + (isResearcher ? '' : ' (assisting)'), cost: rc.cost, strenuous: !!rc.strenuous, sourceKind:'research-project', sourceId: p.id });
+  }
+
   // ── Entity-less errand store — cost-tagged daily events (OQ1 RESOLVED 2026-06-04, plan §9/§14) ──
   // The errand half of the hybrid: union the actor's cost-tagged events for THIS GAME DAY into the
   // budget. RAW refreshes the 1-dedicated-+-4-ancillary / 12-ancillary allowance each game DAY (not
@@ -8259,8 +7197,12 @@ function characterActivityBudget(campaign, charId, opts){
   // (marketUnitsTransactedThisMonth, RR p.124) — don't conflate the two windows.
   const _turnWindow = (campaign && campaign.currentTurn) || 1;
   const _dayWindow  = (campaign && campaign.currentDayInMonth) || 1;
-  const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
-  for(const entry of _log){
+  // Read the pre-indexed activity-cost entries (perf T11) instead of full-scanning the eventLog per
+  // character. The index holds only the tiny subset of events that carry payload.activityCost.slot,
+  // so this loop is O(cost-tagged events) not O(eventLog) — collapsing the dashboard from
+  // O(characters × eventLog) to ~O(characters + eventLog). Same per-entry filtering below.
+  const _costEntries = _eventLogIndexFor(campaign).activityCost;
+  for(const entry of _costEntries){
     const ev = entry && entry.event; if(!ev) continue;
     if(ev.payload && ev.payload.reversed) continue;   // a refunded/unwound transaction is no longer today's activity (reverseMarketTransaction)
     const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
@@ -8497,6 +7439,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
+  // eventLog index (perf T11, 2026-06-14) — the memoized once-per-build inverted index the
+  // history accessors + activity budget read; exported for tests + UI cache invalidation.
+  buildEventLogIndex: _buildEventLogIndex, eventLogIndexFor: _eventLogIndexFor,
   // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
   characterActivityBudget, activityRejectAffordance,
   // Travel pace ↔ budget: the day's activities cap the achievable pace (Joachim 2026-06-05).
@@ -8504,12 +7449,18 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
+  registerMonthlyConsumer, unregisterMonthlyConsumer, monthlyConsumersInOrder,   // audit E2 — monthly-turn consumer registry
   dayTickContext, isDayTickRuleOn, dayTickPauseReasons, dayTickActivityInFlight,
+  dailyAdvanceBlockers,
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
   proposeConstructionDay, commitConstructionRecord,
+  // Urban investment paid over time (RR p.353 — the 500gp/day drip; slot-51 day consumer)
+  URBAN_INVESTMENT_RATE_PER_DAY, computeUrbanInvestmentDrip, proposeUrbanInvestmentDay, commitUrbanInvestmentRecord, flushUrbanInvestment,
   // Construction-specific helpers
-  isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind,
+  isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind, constructionBuilderClassAdvisory,
   tickConstructionByDays, tickConstructionMonthly,
+  // Wave Construction-C — the Construction Wizard engine (creation verb + forecast; 2026-06-18)
+  startConstructionProject, projectConstructionForecast, projectRequiresSupervisor, projectSupervisorCostAdequacy,
   // Construction predicates
   isProject, isConstructible, isConstructibleKind, isUnderConstruction, isComplete, isDamaged, isOperational, isInRepair,
   displayConstructibleKind,
@@ -8517,11 +7468,21 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
+  // Wave Construction-C — stronghold components lifted onto first-class Constructibles
+  migrateStrongholdComponentsToConstructibles, _strongholdSeatHexId,
   // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,
   // Schema + identity
-  SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
+  SCHEMA_VERSION, ENGINE_VERSION, ID_PREFIXES, registerPrefix, newId, slugify,
+  // §15.5 collection self-registration (slice 2) — the campaign-collection registry + its derived sets.
+  registerCollection, registeredCollections, seededCollections, lazyDefaultCollections, importableCollections,
+  // Save-time serializer — stamps engineVersion/savedAt (the data-layer contract; INTEGRATION.md).
+  stampCampaignForSave,
+  // T6 single-home — strip the nested mirrors (the reader sweep made the top-level the single home).
+  // stripNestedMirrors = both halves (save time); stripHexSettlementMirrors = the hex/settlement half
+  // (index.html _finishLoad, after the hex lift); stripUnitMirrors = the unit half (load-migration @155).
+  stripNestedMirrors, stripUnitMirrors, stripHexSettlementMirrors,
 
   // Core constants
   DEFAULT_TAX_RATES, REQUIRED_GARRISON_PER_FAMILY, HEX_CLASSIFICATIONS,
@@ -8554,7 +7515,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Dice + rolls
   rollD6, rollD20, rollD10x, clamp,
-  rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra,
+  rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra, clanholdRaidGrowth,
   moraleChangeFromRoll, baseMoraleFromClassification, strongholdMoralePenalty,
   DOMAIN_CLASSIFICATIONS, suggestDomainClassification, effectiveDomainClassification,
 
@@ -8569,6 +7530,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Migration
   MIGRATIONS, migrateCampaign,
+  loadCampaign, finalizeCampaignLoad,   // audit G2 — the complete headless load entry (migrate → finalize)
+  // §15.5 load-migration self-registration (slice 4) — the per-load pass registry + runner.
+  registerLoadMigration, registeredLoadMigrations, runLoadMigrations,
   // Phase #440 stage 1 — additive five-axis classification migration (2026-05-29)
   migrateCharacterClassification, migrateAllCharacterClassification,
   // Foundation #244 — mining-entry stripper (callable independently of migrateCampaign for
@@ -8579,49 +7543,12 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Top-level collections refactor (Foundation #193)
   hexesForDomain, wildernessHexes, findHex, findSettlement, findRumor,
-  // Phase 2.95 Stash A — read-only stash lookups (2026-05-29)
-  findStash, stashesOwnedByCharacter, stashesAtHex, findDomainTreasury, stashesAccessibleToCharacter,
-  // Phase 2.95 Stash A.2 — canonical setters (#467 / 2026-05-29)
-  depositToStash, withdrawFromStash, transferBetweenStashes,
-  // Phase 2.95 Stash B engine foundation — carry↔stash + controller + bands (2026-06-03)
-  findOrCreateStashAt, transferCarryToStash, transferStashToCarry, changeStashController,
-  // Items I1 Step 3 — character⇄co-located-stash transfer (purse + Phase-2.6 carry; 2026-06-03)
-  cacheToStash, drawFromStash,
-  // Items I1 / Stash B — party camp stash (travels with the party; leader-takes-all on disband)
-  partyCampStash, ensurePartyCampStash, syncAllPartyCampStashes, syncPartyCampHex, handOffPartyCampToLeader,
-  carryEncumbranceLevel, carryEncumbranceInfo, carryEncumbranceBandFor, CARRY_ENCUMBRANCE_BANDS,
-  // Phase 2.95 Stash A.3 — treasury migration + canonical gp read (#468 / 2026-05-29)
-  migrateDomainTreasuryToStash, migrateAllDomainTreasuries, domainTreasuryGp,
-  // Phase 2.95 Stash A.4 — canonical-setter invariant + item-consolidation reconcile (#469 / 2026-05-29)
-  reconcileStashItems, reconcileAllStashes, reconcileTreasuryScalars,
-  // Items I1 — facet item model + valuation + promotion + migration (OQ9, 2026-06-03)
-  itemFacets, itemHasFacet, primaryFacet, itemEncumbranceSt, itemValueGp, COIN_GP_VALUE,
-  stashTotalGp, stashTotalEncumbrance, carryTotalEncumbrance,
-  // Phase 2.5 Provisioning — food/water inventory accessors (RR p.278)
-  RATION_FOOD_ST_PER_DAY, RATION_WATER_ST_PER_DAY, waterContainerDaysFor, waterCapacityDays,
-  isRationLine, rationLineDays, makeRationLine, rationDaysAvailable,
-  promoteLineToNotableItem, notableItemFacets,
-  migrateStashItemShape, migrateAllStashItemShapes,
-  // Items I1 — character coin purse (multi-denomination; coins.gp canonical, personalGp mirror)
-  COIN_DENOMINATIONS, normalizeCoins, characterCoinCount, characterCoinValueGp, characterCoinWeightSt,
-  reconcileCharacterCoins, migrateAllCharacterCoins,
-  // Wave B.5 — Notable items + custody read-only lookups (2026-05-29)
-  findNotableItem, findItemCustody, currentCustodyOfItem,
-  notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,
-  // #442 — Group entity lookups (Architecture.md §2.4, 2026-05-29)
-  findGroup, groupsAtHex, groupsByCatalogKey, groupsCommandedBy, groupActiveCount,
-  // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
-  findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
-  // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
-  createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
-  generateLair, _rollDiceStr, lairEncounterProposal,
-  rollLairCount, lairDiceForTerrain, lairDiceForHex, seedHexLairs, lairDiceMax, hexLairCapacity,
-  // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
-  hexSecuringBlockers,
-  // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
-  findEncounter, encountersAtHex, activeEncounters, encounterDisplayName, priorReactionBetween,
-  createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
-  bindEncounterIdentity, _applyIdentityBinding, _unwindEncounterMinting, looseMonsterBands,
+  // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
+  proposeLevyTrainingDay, commitLevyTrainingRecord,
+  // W7-continuation — the levy-arrival timer (RR p.430): levied troops arrive ½/¼/remainder over 3 weeks
+  proposeLevyMusterDay, commitLevyMusterRecord,
+  // W7-continuation — standing-army capacity (RR p.434, the Vassal Troops by Realm Size table)
+  realmStandingArmyCapacity,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

@@ -52,38 +52,6 @@
         "controlledHexes": 1,
         "claimedHexes": 1,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-hawks-reach-core",
-            "coord": {
-              "q": 0,
-              "r": 0
-            },
-            "classification": "Outlands",
-            "explored": true,
-            "families": 32,
-            "valuePerFamily": 5,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Palisade fort (in progress)",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-hawk-stone",
-                "name": "The Hawk Stone",
-                "kind": "landmark",
-                "description": "A weathered monolith on the south ridge, older than any local memory. Hawks roost here in summer."
-              }
-            ],
-            "monsterNotes": "Wolves in winter. Occasional goblin scouts from the eastern wastes.",
-            "notes": "The whole domain right now. Sir Corwin pitched his pennant here three months ago; the palisade is half-built."
-          }
-        ],
         "terrain": "hills",
         "features": []
       },
@@ -122,22 +90,6 @@
         "rate": "standard",
         "moraleImpact": 0
       },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-hawks-foot",
-            "displayName": "Light Infantry (militia)",
-            "unitTypeKey": "light-infantry",
-            "count": 8,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-hawks-reach-core"
-          }
-        ],
-        "totalMonthlyCost": 48,
-        "totalBR": 0.27
-      },
       "stronghold": {
         "type": "Palisade fort (under construction)",
         "buildValue": 2500,
@@ -151,7 +103,8 @@
             "quantity": 1,
             "notes": "Half complete. Sir Corwin's first major expense once the harvest comes in."
           }
-        ]
+        ],
+        "constructibleId": "cst-kczayk0"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -207,9 +160,18 @@
         "spells": 16
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Survival"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
@@ -286,7 +248,41 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-kczayk0",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "palisade-fort-under-construction",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Palisade fort (under construction)",
+      "hexId": "hex-hawks-reach-core",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-hawks-reach",
+      "buildValue": 2500,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Palisade fort (under construction)\" (2 500gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [
@@ -332,5 +328,79 @@
       ]
     }
   ],
-  "lairs": []
+  "lairs": [],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-hawks-foot",
+      "displayName": "Light Infantry (militia)",
+      "unitTypeKey": "light-infantry",
+      "count": 8,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-hawks-reach"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": [],
+  "researchProjects": [],
+  "apprenticeships": [],
+  "hexes": [
+    {
+      "schemaVersion": 2,
+      "id": "hex-hawks-reach-core",
+      "coord": {
+        "q": 0,
+        "r": 0
+      },
+      "classification": "Outlands",
+      "explored": true,
+      "families": 32,
+      "valuePerFamily": 5,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "Palisade fort (in progress)",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-hawk-stone",
+          "name": "The Hawk Stone",
+          "kind": "landmark",
+          "description": "A weathered monolith on the south ridge, older than any local memory. Hawks roost here in summer."
+        }
+      ],
+      "monsterNotes": "Wolves in winter. Occasional goblin scouts from the eastern wastes.",
+      "notes": "The whole domain right now. Sir Corwin pitched his pennant here three months ago; the palisade is half-built.",
+      "domainId": "dom-hawks-reach",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    }
+  ],
+  "settlements": [],
+  "rumors": []
 }

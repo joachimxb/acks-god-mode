@@ -56,9 +56,23 @@
     const tag = (ctx ? ctx + '.' : '') + (field.name || '(unnamed)');
     if(!field.name || typeof field.name !== 'string') errors.push(tag + ': missing or non-string name');
     if(!isValidFieldType(field.type)) errors.push(tag + ': invalid type "' + field.type + '" (must be one of: ' + Array.from(FIELD_TYPES).join(', ') + ')');
-    if((field.type === 'enum' || field.type === 'enumMulti') && (!Array.isArray(field.enumValues) || field.enumValues.length === 0)){
-      errors.push(tag + ': type "' + field.type + '" requires non-empty enumValues array');
+    if(field.type === 'enum' || field.type === 'enumMulti'){
+      // XLS-1 — an enum supplies its legal set EITHER as a static enumValues[] OR via a live
+      // enumSource (a window.ACKS catalog/accessor name; see resolveEnumSource), never both.
+      const hasValues = Array.isArray(field.enumValues) && field.enumValues.length > 0;
+      const hasSource = typeof field.enumSource === 'string' && field.enumSource.length > 0;
+      if(hasValues && hasSource) errors.push(tag + ': "' + field.type + '" sets BOTH enumValues and enumSource — use exactly one');
+      else if(!hasValues && !hasSource) errors.push(tag + ': type "' + field.type + '" requires a non-empty enumValues array or an enumSource string');
     }
+    // XLS-1 — the four additive import-projection attributes (see schemaToImportColumns). Optional;
+    // type-checked when present. enumSource is meaningful only on enum/enumMulti.
+    if(field.enumSource != null){
+      if(typeof field.enumSource !== 'string') errors.push(tag + ': enumSource must be a string (a window.ACKS catalog/accessor name)');
+      else if(field.type !== 'enum' && field.type !== 'enumMulti') errors.push(tag + ': enumSource is only valid on enum / enumMulti');
+    }
+    if(field.importHeader != null && typeof field.importHeader !== 'string') errors.push(tag + ': importHeader must be a string');
+    if(field.importColumn != null && typeof field.importColumn !== 'boolean') errors.push(tag + ': importColumn must be a boolean');
+    if(field.importable   != null && typeof field.importable   !== 'boolean') errors.push(tag + ': importable must be a boolean');
     if((field.type === 'id' || field.type === 'idArray') && !field.idKind){
       errors.push(tag + ': type "' + field.type + '" should specify idKind (any-kind ids are allowed but discouraged — leave a comment if intentional)');
     }
@@ -123,9 +137,28 @@
     return { ok: errors.length === 0, errors };
   }
 
-  // ─── 3. FIELD_SCHEMAS map — the 3 Wave A worked examples (plan §4) ───
+  // ─── 3. FIELD_SCHEMAS — the per-entity Inspector schemas ───
+  // §15.5 self-registration kernel (Architecture §9.4) — FIELD_SCHEMAS is an accumulating store
+  // seeded with the legacy map. A new module self-registers its entity's schema from its own file
+  // via ACKS.registerFieldSchema(kind, schema) instead of editing this central literal (the
+  // team-session append-target this slice removes). The seed below carries the EXACT pre-refactor map.
+  const FIELD_SCHEMAS = {};   // accumulating store (mutable; grows via registerFieldSchema)
 
-  const FIELD_SCHEMAS = {
+  function _fieldSchemaSig(s){ try { return JSON.stringify(s); } catch(_e){ return String(s); } }
+  function registerFieldSchema(kind, schema){
+    if(!kind || !schema || typeof schema !== 'object') return;   // falsy-safe no-op
+    const existing = FIELD_SCHEMAS[kind];
+    if(existing){                                                 // idempotent / conflict-keeps-original
+      if(_fieldSchemaSig(existing) !== _fieldSchemaSig(schema)){
+        try { console.warn('registerFieldSchema: "' + kind + '" already registered with a different schema; keeping the original'); } catch(_e){}
+      }
+      return;
+    }
+    FIELD_SCHEMAS[kind] = schema;
+  }
+
+  // The legacy seed — the EXACT pre-refactor map, in insertion order.
+  const FIELD_SCHEMAS_SEED = {
 
     // Worked example 4.1 — simple primitive-only entity
     'outpost': {
@@ -202,6 +235,151 @@
         { name: 'appointedAtTurn',       type: 'number', group: 'Lifecycle', description: 'Editable for state repair (correcting a misrecorded appointment turn)' },
         { name: 'endedAtTurn',           type: 'number', group: 'Lifecycle', description: 'Set on dismissal — null while active' },
         { name: 'isActive',              type: 'computed', readonly: true, group: 'Lifecycle', description: 'True when endedAtTurn is null' }
+      ]
+    },
+
+    // Phase 3 Military W1 (2026-06-12) — Unit: the Group's military sibling kind.
+    // Every field is a blankUnit key (global schema⊆factory invariant). Lifted legacy
+    // garrison units share this exact shape (the lift lazy-defaults the military fields).
+    'unit': {
+      factory: 'blankUnit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Troops', 'Economics', 'Stationing', 'Condition', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'displayName',   type: 'string', required: true, group: 'Identity', description: 'Unit name (e.g. "1st Saltspur Heavy Foot")' },
+        { name: 'unitTypeKey',   type: 'string', required: true, group: 'Identity', description: "TROOP_CATALOG troop type ('heavy-infantry', 'horse-archers', …; RR pp.438–441)" },
+        { name: 'race',          type: 'enum', enumValues: ['man','dwarf','elf','kobold','goblin','orc','hobgoblin','gnoll','lizardman','bugbear','ogre'], group: 'Identity', default: 'man' },
+        { name: 'loadout',       type: 'string', group: 'Identity', description: 'Equipment variant letter (A/B/C…) where the catalog lists several; blank = default' },
+        { name: 'veteran',       type: 'boolean', group: 'Troops', description: '+1 morale, veteran wage; ≤25% of human mercenaries (RR p.430)' },
+        { name: 'elite',         type: 'boolean', group: 'Troops', description: 'RR p.434 — wage surcharge + battle attack bonus (behind the elite-troops rule)' },
+        { name: 'count',         type: 'number', min: 0, group: 'Troops', description: 'Roster strength (RR p.435: ≤120 man-sized / 60 large per company unit)' },
+        { name: 'casualties',    type: 'number', min: 0, group: 'Troops', description: 'Losses — active strength = count − casualties' },
+        { name: 'scale',         type: 'enum', enumValues: ['platoon','company','battalion','brigade'], group: 'Troops', default: 'company', description: 'Unit scale (RR p.437 — by army size)' },
+        { name: 'source',        type: 'enum', enumValues: ['mercenary','conscript','militia','clanhold','follower','vassal','slave'], group: 'Troops', description: 'Troop source (RR pp.427–434) — drives wage/loyalty semantics' },
+        { name: 'monthlyWage',   type: 'gp', group: 'Economics', description: 'Per-soldier monthly wage — a stored override; 0/blank = read the catalog' },
+        { name: 'brPerSoldier',  type: 'number', group: 'Economics', description: 'Per-creature battle rating override; 0/blank = read the catalog (RR p.462)' },
+        { name: 'stationedAt',   type: 'object', group: 'Stationing', description: 'Assignment: domain-garrison | character (mercenary company) | army | hex | constructible', fields: [
+          { name: 'kind', type: 'enum', enumValues: ['domain-garrison','character','army','hex','constructible'] },
+          { name: 'id',   type: 'string', description: 'The station entity id (kind-dependent)' }
+        ] },
+        { name: 'ownerDomainId', type: 'id', idKind: 'domain', group: 'Stationing', description: 'The domain (and realm) that raised + owns this unit — relational; survives un-stationing (2026-06-22 muster model). A unit garrisons abstractly (no hex); it has a coordinate only in a field army or at a {kind:hex} station.' },
+        { name: 'commanderCharacterId',  type: 'id', idKind: 'character', group: 'Stationing' },
+        { name: 'lieutenantCharacterId', type: 'id', idKind: 'character', group: 'Stationing', description: 'Unit lieutenant (RR p.435; his morale modifier applies in battle)' },
+        { name: 'loyalty',       type: 'number', group: 'Condition', description: 'Unit loyalty score (RR p.429 — officers −2 base; ± employer CHA)' },
+        { name: 'moraleAdjustment', type: 'number', group: 'Condition', description: 'One-time levy ±1 (domain morale, RR pp.431–433) + GM adjustments, atop the catalog base' },
+        { name: 'supplyState',   type: 'enum', enumValues: ['supplied','underfed','starving','dehydrated'], group: 'Condition', default: 'supplied', description: 'RR p.452 out-of-supply ladder' },
+        { name: 'calamities',    type: 'array', group: 'Condition', description: 'Unit-loyalty-roll triggers (RR p.430)', itemSchema: { fields: [
+          { name: 'kind', type: 'enum', enumValues: ['routed','casualties-25','unsupplied-week','unpaid-month','militia-season-campaigning','carnivore-atrocity','other'] },
+          { name: 'atDay', type: 'number' },
+          { name: 'note', type: 'string' }
+        ] } },
+        { name: 'trainingState', type: 'object', group: 'Condition', description: 'Conscript/militia training in progress (RR p.431; W7 runs it) — null when not training', fields: [
+          { name: 'targetTroopType', type: 'string' },
+          { name: 'startedAtDay',    type: 'number' },
+          { name: 'completesAtDay',  type: 'number' }
+        ] },
+        { name: 'notes',         type: 'string', group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Phase 3 Military W1 — Army (embedded divisions; Architecture §3.1).
+    'army': {
+      factory: 'blankArmy',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Command', 'Campaign', 'Supply', 'History'],
+      fields: [
+        { name: 'id',                type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',              type: 'string', required: true, group: 'Identity' },
+        { name: 'leaderCharacterId', type: 'id', idKind: 'character', group: 'Command', description: 'The army leader — his leadership ability caps divisions (RR p.435)' },
+        { name: 'divisions',         type: 'array', group: 'Command', description: 'Embedded divisions — each needs a qualified commander (RR pp.435–437)', itemSchema: { fields: [
+          { name: 'name',                 type: 'string' },
+          { name: 'commanderCharacterId', type: 'id', idKind: 'character' },
+          { name: 'adjutantCharacterId',  type: 'id', idKind: 'character', description: 'Optional — lends SA−1, costs the commander −1 morale modifier (RR p.436)' },
+          { name: 'unitIds',              type: 'idArray', idKind: 'unit' },
+          { name: 'role',                 type: 'enum', enumValues: ['vanguard','main','rear-guard'], description: '¼–⅓ vanguard + ¼–⅓ rear guard at stance (RR p.448)' }
+        ] } },
+        { name: 'strategicStance',   type: 'enum', enumValues: ['offensive','defensive','evasive'], group: 'Campaign', default: 'defensive', description: 'RR p.448 — set freely each initiative' },
+        { name: 'currentHexId',      type: 'id', idKind: 'hex', group: 'Campaign' },
+        { name: 'journeyId',         type: 'id', idKind: 'journey', group: 'Campaign', description: 'Armies march as journeys (W4); null = in garrison' },
+        { name: 'lastInitiative',    type: 'number', group: 'Campaign', description: '1d6 + strategic ability (RR p.447)' },
+        { name: 'supplyBaseIds',     type: 'idArray', idKind: 'settlement', group: 'Supply', description: 'Supply bases (RR p.450) — settlements; stronghold/border-fort constructible ids also valid by hand' },
+        { name: 'supplySimplified',  type: 'boolean', group: 'Supply', default: true, description: 'RR p.452 Supply Simplified — the default automation mode; untick for full line computation (W5)' },
+        // W4 maneuvers (RR pp.447–460) — the GM-editable campaign state
+        { name: 'reconModifier',       type: 'number', group: 'Campaign', default: 0, description: 'Standing GM modifier on this army’s reconnaissance rolls — magic, spies, stratagems (RR pp.453–455)' },
+        { name: 'concealmentModifier', type: 'number', group: 'Campaign', default: 0, description: 'Standing GM modifier on rolls made AGAINST this army — camouflage magic, screens, deception (RR p.455)' },
+        { name: 'alliedLeaderCharacterIds', type: 'idArray', idKind: 'character', group: 'Campaign', description: 'GM-marked allied leaders beyond the realm chain — their armies and domains read as friendly' },
+        { name: 'permittedDomainIds',  type: 'idArray', idKind: 'domain', group: 'Campaign', description: 'Domains this army may enter uninvited — no invasion (RR p.458)' },
+        { name: 'prisoners',           type: 'number', group: 'Campaign', default: 0, description: 'Held prisoners — ransom 40gp a head or keep as Construction labor (RR p.458)' },
+        { name: 'notes',             type: 'string', group: 'History' },
+        { name: 'history',           type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Phase 3 Military W3 (2026-06-12) — Battle (RR pp.461–472). The Battles view +
+    // the battle panel are the working surface; the Inspector covers the scalar state
+    // (sides/forays/turnLog/aftermath are deep working records — Raw-JSON surgery).
+    'battle': {
+      factory: 'blankBattle',
+      groups: ['Identity', 'Situation', 'Options', 'State', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',          type: 'string', required: true, group: 'Identity' },
+        { name: 'hexId',         type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the armies met — the terrain row drives foray distances + reinforcement throws' },
+        { name: 'scale',         type: 'enum', enumValues: ['platoon','company','battalion','brigade'], group: 'Identity', default: 'company', description: 'RR p.437 — unit BRs express at this scale' },
+        { name: 'awareness',     type: 'enum', enumValues: ['mutual','mutual-unawareness','unilateral-a','unilateral-b'], group: 'Situation', description: 'The reconnaissance state (RR p.461) — with the stances, it fixes the strategic situation' },
+        { name: 'situation',     type: 'enum', enumValues: ['pitched-battle','meeting-engagement','rear-guard-action','skirmish','ambush','envelopment','deep-envelopment','rear-guard-envelopment'], group: 'Situation' },
+        { name: 'attackerSide',  type: 'enum', enumValues: ['a','b'], group: 'Situation' },
+        { name: 'surprisedSide', type: 'enum', enumValues: ['a','b'], group: 'Situation', description: 'The surprised army (no attack throws turn 1; enemies +2) — blank when neither' },
+        { name: 'options',       type: 'object', group: 'Options', fields: [
+          { name: 'armySizeAsymmetry',   type: 'boolean', description: 'RR p.464 optional rule — a smaller attacker fights before the defender finishes deploying (recommended ON for monster fights)' },
+          { name: 'advantageousTerrain', type: 'enum', enumValues: ['a','b'], description: 'Which side holds the hill/ridgeline — attackers against it take −2' },
+          { name: 'cannotRetreat',       type: 'enum', enumValues: ['a','b','both'], description: 'Surrounded/trapped — +2 on that side\'s morale rolls' }
+        ] },
+        { name: 'status',        type: 'enum', enumValues: ['setup','fighting','ended','resolved'], readonly: true, group: 'State' },
+        { name: 'turnNumber',    type: 'number', readonly: true, group: 'State', description: 'Battle turns fought (~10 minutes each)' },
+        { name: 'notes',         type: 'string', group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Phase 3 Military W6 (2026-06-13, burst3) — Siege (RR pp.473–485). The siege panel is the
+    // working surface (the simplified resolver + the blockade/reduction/assault verbs); the
+    // Inspector covers the scalar state. Every field is a blankSiege key (the global schema⊆
+    // factory invariant); the artillery maps + resolution/history are deep records (Raw-JSON).
+    'siege': {
+      factory: 'blankSiege',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Parties', 'Stronghold', 'Blockade', 'State', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', required: true, group: 'Identity' },
+        { name: 'status',           type: 'enum', enumValues: ['investing','resolved'], readonly: true, group: 'Identity' },
+        { name: 'resolutionMode',   type: 'enum', enumValues: ['simplified','detailed'], group: 'Identity', default: 'simplified', description: 'Sieges Simplified (the duration table) vs the detailed blockade/reduction/assault — a per-instance mode, not a house rule (RR pp.484–485)' },
+        { name: 'besiegerArmyId',   type: 'id', idKind: 'army', required: true, group: 'Parties', description: 'The besieging army' },
+        { name: 'defenderDomainId', type: 'id', idKind: 'domain', group: 'Parties', description: 'The besieged domain — its garrison defends + its strongholdValue estimates the shp (RR p.474)' },
+        { name: 'defenderArmyId',   type: 'id', idKind: 'army', group: 'Parties', description: 'A defending army holed up inside (optional)' },
+        { name: 'hexId',            type: 'id', idKind: 'hex', group: 'Parties', description: 'Where the stronghold stands' },
+        { name: 'stronghold',       type: 'object', group: 'Stronghold', description: 'The besieged stronghold (authored, or estimated from strongholdValue)', fields: [
+          { name: 'material',     type: 'enum', enumValues: ['stone','wood'], description: 'Wooden strongholds have ⅒ the shp (RR p.474)' },
+          { name: 'strongholdShp', type: 'number', description: 'Structural hit points — gp value ÷ 10 (stone) / ÷ 100 (wood)' },
+          { name: 'shpDamage',    type: 'number', description: 'Reduction damage dealt so far — breaches = ⌊shpDamage / 1000⌋' },
+          { name: 'unitCapacity', type: 'number', description: 'Units it can defend = ⌈shp / 1000⌉ (RR p.473)' },
+          { name: 'siteType',     type: 'enum', enumValues: ['normal','riverbank','peninsula','island','mountain'], description: 'Inaccessible terrain multiplies the duration (riverbank ×2 … mountain ×5)' }
+        ] },
+        { name: 'blockade',         type: 'object', group: 'Blockade', description: 'Encirclement + stored-supply depletion (RR pp.474–475)', fields: [
+          { name: 'inPlace',           type: 'boolean' },
+          { name: 'circumvallationFeet', type: 'number', description: 'Each 250\' replaces 2 blockading units; a full ring → −4 smuggling' },
+          { name: 'weeksPrep',         type: 'number', description: 'Weeks of warning before encirclement — more stored supplies (+600/cap per week)' },
+          { name: 'storedSuppliesGp',  type: 'number', description: '600gp × unit capacity, +600/cap per prep week, cap 3,000/cap' },
+          { name: 'suppliesExhausted', type: 'boolean', readonly: true }
+        ] },
+        { name: 'daysRequired',     type: 'number', readonly: true, group: 'State', description: 'Sieges-Simplified days to capture (null = the besieger is too weak — blockade only)' },
+        { name: 'captureReady',     type: 'boolean', readonly: true, group: 'State', description: 'The simplified clock has run out — the GM resolves the siege' },
+        { name: 'assaultBattleId',  type: 'id', idKind: 'battle', readonly: true, group: 'State', description: 'The W3 Battle an assault handed off to' },
+        { name: 'notes',            type: 'string', group: 'History' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
       ]
     },
 
@@ -408,6 +586,10 @@
         { name: 'speedOverrideMilesPerDay', type: 'number', min: 0, group: 'Identity', description: '§26 GM speed override — miles/day for the leg, bypassing pace/weather/temperature (per-hex terrain still applies). 0 or blank ⇒ pace governs' },
         { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
         { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
+        { name: 'armyId', type: 'id', idKind: 'army', group: 'Participants', description: 'W4 — an ARMY’s march: the army governs speed/weather; no nav throw, no encounter draws, no survival (RR p.448)' },
+        // === Voyages V1 (burst4 — 2026-06-14) — surface the reserved blankJourney.shipId (the carrying
+        // Vessel; voyage modes). The factory already emits shipId, so the schema⊆factory invariant holds. ===
+        { name: 'shipId', type: 'id', idKind: 'vessel', group: 'Participants', description: 'V1 — the carrying Vessel for a voyage-mode journey (Phase 3 Voyages #145); null on land journeys' },
         { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'destinationHexId', type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Route', description: 'Advances to the destination on arrival (per-hex stepping is a later slice)' },
@@ -429,6 +611,85 @@
         ] },
         { name: 'notes',   type: 'longText', group: 'History' },
         { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // === Voyages V1 (burst4 — 2026-06-14) — Vessel (Phase 3 Voyages #145, RR Ch.7 Seafarers &
+    // Voyages). The Admin verb (Inspector ▸ Create ▸ Vessel → schemaForm + the inspectorCreateBlankVessel
+    // dispatch). catalogKey is the picker populated from the 20 RR p.316 VESSEL_CATALOG classes. Every
+    // field is a blankVessel key (global schema⊆factory invariant); schemaVersion is factory-only. ===
+    'vessel': {
+      factory: 'blankVessel',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Class', 'Crew', 'Cargo', 'Condition', 'History'],
+      fields: [
+        { name: 'id',         type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',       type: 'string', required: true,  group: 'Identity', description: 'Vessel name, e.g. "Sea Wolf"' },
+        { name: 'catalogKey', type: 'enum',   group: 'Class', description: 'The RR p.316 Sea Vessels class (immutable stats)',
+          enumValues: ['barge-small','barge-large','barge-huge','boat-row','boat-sail','canoe','galley-1-rower','galley-1.5-rower','galley-2-rower','galley-2.5-rower','galley-3-rower','galley-4-rower','galley-5-rower','galley-6-rower','galley-8-rower','longship','raft','sailing-ship-small','sailing-ship-large','sailing-ship-huge'] },
+        { name: 'shp',        type: 'number', min: 0, group: 'Class', description: 'Current structural hit points (≤ the class base SHP)' },
+        { name: 'ownerId',    type: 'id', idKind: 'character', group: 'Identity', description: 'Owner — a character (the picker) OR a domain (set a domain id via Raw JSON; vesselOwner resolves both)' },
+        { name: 'currentHexId', type: 'id', idKind: 'hex', group: 'Identity' },
+        { name: 'crewComplement', type: 'object', group: 'Crew', description: 'Current manning vs the class full crew (RR p.316)', fields: [
+          { name: 'sailors', type: 'number', min: 0 },
+          { name: 'rowers',  type: 'number', min: 0 },
+          { name: 'marines', type: 'number', min: 0 }
+        ] },
+        { name: 'crewGroupIds',        type: 'idArray', idKind: 'group', group: 'Crew', description: 'Counted crew (rowers/sailors/marine units) → campaign.groups[]' },
+        { name: 'officerCharacterIds', type: 'idArray', idKind: 'character', group: 'Crew', description: 'Named officers — captain / navigator / master mariner' },
+        { name: 'holdStashId', type: 'id', idKind: 'stash', group: 'Cargo', description: 'Cargo hold — a Stash (stashKind:"vessel-hold")' },
+        { name: 'warMachines', type: 'array', group: 'Condition', description: 'Fitted naval war machines (RR pp.155–156)', itemSchema: { fields: [
+          { name: 'kind', type: 'enum', enumValues: ['naval-ram','boarding-bridge','boarding-ramp','fire-pot-pole','harpoon-ballista','large-tower','small-tower','ballista','catapult','other'] },
+          { name: 'note', type: 'string' }
+        ] } },
+        { name: 'condition',         type: 'enum', enumValues: ['seaworthy','damaged','sinking','beached','wrecked'], group: 'Condition', default: 'seaworthy' },
+        { name: 'constructionState', type: 'enum', enumValues: ['planned','under-construction','complete','in-repair'], group: 'Condition', default: 'complete', description: 'complete when bought; a Construction Project drives the lifecycle (Wave D)' },
+        { name: 'createdAtTurn', type: 'number', readonly: true, group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // === Mounts (Phase 2.5 MO-1 — 2026-06-21) — Mount (RR p.161 Domesticated Animals;
+    // acks-engine-mounts.js). The Admin verb (Inspector ▸ Create ▸ Mount → schemaForm).
+    // catalogKey is the picker populated from the 12 RR MOUNT_CATALOG breeds. Every field
+    // is a blankMount key (the global schema⊆factory invariant); schemaVersion is factory-only. ===
+    'mount': {
+      factory: 'blankMount',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Breed', 'Load', 'Barding', 'Feeding', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', group: 'Identity', description: 'Optional name, e.g. "Athorian"' },
+        { name: 'catalogKey',       type: 'enum', group: 'Breed', description: 'The RR p.161 Domesticated Animals breed (immutable speed/load/feed stats)',
+          enumValues: ['camel','donkey','horse-heavy','horse-light','horse-medium','horse-steppe','mule','ox','elephant','dog-hunting','dog-war'] },
+        { name: 'training',         type: 'enum', enumValues: ['draft','riding','war','hunting'], group: 'Breed', description: 'RR p.130 — must be a training the breed allows (donkeys never war; only war-trained may be barded)' },
+        { name: 'role',             type: 'enum', enumValues: ['mount','pack','draft'], group: 'Breed', default: 'mount', description: 'mount = ridden (rider weight loads it) · pack = hauls cargo · draft = pulls a vehicle' },
+        { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'Owner — surfaces in their Inventory tab' },
+        { name: 'riderCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'Who is seated (role:mount) — the rider whose 15 st + gear loads the mount' },
+        { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Identity' },
+        { name: 'cargo',            type: 'array', group: 'Load', description: 'Items it carries (the Items-I1 line shape) — feed, loot, gear; edited via the Transfer UI', itemSchema: { fields: [
+          { name: 'name',         type: 'string' },
+          { name: 'qty',          type: 'number', min: 0 },
+          { name: 'encumbranceSt',type: 'number', min: 0 },
+          { name: 'notes',        type: 'string' }
+        ] } },
+        { name: 'bardingKey',       type: 'enum', enumValues: ['leather','scale','chain','lamellar','plate'], group: 'Barding', description: 'RR p.128 barding (war-trained only) — AC bonus' },
+        { name: 'bardingLoadSt',    type: 'number', min: 0, group: 'Barding', description: 'Barding weight in stone (RR p.128 — "Varies" by size; GM-set; counts against load)' },
+        { name: 'bardingHalf',      type: 'boolean', group: 'Barding', description: 'Half-barding — front only (RR p.128)' },
+        { name: 'bardingSpiked',    type: 'boolean', group: 'Barding', description: 'Spiked barding (combat reference)' },
+        { name: 'hp',               type: 'number', group: 'Feeding', description: 'Combat reference (mounted combat deferred) — current HP, or blank' },
+        { name: 'condition',        type: 'enum', enumValues: ['healthy','wounded','dead'], group: 'Feeding', default: 'healthy' },
+        { name: 'foodDeficitDays',  type: 'number', min: 0, readonly: true, group: 'Feeding', description: 'Days short of full food (RR p.276 ladder — driven by the journey day-tick)' },
+        { name: 'waterDeficitDays', type: 'number', min: 0, readonly: true, group: 'Feeding', description: 'Days short of full water (RR p.276 ladder)' },
+        { name: 'conditionFlags',   type: 'object', group: 'Feeding', description: 'Provisioning condition (RR p.276)', fields: [
+          { name: 'hungry',     type: 'boolean' },
+          { name: 'underfed',   type: 'boolean' },
+          { name: 'starving',   type: 'boolean' },
+          { name: 'dehydrated', type: 'boolean' }
+        ] },
+        { name: 'createdAtTurn',    type: 'number', readonly: true, group: 'History' },
+        { name: 'notes',            type: 'string', group: 'History' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
       ]
     },
 
@@ -495,7 +756,9 @@
           { name: 'count',              type: 'number', description: 'Number encountered' },
           { name: 'encounterKind',      type: 'enum', enumValues: ['at-lair','wandering-fragment','wandering'], description: 'at-lair = met at the den; fragment = a band out from a local den; wandering = unbound' },
           { name: 'lairId',             type: 'id', idKind: 'lair', description: 'The den this side belongs to (when bound)' },
-          { name: 'pursuitEncounterId', type: 'id', idKind: 'encounter', description: 'E4m — the chase this band IS (a pursuing band met by a third party); dispersing the meeting ends the chase' }
+          { name: 'pursuitEncounterId', type: 'id', idKind: 'encounter', description: 'E4m — the chase this band IS (a pursuing band met by a third party); dispersing the meeting ends the chase' },
+          { name: 'residentCharacterId', type: 'id', idKind: 'character', description: 'SD-5b — a civilized encounter grounded to the actual townsperson who lives nearby (the census); GM-overridable' },
+          { name: 'residentSettlementId', type: 'id', idKind: 'settlement', description: 'SD-5b — the settlement the grounded resident lives in' }
         ] },
         { name: 'status',               type: 'enum', enumValues: ['active','resolved'], group: 'Lifecycle', default: 'active' },
         { name: 'phase',                type: 'enum', enumValues: ['setup','surprise','evasion','interaction','pursuit'], group: 'Lifecycle', default: 'setup' },
@@ -506,13 +769,1045 @@
         { name: 'notes',                type: 'longText', group: 'History' },
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]
+    },
+
+    // === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.1–§4.3 + §14) ===
+    // Wave E. Every field is a key the matching factory emits (global schema⊆factory
+    // invariant in tests/smoke.js). RAW-faithful: DivineFavor has `standing`, NO favorLevel
+    // (D1). Polymorphic/deferred shapes (congregation.templeRef, divineFavor.transgressionsLog)
+    // are omitted per the Wave-C freeform convention — raw-JSON-edited / owned by R5.
+    'deity': {
+      factory: 'blankDeity',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Worship', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string',  readonly: true, group: 'Identity' },
+        { name: 'name',                type: 'string',  group: 'Identity', description: 'Generic name, e.g. "the Lawgiver"' },
+        { name: 'alignment',           type: 'enum',    enumValues: ['Lawful','Neutral','Chaotic'], group: 'Identity', default: 'Neutral' },
+        { name: 'portfolio',           type: 'string',  group: 'Identity', description: 'Free text — "war, the dawn, justice"' },
+        { name: 'codeOfBehavior',      type: 'longText', group: 'Worship', description: 'What adherents must uphold (or a Phase 6 code ref)' },
+        { name: 'acceptsBloodSacrifice', type: 'enum',  enumValues: ['none','animals-only','sapient'], group: 'Worship', default: 'none', description: 'RR p.422 — Lawful/Neutral → none|animals-only; Chaotic → sapient' },
+        { name: 'sacrificeAsDevotion', type: 'boolean', group: 'Worship', description: 'Auran Empyrean rule — animal sacrifice yields the caster nothing (pure devotion)' },
+        { name: 'status',              type: 'enum',    enumValues: ['active','dormant'], group: 'Identity', default: 'active' },
+        { name: 'notes',               type: 'longText', group: 'History' },
+        { name: 'history',             type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'congregation': {
+      factory: 'blankCongregation',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Faithful', 'Maintenance', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'e.g. "the Faithful of the Dawn at Saltspur"' },
+        { name: 'deityId',               type: 'id', idKind: 'deity', group: 'Identity' },
+        { name: 'highPriestCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'The divine caster who draws the power' },
+        { name: 'personalCongregants',   type: 'number', min: 0, group: 'Faithful', description: 'Proselytized faithful — the full 10gp/50/week rate' },
+        { name: 'domainWorshipDomainId', type: 'id', idKind: 'domain', group: 'Faithful', description: 'Ruler/chaplain path; DP from this domain is derived (families × morale), never stored' },
+        { name: 'proselytizingValueThisMonthGp', type: 'gp', group: 'Maintenance', description: 'Accumulator → congregant gain at month end' },
+        { name: 'maintainedWeeksThisMonth', type: 'number', min: 0, group: 'Maintenance', description: '0..4; un-maintained weeks drive decline' },
+        { name: 'lastMaintainedAtTurn',  type: 'number', group: 'Maintenance' },
+        { name: 'foundedAtTurn',         type: 'number', group: 'History' },
+        { name: 'status',                type: 'enum', enumValues: ['active','declining','abandoned','suppressed'], group: 'Identity', default: 'active' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'divineFavor': {
+      factory: 'blankDivineFavor',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Standing', 'History'],
+      fields: [
+        { name: 'id',                 type: 'string', readonly: true, group: 'Parties' },
+        { name: 'characterId',        type: 'id', idKind: 'character', required: true, group: 'Parties' },
+        { name: 'deityId',            type: 'id', idKind: 'deity', required: true, group: 'Parties' },
+        { name: 'standing',           type: 'enum', enumValues: ['good-standing','lapsed','excommunicate'], group: 'Standing', default: 'good-standing', description: 'RAW relationship state (no numeric score — D1)' },
+        { name: 'codeOfBehaviorAck',  type: 'boolean', group: 'Standing', description: 'Does this character uphold the deity\'s code' },
+        { name: 'sinceTurn',          type: 'number', group: 'Standing' },
+        { name: 'lastSacrificeAtTurn', type: 'number', group: 'Standing' },
+        { name: 'lastWorshipAtTurn',  type: 'number', group: 'Standing', description: 'Last pray-and-sacrifice' },
+        { name: 'status',             type: 'enum', enumValues: ['active'], group: 'Standing', default: 'active' },
+        { name: 'history',            type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Religion R0 ===
+
+    // === Hijinks HJ-2 (team 2026-06-13) — the criminal Syndicate (Phase 2.7, RR pp.358–362).
+    // Fields ⊆ blankSyndicate keys (the global schema⊆factory invariant). The Admin path. ──
+    'syndicate': {
+      factory: 'blankSyndicate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Hideout', 'Membership', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', group: 'Identity', description: 'e.g. "The Argollëan Family"' },
+        { name: 'bossCharacterId',  type: 'id', idKind: 'character', group: 'Identity', description: 'The boss (analogous to a domain ruler)' },
+        { name: 'baseSettlementId', type: 'id', idKind: 'settlement', group: 'Identity', description: 'The urban settlement; its market class caps the syndicate' },
+        { name: 'hexId',            type: 'id', idKind: 'hex', group: 'Hideout', description: 'The hideout hex (≤6mi from the base)' },
+        { name: 'marketClass',      type: 'enum', enumValues: ['I','II','III','IV','V','VI'], group: 'Hideout', default: 'VI', description: 'Caps size + perpetrator effective level (RR p.359)' },
+        { name: 'hideoutType',      type: 'enum', enumValues: ['hideout','guildhouse'], group: 'Hideout', default: 'hideout', description: 'A venturer\'s guildhouse counts at ½ value' },
+        { name: 'hideoutValueGp',   type: 'gp', group: 'Hideout', description: 'gp invested; unlocks the membership tier (RR p.359)' },
+        { name: 'members',          type: 'array', group: 'Membership', description: 'Members counted by level [{level, count}]',
+          itemSchema: { fields: [ { name: 'level', type: 'number', min: 0 }, { name: 'count', type: 'number', min: 0 } ] } },
+        { name: 'status',           type: 'enum', enumValues: ['active','disbanded'], group: 'Identity', default: 'active' },
+        { name: 'foundedTurn',      type: 'number', group: 'History' },
+        { name: 'lastTributeTurn',  type: 'number', readonly: true, group: 'History', description: 'Last monthly tribute collection' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Hijinks HJ-2 ===
+
+    // === Sages SG-2 (burst8 b8-sages 2026-06-19) — the multi-week SageCommission (sag-,
+    // campaign.sageCommissions[]; Phase_4_Sages_Plan.md §3.3). Fields ⊆ blankSageCommission keys
+    // (the global schema⊆factory invariant, tests/smoke.js). resolved (the pre-rolled throw) +
+    // result (the delivered envelope) are engine-managed → omitted from the form, raw-JSON-edited
+    // (the delve foraysResolved[] precedent). daysElapsed is DERIVED (sageCommissionProgress) off
+    // startedAtOrd — no stored mirror, so it is not a field here. adminCreate:'schemaForm' = the
+    // generic Admin form (the in-fiction Action verb is the 📜 Commission modal). ──
+    'sageCommission': {
+      factory: 'blankSageCommission',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Question', 'Progress', 'History'],
+      fields: [
+        { name: 'id',                type: 'string', readonly: true, group: 'Parties' },
+        { name: 'sageCharacterId',   type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The consulting sage (an NPC specialist or a PC-scholar)' },
+        { name: 'clientCharacterId', type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'Who commissioned the research' },
+        { name: 'settlementId',      type: 'id', idKind: 'settlement', group: 'Parties', description: 'Where (the Tower-of-Knowledge POI)' },
+        { name: 'subject',           type: 'string', group: 'Question', description: 'Matched vs the sage\'s specialty (in 3+ / out 18+)' },
+        { name: 'query',             type: 'longText', group: 'Question', description: 'The GM-framed question (free text)' },
+        { name: 'answerText',        type: 'longText', group: 'Question', description: 'Delivered on success (the GM supplies the content; the engine resolves only whether the sage knows)' },
+        { name: 'mode',              type: 'string', readonly: true, group: 'Question', description: 'npc-specialist | pc-scholar — resolved at commissioning' },
+        { name: 'inSpecialty',       type: 'boolean', readonly: true, group: 'Question' },
+        { name: 'target',            type: 'number', readonly: true, group: 'Question', description: 'The resolved throw target (3+/18+ or the PC\'s Knowledge/Loremastery target)' },
+        { name: 'daysRequired',      type: 'number', min: 1, group: 'Progress', default: 30, description: 'Research duration (🔧 GM-set; RAW pins none)' },
+        { name: 'startedAtOrd',      type: 'number', readonly: true, group: 'Progress', description: 'The day ordinal it began (daysElapsed derives from this — no stored mirror)' },
+        { name: 'feeGp',             type: 'gp', group: 'Progress', description: 'The fee (charged upfront, GP Wave B)' },
+        { name: 'feePaidGp',         type: 'gp', readonly: true, group: 'Progress' },
+        { name: 'status',            type: 'enum', enumValues: ['in-progress','complete','abandoned'], group: 'Progress', default: 'in-progress' },
+        { name: 'history',           type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Sages SG-2 ===
+
+    // === Delves D2 (burst4) — Dungeon + Delve (Phase_3.5_Delves_Plan.md §4; the RECONCILED shape,
+    // Data_Dictionary §13.2). Every field is a key the matching factory emits (the global schema⊆
+    // factory invariant, tests/smoke.js). The Dungeon schema covers the BASE + delve-target facet
+    // ONLY; the arcane facet (levels/areaSqFtPerLevel/sovereignCharacterId/arcanePowerThisMonth/…)
+    // is reserved-null on blankDungeon and ADDED to this schema by Phase 4 Sanctums (AD-A). owned +
+    // attuned are NOT status values (Q1) — they're derived via dungeonLifecycleLabel() off
+    // ownerCharacterId + the attunement relation. adminCreate:'schemaForm' = the generic Admin form. ──
+    'dungeon': {
+      factory: 'blankDungeon',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Placement', 'Delve Target', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                type: 'string', group: 'Identity', default: '', description: 'GM label, e.g. "the Ruined Fort of Aelnoth"' },
+        { name: 'origin',              type: 'enum', enumValues: ['constructed','natural','found','conquered','lair-promoted'], group: 'Identity', default: 'found' },
+        { name: 'knownToPlayers',      type: 'boolean', group: 'Placement', description: 'Discovered by the players?' },
+        { name: 'hexId',               type: 'id', idKind: 'hex', group: 'Placement', description: 'The hex it sits in — null = unplaced / unknown distance' },
+        { name: 'precisePlacement',    type: 'string', group: 'Placement', description: 'e.g. "the old quarry on the north slope"' },
+        { name: 'domainId',            type: 'id', idKind: 'domain', group: 'Placement', description: 'The domain whose territory it lies in (when known)' },
+        { name: 'size',                type: 'enum', enumValues: ['small','medium','large','mega'], group: 'Delve Target', default: 'small', description: 'Drives the encounter count (JJ p.275)' },
+        { name: 'dungeonLevel',        type: 'number', min: 1, group: 'Delve Target', default: 1, description: 'Difficulty 1..6 (JJ p.275)' },
+        { name: 'encountersTotal',     type: 'number', min: 0, group: 'Delve Target', description: 'Rolled from size, or counted from a stocked map' },
+        { name: 'encountersRemaining', type: 'number', min: 0, group: 'Delve Target', description: 'Authored for an abstract dungeon; derived from living lairs for a stocked one (dungeonEncountersRemaining)' },
+        { name: 'encountersCleared',   type: 'number', min: 0, readonly: true, group: 'Delve Target', description: 'Running, for the treasure/XP tally' },
+        { name: 'sizeKnown',           type: 'boolean', group: 'Delve Target', description: 'false ⇒ Unknown Size & Level rule (JJ p.279) — players must scout' },
+        { name: 'levelKnown',          type: 'boolean', group: 'Delve Target' },
+        { name: 'multiLevel',          type: 'boolean', group: 'Delve Target', description: 'RAW: treat each level as a separate Dungeon' },
+        { name: 'parentDungeonId',     type: 'id', idKind: 'dungeon', group: 'Delve Target', description: 'For a multi-level complex — this level\'s parent' },
+        { name: 'restockDie',          type: 'string', group: 'Delve Target', description: 'Restock dice (JJ p.276), e.g. "1d3-2"; derived from size' },
+        { name: 'status',              type: 'enum', enumValues: ['undiscovered','known','being-cleared','cleared','sealed','abandoned','destroyed'], group: 'Lifecycle', default: 'known', description: 'The single lifecycle axis (Q1); owned/attuned are DERIVED, not stored here' },
+        { name: 'ownerCharacterId',    type: 'id', idKind: 'character', group: 'Lifecycle', description: 'Who owns/operates it (RR p.386); set ⇒ the derived "Owned" overlay' },
+        { name: 'lastForayAtDayInMonth', type: 'number', readonly: true, group: 'Lifecycle', description: 'Restocking clock' },
+        { name: 'lastForayAtTurn',     type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'establishedAtTurn',   type: 'number', group: 'Lifecycle' },
+        { name: 'notes',               type: 'longText', group: 'History' },
+        { name: 'history',             type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Delve — the multi-foray clear-a-dungeon operation. foraysResolved[] is an engine-managed
+    // deep log (the journey.days[] precedent) — omitted from the schema, raw-JSON-edited; the D3
+    // Foray Wizard owns it. Every field below is a blankDelve key.
+    'delve': {
+      factory: 'blankDelve',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Progress', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                      type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                    type: 'string', group: 'Identity', description: 'Auto: "Delve into <dungeon name>"' },
+        { name: 'dungeonId',               type: 'id', idKind: 'dungeon', required: true, group: 'Identity' },
+        { name: 'status',                  type: 'enum', enumValues: ['in-progress','withdrawn','cleared','wiped'], group: 'Identity', default: 'in-progress' },
+        { name: 'partyId',                 type: 'id', idKind: 'party', group: 'Participants', description: 'Optional — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants', description: 'The delvers (a foray draws ≤8 from these)' },
+        { name: 'isHenchmanDelve',         type: 'boolean', group: 'Participants', description: 'RAW XP/treasure split (JJ p.277)' },
+        { name: 'runningEncountersCleared', type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'runningTreasureGp',       type: 'gp', readonly: true, group: 'Progress', description: 'Gross; the ¼-withdraw / full-clear multiplier applies at realize (D3)' },
+        { name: 'runningXp',               type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'casualtyCharacterIds',    type: 'idArray', idKind: 'character', group: 'Progress', description: 'Mortally wounded / slain this delve' },
+        { name: 'magicItemRollsPending',   type: 'number', min: 0, readonly: true, group: 'Progress', description: 'Computed at clear (Treasure-Type rolls per GP/Roll)' },
+        { name: 'startedAtTurn',           type: 'number', group: 'Lifecycle' },
+        { name: 'startedAtDayInMonth',     type: 'number', group: 'Lifecycle' },
+        { name: 'notes',                   type: 'longText', group: 'History' },
+        { name: 'history',                 type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Delves D2 ===
+    // === Delves D5 (team burst11 2026-06-20) — the SettlementVisit (svt-, campaign.settlementVisits[];
+    // Phase_3.5_Delves_Plan.md §4.4). The off-screen settlement-stay record + the urban-incident log.
+    // adminCreate:'schemaForm' = the Inspector Admin verb; the in-fiction verb is ACKS.startSettlementVisit
+    // (the 🏙 Settlement Visits panel). incidents[] are rolled records (D5 owns the roller) — the
+    // itemSchema gives the shape, not a factory. Every top-level field is a blankSettlementVisit key
+    // (the schema⊆factory invariant, tests/smoke.js). ──
+    'settlementVisit': {
+      factory: 'blankSettlementVisit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Mode', 'Incidents', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                      type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                    type: 'string', group: 'Identity', description: 'Optional GM label (else derived from the settlement)' },
+        { name: 'settlementId',            type: 'id', idKind: 'settlement', group: 'Identity' },
+        { name: 'hexId',                   type: 'id', idKind: 'hex', group: 'Identity', description: "The settlement's hex (incident context + the day-clock)" },
+        { name: 'partyId',                 type: 'id', idKind: 'party', group: 'Participants', description: 'Optional — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
+        { name: 'mode',                    type: 'enum', enumValues: ['holed-up','wandering','looking-for-trouble'], group: 'Mode', default: 'holed-up', description: 'holed-up = the 1/day auto incident check; the others are GM-pressed (JJ p.80)' },
+        { name: 'status',                  type: 'enum', enumValues: ['active','departed'], group: 'Mode', default: 'active' },
+        // The urban incidents that have occurred — rolled records (D5's rollSettlementIncident owns the shape).
+        { name: 'incidents',               type: 'array', group: 'Incidents', description: 'Urban incidents (JJ pp.81–84)', itemSchema: { fields: [
+            { name: 'incidentKey',         type: 'string' },
+            { name: 'label',               type: 'string' },
+            { name: 'category',            type: 'string' },
+            { name: 'cite',                type: 'string' },
+            { name: 'roll',                type: 'number' },
+            { name: 'afterDark',           type: 'boolean' },
+            { name: 'dayInMonth',          type: 'number' },
+            { name: 'turn',                type: 'number' },
+            { name: 'reactionCall',        type: 'boolean' },
+            { name: 'tone',                type: 'string' },
+            { name: 'diseaseExposure',     type: 'boolean' },
+            { name: 'combatRisk',          type: 'boolean' },
+            { name: 'rumor',               type: 'boolean' },
+            { name: 'rewardGp',            type: 'gp' },
+            { name: 'affectedCharacterId', type: 'id', idKind: 'character' },
+            { name: 'resolved',            type: 'boolean' },
+            { name: 'eventId',             type: 'string' }
+          ] } },
+        { name: 'arrivedAtTurn',           type: 'number', group: 'Lifecycle' },
+        { name: 'arrivedAtDayInMonth',     type: 'number', group: 'Lifecycle' },
+        { name: 'departedAtTurn',          type: 'number', group: 'Lifecycle' },
+        { name: 'notes',                   type: 'longText', group: 'History' },
+        { name: 'history',                 type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Delves D5 ===
+    // === Phase 4 — The Arcane Domain (Sanctums AD-D) — the Attunement relation (att-,
+    // campaign.attunements[]; RR p.387). mage ↔ dungeon, one ACTIVE per dungeon. Every field is a
+    // blankAttunement key (the schema⊆factory invariant). adminCreate:'schemaForm' = the generic form;
+    // the in-fiction verb is ACKS.attuneToDungeon (the 🔮 Arcane panel). attunementThrow is the conquered-
+    // throw record (raw-JSON edited). ──
+    'attunement': {
+      factory: 'blankAttunement',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Relation', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                 type: 'string', group: 'Identity', description: 'Optional label (the relation describes itself)' },
+        { name: 'mageCharacterId',      type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The attuned arcane caster (subject)' },
+        { name: 'dungeonId',            type: 'id', idKind: 'dungeon', required: true, group: 'Relation', description: 'The dungeon (the other end)' },
+        { name: 'method',               type: 'enum', enumValues: ['built','conquered'], group: 'Relation', default: 'built', description: 'Auto on completion if built; else the month-residency + throw (RR p.387)' },
+        { name: 'ancillaryHoursPerDay', type: 'number', min: 0, group: 'Relation', description: 'RR p.387 — ≥1 hr per 30,000 sq ft each day during the qualifying month' },
+        { name: 'attunedAtTurn',        type: 'number', group: 'Lifecycle' },
+        { name: 'status',               type: 'enum', enumValues: ['active','relinquished','superseded','lapsed','ended-on-death'], group: 'Lifecycle', default: 'active' },
+        { name: 'endedAtTurn',          type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',              type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === Phase 4 — Sanctums AD-B — the Apprenticeship relation (apr-, campaign.apprenticeships[]; RR p.386).
+    // Every field is a blankApprenticeship key (the schema⊆factory invariant); lastResearchThrow is a nested
+    // object raw-JSON edited + OMITTED here (the attunement-attunementThrow precedent). adminCreate:'schemaForm'
+    // = the free-form Admin verb; apprentices normally arrive via attractToSanctum (the Sanctum tab). ──
+    'apprenticeship': {
+      factory: 'blankApprenticeship',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Relation', 'Study', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'Optional label (the relation describes itself)' },
+        { name: 'apprenticeCharacterId', type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The L0 apprentice (INT ≥ 9, subject)' },
+        { name: 'masterCharacterId',     type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The sanctum-owning arcane caster' },
+        { name: 'sanctumConstructibleId', type: 'id', idKind: 'constructible', group: 'Relation', description: 'The sanctum the apprentice studies at' },
+        { name: 'enrolledAtTurn',        type: 'number', group: 'Study' },
+        { name: 'yearsStudied',          type: 'number', min: 0, group: 'Study', description: 'A research throw (18+ ± INT) is made each completed year (RR p.386)' },
+        { name: 'status',                type: 'enum', enumValues: ['studying','advanced','left'], group: 'Lifecycle', default: 'studying' },
+        { name: 'endedAtTurn',           type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === Phase 4 — Magic Research (AD-M1) — the Research Project (rsp-, campaign.researchProjects[];
+    // RR pp.388–393). Every field is a blankResearchProject key (the schema⊆factory invariant); the
+    // complex nested objects (config / componentPlan / throwResult / kindResult) are raw-JSON edited +
+    // OMITTED here (the attunement-attunementThrow precedent). adminCreate:'schemaForm' = the free-form
+    // Admin verb; the guided Action verb is the character-sheet ⚗ Research panel (ACKS.startResearchProject). ──
+    'research-project': {
+      factory: 'blankResearchProject',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Costs', 'Throw', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'e.g. "Wand of Fireball"' },
+        { name: 'kind',                  type: 'enum', enumValues: ['spell-research','identify','item-creation','construct-design','construct-manufacture','crossbreed','necromancy','ritual-learn','ritual-cast'], group: 'Identity', default: 'spell-research', description: 'AD-M1 ships spell-research / identify / item-creation; the rest land with AD-M2/M3' },
+        { name: 'magicDomain',           type: 'enum', enumValues: ['evocation','summoning','enchantment','protection','death','transmog'], group: 'Identity', description: 'For proficiency mods (RR p.389) — nullable' },
+        { name: 'researcherCharacterId', type: 'id', idKind: 'character', required: true, group: 'Identity', description: 'The arcane caster leading the project' },
+        { name: 'assistantCharacterIds', type: 'idArray', idKind: 'character', group: 'Identity', description: 'Directly-aiding assistants (add their research rate) — RR p.390' },
+        { name: 'facilityKind',          type: 'enum', enumValues: ['library','workshop','mortuary','crossbreeding-lab'], group: 'Identity', default: 'library' },
+        { name: 'baseCost',              type: 'gp', group: 'Costs' },
+        { name: 'componentCostGp',       type: 'gp', group: 'Costs', description: 'Paid at the end in special components (the Sanctums seam, §3)' },
+        { name: 'materialCostGp',        type: 'gp', group: 'Costs', description: 'Paid at the start (coin / precious materials)' },
+        { name: 'researchCostGp',        type: 'gp', group: 'Costs', description: 'Paid by labor over the duration at the research rate' },
+        { name: 'materialPaid',          type: 'boolean', group: 'Costs' },
+        { name: 'researchInvestedGp',    type: 'gp', group: 'Costs', description: 'Accrues monthly at the total research rate' },
+        { name: 'componentPaid',         type: 'boolean', group: 'Costs' },
+        { name: 'substitutionPenalty',   type: 'number', readonly: true, group: 'Throw', description: 'Derived from the component plan (RR p.388)' },
+        { name: 'needsThrow',            type: 'boolean', group: 'Throw', default: true, description: 'False = duplicating a common spell / working from a formula' },
+        { name: 'fromFormula',           type: 'boolean', group: 'Throw' },
+        { name: 'fromSample',            type: 'boolean', group: 'Throw', description: '+4 to the throw (RR p.388)' },
+        { name: 'status',                type: 'enum', enumValues: ['planning','in-progress','awaiting-throw','completed','failed','abandoned'], group: 'Lifecycle', default: 'planning' },
+        { name: 'startedOnTurn',         type: 'number', group: 'Lifecycle' },
+        { name: 'completedOnTurn',       type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === Politics P-1 (burst4 2026-06-13) — senate / faction / senatorship (RR pp.355–360;
+    // Phase_4_Politics_Plan.md §4). Every field ⊆ the matching blankX keys (the global schema⊆
+    // factory invariant). rulingFactionId/leadingFactionId + faction ruling/leading standing are
+    // DERIVED (§4.4 — senateRulingFactionId / factionStanding) and so are NOT schema fields. ──
+    'senate': {
+      factory: 'blankSenate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Composition', 'Requirements of Office', 'State', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',          type: 'string', group: 'Identity', description: 'e.g. "Senate of Aura"' },
+        { name: 'realmDomainId', type: 'id', idKind: 'domain', group: 'Identity', description: 'The realm apex (a domain with no liege) the senate sits on' },
+        { name: 'kind',          type: 'enum', enumValues: ['senate','eldermoot','council'], group: 'Identity', default: 'senate', description: 'Eldermoot reuses this scaffolding (Dwarven seam)' },
+        { name: 'seats',         type: 'number', min: 0, group: 'Composition', description: 'Total vote pool (RR p.357 size-of-the-senate table)' },
+        { name: 'minSenatorLevel', type: 'number', group: 'Composition', description: 'Min level to sit — inverse to seat count (RR p.357)' },
+        { name: 'independentMinorSenatorVotes', type: 'number', min: 0, group: 'Composition', description: 'Anonymous remainder — leading influence + this = seats (RR p.357)' },
+        { name: 'requirementsOfOffice', type: 'object', group: 'Requirements of Office', description: 'The in-world bar + the bribe-cost-by-period row (RR p.357)', fields: [
+          { name: 'minLevel',        type: 'number' },
+          { name: 'title',           type: 'string', description: 'Baron / Viscount / Count / Duke / Prince' },
+          { name: 'netWorthGp',      type: 'gp' },
+          { name: 'landDescription', type: 'string', description: 'e.g. "2 × 6-mile hexes"' },
+          { name: 'families',        type: 'number' },
+          { name: 'bribeCostDay',    type: 'gp' },
+          { name: 'bribeCostWeek',   type: 'gp' },
+          { name: 'bribeCostMonth',  type: 'gp' },
+          { name: 'bribeCostYear',   type: 'gp' }
+        ] },
+        { name: 'establishedAtTurn',  type: 'number', group: 'State' },
+        { name: 'honeymoonUntilTurn', type: 'number', group: 'State', description: 'RR p.357 — the 1d6-month all-vote-for window for an adventurer-established senate' },
+        { name: 'dispute', type: 'object', group: 'State', description: 'Non-null suspends all senate benefits until resolved (RR p.359)', fields: [
+          { name: 'defiedTopic', type: 'string' },
+          { name: 'sinceTurn',   type: 'number' },
+          { name: 'attempts',    type: 'number' }
+        ] },
+        { name: 'status',  type: 'enum', enumValues: ['active','in-dispute','dissolved'], group: 'State', default: 'active' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'faction': {
+      factory: 'blankFaction',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Platform', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',            type: 'string', group: 'Identity', description: 'e.g. "The Optimates"' },
+        { name: 'senateId',        type: 'id', idKind: 'senate', group: 'Identity', description: 'The senate this faction operates in (nullable — generic factions allowed)' },
+        { name: 'realmDomainId',   type: 'id', idKind: 'domain', group: 'Identity' },
+        { name: 'platform',        type: 'longText', group: 'Platform', description: 'Free-text platform summary' },
+        { name: 'policyObjectives', type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Platform', description: 'The 1d20 objective taxonomy (RR p.357)' },
+        { name: 'kind',            type: 'enum', enumValues: ['ruling','leading','opposition','minor'], group: 'Identity', default: 'minor', description: 'GM stance; the LIVE ruling/leading standing is derived (ACKS.factionStanding)' },
+        { name: 'status',          type: 'enum', enumValues: ['active','dissolved'], group: 'Identity', default: 'active' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'senatorship': {
+      factory: 'blankSenatorship',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Influence', 'Disposition', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Parties' },
+        { name: 'senatorCharacterId',  type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The senator' },
+        { name: 'senateId',            type: 'id', idKind: 'senate', required: true, group: 'Parties' },
+        { name: 'factionId',           type: 'id', idKind: 'faction', group: 'Parties', description: 'Nullable — an independent leading senator' },
+        { name: 'rank',                type: 'enum', enumValues: ['leading','minor'], group: 'Influence', default: 'leading', description: 'leading = named NPC; minor = usually anonymous (senate.independentMinorSenatorVotes)' },
+        { name: 'votes',               type: 'number', min: 0, group: 'Influence', description: 'Influence — the votes this seat controls (RR p.357)' },
+        { name: 'policyObjectives',    type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Influence', description: '1d3 secret objectives (RR p.357)' },
+        { name: 'attitudeTowardRuler', type: 'number', group: 'Disposition', description: '2–12 running disposition — the vote baseline' },
+        { name: 'isSecretInfluence',   type: 'boolean', group: 'Disposition', description: 'RAW: influence + objectives secret until revealed (RR p.357)' },
+        { name: 'bribeCostByPeriod',   type: 'object', group: 'Influence', description: 'Bribe cost per income period (from the requirements-of-office row, RR p.357)', fields: [
+          { name: 'day',   type: 'gp' },
+          { name: 'week',  type: 'gp' },
+          { name: 'month', type: 'gp' },
+          { name: 'year',  type: 'gp' }
+        ] },
+        { name: 'influenceModifiers',  type: 'array', group: 'Influence', description: 'Standing pre-vote modifiers — bribed/intimidated/seduced/owes-favor (P-4 writes these)', itemSchema: { fields: [
+          { name: 'source',        type: 'string', description: 'bribe | intimidate | seduce | gift | owes-favor' },
+          { name: 'kind',          type: 'string', description: 'favorable | unfavorable' },
+          { name: 'value',         type: 'number' },
+          { name: 'sinceTurn',     type: 'number' },
+          { name: 'byCharacterId', type: 'id', idKind: 'character' }
+        ] } },
+        { name: 'seatedAtTurn',  type: 'number', group: 'Lifecycle' },
+        { name: 'vacatedAtTurn', type: 'number', group: 'Lifecycle', description: 'Set on vacating — null while active' },
+        { name: 'status',        type: 'enum', enumValues: ['active','vacated'], group: 'Lifecycle', default: 'active' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Politics P-1 ===
+
+    // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 (#150). Bout / Gladiator
+    // School / Game. adminCreate:'schemaForm' = the generic Admin form (the inspectorCreateBlank*
+    // dispatch spawns a blank + opens this edit). Every field ⊆ the matching blankX keys (the global
+    // schema⊆factory invariant, tests/smoke.js). Deep/engine-written records are omitted (raw-JSON
+    // edited): bout.result (the resolver's output), school.uprisingState (G4 transient). The gladiator
+    // is a Character (socialTier:'gladiator') — not in FIELD_SCHEMAS (the character sheet owns it). ──
+    'bout': {
+      factory: 'blankBout',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Combatants', 'Stakes', 'State', 'History'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'gameId', type: 'id', idKind: 'game', group: 'Identity', description: 'The Game/Munus this bout belongs to (null for a one-off)' },
+        { name: 'kind',   type: 'enum', enumValues: ['to-incapacitation','to-death'], group: 'Identity', default: 'to-incapacitation', description: 'A death-bout rents at 2× (RR/AXIOMS 4 p.20)' },
+        { name: 'sideA',  type: 'object', group: 'Combatants', description: 'One side of the bout', fields: [
+          { name: 'combatantIds', type: 'idArray', idKind: 'character', description: 'Gladiator Character ids (creature/prisoner ids for those side kinds)' },
+          { name: 'kind',         type: 'enum', enumValues: ['gladiator','creature','prisoner'] }
+        ] },
+        { name: 'sideB',  type: 'object', group: 'Combatants', description: 'The other side', fields: [
+          { name: 'combatantIds', type: 'idArray', idKind: 'character', description: 'Gladiator Character ids (creature/prisoner ids for those side kinds)' },
+          { name: 'kind',         type: 'enum', enumValues: ['gladiator','creature','prisoner'] }
+        ] },
+        { name: 'rentPaidGp',     type: 'gp', group: 'Stakes', description: 'What the munerator paid to field these combatants' },
+        { name: 'resolutionMode', type: 'enum', enumValues: ['abstract','combat'], group: 'Stakes', default: 'abstract', description: 'abstract = the 1d10 resolver (p.25); combat = the round-by-round path (Combat-Option-B, G5)' },
+        { name: 'status',         type: 'enum', enumValues: ['scheduled','resolved'], group: 'State', default: 'scheduled' },
+        { name: 'createdAtTurn',  type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',          type: 'string', group: 'History' },
+        { name: 'history',        type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'gladiator-school': {
+      factory: 'blankGladiatorSchool',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Roster', 'Facilities', 'State', 'History'],
+      fields: [
+        { name: 'id',                 type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',               type: 'string', group: 'Identity', description: 'e.g. "Ludus Magnus"' },
+        { name: 'lanistaCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'The owner (the "lanista" role)' },
+        { name: 'settlementId',       type: 'id', idKind: 'settlement', group: 'Identity', description: 'Where it operates (≤1 gladiator / 150 families)' },
+        { name: 'gladiatorCharacterIds',     type: 'idArray', idKind: 'character', group: 'Roster', description: 'The gladiators (Characters, socialTier:gladiator)' },
+        { name: 'staffCharacterIds',         type: 'idArray', idKind: 'character', group: 'Roster', description: 'Trainers / guards / healers / handlers (hirelings)' },
+        { name: 'structureConstructibleIds', type: 'idArray', idKind: 'constructible', group: 'Facilities', description: 'The school buildings (Constructibles)' },
+        { name: 'treasuryStashId',    type: 'id', idKind: 'stash', group: 'Facilities', description: "The school's coffers (a Stash)" },
+        { name: 'status',             type: 'enum', enumValues: ['active','disbanded'], group: 'State', default: 'active' },
+        { name: 'foundedAtTurn',      type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',              type: 'string', group: 'History' },
+        { name: 'history',            type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'game': {
+      factory: 'blankGame',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Venue', 'Schedule', 'State', 'History'],
+      fields: [
+        { name: 'id',                          type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                        type: 'string', group: 'Identity', description: 'The munus name, e.g. "Funeral Games for Lord Aelric"' },
+        { name: 'muneratorCharacterId',        type: 'id', idKind: 'character', group: 'Identity', description: 'The sponsor (a role; often the settlement ruler / Munerator magistrate)' },
+        { name: 'settlementId',                type: 'id', idKind: 'settlement', group: 'Venue', description: "Where it's held (the amphitheater's settlement)" },
+        { name: 'amphitheaterConstructibleId', type: 'id', idKind: 'constructible', group: 'Venue', description: 'The amphitheater (a Constructible)' },
+        { name: 'budgetGp',                    type: 'gp', group: 'Schedule', description: '≥ 0.5gp / urban family (the festival/liturgy expense, p.22)' },
+        { name: 'scheduledTurn',               type: 'number', group: 'Schedule', description: 'Light G1 scheduling hook (the full calendar-date scheduling is G4)' },
+        { name: 'boutIds',                     type: 'idArray', idKind: 'bout', group: 'Schedule', description: '≤12 bouts per day (p.22)' },
+        { name: 'status',                      type: 'enum', enumValues: ['planned','held'], group: 'State', default: 'planned' },
+        { name: 'createdAtTurn',               type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',                       type: 'string', group: 'History' },
+        { name: 'history',                     type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Gladiators G1 ===
+    // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154 / Phase_6_Custom_Classes_Plan.md §3.
+    // The two catalog/template entities (acks-engine-custom-classes.js). adminCreate:'schemaForm' = the
+    // generic Inspector Admin form (the two-verb Admin path; the point-buy Class/Race Builder is W4). Every
+    // field is a blankClassTemplate / blankRaceTemplate key (the global schema⊆factory invariant); the
+    // _derived stat-block cache + the array choices (weaponSelection/thiefSkills) + the dynamic-key race maps
+    // are Raw-JSON-edited in W1 (omitted here — schema⊆factory allows omission). The derived stat block is
+    // read via ACKS.deriveClassFromTemplate (the Builder surfaces it live in W4). ──
+    'custom-class': {
+      factory: 'blankClassTemplate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Build Points', 'Choices', 'Powers', 'Meta', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'key',             type: 'string', group: 'Identity', description: 'Stable key (e.g. "fighter"); resolves character.class strings (W5)' },
+        { name: 'displayName',     type: 'string', required: true, group: 'Identity', description: 'Class name — a renameable display string (IP: campaign-class names trend toward Product Identity)' },
+        { name: 'raceTemplateKey', type: 'id', idKind: 'custom-race', group: 'Identity', description: 'A RaceTemplate.key, or null for a human class' },
+        { name: 'buildPoints',     type: 'object', group: 'Build Points', description: 'The point-buy allocation across the five core categories (JJ pp.290–296). A racial value is buildPoints[raceKey] (Raw JSON in W1).', fields: [
+          { name: 'hd',       type: 'number', min: 0, max: 4, description: 'Hit Dice value (d4–d12)' },
+          { name: 'fighting', type: 'number', min: 0, max: 4, description: 'Fighting value (1 splits 1a/1b via fightingSubtype)' },
+          { name: 'thievery', type: 'number', min: 0, max: 4 },
+          { name: 'divine',   type: 'number', min: 0, max: 4 },
+          { name: 'arcane',   type: 'number', min: 0, max: 4 }
+        ] },
+        { name: 'fightingSubtype', type: 'enum', enumValues: ['1a', '1b'], group: 'Build Points', description: 'Only at Fighting 1: 1a = crusader-style (narrow + heavy), 1b = thief-style (broad + light)' },
+        { name: 'choices',         type: 'object', group: 'Choices', fields: [
+          { name: 'primeRequisite',           type: 'enum', enumValues: ['STR', 'INT', 'WIL', 'DEX', 'CON', 'CHA'] },
+          { name: 'coreClassMapping',         type: 'enum', enumValues: ['fighter', 'crusader', 'thief', 'mage', 'explorer', 'venturer'], description: 'Generators bucket (JJ p.214) — OVERRIDE; else derives from the save progression' },
+          { name: 'strongholdType',           type: 'string', description: 'Castle / Sanctum / Hideout / Vault / Fastness / Cloister / Fortified-Church (JJ p.298)' },
+          { name: 'armorTradeOff',            type: 'string' },
+          { name: 'saveProgressionTieBreak',  type: 'string' },
+          { name: 'spellListKey',             type: 'string', description: 'A magic category selects a spell list (→ the Magic-layer Spells lane #151)' },
+          { name: 'weaponTradeOffPowerCount', type: 'number', min: 0, description: 'Powers gained from weapon trade-offs (+250 XP each at Fighting ≥2)' }
+        ] },
+        { name: 'customPowers',    type: 'array', group: 'Powers', description: 'Custom powers (free-text names + weight + unlock level — survey §8)', itemSchema: { fields: [
+          { name: 'name',         type: 'string' },
+          { name: 'powerWeight',  type: 'number' },
+          { name: 'levelUnlocked', type: 'number' },
+          { name: 'pageRef',      type: 'string' }
+        ] } },
+        { name: 'customDrawbacks', type: 'array', group: 'Powers', description: 'Custom drawbacks — negative powers that buy extra powers (JJ p.329; W2)', itemSchema: { fields: [
+          { name: 'name',        type: 'string' },
+          { name: 'powerWeight', type: 'number' }
+        ] } },
+        { name: 'maxLevel',        type: 'number', min: 1, group: 'Meta', description: 'RAW level cap (humans 14; racials per the build-points→cap table — W3)' },
+        { name: 'rarity',          type: 'enum', enumValues: ['common', 'uncommon', 'rare', 'legendary'], group: 'Meta', description: 'Henchman-availability + generator frequency (the Generators seam)' },
+        { name: 'isSeed',          type: 'boolean', readonly: true, group: 'Meta', description: 'A shipped RAW seed class vs a GM-authored one' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'custom-race': {
+      factory: 'blankRaceTemplate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Build', 'Generators', 'Meta', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'key',             type: 'string', group: 'Identity', description: 'Stable key (e.g. "dwarf")' },
+        { name: 'displayName',     type: 'string', required: true, group: 'Identity' },
+        { name: 'racialValueTable', type: 'array', group: 'Build', description: 'Value 0–4 → racial powers + XP cost (JJ pp.299–305; sparse in W1 — the full table + deriveRaceCost is W3)', itemSchema: { fields: [
+          { name: 'value',  type: 'number' },
+          { name: 'xpCost', type: 'number' }
+        ] } },
+        { name: 'hitDiceByCombatantStatus', type: 'object', group: 'Generators', description: 'The ¼/½/1-1/1 ladder (JJ p.252 — the NPC-Generator seam)', fields: [
+          { name: 'noncombatant', type: 'number' },
+          { name: 'commoner',     type: 'number' },
+          { name: 'militia',      type: 'string' },
+          { name: 'fighter',      type: 'number' }
+        ] },
+        { name: 'ageModifierDice', type: 'string', group: 'Generators', description: 'e.g. "+2d8" (dwarf), "+2d20" (elf), "ageless" (nobiran) — the NPC-Generator seam' },
+        { name: 'isMonstrous',     type: 'boolean', group: 'Meta' },
+        { name: 'isSeed',          type: 'boolean', readonly: true, group: 'Meta' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+        // abilityRequirements / categoryModifiers / afterEighthIncrement are dynamic-key maps —
+        // Raw-JSON-edited in W1 (the Race Builder W3 surfaces them); omitted here (schema⊆factory).
+      ]
+    },
+
+    // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Every field is
+    // a blankLoan / blankBankAccount key (the global schema⊆factory invariant). creditor/debtor/
+    // collateral/owner/custodian default null in the factory, so their object sub-fields are not
+    // cross-checked (smoke.js only checks a non-null factory object). ventureId/fdObligationId are
+    // reserved (B5/B2) and intentionally omitted from the Inspector schema. ──
+    'loan': {
+      factory: 'blankLoan',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Counterparties', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'kind',   type: 'enum', enumValues: ['commercial','personal','feudal'], group: 'Identity', description: 'commercial = RR p.42 Access to Capital; personal = a PC↔PC loan; feudal = the F&D liege↔vassal loan (B2 reconcile)' },
+        { name: 'creditor', type: 'object', group: 'Counterparties', description: 'The lender — a bank/merchant-guild (off-campaign capital) or a character/domain', fields: [
+          { name: 'kind',  type: 'string', description: "'character' | 'domain' | 'bank' | 'merchant-guild'" },
+          { name: 'id',    type: 'string', description: 'character/domain id (omit for a bank)' },
+          { name: 'label', type: 'string' }
+        ] },
+        { name: 'debtor', type: 'object', group: 'Counterparties', description: 'The borrower', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'principalGp',         type: 'gp', group: 'Terms', description: 'The original advance' },
+        { name: 'balanceGp',           type: 'gp', group: 'Terms', description: 'Current outstanding (interest capitalizes onto this when unpaid)' },
+        { name: 'interestRateMonthly', type: 'number', group: 'Terms', description: 'RR p.42 — 0.03 uncollateralized / 0.01 collateralized' },
+        { name: 'collateral', type: 'object', group: 'Terms', description: 'null for an uncollateralized loan', fields: [
+          { name: 'kind',        type: 'string' },
+          { name: 'label',       type: 'string' },
+          { name: 'stashItemId', type: 'string' }
+        ] },
+        { name: 'marketSettlementId',  type: 'id', idKind: 'settlement', group: 'Terms', description: 'The market the credit was drawn in (capital-pool accounting, RR p.42)' },
+        { name: 'status',              type: 'enum', enumValues: ['offered','active','repaid','defaulted','written-off'], group: 'Lifecycle' },
+        { name: 'contractedAtTurn',    type: 'number', group: 'Lifecycle' },
+        { name: 'settledAtTurn',       type: 'number', group: 'Lifecycle', description: 'Set when repaid/written-off — null while active' },
+        { name: 'missedInterestTurns', type: 'number', group: 'Lifecycle', description: 'Consecutive months interest went unpaid (RR p.42)' },
+        { name: 'disreputable',        type: 'boolean', group: 'Lifecycle', description: 'Unpaid interest built up → loses Mercantile-network powers (RR p.42)' },
+        { name: 'debtOverXp',          type: 'boolean', group: 'Lifecycle', description: 'Balance exceeds the debtor’s XP → bounty-hunter pursuit (RR p.42; flag only in B1)' },
+        { name: 'history',             type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
+
+    'bankAccount': {
+      factory: 'blankBankAccount',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Ownership', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id', type: 'string', readonly: true, group: 'Identity' },
+        { name: 'owner', type: 'object', group: 'Ownership', description: 'The depositor', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'custodian', type: 'object', group: 'Ownership', description: 'The bank / merchant-guild holding the funds', fields: [
+          { name: 'kind',               type: 'string', description: "'bank' | 'merchant-guild'" },
+          { name: 'label',              type: 'string' },
+          { name: 'marketSettlementId', type: 'string' }
+        ] },
+        { name: 'balanceGp',                   type: 'gp', group: 'Terms' },
+        { name: 'custodyFeePctAtConsignment',  type: 'number', group: 'Terms', description: 'RR p.313 — 0.10 at heir-consignment; 0 for a working account' },
+        { name: 'depositInterestRateMonthly',  type: 'number', group: 'Terms', description: 'Off by default (no RAW deposit interest); set > 0 to credit a monthly return' },
+        { name: 'marketSettlementId',          type: 'id', idKind: 'settlement', group: 'Terms' },
+        { name: 'status',                      type: 'enum', enumValues: ['open','closed','forfeited'], group: 'Lifecycle' },
+        { name: 'history',                     type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
+
+    // === Banking B4/B5 (team burst9 2026-06-20) — the letter of credit (loc-): the inter-market draw
+    // primitive. Fields ⊆ blankLetterOfCredit keys (the schema⊆factory invariant). ===
+    'letterOfCredit': {
+      factory: 'blankLetterOfCredit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Parties', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'sourceAccountId', type: 'id', idKind: 'bankAccount', group: 'Identity', description: 'The bank account the letter is drawn against' },
+        { name: 'issuer', type: 'object', group: 'Parties', description: 'Who drew it (the account owner)', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'bearer', type: 'object', group: 'Parties', description: 'Who may redeem it (default = the issuer)', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'faceValueGp',               type: 'gp', group: 'Terms', description: 'The amount drawable at the destination market' },
+        { name: 'issueFeeGp',                type: 'gp', group: 'Terms', description: 'The one-time issue fee (a reasoned tooling number, not a RAW fee)' },
+        { name: 'issuingMarketSettlementId', type: 'id', idKind: 'settlement', group: 'Terms', description: 'Where it was drawn (the account’s market)' },
+        { name: 'drawingMarketSettlementId', type: 'id', idKind: 'settlement', group: 'Terms', description: 'Where it is redeemable (a different market; RR p.42 capital pool gates the draw)' },
+        { name: 'status',                    type: 'enum', enumValues: ['outstanding','redeemed','cancelled'], group: 'Lifecycle' },
+        { name: 'issuedAtTurn',              type: 'number', group: 'Lifecycle' },
+        { name: 'settledAtTurn',             type: 'number', group: 'Lifecycle', description: 'Set when redeemed/cancelled — null while outstanding' },
+        { name: 'history',                   type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
+    // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact. The per-knower Knowledge
+    // relation (knw-) is accessor-only (surfaced via the Knowledge tab + loreKnownBy), NOT Inspector-
+    // edited, so no schema for it. subjectIds + qualityDimensions are mixed-kind / freeform arrays —
+    // Raw-JSON-edited, omitted here per the schema⊆factory rule (the custom-race precedent above). ===
+    'lore': {
+      factory: 'blankLore',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Fact', 'Provenance', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string',   readonly: true, group: 'Identity' },
+        { name: 'topic',                type: 'string',   group: 'Identity', description: 'A short subject tag for grouping/search' },
+        { name: 'text',                 type: 'longText', required: true, group: 'Fact', description: 'The fact as stated (the TRUE statement of it)' },
+        { name: 'loreKind',             type: 'enum', enumValues: ['fact','rumor','secret','identity'], group: 'Fact', default: 'fact' },
+        { name: 'truthValue',           type: 'enum', enumValues: ['true','false','partial','unknown'], group: 'Fact', default: 'unknown', description: 'Is the statement actually true in the world?' },
+        { name: 'createdByCharacterId', type: 'id', idKind: 'character', group: 'Provenance', description: 'Who first recorded it (optional)' },
+        { name: 'createdAtTurn',        type: 'number',   readonly: true, group: 'Provenance' },
+        { name: 'notes',                type: 'string',   group: 'Fact' },
+        { name: 'history',              type: 'history',  readonly: true, group: 'History' }
+      ]
     }
   };
+  Object.entries(FIELD_SCHEMAS_SEED).forEach(([kind, schema]) => registerFieldSchema(kind, schema));   // seed byte-identically (insertion order preserved)
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+  // XLS-1 FOUNDATION (Phase_2.5_Excel_Import_Plan.md §3) — the hex + domain field-schemas + the
+  // import-column projection. ONE source drives the Inspector form, a future Hex/Domain Wizard
+  // (Inspector Wave-F), AND the Excel importer/exporter (template, columns, validation, reference).
+  // ═══════════════════════════════════════════════════════════════════════════════════════════
+
+  // ─── 3b. enumSource resolution ───
+  // Resolve an enumSource token to its LIVE legal-value array, read from window.ACKS catalogs/
+  // accessors AT CALL TIME (never inlined — so terrain/Köppen/biome/classification can't drift from
+  // the catalogs). `arg` parameterizes a DEPENDENT enum (e.g. subtypesForTerrain(base)). An unknown /
+  // not-yet-loaded source resolves to [] (the caller reads an empty legal-set as "don't enum-validate").
+  function resolveEnumSource(source, arg){
+    if(!source || typeof source !== 'string') return [];
+    if(source === 'subtypesForTerrain'){
+      if(arg != null && ACKS.TERRAIN_SUBTYPES) return (ACKS.TERRAIN_SUBTYPES[arg] || []).slice();
+      return typeof ACKS.allTerrainSubtypes === 'function' ? ACKS.allTerrainSubtypes() : [];
+    }
+    if(source === 'KOPPEN_CODES') return ACKS.KOPPEN_CLIMATE ? Object.keys(ACKS.KOPPEN_CLIMATE) : [];
+    const v = ACKS[source];
+    if(Array.isArray(v)) return v.slice();
+    if(typeof v === 'function'){ try { const r = v(arg); return Array.isArray(r) ? r.slice() : []; } catch(_e){ return []; } }
+    if(v && typeof v === 'object') return Object.keys(v);
+    return [];
+  }
+  // The legal values for an enum/enumMulti field — static enumValues, else the live enumSource.
+  function enumValuesForField(field, arg){
+    if(!field) return [];
+    if(Array.isArray(field.enumValues) && field.enumValues.length) return field.enumValues.slice();
+    if(field.enumSource) return resolveEnumSource(field.enumSource, arg);
+    return [];
+  }
+
+  // ─── 3c. schemaToImportColumns — the schema → flat-column projection (plan §3.3) ───
+  // The ONE place "flat spreadsheet" meets "entity-shaped schema". The same ordered column set feeds
+  // the template headers, the export order, the header→field map, import validation, and the reference
+  // sheet — so import + export can never disagree. Each column descriptor:
+  //   { header, field (dotted path), type, role, idKind?, enumSource?, enumValues?, multi?,
+  //     required?, axis? ('col'|'row' on a coord pair), lazy? (a schema importExtraColumns entry) }
+  // role ∈ id | scalar | enum | coord | hexRef | idRef.  coord + hexRef each emit TWO columns (Col/Row).
+  const _PROJECT_LEAF = new Set(['string','longText','number','boolean','gp','date','enum','enumMulti','id','coord']);
+  function _defaultHeader(f){ return f.importHeader || (f.name.charAt(0).toUpperCase() + f.name.slice(1)); }
+  function _columnsForField(f, parentName){
+    const path = parentName ? parentName + '.' + f.name : f.name;
+    if(f.type === 'coord'){
+      // bare top-level `coord` → Col/Row; an importHeader'd / named coord → {Base}Col/{Base}Row.
+      const base = f.importHeader || (f.name === 'coord' ? '' : (f.name.charAt(0).toUpperCase() + f.name.slice(1)));
+      return [
+        { header: base + 'Col', field: path, type:'coord', role:'coord', axis:'col', required: !!f.required },
+        { header: base + 'Row', field: path, type:'coord', role:'coord', axis:'row', required: !!f.required }
+      ];
+    }
+    if(f.type === 'id' && f.idKind === 'hex'){
+      // a hex reference is addressed by COORDINATE in the workbook (not by hex id) → a Col/Row pair.
+      const base = f.importHeader || 'Hex';
+      return [
+        { header: base + 'Col', field: path, type:'id', idKind:'hex', role:'hexRef', axis:'col', required: !!f.required },
+        { header: base + 'Row', field: path, type:'id', idKind:'hex', role:'hexRef', axis:'row', required: !!f.required }
+      ];
+    }
+    if(f.type === 'id'){
+      return [{ header: _defaultHeader(f), field: path, type:'id', idKind: f.idKind || null, role:'idRef', required: !!f.required }];
+    }
+    if(f.type === 'enum' || f.type === 'enumMulti'){
+      return [{ header: _defaultHeader(f), field: path, type: f.type, role:'enum', enumSource: f.enumSource || null, enumValues: f.enumValues || null, multi: f.type === 'enumMulti', required: !!f.required }];
+    }
+    return [{ header: _defaultHeader(f), field: path, type: f.type, role:'scalar', required: !!f.required }];
+  }
+  function schemaToImportColumns(kind){
+    const schema = (typeof kind === 'string') ? FIELD_SCHEMAS[kind] : kind;
+    if(!schema || !Array.isArray(schema.fields)) return [];
+    const out = [];
+    // Id is always column 1 — the create/upsert key (blank ⇒ create a fresh id; present ⇒ upsert).
+    // The schema's `id` field is readonly (so the main loop skips it); the column is universal (§4.0).
+    if(schema.fields.some(f => f && f.name === 'id')) out.push({ header:'Id', field:'id', type:'string', role:'id' });
+    for(const f of schema.fields){
+      if(!f || !f.name || f.name === 'id') continue;
+      if(f.readonly || f.type === 'computed' || f.type === 'history') continue;
+      if(f.importable === false) continue;                 // hard-exclude (engine-managed: parentHexId, accrual counters)
+      if(f.type === 'object'){
+        // recurse — a nested leaf is projected ONLY when explicitly importColumn:true (plan §3.3 rule 6)
+        for(const sub of (f.fields || [])){
+          if(!sub || !sub.name || sub.importColumn !== true) continue;
+          if(sub.readonly || sub.type === 'computed' || sub.importable === false) continue;
+          if(!_PROJECT_LEAF.has(sub.type)) continue;
+          out.push.apply(out, _columnsForField(sub, f.name));
+        }
+        continue;
+      }
+      if(!_PROJECT_LEAF.has(f.type)) continue;             // array / idArray → a separate sheet, not a column (rule 7)
+      if(f.importColumn === false) continue;               // a top-level leaf is projected unless importColumn:false
+      out.push.apply(out, _columnsForField(f, null));
+    }
+    // Lazy / non-factory columns declared at SCHEMA level — e.g. hex.domainId, the canonical hex→domain
+    // link that is set by assignment but NOT emitted by blankHex, so it cannot live in fields[] without
+    // breaking the schema⊆factory invariant. Declaring it here keeps the single-source principle.
+    for(const f of (schema.importExtraColumns || [])){
+      if(!f || !f.name) continue;
+      _columnsForField(f, null).forEach(c => { c.lazy = true; out.push(c); });
+    }
+    return out;
+  }
+
+  // ─── 3d. The hex field-schema (plan §3.4) — authored ⊆ blankHex keys (the schema⊆factory invariant).
+  // adminCreate:'schemaForm' unblocks the Inspector hex Admin-Create (Inspector Wave-F). The importable
+  // projection (§4.2) drops the derived classification (D5) + the domain-level families/value (D4) +
+  // the engine-managed accrual counters. Deep/brush/contents fields (roadSides/riverSides/crossingSides
+  // geometry; settlement/lairs/dungeons/pointsOfInterest — their own sheets, §3.3 rule 7;
+  // terrainTransformationState; the landImprovementProjects log) are OMITTED (schema ⊆ factory permits
+  // a subset; raw-JSON / map-brush edited). domainId is in importExtraColumns (a lazy non-factory link).
+  registerFieldSchema('hex', {
+    factory: 'blankHex',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Terrain','Geography','Economy','Contents'],
+    fields: [
+      { name:'id',             type:'string', readonly:true, group:'Identity' },
+      { name:'coord',          type:'coord',  required:true, group:'Identity' },                 // → Col / Row
+      { name:'classification', type:'enum', enumSource:'DOMAIN_CLASSIFICATIONS', importColumn:false, group:'Identity', description:'Derived from the owning domain (D5) — Inspector-shown, never an Excel column; domainless ⇒ unsettled' },
+      { name:'explored',       type:'boolean', group:'Identity' },
+      { name:'terrain',        type:'enum', enumSource:'TERRAIN_BASES', group:'Terrain' },
+      { name:'terrainSubtype', type:'enum', enumSource:'subtypesForTerrain', importHeader:'Subtype', group:'Terrain', description:'A sub-type of the chosen base (validated against it on import)' },
+      { name:'koppen',         type:'enum', enumSource:'KOPPEN_CODES', group:'Terrain', description:'Köppen climate code — the weather key + biome source; the lever: set Koppen + leave Terrain blank ⇒ filled from koppenSuggestions' },
+      { name:'biomeOverride',  type:'enum', enumSource:'BIOMES', importHeader:'BiomeOverride', group:'Terrain', description:'Override the Köppen-derived biome (biome itself is derived, never stored)' },
+      { name:'elevationFt',    type:'number', group:'Geography' },
+      { name:'groundCondition',type:'enum', enumValues:['clear','mud','snow'], group:'Geography' },
+      { name:'hasRoad',        type:'boolean', group:'Geography' },
+      { name:'hasTrail',       type:'boolean', group:'Geography' },
+      { name:'hasLake',        type:'boolean', group:'Geography', description:'A freshwater lake on this land hex' },
+      { name:'freshWater',     type:'boolean', group:'Geography', description:'For terrain:water — a genuine freshwater body (else salt sea)' },
+      { name:'seaZone',        type:'enum', enumValues:['lake','river','coast','open-sea'], group:'Geography', description:'Sea-navigation zone (terrain:water only)' },
+      { name:'hexScale',       type:'enum', enumValues:['local','regional','continental'], group:'Geography' },
+      { name:'parentHexId',    type:'id', idKind:'hex', importable:false, group:'Geography', description:'Coord-derived coarser-hex parent (HW-4) — engine-managed, never imported' },
+      { name:'families',       type:'number', importColumn:false, group:'Economy', description:'Domain-level (D4); never an Excel column — the rural census distributes the domain total' },
+      { name:'valuePerFamily', type:'number', importColumn:false, group:'Economy', description:'Derived from the owning domain (D4)' },
+      { name:'landImprovementBonus',    type:'number', importable:false, group:'Economy', description:'Accrual counter (RR p.341) — engine-managed' },
+      { name:'landImprovementInvested', type:'number', importable:false, group:'Economy', description:'Accrual counter — engine-managed' },
+      { name:'queuedImprovementGp',     type:'number', importable:false, group:'Economy', description:'Accrual counter — engine-managed' },
+      { name:'improvementBudgetGp',     type:'gp',     importable:false, group:'Economy', description:'Drip budget — engine-managed' },
+      { name:'economyType',    type:'string', group:'Economy', description:"Land-revenue discriminator (default 'agricultural')" },
+      { name:'primaryStructure',type:'string', group:'Contents' },
+      { name:'monsterNotes',   type:'longText', group:'Contents' },
+      { name:'notes',          type:'longText', group:'Contents' }
+    ],
+    importExtraColumns: [
+      { name:'domainId', type:'id', idKind:'domain', importHeader:'Domain', description:'Claiming domain (blank = unclaimed ⇒ unsettled). A LAZY hex field — set by assignment, not emitted by blankHex — so it is declared here, not in fields[], to keep the schema⊆factory invariant. Resolved by Name-or-Id (OQ2: unresolved ⇒ skip + report).' }
+    ]
+  });
+
+  // ─── 3e. The domain field-schema (plan §3.5) — authored ⊆ blankDomain keys. The importable projection
+  // (§4.1) promotes object leaves to flat columns (demographics.peasantFamilies → PeasantFamilies, the
+  // geography.primaryHex coord seat → PrimaryHexCol/Row) and keeps the derived classification (OQ8) +
+  // the RAW income-rate constants (OQ5) + domainType/dominantRace Inspector-only. Deep engine-managed
+  // objects (income/expenses/stronghold/urban/warfare/magistrates/council/specialists/…) are OMITTED
+  // (schema ⊆ factory permits a subset; raw-JSON / subsystem-managed).
+  registerFieldSchema('domain', {
+    factory: 'blankDomain',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Vassalage','Population','Economy','Geography','History'],
+    fields: [
+      { name:'id',              type:'string', readonly:true, group:'Identity' },
+      { name:'name',            type:'string', required:true, group:'Identity' },
+      { name:'type',            type:'string', group:'Identity', default:'rural' },
+      { name:'classification',  type:'enum', enumSource:'DOMAIN_CLASSIFICATIONS', importColumn:false, group:'Identity', description:'Derived (override + permanence floor); Inspector-editable, never an Excel column (OQ8)' },
+      { name:'domainType',      type:'enum', enumValues:['ordinary','clanhold','transitional','demchi'], importColumn:false, group:'Identity', description:'RAW domain type (RR pp.353–354) — Inspector field; not a v1 Excel column' },
+      { name:'dominantRace',    type:'string', importColumn:false, group:'Identity', description:'Beastman / demi-human population tag — Inspector field' },
+      { name:'rulerCharacterId',type:'id', idKind:'character', group:'Identity', description:'The ruler — referenced by id (characters are out of the v1 workbook, §4.7)' },
+      { name:'liegeId',         type:'id', idKind:'domain', importHeader:'Liege', group:'Vassalage', description:'Suzerain domain; resolved by Name-or-Id in a two-pass commit so a vassal listed before its liege still links' },
+      { name:'controllingPlayerId', type:'string', importColumn:false, group:'Vassalage', description:'Multi-actor / Player Portal (#222, B2) — the player who controls this domain (free-form player id; null = GM-run). projectCampaignForPlayer partitions on it. Inspector field; not a v1 Excel column.' },
+      { name:'isRealm',         type:'boolean', group:'Vassalage' },
+      { name:'vassalIds',       type:'idArray', idKind:'domain', importColumn:false, group:'Vassalage', description:'Reconciled from each vassal’s liegeId (derived); never an Excel column' },
+      { name:'demographics',    type:'object', group:'Population', fields:[
+        { name:'peasantFamilies', type:'number', importColumn:true, importHeader:'PeasantFamilies' },
+        { name:'urbanFamilies',   type:'number', importColumn:true, importHeader:'UrbanFamilies' },
+        { name:'morale',          type:'number', importColumn:true, importHeader:'Morale' },
+        { name:'moraleNotes',     type:'longText' }
+      ] },
+      { name:'treasury',        type:'object', group:'Economy', fields:[
+        { name:'gp', type:'gp', importColumn:true, importHeader:'TreasuryGp' }
+      ] },
+      { name:'taxPolicy',       type:'object', group:'Economy', fields:[
+        { name:'rate',         type:'string', importColumn:true, importHeader:'TaxRate' },
+        { name:'moraleImpact', type:'number' }
+      ] },
+      { name:'geography',       type:'object', group:'Geography', fields:[
+        { name:'primaryHex', type:'coord', importColumn:true, importHeader:'PrimaryHex' }      // → PrimaryHexCol / PrimaryHexRow
+      ] },
+      { name:'roadToTownOverride', type:'boolean', importColumn:false, group:'Geography', description:'GM override for the road-to-small-town completion check (map-less campaigns)' },
+      { name:'notes',           type:'longText', group:'History' },
+      { name:'history',         type:'history', readonly:true, group:'History' }
+    ]
+  });
+
+  // ─── 3f. The settlement field-schema (XLS-3, plan §4.3) — authored ⊆ blankSettlement keys. The
+  // workbook addresses the home hex by COORDINATE (hexId, idKind:'hex' → HexCol/HexRow); the domain is
+  // INHERITED from that hex, never authored here (T6 single-home). Also advances the Inspector for
+  // settlements (adminCreate:'schemaForm'). Deep/freeform fields (demandModifiers/placesOfPower/rumors/
+  // entryways/regulatedAssets/demographicOverrides + the engine investment-drip counters) are OMITTED.
+  registerFieldSchema('settlement', {
+    factory: 'blankSettlement',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Population','Economy','History'],
+    fields: [
+      { name:'id',               type:'string', readonly:true, group:'Identity' },
+      { name:'hexId',            type:'id', idKind:'hex', importHeader:'Hex', group:'Identity', description:'The hex this settlement sits on — the domain is inherited from the hex (T6)' },  // → HexCol/HexRow
+      { name:'name',             type:'string', required:true, group:'Identity' },
+      { name:'families',         type:'number', group:'Population' },
+      { name:'totalInvestment',  type:'gp', group:'Economy' },
+      { name:'foundedTurn',      type:'number', group:'History' },
+      { name:'foundedByCharacterId', type:'id', idKind:'character', importColumn:false, group:'History' },
+      { name:'notes',            type:'longText', group:'History' }
+    ]
+  });
+
+  // ─── 3g. The character field-schema (G1 — audit 2026-06-24) — the load-bearing stub. Authored
+  // ⊆ blankCharacter keys (the schema⊆factory invariant). adminCreate:'schemaForm' advances the
+  // Inspector character Admin-Create (Wave-F). Characters are OUT of the v1 Excel workbook (Excel plan
+  // §4.7 — referenced by id, not authored as rows), so no import flags. The four fixed-shape stat
+  // objects (hp/abilities/savingThrows/coins) are schematized; the deep/freeform structures
+  // (proficiencies/classPowers/inventory/recruitmentDrives/goals/relationships/honor/shame/
+  // mercantileNetwork/earningsLedger/mortalWounds + divinePower + transformationState) are OMITTED
+  // (schema ⊆ factory permits a subset; raw-JSON / subsystem-managed — the Wave-C convention).
+  registerFieldSchema('character', {
+    factory: 'blankCharacter',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Class & Level','Abilities','Combat','Wealth','Location','Vassalage & Service','Survival','Lifecycle','Narrative','History'],
+    fields: [
+      { name:'id',             type:'string', readonly:true, group:'Identity' },
+      { name:'name',           type:'string', required:true, group:'Identity' },
+      { name:'controlledBy',   type:'enum', enumValues:['player','gm'], group:'Identity', description:'Player- vs GM-driven (the five-axis model, Architecture §2)' },
+      { name:'ownerPlayerId',  type:'string', group:'Identity', description:'Multi-actor / Player Portal (#222, B2) — which player owns this character (free-form player id; null = unassigned / a GM NPC). No players[] collection yet, so a plain string, not an id reference.' },
+      { name:'detailLevel',    type:'enum', enumValues:['lightweight','full'], group:'Identity', description:'A lightweight NPC stub vs a fully-statted character (expandCharacterToFull promotes)' },
+      { name:'socialTier',     type:'string', group:'Identity', description:'independent / henchman / specialist / follower / hireling / mercenary / slave / gladiator … — an open axis (it has grown with features), so a string not an enum' },
+      { name:'lifecycleState', type:'string', group:'Identity', description:'active / candidate / departed / imprisoned / dominated / deceased … — not a fixed engine set (the group-schema precedent), so a string' },
+      { name:'alignment',      type:'enum', enumValues:['L','N','C'], group:'Identity', description:'ACKS single-letter alignment — Lawful / Neutral / Chaotic' },
+      { name:'race',           type:'string', group:'Identity', description:'Open string — custom races allowed (#154)' },
+      { name:'class',          type:'string', group:'Class & Level', description:'Open string — custom classes allowed (#154)' },
+      { name:'isEnchantedCreature', type:'boolean', group:'Identity', description:'A monster/creature rather than a person (drives the creatureTypes axis)' },
+      { name:'creatureTypes',  type:'enumMulti', enumValues:['humanoid','beastman-humanoid','animal','construct','giant','incarnation','monstrosity','ooze','plant','undead','vermin'], group:'Identity' },
+      { name:'hitDice',        type:'string', group:'Class & Level', description:"RAW HD string for creatures (e.g. '4+1'); blank for leveled characters" },
+      { name:'level',          type:'number', group:'Class & Level' },
+      { name:'xp',             type:'number', group:'Class & Level' },
+      { name:'reserveXp',      type:'number', group:'Class & Level', description:'XP earned past the monthly threshold, held in reserve (RR p.124)' },
+      { name:'henchmanCap',    type:'number', group:'Class & Level', description:'Max henchmen (4 + CHA modifier; RR p.336)' },
+      { name:'constructionSupervisorCap', type:'number', group:'Class & Level', description:'Concurrent construction projects this character can supervise' },
+      { name:'hp',             type:'object', group:'Combat', fields:[
+        { name:'current',  type:'number' },
+        { name:'max',      type:'number' },
+        { name:'hitDice',  type:'string', description:'The HD the max was rolled from' }
+      ] },
+      { name:'ac',             type:'number', group:'Combat' },
+      { name:'attackThrow',    type:'number', group:'Combat', description:'The 1d20 attack throw target (RR p.296)' },
+      { name:'abilities',      type:'object', group:'Abilities', fields:[
+        { name:'STR', type:'number' }, { name:'INT', type:'number' }, { name:'WIL', type:'number' },
+        { name:'DEX', type:'number' }, { name:'CON', type:'number' }, { name:'CHA', type:'number' }
+      ] },
+      { name:'savingThrows',   type:'object', group:'Combat', fields:[
+        { name:'paralysis',  type:'number' }, { name:'death', type:'number' }, { name:'blast', type:'number' },
+        { name:'implements', type:'number' }, { name:'spells', type:'number' }
+      ] },
+      { name:'permanentWoundPenalty', type:'number', group:'Combat', description:'Cumulative penalty from healed mortal wounds (Delves D1; RR App.C)' },
+      { name:'mortalityPenalty',      type:'number', group:'Combat', description:'Cumulative tampering/mortal-wound mortality modifier' },
+      { name:'coins',          type:'object', group:'Wealth', description:'Carried coin by denomination', fields:[
+        { name:'pp', type:'number' }, { name:'gp', type:'number' }, { name:'ep', type:'number' },
+        { name:'sp', type:'number' }, { name:'cp', type:'number' }
+      ] },
+      { name:'personalGp',     type:'gp', group:'Wealth', description:'Convenience scalar mirroring coins.gp' },
+      { name:'monthlyWage',    type:'gp', group:'Wealth', description:'Wage owed if this character is a hireling/henchman (RR p.168)' },
+      { name:'upkeepMonthly',  type:'gp', group:'Wealth' },
+      { name:'lastLivingExpensePaidGp', type:'gp', group:'Wealth', description:'Cost-of-living paid last month (CoL-2)' },
+      { name:'currentHexId',     type:'id', idKind:'hex',        group:'Location' },
+      { name:'currentDomainId',  type:'id', idKind:'domain',     group:'Location' },
+      { name:'currentJourneyId', type:'id', idKind:'journey',    group:'Location', description:'Set while travelling — only one journey at a time' },
+      { name:'partyId',          type:'id', idKind:'party',      group:'Location' },
+      { name:'homeSettlementId', type:'id', idKind:'settlement', group:'Location', description:'Urban residence (the SD census home)' },
+      { name:'homeDomainId',     type:'id', idKind:'domain',     group:'Location', description:'The realm this NPC serves in (realmCommandStructure entourage)' },
+      { name:'homeHexId',        type:'id', idKind:'hex',        group:'Location' },
+      { name:'placementRole',    type:'string', group:'Location', description:'SD-7b placement taxonomy bucket (ruler / countryside / mercenary / …)' },
+      { name:'travelDestination', type:'string', group:'Location', description:'Pending travel target (hex id / coord) — the journey is the source of truth once underway' },
+      { name:'travelPace',       type:'string', group:'Location' },
+      { name:'liegeCharacterId', type:'id', idKind:'character', group:'Vassalage & Service', description:'The patron this character is henched/hired to' },
+      { name:'loyalty',          type:'number', group:'Vassalage & Service', description:'Loyalty score toward the liege (RR p.337; ± employer CHA)' },
+      { name:'lifestyleTargetLevel', type:'number', group:'Vassalage & Service', description:'Cost-of-living social level the character maintains (CoL-2)' },
+      { name:'effectiveSocialLevel', type:'number', group:'Vassalage & Service', description:'Derived/overridden social level → henchman cap + loyalty' },
+      { name:'payKeepFromTreasury',  type:'boolean', group:'Vassalage & Service', description:'A ruler draws his keep from the domain treasury (else from personal coin)' },
+      { name:'personalFatigue',  type:'number', group:'Survival', description:'Strenuous-day streak toward Fatigued (AB-2; JJ p.84)' },
+      { name:'hungerDays',       type:'number', group:'Survival' },
+      { name:'dehydrationDays',  type:'number', group:'Survival' },
+      { name:'waterDaysCarried', type:'number', group:'Survival', description:'Days of drinking water on hand (RR p.278)' },
+      { name:'foodDeficitDays',  type:'number', group:'Survival' },
+      { name:'waterDeficitDays', type:'number', group:'Survival' },
+      { name:'underfed',         type:'boolean', group:'Survival' },
+      { name:'starving',         type:'boolean', group:'Survival' },
+      { name:'dehydrated',       type:'boolean', group:'Survival' },
+      { name:'conLossHunger',    type:'number', group:'Survival', description:'Temporary CON lost to starvation (recovers on feeding)' },
+      { name:'conLossThirst',    type:'number', group:'Survival' },
+      { name:'age',          type:'number', group:'Lifecycle', description:'Age in years (CL-1; RR p.19) — null until set' },
+      { name:'ageMonths',    type:'number', group:'Lifecycle', description:'Months into the current year of age' },
+      { name:'ageCategory',  type:'string', group:'Lifecycle', description:'Derived life-stage band (CL-1)' },
+      { name:'agingDeathSave', type:'number', group:'Lifecycle', description:'The venerable-age death save target, once aging begins' },
+      { name:'autoAdvance',  type:'boolean', group:'Lifecycle', description:'Whether the lifecycle day-tick ages this character automatically' },
+      { name:'heroicCode',   type:'string', group:'Lifecycle', description:'Heroic Code followed (Phase 6) — null when none' },
+      { name:'fatePoints',   type:'number', group:'Lifecycle', description:'Fate/luck points (Phase 6) — null when unused' },
+      { name:'alive',        type:'boolean', group:'Lifecycle' },
+      { name:'deceasedTurn', type:'number', group:'Lifecycle', description:'Turn of death — null while alive' },
+      // `background` is OMITTED: it is polymorphic in real saves (a free-text string OR a structured
+      // { origin, notes } object), and no single field-type accepts both — so it falls through to the
+      // $def's lenient additionalProperties (raw-JSON edited), per the build-schema "never reject a
+      // valid save" posture.
+      { name:'personality',  type:'longText', group:'Narrative' },
+      { name:'secrets',      type:'longText', group:'Narrative' },
+      { name:'voice',        type:'string', group:'Narrative', description:'GM voice/mannerism note' },
+      { name:'notes',        type:'longText', group:'Narrative' },
+      { name:'history',      type:'history', readonly:true, group:'History' }
+    ]
+  });
+
+  // ─── 3h. The rumor field-schema (G1) — authored ⊆ blankRumor keys. The three rumor vocabularies
+  // (truth/apparent-level/topic) read live from the subsystem catalogs via enumSource. Inspector-only.
+  registerFieldSchema('rumor', {
+    factory: 'blankRumor',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Classification','Origin','Spread','History'],
+    fields: [
+      { name:'id',            type:'string', readonly:true, group:'Identity' },
+      { name:'text',          type:'longText', required:true, group:'Identity', description:'The rumor as heard at the table' },
+      { name:'truthLevel',    type:'enum', enumSource:'RUMOR_TRUTH_LEVELS', group:'Classification', description:'How true it actually is (GM-only)' },
+      { name:'apparentLevel', type:'enum', enumSource:'RUMOR_APPARENT_LEVELS', group:'Classification', description:'How widespread/credible it seems' },
+      { name:'topic',         type:'enum', enumSource:'RUMOR_TOPICS', group:'Classification' },
+      { name:'origin',        type:'object', group:'Origin', fields:[
+        { name:'submittedAt',       type:'string' },
+        { name:'submittedBy',       type:'string' },
+        { name:'sourceEventId',     type:'string' },
+        { name:'sourceCharacterId', type:'id', idKind:'character' }
+      ] },
+      { name:'proliferation', type:'object', group:'Spread', description:'Month-over-month spread to settlements (the Rumors subsystem)', fields:[
+        { name:'enabled',            type:'boolean' },
+        { name:'chancePerMonth',     type:'number' },
+        { name:'settlementsReached', type:'idArray', idKind:'settlement' }
+      ] },
+      { name:'notes',         type:'longText', group:'History' },
+      { name:'history',       type:'history', readonly:true, group:'History' }
+    ]
+  });
+
+  // ─── 3i. The venture field-schema (G1) — authored ⊆ blankVenture keys. The abstract mercantile
+  // venture (the shipped model). Deep records (cargo / vagaries / politicalTariffs) are OMITTED
+  // (their own sub-records; raw-JSON). Inspector-only.
+  registerFieldSchema('venture', {
+    factory: 'blankVenture',
+    adminCreate: 'schemaForm',
+    groups: ['Identity','Route','Economics','Escort','State','History'],
+    fields: [
+      { name:'id',                  type:'string', readonly:true, group:'Identity' },
+      { name:'venturerCharacterId', type:'id', idKind:'character', required:true, group:'Identity', description:'The merchant running the venture' },
+      { name:'status',              type:'string', group:'Identity', description:'Venture lifecycle state (in-transit / arrived / sold / failed …)' },
+      { name:'originDomainId',      type:'id', idKind:'domain', group:'Route' },
+      { name:'destinationDomainId', type:'id', idKind:'domain', group:'Route' },
+      { name:'departureTurn',       type:'number', group:'Route' },
+      { name:'expectedArrivalTurn', type:'number', group:'Route' },
+      { name:'arrivalTurn',         type:'number', group:'Route', description:'Actual arrival — null until arrived' },
+      { name:'completedTurn',       type:'number', group:'Route', description:'Turn the venture closed out — null while open' },
+      { name:'totalInvestment',     type:'gp', group:'Economics', description:'gp committed to the cargo' },
+      { name:'salePriceGp',         type:'gp', group:'Economics', description:'Final sale price — null until sold' },
+      { name:'profitGp',            type:'gp', group:'Economics', description:'Realized profit — null until closed' },
+      { name:'xpAwarded',           type:'number', group:'Economics', description:'XP awarded from the venture profit (RR p.424)' },
+      { name:'garrisonEscortUnitIds', type:'idArray', idKind:'unit', group:'Escort', description:'Units escorting the caravan (raise the safe-arrival odds)' },
+      { name:'syndicateDisruptionId', type:'id', idKind:'syndicate', group:'State', description:'A criminal syndicate disrupting this venture (Hijinks HJ-2) — null when undisturbed' },
+      { name:'notes',               type:'longText', group:'History' }
+    ]
+  });
 
   // ─── 4. Public API ───
 
   function fieldSchemaFor(kind){ return FIELD_SCHEMAS[kind] || null; }
   function kindsWithSchema(){ return Object.keys(FIELD_SCHEMAS); }
+  function registeredFieldSchemas(){ return Object.keys(FIELD_SCHEMAS); }   // §15.5 kernel-convention accessor
 
   function entityFieldGroups(kind){
     const schema = FIELD_SCHEMAS[kind];
@@ -549,6 +1844,8 @@
   Object.assign(ACKS, {
     FIELD_TYPES,
     FIELD_SCHEMAS,
+    registerFieldSchema,
+    registeredFieldSchemas,
     isValidFieldType,
     validateFieldEntry,
     validateFieldSchema,
@@ -556,7 +1853,11 @@
     fieldSchemaFor,
     kindsWithSchema,
     entityFieldGroups,
-    entityFieldsInGroup
+    entityFieldsInGroup,
+    // XLS-1 foundation
+    resolveEnumSource,
+    enumValuesForField,
+    schemaToImportColumns
   });
 
 })(typeof window !== 'undefined' ? window : global);

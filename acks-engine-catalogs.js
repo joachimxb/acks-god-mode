@@ -18,29 +18,59 @@
 // read these directly off window.ACKS to know e.g. all valid merchandise IDs.
 // =============================================================================
 
-// Stronghold structure catalog. Costs from ACKS II RR + By This Axe surface structure table.
+// Stronghold structure catalog — ACKS II RR r10 p.132 (Structures), transcribed exactly.
 // Catalog entries use `key` (not `id`) because they're reference rows, not entities.
+// cost is in gp (the crude palisade's RR 125sp = 12.5gp at 1gp = 10sp, RR r10 p.~50 coinage table).
+// shp = structural hit points, ac = armor class, unitCapacity = units the structure holds/defends.
+//   - unitCapacity `0` is the RAW "–" (no defenders, e.g. battlement/moat/drawbridge/wall-walk).
+//   - Walls' RAW capacity is a range that scales with height ("1.5 – N"); the stored value is the
+//     1.5 base (the floor); the height-scaled max is left to the GM / a future siege read.
+// shp + unitCapacity are RAW-exact here — the W6 siege engine reads them (strongholdRawProfile, sieges.js):
+//   it sums a stronghold's components' structure shp + unit capacity, falling back to the gp÷10 / shp÷1,000
+//   estimate only for a stronghold with no keyed structures.
+// This catalog is ATOMIC RAW structures. Composite whole-stronghold descriptors used as flavor tags
+//   on template components (citadel-stone, castle-stone, cathedral-fortified, keep-stone-small,
+//   bridge-keep) and the dwarven vault structures (vault-*) are deliberately NOT catalog entries —
+//   they have no atomic RAW cost; the component's own buildValue is authoritative for them, and the
+//   `stronghold-by-buildings` rule is off by default so they never need to resolve to a cost.
 const STRONGHOLD_CATALOG = Object.freeze([
-  { key: 'tower-small-round',   name: "Tower, small round (30' high × 20' dia)", cost: 15000, category: 'Towers' },
-  { key: 'tower-medium-round',  name: "Tower, medium round (40' high × 20' dia)", cost: 22500, category: 'Towers' },
-  { key: 'tower-large-round',   name: "Tower, large round (40' high × 30' dia)", cost: 30000, category: 'Towers' },
-  { key: 'tower-huge-round',    name: "Tower, huge round (60' high × 30' dia)", cost: 54000, category: 'Towers' },
-  { key: 'wall-20',             name: "Wall, stone castle (20' × 100')", cost:  5000, category: 'Walls' },
-  { key: 'wall-30',             name: "Wall, stone castle (30' × 100')", cost:  7500, category: 'Walls' },
-  { key: 'wall-40',             name: "Wall, stone castle (40' × 100')", cost: 12500, category: 'Walls' },
-  { key: 'wall-50',             name: "Wall, stone castle (50' × 100')", cost: 17500, category: 'Walls' },
-  { key: 'wall-60',             name: "Wall, stone castle (60' × 100')", cost: 22500, category: 'Walls' },
-  { key: 'gatehouse',           name: "Gatehouse (20' × 30' × 20', portcullis)", cost:  6500, category: 'Gates & barriers' },
-  { key: 'barbican',            name: 'Barbican (gatehouse + 2 small towers + drawbridge)', cost: 38000, category: 'Gates & barriers' },
-  { key: 'drawbridge',          name: "Drawbridge, wood (10' × 20')", cost:   250, category: 'Gates & barriers' },
-  { key: 'palisade',            name: "Palisade, wood (10' high × 100' long)", cost:   125, category: 'Gates & barriers' },
-  { key: 'rampart',             name: "Rampart, earthen (10' high × 100' long × 15' thick)", cost:  2500, category: 'Gates & barriers' },
-  { key: 'battlement',          name: "Battlement (100' crenellated parapet)", cost:   500, category: 'Gates & barriers' },
-  { key: 'moat-unfilled',       name: "Moat, unfilled (100' × 20' × 10' deep)", cost:   400, category: 'Gates & barriers' },
-  { key: 'moat-filled',         name: "Moat, filled (100' × 20' × 10' deep)", cost:   800, category: 'Gates & barriers' },
-  { key: 'building-wood',       name: "Building, wood (20' high × 30' square)", cost:  1500, category: 'Buildings' },
-  { key: 'building-stone',      name: "Building, stone (20' high × 30' square)", cost:  3000, category: 'Buildings' },
-  { key: 'keep-square',         name: "Keep, square (80' high × 60' square)", cost: 75000, category: 'Buildings' }
+  // Towers (RR r10 p.132)
+  { key: 'tower-small-square',  name: "Tower, stone, small square (20' × 20' × 30' high)", cost:  6500, shp:  825, ac: 6, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-small-round',   name: "Tower, stone, small round (20' dia × 30' high)",     cost:  7500, shp:  650, ac: 8, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-medium-round',  name: "Tower, stone, medium round (20' dia × 40' high)",    cost: 10000, shp:  850, ac: 8, unitCapacity: 0.5, category: 'Towers' },
+  { key: 'tower-large-round',   name: "Tower, stone, large round (30' dia × 40' high)",     cost: 18500, shp: 1600, ac: 8, unitCapacity: 1.5, category: 'Towers' },
+  { key: 'tower-huge-round',    name: "Tower, stone, huge round (30' dia × 60' high)",      cost: 27500, shp: 2400, ac: 8, unitCapacity: 2,   category: 'Towers' },
+  // Walls (RR r10 p.132). Defended capacity scales with height; stored value is the 1.5 base.
+  { key: 'wall-10',             name: "Wall, stone (100' long × 10' high × 5' thick)",      cost:  2500, shp:  425, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-20',             name: "Wall, stone (100' long × 20' high × 5' thick)",      cost:  5000, shp:  850, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-30',             name: "Wall, stone (100' long × 30' high × 5' thick)",      cost:  7500, shp: 1275, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-40',             name: "Wall, stone (100' long × 40' high × 7.5' thick)",    cost: 15000, shp: 2550, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-50',             name: "Wall, stone (100' long × 50' high × 10' thick)",     cost: 25000, shp: 4250, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-60',             name: "Wall, stone (100' long × 60' high × 10' thick)",     cost: 30000, shp: 5100, ac: 6, unitCapacity: 1.5, category: 'Walls' },
+  { key: 'wall-walk',           name: "Wall-walk, wood (100' long × 5' wide)",              cost:   125, shp:   10, ac: 2, unitCapacity: 0,   category: 'Walls' },
+  // Gates & barriers (RR r10 p.132)
+  { key: 'barbican',            name: 'Barbican, stone (gatehouse + 2 small towers + drawbridge)', cost: 20000, shp: 2750, ac: 6, unitCapacity: 2, category: 'Gates & barriers' },
+  { key: 'gatehouse-20',        name: "Gatehouse, stone (20' long × 30' wide × 20' high)",  cost:  6000, shp:  750, ac: 6, unitCapacity: 1,   category: 'Gates & barriers' },
+  { key: 'gatehouse-30',        name: "Gatehouse, stone (30' long × 30' wide × 20' high)",  cost:  7500, shp: 1000, ac: 6, unitCapacity: 1,   category: 'Gates & barriers' },
+  { key: 'drawbridge',          name: "Drawbridge, wood (10' wide × 20' tall × 1' thick)",  cost:   300, shp:    6, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'palisade-wooden',     name: "Palisade, wood (100' long × 7.5' high × 6\" thick)", cost:   125, shp:    9, ac: 2, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'palisade-crude',      name: "Palisade, crude (100' long × 7.5' high × 6\" thick)",cost:  12.5, shp:    3, ac: 2, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'rampart-rammed',      name: "Rampart, rammed earth (100' long × 10' high × 15' thick)", cost: 300, shp: 425, ac: 4, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'rampart-piled',       name: "Rampart, piled earth (100' long × 10' high × 15' thick)",  cost:  30, shp: 135, ac: 3, unitCapacity: 1.5, category: 'Gates & barriers' },
+  { key: 'battlement',          name: "Battlement, stone (100' long, crenellated parapets)",cost:   500, shp:  100, ac: 6, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-filled',         name: "Moat, filled (100' long × 20' wide × 10' deep)",     cost:   800, shp: 1000, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-unfilled',       name: "Moat, unfilled (100' long × 20' wide × 10' deep)",   cost:   400, shp: 1000, ac: 3, unitCapacity: 0,   category: 'Gates & barriers' },
+  { key: 'moat-unfilled-crude', name: "Moat, unfilled, crude (100' long × 20' wide × 10' deep)",  cost:  40, shp: 1000, ac: 3, unitCapacity: 0, category: 'Gates & barriers' },
+  // Buildings (RR r10 p.132)
+  { key: 'keep-stone',          name: "Keep, stone (80' high × 60' square)",                cost: 125000, shp: 16000, ac: 6, unitCapacity: 6, category: 'Buildings' },
+  { key: 'headquarters',        name: "Headquarters, concrete (125' × 85' × 15–25' high)",  cost: 25000, shp: 2000, ac: 5, unitCapacity: 2,   category: 'Buildings' },
+  { key: 'stable-barracks',     name: "Stable-barracks, concrete (200' × 50' × 15' high)",  cost:  7500, shp:  625, ac: 5, unitCapacity: 4,   category: 'Buildings' },
+  { key: 'granary',             name: "Granary/warehouse, concrete (180' × 30' × 10' high)",cost:  3500, shp:  300, ac: 5, unitCapacity: 2,   category: 'Buildings' },
+  { key: 'hospital',            name: "Hospital, concrete (75' × 75' × 10' high)",          cost:  3000, shp:  250, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'barracks',            name: "Barracks, concrete (140' × 30' × 10' high)",         cost:  2750, shp:  225, ac: 5, unitCapacity: 1.5, category: 'Buildings' },
+  { key: 'chapter-house',       name: "Chapterhouse, concrete (85' × 45' × 10' high)",      cost:  2400, shp:  200, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'building-concrete',   name: "Building, concrete (30' × 30' × 20' high)",          cost:  1700, shp:  135, ac: 5, unitCapacity: 1,   category: 'Buildings' },
+  { key: 'building-wood',       name: "Building, wood (30' × 30' × 20' high)",              cost:   350, shp:   25, ac: 1, unitCapacity: 1,   category: 'Buildings' }
 ]);
 function lookupStrongholdStructure(key){ return STRONGHOLD_CATALOG.find(s => s.key === key) || null; }
 
@@ -173,9 +203,66 @@ function sampleEvent(currentMorale){
   return (eligible[Math.floor(Math.random() * eligible.length)] || EVENT_TABLE[0]).text;
 }
 
-// House Rules registry. Each entry: { id, category, name, source, description }.
-// Categories indexed via HOUSERULE_CATEGORIES below.
-const HOUSERULES_REGISTRY = Object.freeze([
+// =============================================================================
+// House-rule self-registration — the §15.5 family, slice 3 (after ID prefixes + collections).
+// =============================================================================
+// HOUSERULES_REGISTRY + HOUSERULE_CATEGORIES are accumulating stores, not frozen literals (the
+// registerPrefix / registerCollection pattern). A subsystem that introduces a house rule (and, if
+// needed, a new category) self-registers from its OWN module at load via
+// ACKS.registerHouseRule({...}) / ACKS.registerHouseRuleCategory({...}) instead of editing these
+// central literals — the §15.5 north star, and the dominant team-session merge-conflict surface
+// (every subsystem that ships a rule edits this one block). The core + legacy set is seeded just
+// below (byte-identical to the old freeze). The kernel lives HERE — not in acks-engine.js, where
+// registerPrefix / registerCollection live — because catalogs.js owns this data AND loads first, so
+// by the time any later module loads ACKS.registerHouseRule already exists. Readers (lookupHouseRule,
+// isHouseRuleEnabled's registry-default fallback, the index.html House-Rules UI) read the live array,
+// so they observe every registration regardless of module load order.
+//
+// NB house rules are PURE REFERENCE DATA (like prefixes) — a campaign stores only the rules it has
+// TOGGLED (campaign.houseRules[id] = {enabled}); an absent/unregistered rule reads as its registry
+// `default` via isHouseRuleEnabled. So a new registerHouseRule call changes NO stored campaign and
+// forces NO template regen — there is no lazy-inject/defensive-read fork as collections (slice 2) had.
+// Each registry entry: { id, category, name, source, description, default?, requires? }.
+const HOUSERULES_REGISTRY = [];
+const HOUSERULE_INDEX = {};
+function _houseRuleSig(r){ return JSON.stringify([r.category, r.name, r.source, ('default' in r) ? r.default : null, r.requires || null, r.description]); }
+function registerHouseRule(rule){
+  if(!rule || !rule.id || typeof rule.id !== 'string') return HOUSERULES_REGISTRY;
+  const existing = HOUSERULE_INDEX[rule.id];
+  if(existing){
+    // idempotent: identical content = silent no-op; differing content = warn + keep the original
+    // (mirrors registerPrefix / registerCollection — the seed wins over a late differing registration).
+    if(_houseRuleSig(existing) !== _houseRuleSig(rule) && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] house-rule "' + rule.id + '" re-registered with different content; keeping the original.');
+    }
+    return HOUSERULES_REGISTRY;
+  }
+  HOUSERULE_INDEX[rule.id] = rule;
+  HOUSERULES_REGISTRY.push(rule);
+  return HOUSERULES_REGISTRY;
+}
+function registeredHouseRules(){ return HOUSERULES_REGISTRY.slice(); }
+
+const HOUSERULE_CATEGORIES = [];
+const HOUSERULE_CATEGORY_INDEX = {};
+function registerHouseRuleCategory(cat){
+  if(!cat || !cat.id || typeof cat.id !== 'string') return HOUSERULE_CATEGORIES;
+  const existing = HOUSERULE_CATEGORY_INDEX[cat.id];
+  if(existing){
+    if((existing.label !== cat.label || existing.description !== cat.description) && typeof console !== 'undefined' && console.warn){
+      console.warn('[ACKS] house-rule category "' + cat.id + '" re-registered with different content; keeping the original.');
+    }
+    return HOUSERULE_CATEGORIES;
+  }
+  HOUSERULE_CATEGORY_INDEX[cat.id] = cat;
+  HOUSERULE_CATEGORIES.push(cat);
+  return HOUSERULE_CATEGORIES;
+}
+function houseRuleCategories(){ return HOUSERULE_CATEGORIES.slice(); }
+
+// Seed the core + legacy house-rule set (byte-identical to the old freeze). New rules do NOT extend
+// this literal — a subsystem calls ACKS.registerHouseRule from its own module (the §15.5 convention).
+[
   // ----- Calendar day-tick layer (Phase 2.95 §13) -----
   { id:'auto-pause-on-encounter', category:'world', name:'Auto-pause on encounter', source:'Phase 2.95 Calendar §13', description:'The day-tick pipeline pauses for GM review when a consumer surfaces an encounter. Default on.' },
   { id:'auto-pause-on-navigation-fail', category:'world', name:'Auto-pause on navigation failure', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when a journey navigation throw fails. Default on.' },
@@ -184,7 +271,6 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'monthly-commit-subsumes-in-flight', category:'world', name:'Monthly commit subsumes in-flight activity', source:'Phase 2.95 Calendar §13', description:'At month end, unresolved day-aware activities auto-complete at their current state. When off, the GM must resolve them day-by-day before the monthly commit. Default on.' },
   { id:'journey-batching-routine', category:'world', name:'Journey batching (routine)', source:'Phase 2.95 Calendar §13', description:'Silent-advance routine travel until a consumer surfaces a notable event. Effect lands with Journeys. Default off.' },
   { id:'journey-fast-travel', category:'world', name:'Journey fast-travel', source:'Phase 2.95 Calendar §13', description:'Collapse known-safe travel stretches to single-roll summary outcomes. Effect lands with Journeys. Default off.' },
-  { id:'realistic-weather', category:'world', name:'Realistic weather', source:'Phase 2.95 Calendar §13', description:'Roll weather per day on regional tables instead of GM fiat. Effect lands with the weather consumer. Default off.' },
   // RAW-default posture (CLAUDE §6, the fatigue/rations flip-queue): on a Journey the engine
   // tracks RAW rations + the JJ p.84 strenuous-day fatigue cycle BY DEFAULT (no toggle). These
   // two opt-ins SIMPLIFY away from RAW — they are the simplification, never RAW-behind-a-toggle.
@@ -194,6 +280,8 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'monster-pursuit', category:'encounters', name:'Monster pursuit', source:'RR p.285 + p.120 / #476 E3', default:true, description:'A tracking-capable monster the party evades may take up pursuit ("adventurers who evade might be tracked by some monsters" — RR p.285): the evaded encounter holds open while the GM adjudicates intent; a pursuer follows the trail at half expedition speed with daily Tracking throws (RR p.120) via the day clock, and a catch-up springs a fresh encounter. RAW frames this as GM judgment, so the automation is the toggle. Default on.' },
   { id:'domain-morale-banditry', category:'encounters', name:'Domain banditry takes the field', source:'RR pp.350–351 / #476 E10', default:true,
     description:'A domain at Turbulent morale or worse is plagued by bandits (RR p.350: one able-bodied man per 5 / 2 / 1 families at −2 / −3 / −4). With this on, those bandits MATERIALIZE as bands placed in the world each monthly turn — raiding within their domain on the Day Clock, meetable through the encounter layer, counting as an enemy army whose occupation penalty builds on the morale roll (RR p.349 + p.351). Killed bandits reduce the population (RR p.351); morale recovering to −1 disbands them back to their fields. Off = the bandit count stays a readout only. Default on.' },
+  { id:'vagaries-of-incursion', category:'encounters', name:'Vagaries of Incursion (domain encounters)', source:'JJ pp.100–103 / Phase 3 Military W2',
+    description:'Every domain rolls the Daily Domain Encounter Probability on the Day Clock — wandering monsters arrive from outside (dangerous borders and an insufficient garrison or stronghold raise the odds), roll their domain reaction and reconnaissance, and materialize as real bands in the world, with the platoon-scale Battle Rating comparison against the garrison (JJ pp.104–106). The whole Vagaries chapter is strictly optional per JJ p.100, so this defaults off; a physical wandering band crossing the border (Persistent wandering monsters) counts as the day’s occurrence either way. The bundled demo enables it. Default off.' },
   { id:'ignore-rations', category:'world', name:'Ignore rations', source:'RR p.275 (abstraction)', description:'Abstract away food + water logistics on Journeys — the engine stops tracking rations and never applies hunger or dehydration. RAW (strict ration tracking) is the default; this is the abstraction. Default off.' },
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
@@ -206,6 +294,37 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR pp.345–348 (RAW core; this toggle is a UX preference, not a RAW divergence)',
     default:true,
     description:"DEFAULT ON. Favors & Duties is RAW core: each month a vassal ruler rolls on the Favor/Duty table (RR p.348) for what his lord grants or demands. With this ON, the monthly turn auto-rolls one edict per active vassalage (recording a favorDutyObligation, applying the gp flows for Loan/Scutage/Gift, and firing the excess-duty Loyalty roll when the lord over-demands). When OFF, the engine never auto-generates edicts — the GM drives obligations by hand (Inspector Create) and resolves them in fiction. Either way the resulting obligation data is identical RAW; this only chooses who rolls the d20." },
+  // === Politics P-2 (burst5 team 2026-06-14) === — the senate is RAW core, default-ON, dormant-
+  // until-used (NO master toggle — the plan §8 / survey §11 polarity, Joachim 2026-06-13). This is
+  // the one senate rule: a UX preference (roll-vs-narrate), the favor-duty-auto-roll precedent.
+  { id:'senate-auto-vote', category:'domain', name:'Senate — auto-roll the consultation vote',
+    source:'ACKS II RR p.358 (RAW core; this toggle is a UX preference, not a RAW divergence)',
+    default:true,
+    description:"DEFAULT ON. Consulting a senate is RAW core: each leading senator rolls 2d6 on the Senate Voting table (RR p.358), adjusted by the ~20-row modifier stack, in influence order until a majority forms. With this ON, the Consult-Senate action rolls those dice and shows the itemized per-senator breakdown + the for/against tally. When OFF, the tool skips the dice and records the GM-narrated outcome (approved / rejected) — useful for a Judge who prefers to adjudicate the vote in fiction. Bribery / intimidation / seduction are always available either way; this only chooses roll-vs-narrate. (The rule-of-the-few oligarchy mode is a separate, later opt-in.)" },
+  // === Settlement Demographics SD-3 (2026-06-16) === — the DEEP census reach. The urban Step-3
+  // roster (a settlement's expected NPCs by class-bucket × level, the Demographics tab) is always-on
+  // RAW tooling (no rule). This opt-in adds the realm tier (+ the queued rural tier): default OFF so
+  // RAW-only / hand-authored-setting (Tyr, Auran) campaigns are untouched. (Plan §9; CLAUDE §6.)
+  { id:'living-census', category:'domain', name:'Living census (realm command structure + rural population)',
+    source:'JJ Ch.8 Step 3 pp.214–217 + Ch.9 pp.245–260 (RAW tooling deepened — the God-Mode "everything" census; default OFF, CLAUDE §6)',
+    description:"OFF by default. The urban demographic roster (a settlement's expected NPCs by class-bucket × level — the always-on Demographics tab) is unaffected by this toggle. When ON, the census adds the DEEP tier: the realm command structure — a domain's expected leveled office-holders (ruler · the four magistrates · court magister · merchant guildmaster · annalist) scaled by realm title, reconciled against the realm's ACTUAL office-holders (the assigned ruler + magistrates) and its entourage NPCs (characters homed to the domain) + a roster of its vassal lords — and the rural population tier (the countryside census). Strongly encouraged — it plays to God Mode's world-modelling — but default OFF so a hand-authored-setting campaign is never told who its realm 'should' staff." },
+  // === Settlement Demographics SD-2b (2026-06-19) === — opt-in AUTO-GENERATION: let the tool MINT the
+  // notable NPCs an open roster slot expects, via the shipped NPC generator (Phase 4.8). An ACTIVE behavior
+  // layered ON TOP of living-census (plan §9) → default OFF; the auto-fill verbs additionally require
+  // living-census on + the generator present. The roster READ stays always-on RAW tooling; only the MINTING
+  // is gated. (Plan §7/§9/§11; CLAUDE §6 — minting the world is the opt-in, never the RAW read.)
+  { id:'demographics-auto-generate', category:'domain', name:'Auto-generate demographic residents',
+    source:'JJ Ch.8 Step 3 pp.214–217 + Ch.9 (the NPC generator filling the Step-3 roster; default OFF, CLAUDE §6)',
+    description:"OFF by default. Requires the Living census (and the NPC generator). When ON, a settlement's Demographics roster, a realm's command structure, and a domain's countryside census gain ✨ auto-fill controls that MINT the notable NPCs an open slot expects — high-level casters, captains, guild leaders, court officials — as real generated characters, auto-homed + bucketed so they reconcile straight back into the roster. The rank-and-file stay counts (the tool fills only the notable tier — level-floored + capped). Each minted NPC is a normal generated Character (a `generation` event records it); un-home or delete any you don't want. Pure convenience layered on the census — the roster itself is unaffected when this is off." },
+  // === Politics P-7 (burst10 team 2026-06-20) === — the ONE Politics opt-in. The senate (P-1…P-5)
+  // is RAW core, ungated (RR Ch.8). This gates the *Rule of the Few* extensions that go BEYOND
+  // RR Ch.8 — the OLIGARCHY governance mode (+ later: Separating Land and Lordship + multiracial
+  // oligarchies), JJ "Rule of the Few" pp.402–407, which RAW explicitly flags optional (plan §8 /
+  // survey §11; CLAUDE §6). Default OFF (no `default` field): a realm stays feudal/senatorial and
+  // the oligarchy UI is hidden + non-functional until a GM enables this.
+  { id:'rule-of-the-few', category:'domain', name:'Rule of the Few (oligarchies)',
+    source:'ACKS II JJ "Rule of the Few" pp.402–407 (explicitly optional)',
+    description:"OFF by default. When ON, a realm's apex domain can be governed by an OLIGARCHY — a collective of oligarchs who ARE the ruler (with a derived Charisma, level → Personal Authority, and alignment, JJ p.402), deciding by MAJORITY rather than the senate's 2d6 voting (a deadlock keeps last period's policy). The 🏛 Senate tab gains a ⚖ Governance card to establish / dissolve an oligarchy, manage its members, run majority decisions, and let an oligarch secede. (Separating Land and Lordship and the multiracial-oligarchy overlays also sit behind this rule — later slices.) The feudal + senatorial shapes are unaffected; the senate machinery is always RAW-core and independent of this toggle." },
   // ----- Construction & improvement -----
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
@@ -220,6 +339,12 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'alternative-farming-methods', category:'construction', name:'Alternative farming methods (8× population density)',
     source:'ACKS II RR p.340 (variant — not yet implemented)',
     description:"Intensive cultivation of high-yield crops twice per year could yield 8× the standard population density per hex. When enabled, individual hexes can be flagged as using alternative farming, raising their max-families ceiling." },
+  { id:'construction-vagaries', category:'construction', name:'Construction vagaries (delays + overruns)',
+    source:'ACKS II — tooling (no single RR table; 🔧 Mechanic Extensions)',
+    description:"OFF by default. When ON, each monthly turn every in-progress construction project rolls 1d100 for a possible setback (bad weather, material shortage, labor dispute, accident) or a windfall (swift progress). A setback sets the project's labor back (a real delay) and may add a cost overrun (a few % of the budget); the common roll is no incident. Vessels / mines / vaults / sanctums / dungeons / civic monuments / field works have their own flavor for the rare serious setback. Each lands as a construction-vagary event in the Event Log." },
+  { id:'crude-construction-weather', category:'construction', name:'Crude field works degrade in weather',
+    source:'ACKS II RR p.176',
+    description:"OFF by default. When ON, CRUDE field fortifications (a crude palisade, piled-earth rampart, or crude ditch) weather one damage band worse each monthly turn (intact → damaged → breached → ruined → destroyed) — gone after about four months. Proper (non-crude) works persist indefinitely." },
   // ----- Mercantile -----
   { id:'random-merchandise-rolling', category:'mercantile', name:'Random merchandise rolling',
     source:'ACKS II RR Random Merchandise table (Phase 2b)',
@@ -263,6 +388,14 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'rumors-proliferation', category:'rumors', name:'Rumors — proliferation drift',
     source:"What's the Word — proliferation tables (Phase 2.8)",
     description:"When on, each rumor has a monthly chance to spread to neighboring settlements and its apparent-level drifts up over time. Requires rumors-manual.", requires:["rumors-manual"] },
+  // === Knowledge Layer (Wave B, team burst11 2026-06-20) — the master gate for the generalized
+  // who-knows-what layer (Knowledge_Layer_Plan.md §3/§6). Default OFF, opt-in. Orthogonal to
+  // 'rumors-manual' (the plan's ⊥ requirement): turning on generalized knowledge must NOT force the
+  // rumor UI, and vice-versa. The data layer (campaign.lore[]/knowledge[]) is benign always-on core
+  // (the Group/Lair precedent); this rule gates the FEATURE — the 📚 Knowledge tab + its workflow. ===
+  { id:'knowledge-tracking', category:'knowledge', name:'Knowledge tracking — the Lore layer',
+    source:'Knowledge_Layer_Plan.md §3/§6 (the generalized who-knows-what layer; RAW-grounded in Knowledge (G)/Loremastery, RR p.112/p.110; a tooling layer, default OFF)',
+    description:"OFF by default. When ON, the 📚 Knowledge tab tracks generalized Lore — facts in the world, who holds each (confidence band + provenance), first-hand knowledge derived from the event log, and the manual record / learn / share / promote verbs. ORTHOGONAL to 'Rumors — manual panel': enabling generalized knowledge does not force the rumor UI, and vice-versa. A campaign rumor can be PROMOTED into a loreKind:'rumor' Lore item (carrying its reach + apparent level), so the rumor and knowledge layers bridge without merging. The opt-in lore-propagation diffusion tick (gossip spreading along social ties) is a later wave." },
   { id:'recruitment-notability', category:'mercantile', name:'Recruitment — Notability impact',
     source:'ACKS II + M&M (Phase 2.95 §4.2)',
     description:"When on, recruitment expenditures (monthly wages × hires, signing bonuses) above the settlement's transaction threshold trigger a civic rumor about the patron's hiring activity. Requires rumors-manual + rumors-auto-emit to actually surface the rumor.", requires:["rumors-manual","rumors-auto-emit"] },
@@ -277,10 +410,31 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR p.173 (RAW marks it OPTIONAL; default-ON per community norm — honest gating, CLAUDE §6)',
     default:true,
     description:"DEFAULT ON. At the end of each game month, every self-supporting character pays living expenses equal to the henchman wage of their level (RR p.173 — 1→25 … 6→800 … 9→7,250 gp). You may dial a character's lifestyle target down on their sheet; actual spend = min(target, funds on hand), so short funds force a lower spend and there is no debt. Underspending lowers your APPARENT level to NPCs (RR p.170), which feeds the henchman hiring cap and loyalty. A liege also pays his henchmen's/specialists' monthly wages in the same pass (a vassal-ruling henchman whose domain income ≥ his wage owes nothing). Pay comes from the coin purse, or — for a ruler with 'pay keep from the domain treasury' set — from that treasury. When OFF, no monthly keep is charged and everyone is taken at their true level." },
+  // ----- Proficiency throws (Phase 3.6 — PT-5). RAW-default polarity (§6): the throw machinery is
+  // core / always-on; these two opt-ins change only the modal's UX, never the RAW result. The third
+  // planned rule (proficiency-training-downtime, RR p.102) is intentionally NOT registered until its
+  // downtime mechanic lands — registering an inert toggle is against the no-inert-toggle doctrine. -----
+  { id:'gm-fiat-proficiency-throws', category:'characters', name:'Proficiency throws — GM fiat (narrate, not roll)',
+    source:'ACKS II RR pp.9–10 (RAW default = roll the die; this opt-in is a narrative-table simplification — §6 polarity)',
+    description:"OFF by default = roll the die. When ON, the Proficiency Throw modal lets the GM declare the outcome (force success / force failure, with an audit line) instead of rolling — the forecast (resolved target + itemized modifiers + success chance) is still computed for reference. For narrative-style tables that prefer GM judgement over dice." },
+  { id:'auto-resolve-trivial-throws', category:'characters', name:'Proficiency throws — auto-resolve trivial throws',
+    source:'ACKS II RR pp.9–10 (a convenience opt-in; RAW default = always make the throw)',
+    description:"OFF by default = every throw is shown. When ON, a throw whose resolved chance is a foregone conclusion — only a natural 1 can fail (≥0.95) or only a natural 20 can succeed (≤0.05) — is resolved automatically without opening the modal, saving clicks on routine outcomes. The GM can still open any throw explicitly." },
   // ----- Hijinks (Phase 2.7) -----
   { id:'detailed-hijink-tracking', category:'hijinks', name:'Detailed hijink tracking',
     source:'ACKS II RR pp.360-370 (Phase 2.7 — not yet implemented)',
     description:"When off (default), syndicates abstract to the designer's-note shorthand. When on, every hijink is resolved per-attempt with proficiency bonuses, planning/laying-low timers, individual perpetrator state, and the full Crime and Punishment table." },
+  // HJ-2 follow-on (2026-06-20): tribute is a MONTHLY collection (RR p.362), so auto-collection is the
+  // RAW-faithful default (a boss "sits back and collects his ill-gotten gains"). The favor-duty-auto-roll /
+  // senate-auto-vote precedent: default ON, the off-switch drives the take by hand (HJ-3 per-member play).
+  { id:'syndicate-auto-tribute', category:'hijinks', name:'Syndicates — auto-collect the monthly tribute',
+    source:'ACKS II RR p.362 (RAW core; this toggle is a UX preference, not a RAW divergence)',
+    default:true,
+    description:"DEFAULT ON. Tribute is a MONTHLY collection (RR p.362, \"Monthly Member Tribute\") — a boss \"sits back and collects his ill-gotten gains.\" With this ON, the monthly turn auto-collects each active syndicate's tribute into its boss's purse (the same per-member take as the Collect button; a manual collection earlier in the month is honored and never double-taken). When OFF, the engine never auto-collects — the GM drives the take by hand (the 💰 Collect button), useful for a Judge running the detailed per-member hijink assignments (Detailed hijink tracking) who doesn't want the passive whole-roster take on top." },
+  // === Hijinks HJ-3 (team 2026-06-20) — crews ===
+  { id:'crew-hijinks', category:'hijinks', name:'Hijinks — crews (multi-perpetrator coordination)',
+    source:'ACKS II RR pp.360–370 + Phase 2.7 Hijinks Plan §5 (a tooling extension, default OFF)',
+    description:"OFF by default. When ON, a hijink can be assigned a crew of co-perpetrators under a honcho: each eligible crew member grants +1 to the honcho's secret proficiency throw (capped at +3). When OFF, the crew picker is hidden and any crew passed to the engine is ignored." },
   // ----- Located inventory (Phase 2.95 Stash subsystem — 2026-05-29) -----
   // The Stash subsystem is always-on CORE as of v0.17.0 (2026-06-03): the master
   // `inventory-stash-system` toggle was removed (per Joachim — a located-inventory
@@ -311,6 +465,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'notable-items-tracking', category:'characters', name:'Notable items + custody (Wave B.5)',
     source:'Architecture.md §3.7 (JJ p.130 + AXIOMS Issue 14 "Codex & Scroll, Part I")',
     description:"Master switch for tracking magic items, AXIOMS books, regalia, and masterworks as first-class entities with intrinsic state, provenance (knownMakeAndAuthenticity affects sale price 2× per JJ p.130), and per-character identification. Custody is an explicit relation supporting unscavenged hoards, merchant stock, lost caches, inheritance lines. Mundane items continue to live in character.inventory[] free-text. When OFF, the tracking collections are stripped on save and ignored on load; promotion buttons hidden." },
+  // === Magic Items W2 / MI-5 (burst8, team) === — the optional Magic Item Traits content pack (#143).
+  { id:'magic-item-traits', category:'characters', name:'Magic item traits (optional quirks)',
+    source:'JJ p.172 (Magic Item Traits) · Phase_3_Magic_Items_Plan.md §6 (MI-5)',
+    description:"Optional per-item quirks — sensory tells (glimmering, resonant), behavioral leanings (temperamental, eager), minor boons/banes, and a flicker of will (the intelligent-item seam). A trait rides on the item's intrinsic state and never alters its core function. Default OFF (a content variant, not RAW core); when OFF the Traits panel is hidden and trait assignment is a no-op. The tool ships ARCHETYPES (our wording + a page-ref); the full named JJ d% table is the GM's book." },
   // ----- Cultural variants -----
   { id:'slavery', category:'cultural', name:'Slavery — slave families and slave-soldiers',
     source:'ACKS II RR (multiple sections — Phase 2 / cultural variant)',
@@ -342,24 +500,72 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'dwarven-mining-salt', category:'cultural', name:'Mining — salt deposits',
     source:'By This Axe Ch.8 (Phase 4 — not yet implemented)',
     description:"Adds salt as a sibling ore type with unique mechanics: unlimited deposit reserves, sustainable capacity 1d3!×100 families, over-exploitation curve (extra families above capacity reduce per-family labor revenue by 2gp each). Requires dwarven-mining." },
+  { id:'elite-troops', category:'military', name:'Elite troops',
+    source:'ACKS II RR p.434 (detail: AXIOMS 4: War)',
+    description:"Units flagged elite cost +1gp/month per 6gp of regular wage (minimum +3gp) and gain +1 to their attack throws in battles. RAW points the full unit-characteristic detail at AXIOMS 4 / D@W:B — this is RR's own simple version. The wage surcharge is live on the unit wage reads; the attack bonus lands with the battle engine (W3)." },
+  // === Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). JJ p.100
+  // calls the whole Vagaries chapter "strictly optional", so all three default OFF (the §6 polarity:
+  // the warfare layer is RAW core, default-ON; these gate optional RAW). Each fires at its RAW cadence
+  // and surfaces the rolled vagary as a GM-resolve event/record (the F&D auto-roll + note pattern). ===
+  { id:'vagaries-of-recruitment', category:'military', name:'Vagaries of Recruitment',
+    source:'JJ pp.110–112 / Phase 3 Military W8',
+    description:"Each month a domain ruler is recruiting mercenaries, conscripts, militia, or vassal troops, roll 1d100 on the Vagaries of Recruitment table (JJ pp.110–112) — bidding wars, treacherous mercenaries, bold captains, tribute, war declared, and so on. The roll is automated at the monthly turn and surfaced as a GM-resolve event with the mechanical instruction; the effect is the GM's to apply. Default off (the whole Vagaries chapter is strictly optional, JJ p.100)." },
+  { id:'vagaries-of-war', category:'military', name:'Vagaries of War',
+    source:'JJ pp.113–115 / Phase 3 Military W8',
+    description:"Each week an army is on campaign, after the supply check, roll 1d100 on the Vagaries of War table (JJ pp.113–115) — disease, desertion, brigands on the supply lines, good/ill omens, friendly lords, plans discovered, and so on (twice weekly during a siege, taking the worse). The roll is automated by the day-clock military consumer and surfaced as a GM-resolve record; the self-contained Good/Ill Omen ±10-to-next-roll modifier is applied automatically. Default off (strictly optional, JJ p.100)." },
+  { id:'vagaries-of-battle', category:'military', name:'Vagaries of Battle',
+    source:'JJ pp.116–117 / Phase 3 Military W8',
+    description:"Each time the adventurers make a heroic foray in a battle, roll 1d4 vagaries on the Vagaries of Battle table (JJ pp.116–117) — ambush, fire, fog, monsters drawn to the slaughter, reinforcements, a volley of arrows, and so on. The vagaries are rolled when the foray is declared, shown on the foray card as GM-resolve complications, and recorded as an event. Default off (strictly optional, JJ p.100)." },
   { id:'elven-civilization', category:'cultural', name:'Elven civilization (Cyclopedia of Elven Civ — future supplement)',
     source:'Future Autarch supplement (Phase 4.7 placeholder)',
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
-  { id:'beastman-domains', category:'cultural', name:'Beastman domains (clanholds and transitional)',
-    source:'ACKS II RR (clanholds) + future supplement (Phase 4.8 placeholder)',
-    description:"Architectural placeholder for the full clanhold variant: tribal warband family categories, transitional governance, and the beastman path from clan to civilized realm." }
-]);
-const HOUSERULE_CATEGORIES = Object.freeze([
+  // (Retired 2026-06-24 — the `beastman-domains` placeholder rule is fulfilled by Phase 5 Tribal
+  // Domains: beastman is now Domain.dominantRace:'beastman' (auto-clanhold) on the real domainType
+  // model, not a house rule. The field IS the switch — no rule. See Phase_5_Tribal_Domains_Plan.md §9.)
+  // === Weather HW (team agent-2): the §6.5 polarity OPT-OUT. Weather generation (JJ pp.40–41)
+  // is RAW-default CORE behaviour of the slot-1 day-tick weather consumer — it only fires on an
+  // expedition, GM-overridable per day. This is the only optional weather rule: a default-OFF
+  // opt-out for tables that prefer to narrate weather by hand. When ON, the consumer skips
+  // generation. (Replaces the retired `realistic-weather` reservation — retired at the world-layer
+  // team-session integration per Phase_2.5_Hex_Scales_and_Weather_Plan.md §6.5/Q3.) ===
+  { id:'gm-set-weather', category:'world', name:'GM-set weather',
+    source:'Phase 2.5 Hex Scales & Weather §6.5 (RAW-default polarity — the opt-out)',
+    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." },
+  // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 "Morituri Te Salutant" (#150).
+  // The §6 supplement rule (like the BTA/HFH/AXIOMS content packs): the whole gladiatorial-games
+  // subsystem rides this default-OFF toggle. The gladiator-as-Character data (socialTier:'gladiator')
+  // is ungated core (a GM may flag an NPC a gladiator with the rule off); only the AXIOMS-4 MECHANICS
+  // ride it. In G1 the rule gates the live mechanic — the abstract bout resolver refuses when off. ===
+  { id:'gladiator-games', category:'cultural', name:'Gladiatorial games (AXIOMS 4)',
+    source:'AXIOMS Issue 4 "Morituri Te Salutant" pp.20–31 (Phase_4_Gladiators_Plan.md / Gladiators_RAW_Survey.md)',
+    description:"Master toggle for the gladiatorial-school + games subsystem: gladiator schools, bouts, games/munera, the amphitheater, training, rents + prizes, uprisings, and the abstract bout resolver. When OFF (default), the school/bout/game collections + their resolver are non-functional. The gladiator-socialTier DATA is NOT gated — a GM may mark an NPC a gladiator for flavor regardless; only the AXIOMS-4 mechanics ride this toggle. Default off (a supplement, like BTA / dwarven / Auran content)." },
+  // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154 / Phase_6_Custom_Classes_Plan.md §6.
+  // The class-BUILDING SYSTEM ships default-ON with NO master toggle (a GM-authoring tool is core —
+  // gating "can you build a class?" behind an opt-in is the §6 anti-pattern, the NPC-Generator precedent).
+  // This is the one W1 rule: the default-OFF, excisable custom-power-compendium content pack (survey §8 tier 3,
+  // the IP-heaviest slice). The HFH Eldritch/Ceremonial + BTA Gnostic category content (custom-class-supplement-content)
+  // is a W6 deliverable — NOT registered yet (registering an inert toggle whose mechanic isn't built is against
+  // the no-inert-toggle doctrine). ===
+  { id:'custom-power-compendium', category:'characters', name:'Custom-power compendium (names + page-refs)',
+    source:'ACKS II JJ pp.306–328 Custom Power Index (HFH-OGL Open Game Content; the IP-heaviest slice — survey §8 tier 3)',
+    default:false,
+    description:"OFF by default. When ON, the Custom Classes lane exposes a reference list of named custom powers (names + an index page-ref + a terse mechanical one-liner — NOT transcribed descriptions) for the Class Builder + the Inspector. The build SYSTEM itself is always available; this only surfaces the optional power-name pack. W1 ships a representative seed; the full ~250-power index is W6. ⚠ Autarch courtesy heads-up before the public site (§13.9 ckpt 3)." }
+].forEach(registerHouseRule);
+// Seed the core + legacy categories (byte-identical to the old freeze). New categories do NOT extend
+// this literal — a subsystem calls ACKS.registerHouseRuleCategory from its own module (§15.5).
+[
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },
   { id:'construction', label:'🏗 Construction',    description:'Strongholds, agricultural investments, land improvements, alternative farming.' },
   { id:'mercantile',   label:'⚖ Mercantile',      description:'Trade ventures, demand modifiers, random merchandise (Phase 2b).' },
   { id:'characters',   label:'👥 Characters',       description:'Henchman loyalty, salary tracking, hireling recruitment (Phase 2.95).' },
   { id:'world',        label:'🌍 World',            description:'Calendar, seasons, time-of-year mechanics (Phase 2.95+).' },
   { id:'encounters',   label:'⚔ Encounters',       description:'Wilderness meetings — what survives them, settles as a lair, and takes up the hunt (Monster Persistence #476).' },
+  { id:'military',     label:'🎖 Military',         description:'The warfare layer — armies, troops, battles (Phase 3 Military). RAW core is always on; these gate optional RAW.' },
   { id:'rumors',       label:'🗣 Rumors',          description:"Manual rumor tracking, engine auto-emission, proliferation (Phase 2.8 / What's the Word)." },
+  { id:'knowledge',    label:'📚 Knowledge',       description:'The generalized who-knows-what layer — Lore facts, confidence/provenance, rumor→lore promotion (Knowledge_Layer_Plan.md). Orthogonal to Rumors.' },
   { id:'hijinks',      label:'🗡 Hijinks',         description:'Criminal syndicates, hijink resolution detail (Phase 2.7 — placeholders).' },
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }
-]);
+].forEach(registerHouseRuleCategory);
 function lookupHouseRule(id){ return HOUSERULES_REGISTRY.find(r => r.id === id) || null; }
 
 // =============================================================================
@@ -451,7 +657,7 @@ function musterSchedule(title, totalAmount){
 // county-equivalent). Defaults to 'baron' (the fastest muster) when nothing matches — titles are
 // not a canonical field, so this is a sensible default the GM can override on the obligation.
 const _TITLE_WORDS = Object.freeze([
-  ['emperor','emperor'], ['empress','emperor'], ['imperial','emperor'],
+  ['emperor','emperor'], ['empress','emperor'], ['imperial','emperor'], ['empire','emperor'],
   ['king','king'], ['queen','king'], ['kingdom','king'], ['royal','king'],
   ['prince','prince'], ['princess','prince'], ['principality','prince'],
   ['duke','duke'], ['duchess','duke'], ['duchy','duke'], ['archduke','duke'],
@@ -721,6 +927,20 @@ function totalDailyWageGp(workerCounts){
   return total;
 }
 
+// cf↔gp conversion for the day-tick labor model (Construction Wave C — 2026-06-18).
+// RR p.174's "Typical Laborer" simplification: 3,000 laborers build 500gp/day. A laborer is
+// 5 cf/day → 3,000 × 5 = 15,000 cf/day = 500gp/day → 30 cf per gp. So a structure's labor
+// requirement in cubic feet = totalCost × 30, and the day-tick's daily gp-equivalent progress
+// = totalDailyOutputCf / 30. This keeps a 3,000-laborer crew building at the same 500gp/day the
+// agricultural drip uses (AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY), so the two paths are consistent.
+const CONSTRUCTION_CF_PER_GP = 30;
+
+// Labor (cubic feet) required to build a structure of the given gp cost. The day-tick consumer
+// completes a Project when laborInvested (cf accrued from the crew) reaches this. Pure.
+function constructionLaborForGp(gp){
+  return Math.max(0, Math.round((Number(gp) || 0) * CONSTRUCTION_CF_PER_GP));
+}
+
 // =============================================================================
 // Phase 2.5 Journeys (#475) — overland travel catalogs (J1). RAW: RR ch.6
 // Wilderness Expeditions (pp.272-279) + JJ ch.3 (pp.84-95). Sea/air reserved.
@@ -761,7 +981,12 @@ const JOURNEY_NAV_THROWS = Object.freeze({
 // penalty condition, and no RAW weather imposes ×1/4 (the prior ×1/4 was unsupported).
 const JOURNEY_WEATHER_SPEED = Object.freeze({
   fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1, stormy: 1,
-  foggy: 1/2, snowy: 1/2
+  foggy: 1/2, snowy: 1/2,
+  // === Weather HW (team agent-2): the generator's missing condition enum. RR p.277 — windy
+  // doesn't halve BASE travel speed (its 20ft-visibility-in-barrens + missile −2 are separate
+  // axes, applied via acks-engine-weather.js weatherConditionEffects). The ARMY_WEATHER_EFFECTS
+  // temperature/recon reconciliation lands when feature/military-w1 merges (not on this base).
+  windy: 1
 });
 
 // Temperature speed multiplier (RR pp.277-278). Frigid (<=0F) and Sweltering (>=95F) each
@@ -1210,9 +1435,9 @@ const TERRAIN_SUBTYPES = Object.freeze({
   desert:    ['sandy','rocky'],                     // lair: rocky 1d2 / sandy 1d4
   forest:    ['deciduous','taiga'],                 // enc: Deciduous · Taiga
   grassland: ['farm','savanna','steppe'],           // farm = prairie/farmland
-  hills:     ['forested','rocky'],                  // lair: forested 2d4 / rocky 1d4
+  hills:     ['forested','rocky','terraced'],       // lair: forested 2d4 / rocky 1d4; terraced = cultivated (Terrain Transformation, JJ p.412 → rocky-equiv)
   jungle:    [],
-  mountains: ['forested','rocky','snowy','volcanic'],
+  mountains: ['forested','rocky','snowy','volcanic','terraced'], // terraced = cultivated (JJ p.412 → rocky-equiv via _ENCOUNTER_ROW_ALIASES)
   scrubland: ['sparse','dense'],                    // sparse = low · dense = high
   swamp:     ['scrubby','forested'],                // RR p.275 visibility: scrubby −33% / forested −50%
   water:     []
@@ -1877,10 +2102,617 @@ function territoryClassForHex(campaign, hex){
   return (t === 'civilized' || t === 'borderlands' || t === 'outlands') ? t : 'outlands';
 }
 
+// ── Phase 3 Military W2 — The Vagaries of Incursion (JJ pp.100–103) ─────────
+// Domain encounters: the daily chance a wandering-monster incursion strikes a domain.
+// The generator runs behind the 'vagaries-of-incursion' rule (strictly optional per
+// JJ p.100, default OFF); these tables + bands are core plumbing the rule feeds.
+// Daily Domain Encounter Probability by Territory Size and Classification (JJ p.101).
+// Rows band by territory size in 6-mile hexes; values are % per day. The unsettled
+// column serves dungeons in unsettled territory / under-garrisoned outlands (the JJ
+// p.101 footnote) — it is also where the JJ p.102 garrison/stronghold demotion lands.
+const INCURSION_DAILY_PCT = Object.freeze([
+  Object.freeze({ maxHexes: 1,  civilized: 0.5, borderlands: 1,  outlands: 3,  unsettled: 4 }),
+  Object.freeze({ maxHexes: 2,  civilized: 1,   borderlands: 1,  outlands: 5,  unsettled: 9 }),
+  Object.freeze({ maxHexes: 3,  civilized: 1,   borderlands: 2,  outlands: 8,  unsettled: 13 }),
+  Object.freeze({ maxHexes: 6,  civilized: 2,   borderlands: 3,  outlands: 15, unsettled: 22 }),
+  Object.freeze({ maxHexes: 8,  civilized: 3,   borderlands: 5,  outlands: 20, unsettled: 30 }),
+  Object.freeze({ maxHexes: 10, civilized: 4,   borderlands: 7,  outlands: 27, unsettled: 44 }),
+  Object.freeze({ maxHexes: 13, civilized: 5,   borderlands: 9,  outlands: 35, unsettled: 57 }),
+  Object.freeze({ maxHexes: 16, civilized: 6,   borderlands: 11, outlands: 44, unsettled: 70 })
+]);
+// Territory > 16 hexes reads the 14–16 row (the printed table tops there).
+function incursionDailyPct(territoryHexes, territoryClass){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const row = INCURSION_DAILY_PCT.find(r => n <= r.maxHexes) || INCURSION_DAILY_PCT[INCURSION_DAILY_PCT.length - 1];
+  const t = String(territoryClass || 'unsettled').toLowerCase();
+  return (row[t] != null) ? row[t] : row.unsettled;
+}
+// Effective Domain Territory with Dangerous Borders (JJ p.102) — a domain adjacent to
+// unsettled territory counts as having a larger territory for encounter throws, by
+// configuration: isolated (unsettled all around) / spearhead (front + both flanks) /
+// flank (front + one flank) / line (front only). 'secure' = no dangerous borders.
+const BORDER_CONFIGURATIONS = Object.freeze(['secure', 'line', 'flank', 'spearhead', 'isolated']);
+const DANGEROUS_BORDERS_TERRITORY = Object.freeze([
+  Object.freeze({ maxHexes: 1,  isolated: 16, spearhead: 8,  flank: 6,  line: 4 }),
+  Object.freeze({ maxHexes: 2,  isolated: 16, spearhead: 10, flank: 7,  line: 4 }),
+  Object.freeze({ maxHexes: 3,  isolated: 16, spearhead: 12, flank: 9,  line: 5 }),
+  Object.freeze({ maxHexes: 6,  isolated: 16, spearhead: 14, flank: 10, line: 6 }),
+  Object.freeze({ maxHexes: 8,  isolated: 16, spearhead: 16, flank: 12, line: 8 }),
+  Object.freeze({ maxHexes: 10, isolated: 16, spearhead: 16, flank: 14, line: 10 }),
+  Object.freeze({ maxHexes: 13, isolated: 16, spearhead: 16, flank: 16, line: 13 }),
+  Object.freeze({ maxHexes: 16, isolated: 16, spearhead: 16, flank: 16, line: 16 })
+]);
+function effectiveTerritoryWithBorders(territoryHexes, configuration){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const cfg = String(configuration || 'secure').toLowerCase();
+  if(cfg === 'secure' || BORDER_CONFIGURATIONS.indexOf(cfg) < 0) return n;
+  const row = DANGEROUS_BORDERS_TERRITORY.find(r => n <= r.maxHexes) || DANGEROUS_BORDERS_TERRITORY[DANGEROUS_BORDERS_TERRITORY.length - 1];
+  return (row[cfg] != null) ? row[cfg] : n;
+}
+// Domain Encounter Reaction (JJ p.103) — 2d6 ± circumstance. Its OWN table, distinct
+// from the wilderness 2d6 reaction: the domain's rulers apply no CHA or proficiency
+// adjustments and don't know the result until they discover it in play.
+const DOMAIN_REACTION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'hostile',      label: 'Hostile — pillage' }),
+  Object.freeze({ max: 5,    key: 'unfriendly',   label: 'Unfriendly — opportunistic' }),
+  Object.freeze({ max: 8,    key: 'neutral',      label: 'Neutral — exploratory' }),
+  Object.freeze({ max: 11,   key: 'mercantilist', label: 'Mercantilist — trade' }),
+  Object.freeze({ max: null, key: 'friendly',     label: 'Friendly — help' })
+]);
+function domainEncounterReactionBand(total){
+  for(const b of DOMAIN_REACTION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return DOMAIN_REACTION_BANDS[DOMAIN_REACTION_BANDS.length - 1];
+}
+// Reconnaissance roll result bands (RR p.452) — shared by the W2 recon-lite for domain
+// encounters (JJ p.103) and the W4 full army reconnaissance when it lands.
+const RECON_ROLL_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'catastrophe', label: 'Catastrophe — false intelligence' }),
+  Object.freeze({ max: 5,    key: 'failure',     label: 'Failure — no intelligence' }),
+  Object.freeze({ max: 8,    key: 'marginal',    label: 'Marginal success' }),
+  Object.freeze({ max: 11,   key: 'success',     label: 'Success' }),
+  Object.freeze({ max: null, key: 'major',       label: 'Major success' })
+]);
+function reconRollBand(total){
+  for(const b of RECON_ROLL_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return RECON_ROLL_BANDS[RECON_ROLL_BANDS.length - 1];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470).
+// The resolution machinery lives in acks-engine-battles.js; these are the
+// printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Strategic stances (RR p.448) — the maneuvers-layer enum the awareness matrices key on.
+const STRATEGIC_STANCES = Object.freeze(['offensive', 'defensive', 'evasive']);
+
+// The strategic situations (RR pp.461–462). Deployment + surprise are resolved per
+// PAIRING by resolveStrategicSituation (the offensive/evading ROLE decides who fields
+// vanguard/rear-guard divisions; the unaware side is the surprised one).
+const STRATEGIC_SITUATIONS = Object.freeze({
+  'no-battle':              Object.freeze({ key: 'no-battle',              label: 'No Battle',              battle: false }),
+  'pitched-battle':         Object.freeze({ key: 'pitched-battle',         label: 'Pitched Battle',         battle: true }),
+  'meeting-engagement':     Object.freeze({ key: 'meeting-engagement',     label: 'Meeting Engagement',     battle: true }),
+  'rear-guard-action':      Object.freeze({ key: 'rear-guard-action',      label: 'Rear Guard Action',      battle: true, evading: true }),
+  'skirmish':               Object.freeze({ key: 'skirmish',               label: 'Skirmish',               battle: true, evading: true }),
+  'ambush':                 Object.freeze({ key: 'ambush',                 label: 'Ambush',                 battle: true }),
+  'envelopment':            Object.freeze({ key: 'envelopment',            label: 'Envelopment',            battle: true }),
+  'deep-envelopment':       Object.freeze({ key: 'deep-envelopment',       label: 'Deep Envelopment',       battle: true }),
+  'rear-guard-envelopment': Object.freeze({ key: 'rear-guard-envelopment', label: 'Rear Guard Envelopment', battle: true, evading: true })
+});
+
+// The three State of Awareness tables (RR pp.461–462), stance × stance → situation.
+// For the unilateral table, the FIRST index is the aware army's stance.
+const _AWARENESS_MATRIX_MUTUAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'pitched-battle', evasive: 'rear-guard-action' }),
+  defensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'no-battle',      evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'rear-guard-action', defensive: 'no-battle',      evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNAWARE = Object.freeze({
+  offensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'meeting-engagement', evasive: 'skirmish' }),
+  defensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'no-battle',          evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'skirmish',           defensive: 'no-battle',          evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNILATERAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'deep-envelopment', defensive: 'envelopment', evasive: 'rear-guard-envelopment' }),
+  defensive: Object.freeze({ offensive: 'ambush',           defensive: 'no-battle',   evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'no-battle',        defensive: 'no-battle',   evasive: 'no-battle' })
+});
+
+// awareness: 'mutual' | 'mutual-unawareness' | 'unilateral-a' | 'unilateral-b' (the
+// suffix names the AWARE side). Returns { situation, label, battle, surprisedSide,
+// deploy: {a,b: 'all'|'vanguard'|'rear-guard'}, zonesDenied: {a,b: []}, attackerDefault }.
+// attackerDefault per RR p.463: a surprised army defends (the ambusher "always counts as
+// an attacking army"); else the offensive side attacks; both-offensive = GM's call
+// (the army that arrived first chooses; simultaneous → the smaller chooses).
+function resolveStrategicSituation(awareness, stanceA, stanceB){
+  const aw = String(awareness || 'mutual').toLowerCase();
+  const sA = STRATEGIC_STANCES.indexOf(stanceA) >= 0 ? stanceA : 'defensive';
+  const sB = STRATEGIC_STANCES.indexOf(stanceB) >= 0 ? stanceB : 'defensive';
+  let key, surprised = null;
+  if(aw === 'unilateral-a'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sA][sB];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'b';
+  } else if(aw === 'unilateral-b'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sB][sA];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'a';
+  } else if(aw === 'mutual-unawareness'){
+    key = _AWARENESS_MATRIX_UNAWARE[sA][sB];
+  } else {
+    key = _AWARENESS_MATRIX_MUTUAL[sA][sB];
+  }
+  const sit = STRATEGIC_SITUATIONS[key];
+  const out = { situation: key, label: sit.label, battle: !!sit.battle, surprisedSide: surprised,
+                deploy: { a: 'all', b: 'all' }, zonesDenied: { a: [], b: [] }, attackerDefault: null };
+  if(!sit.battle) return out;
+  const offensiveSide = (sA === 'offensive' && sB !== 'offensive') ? 'a'
+                      : (sB === 'offensive' && sA !== 'offensive') ? 'b' : null;
+  const evasiveSide = sA === 'evasive' ? 'a' : (sB === 'evasive' ? 'b' : null);
+  switch(key){
+    case 'meeting-engagement':
+      out.deploy = { a: 'vanguard', b: 'vanguard' }; break;
+    case 'rear-guard-action':
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'skirmish':
+      if(offensiveSide) out.deploy[offensiveSide] = 'vanguard';
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'rear-guard-envelopment':
+      if(surprised){ out.deploy[surprised] = 'rear-guard'; out.zonesDenied[surprised] = ['right']; } break;
+    case 'envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['right']; } break;
+    case 'deep-envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['left', 'right']; } break;
+  }
+  if(surprised) out.attackerDefault = surprised === 'a' ? 'b' : 'a';
+  else if(offensiveSide) out.attackerDefault = offensiveSide;
+  return out;
+}
+
+// The battle turn's attack throws (RR p.464): missile phases target 17+, melee 16+.
+const BATTLE_ATTACK_TARGETS = Object.freeze({ missile: 17, melee: 16 });
+// Reference rows (RR p.464). The engine applies broken/surprised/terrain automatically;
+// "personally leading" is the per-zone GM lever (one unit's worth in RAW — see W3 notes).
+const BATTLE_ATTACK_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leading',   label: 'Commander or Lieutenant personally leading unit', value: 1 }),
+  Object.freeze({ key: 'broken',    label: 'Unit facing broken zone', value: 2 }),
+  Object.freeze({ key: 'surprised', label: 'Opposing army surprised (first battle turn only)', value: 2 }),
+  Object.freeze({ key: 'terrain',   label: 'Opposing army occupies advantageous terrain (hill, ridgeline)', value: -2 })
+]);
+
+// Unit Morale (RR pp.467–468) — 2d6 + unit morale ± modifiers. Distinct from the
+// RR p.430 Unit LOYALTY bands (W1) — this is the in-battle morale phase.
+const UNIT_MORALE_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'rout',       label: 'Rout',       effect: 'routs off the battlefield (counts as destroyed)' }),
+  Object.freeze({ max: 5,    key: 'flee',       label: 'Flee',       effect: 'retreats disordered to the reserve; counts as routed if never rallied' }),
+  Object.freeze({ max: 8,    key: 'waver',      label: 'Waver',      effect: 'BR halved when attacking until regrouped' }),
+  Object.freeze({ max: 11,   key: 'stand-firm', label: 'Stand Firm', effect: 'no effect' }),
+  Object.freeze({ max: null, key: 'rally',      label: 'Rally',      effect: '+½ BR attacking next turn; wavering/disordered end' })
+]);
+function unitMoraleBand(total){
+  for(const b of UNIT_MORALE_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return UNIT_MORALE_BANDS[UNIT_MORALE_BANDS.length - 1];
+}
+// Reference rows (RR p.468) — the engine derives all of these live.
+const BATTLE_MORALE_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leader-present',  scope: 'army', label: 'Army leader present on battlefield', value: '+½ morale modifier (round up)' }),
+  Object.freeze({ key: 'lost-half',       scope: 'army', label: 'Army has lost ½ or more of its starting units, but less than ⅔', value: -2 }),
+  Object.freeze({ key: 'lost-two-thirds', scope: 'army', label: 'Army has lost ⅔ or more of its starting units', value: -5 }),
+  Object.freeze({ key: 'destroyed-more',  scope: 'army', label: 'Army has destroyed more units than opposing army', value: 2 }),
+  Object.freeze({ key: 'lost-more',       scope: 'army', label: 'Army has lost more units than opposing army', value: -2 }),
+  Object.freeze({ key: 'cannot-retreat',  scope: 'army', label: 'Army cannot retreat (surrounded, trapped)', value: 2 }),
+  Object.freeze({ key: 'officer-attached', scope: 'unit', label: 'Officer attached to unit', value: '+ morale modifier' }),
+  Object.freeze({ key: 'shaken',          scope: 'unit', label: 'Unit is wavering or disordered', value: -2 }),
+  Object.freeze({ key: 'adjacent-broken', scope: 'unit', label: 'Unit is adjacent to a broken zone', value: -2 })
+]);
+
+// Pursuit throws (RR pp.469–470): one throw per eligible pursuing unit; +4 when all the
+// defeated army's cavalry/flyers were destroyed or routed; cumulative −1 per battle turn
+// against a defeated EVADING army; a natural 20 always eliminates a unit.
+const PURSUIT_THROWS = Object.freeze([
+  Object.freeze({ key: 'light-cavalry-or-flyer', label: 'Light Cavalry or Flyer', target: 11 }),
+  Object.freeze({ key: 'other-cavalry',          label: 'Other Cavalry',          target: 14 }),
+  Object.freeze({ key: 'light-infantry',         label: 'Light Infantry',         target: 14 }),
+  Object.freeze({ key: 'other-infantry',         label: 'Other Infantry',         target: 18 })
+]);
+
+// Battlefield Encounter Distance (RR p.466) — foray engagement ranges, keyed on the SAME
+// terrain sub-type rows the wilderness encounter tables use (encounterRowKey resolves a
+// hex). The (2d6+1) adds BEFORE the ×15' multiplier. 🔧 swamp-forested is not printed —
+// folded to the scrubby-swamp row (denser cover cannot open the range).
+const _BFD_DICE = Object.freeze({
+  m420: Object.freeze({ n: 4, d: 6, plus: 0, multFt: 30, avgFt: 420, label: "4d6 × 30'" }),
+  m480: Object.freeze({ n: 5, d: 6, plus: 0, multFt: 30, avgFt: 480, label: "5d6 × 30'" }),
+  m157: Object.freeze({ n: 3, d: 6, plus: 0, multFt: 15, avgFt: 157, label: "3d6 × 15'" }),
+  m70:  Object.freeze({ n: 5, d: 8, plus: 0, multFt: 3,  avgFt: 70,  label: "5d8 × 3'"  }),
+  e120: Object.freeze({ n: 2, d: 6, plus: 1, multFt: 15, avgFt: 120, label: "2d6+1 × 15'" }),
+  e38:  Object.freeze({ n: 5, d: 4, plus: 0, multFt: 3,  avgFt: 38,  label: "5d4 × 3'"  })
+});
+const BATTLEFIELD_ENCOUNTER_DISTANCE = Object.freeze({
+  'barrens':            Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'desert-rocky':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'desert-sandy':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'forest-taiga':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'forest-deciduous':   Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'grassland-other':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'grassland-steppe':   Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'hills-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'hills-rocky':        Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'jungle':             Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.e38  }),
+  'mountains-forested': Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'mountains-rocky':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-sparse':   Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-dense':    Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-marshy':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-scrubby':      Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'swamp-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  })
+});
+function battlefieldEncounterSpec(rowOrTerrainKey, phaseKind){
+  const row = BATTLEFIELD_ENCOUNTER_DISTANCE[rowOrTerrainKey] ? rowOrTerrainKey : encounterRowKey(rowOrTerrainKey);
+  const e = row ? BATTLEFIELD_ENCOUNTER_DISTANCE[row] : null;
+  if(!e) return null;
+  return phaseKind === 'melee' ? e.melee : e.missile;
+}
+function rollBattlefieldDistanceFt(rowOrTerrainKey, phaseKind, rng){
+  const spec = battlefieldEncounterSpec(rowOrTerrainKey, phaseKind);
+  if(!spec) return null;
+  const r = rng || Math.random;
+  let t = spec.plus || 0;
+  for(let i = 0; i < spec.n; i++) t += 1 + Math.floor(r() * spec.d);
+  return t * spec.multFt;
+}
+
+// Heroic foray stakes (RR p.466) — 0–3 BR per hero, with the printed flavor ladder.
+const FORAY_STAKES = Object.freeze([
+  Object.freeze({ br: 0,   label: 'Entering the foray' }),
+  Object.freeze({ br: 0.5, label: 'Leading from the front' }),
+  Object.freeze({ br: 1,   label: 'Heroically charging into battle' }),
+  Object.freeze({ br: 1.5, label: 'Attacking in front of the vanguard' }),
+  Object.freeze({ br: 2,   label: 'Cutting a swath of glory' }),
+  Object.freeze({ br: 2.5, label: 'Carving his name into the epics' }),
+  Object.freeze({ br: 3,   label: 'Seeking glorious death!' })
+]);
+
+// Hero qualification (RR p.466): any PC; monster 9+ HD; NPC 6th+; a qualifying hero's
+// henchman 4th+. Thresholds shift −2 at platoon scale, +2 battalion, +4 brigade.
+const HERO_QUALIFICATION = Object.freeze({
+  monsterHd: 9, npcLevel: 6, henchmanLevel: 4,
+  scaleShift: Object.freeze({ platoon: -2, company: 0, battalion: 2, brigade: 4 })
+});
+
+// Reinforcement deployment throw (RR p.465, phase 9): d20 + the leader's strategic
+// ability. 🔧 water/unmapped terrain defaults to the middle target (GM overridable).
+function reinforcementThrowTarget(terrainKeyOrBase){
+  const b = terrainBase(terrainKeyOrBase) || String(terrainKeyOrBase || '').toLowerCase();
+  if(b === 'grassland' || b === 'scrubland') return 4;
+  if(b === 'barrens' || b === 'desert' || b === 'hills') return 12;
+  if(b === 'forest' || b === 'jungle' || b === 'mountains' || b === 'swamp') return 16;
+  return 12;
+}
+
+// Officer casualties (RR p.470) — the battle chapter's outcome BANDS. The Mortal Wounds
+// d20 table itself belongs to the Combat layer (#141): the GM rolls it at the table
+// (victor net 0 = +3 proficiency −3 treatment; defeated net −4 = +1/−5) and enters the
+// band; the tool applies the battle-side effects. Surviving bands roll 1d6 toward the
+// permanent-wound column — reported for the GM, not auto-applied (the wound table is #141).
+const OFFICER_CASUALTY_MODS = Object.freeze({
+  victor:   Object.freeze({ proficiency: 3, treatment: -3, net: 0 }),
+  defeated: Object.freeze({ proficiency: 1, treatment: -5, net: -4 })
+});
+const OFFICER_CASUALTY_OUTCOMES = Object.freeze([
+  Object.freeze({ key: 'instantly-killed',   label: 'Instantly Killed',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'mortally-wounded',   label: 'Mortally Wounded',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'grievously-wounded', label: 'Grievously Wounded',          dies: 'if-defeated', woundRoll: true }),
+  Object.freeze({ key: 'critically-wounded', label: 'Critically Wounded or Shocked', dies: 'never', capturedIfDefeated: true,  woundRoll: true }),
+  Object.freeze({ key: 'knocked-out',        label: 'Knocked Out or Just Dazed',     dies: 'never', escapedIfDefeated: true,   woundRoll: true })
+]);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460).
+// The campaign-cycle machinery lives in acks-engine-maneuvers.js; these are
+// the printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Movement of Large Armies (RR p.448) — column length + speed multiplier by army size
+// in BRIGADE equivalents. The printed table counts brigades; sub-brigade units convert
+// at the RR p.437 scale ratios (battalion ¼, company 1/16, platoon 1/64 of a brigade).
+const ARMY_LARGE_MULTIPLIERS = Object.freeze([
+  Object.freeze({ maxBrigades: 15,   mult: 1,     columnMiles: 3,  label: 'Less than 16 brigades' }),
+  Object.freeze({ maxBrigades: 26,   mult: 2 / 3, columnMiles: 6,  label: '16–26 brigades' }),
+  Object.freeze({ maxBrigades: 32,   mult: 1 / 2, columnMiles: 9,  label: '27–32 brigades' }),
+  Object.freeze({ maxBrigades: null, mult: 1 / 3, columnMiles: 12, label: '33 brigades or more' })
+]);
+function armyLargeMultiplierRow(brigadeEquivalents){
+  const n = Math.max(0, Number(brigadeEquivalents) || 0);
+  for(const row of ARMY_LARGE_MULTIPLIERS){ if(row.maxBrigades == null || n <= row.maxBrigades) return row; }
+  return ARMY_LARGE_MULTIPLIERS[ARMY_LARGE_MULTIPLIERS.length - 1];
+}
+
+// Movement of War Machines (RR p.449): assembled 30'/turn = 6 mi/day, disassembled
+// 60'/turn = 12 mi/day — a cap on the army's daily speed while it hauls them.
+// (Dis)assembly is a construction project at 1/100 build cost (min 1 day) — that
+// project wiring lands with W6 artillery.
+const WAR_MACHINE_SPEED = Object.freeze({ assembled: 6, disassembled: 12 });
+
+// Effects of Severe Weather on ARMIES (RR p.449). NB the army table deliberately
+// DIFFERS from the party travel readings (the J2 RAW audit): rain/snow halve an army's
+// expedition speed and storms QUARTER it — a marching column suffers where a small
+// party shrugs. Temperature matches the party factors (frigid/sweltering ×½). The
+// disease-vagary %/week rides vagaries-of-war (W8) — recorded here as reference.
+// Condition keys = the journey weather enums; 'windy' has no journey enum yet (T4).
+const ARMY_WEATHER_EFFECTS = Object.freeze({
+  conditions: Object.freeze({
+    rainy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Rainy' }),
+    snowy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Snowy' }),
+    stormy: Object.freeze({ speedMult: 0.25, reconMod: -4, missileMod: -4, reconBarrensDesertOnly: true, label: 'Stormy' }),
+    windy:  Object.freeze({ speedMult: 0.5,  reconMod: -4, missileMod: -2, reconBarrensDesertOnly: true, label: 'Windy' }),
+    foggy:  Object.freeze({ speedMult: 0.5,  reconMod: 0,  missileMod: 0,  label: 'Foggy' })   // 🔧 not on the army table; the party visibility factor kept
+  }),
+  temperatures: Object.freeze({
+    frigid:     Object.freeze({ speedMult: 0.5, diseasePctWeek: 10, label: 'Frigid', notes: 'mounts cannot graze; unprotected troops suffer a weekly morale calamity' }),
+    cold:       Object.freeze({ speedMult: 1,   diseasePctWeek: 5,  label: 'Cold' }),
+    moderate:   Object.freeze({ speedMult: 1,   label: 'Moderate' }),
+    sweltering: Object.freeze({ speedMult: 0.5, label: 'Sweltering', notes: 'heavy armor strips to medium; supply cost +25%; out-of-supply penalties doubled' })
+  })
+});
+// The army-march day multiplier: condition × temperature (each defaults ×1 when unkeyed).
+function armyWeatherSpeedMult(condition, temperature){
+  const c = ARMY_WEATHER_EFFECTS.conditions[condition];
+  const t = ARMY_WEATHER_EFFECTS.temperatures[temperature];
+  return (c ? c.speedMult : 1) * (t ? t.speedMult : 1);
+}
+// weatherWarEffects(condition, temperature) — the single reader that turns a day's
+// weather (the lowercase JOURNEY_*_SPEED enums the weather layer hands down) into the
+// RR p.449 effects bundle the warfare layer consumes. Pure; both args default to ×1/no
+// effect when unkeyed (so 'fair'/'moderate' and unknown values are no-ops). The
+// sweltering supply/out-of-supply effects are temperature-axis (RR p.449); the missile/
+// recon/disease effects come straight off the catalog rows. (Speed already had its own
+// reader above; this is the rest of the table.)
+function weatherWarEffects(condition, temperature){
+  const c = ARMY_WEATHER_EFFECTS.conditions[condition] || null;
+  const t = ARMY_WEATHER_EFFECTS.temperatures[temperature] || null;
+  const sweltering = temperature === 'sweltering';
+  return {
+    condition: condition || null, temperature: temperature || null,
+    speedMult: (c ? c.speedMult : 1) * (t ? t.speedMult : 1),
+    supplyCostMult: sweltering ? 1.25 : 1,                 // RR p.449 — sweltering: +25% (more water consumption)
+    outOfSupplyDoubled: sweltering,                        // RR p.449 — sweltering: out-of-supply penalties doubled (heat exhaustion + dehydration)
+    missileMod: (c && c.missileMod) || 0,                  // RR p.449 — rainy/snowy −2, windy −2, stormy −4 to missile attack throws
+    reconMod: (c && c.reconMod) || 0,                      // RR p.449 — rainy/snowy −2; windy/stormy −4 (barrens/desert only)
+    reconBarrensDesertOnly: !!(c && c.reconBarrensDesertOnly),
+    conditionDiseasePctWeek: (c && c.diseasePctWeek) || 0, // RR p.449 — rainy/snowy 10% disease/week (wetness)
+    temperatureDiseasePctWeek: (t && t.diseasePctWeek) || 0, // RR p.449 — frigid 10% / cold 5% disease/week (exposure)
+    conditionLabel: (c && c.label) || null,
+    temperatureLabel: (t && t.label) || null
+  };
+}
+
+// Reconnaissance Range (RR p.452) — how close the observing army must be, by the
+// OPPOSING army's size, in 24-mile hexes. 🔧 The campaign map has no 24-mile super-
+// grid, so 1 twenty-four-mile hex ≈ 4 six-mile hexes of axial distance throughout.
+const RECON_RANGE = Object.freeze([
+  Object.freeze({ maxTroops: 120,  range24: 1 }),
+  Object.freeze({ maxTroops: 600,  range24: 2 }),
+  Object.freeze({ maxTroops: 3000, range24: 3 }),
+  Object.freeze({ maxTroops: null, range24: 4 })
+]);
+function reconRange24(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_RANGE){ if(row.maxTroops == null || n <= row.maxTroops) return row.range24; }
+  return 4;
+}
+
+// Reconnaissance Modifiers — opposing army size (RR p.453).
+const RECON_SIZE_MODS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   value: -2 }),
+  Object.freeze({ maxTroops: 3000,  value: -1 }),
+  Object.freeze({ maxTroops: 12000, value: 0 }),
+  Object.freeze({ maxTroops: 36000, value: 1 }),
+  Object.freeze({ maxTroops: 72000, value: 2 }),
+  Object.freeze({ maxTroops: null,  value: 3 })
+]);
+function reconSizeMod(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_SIZE_MODS){ if(row.maxTroops == null || n <= row.maxTroops) return row.value; }
+  return 3;
+}
+// The "Approximate Size" bands intelligence reveals (RR p.455).
+const ARMY_SIZE_BANDS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   label: 'small (600 or fewer troops)' }),
+  Object.freeze({ maxTroops: 3000,  label: 'average (601–3,000 troops)' }),
+  Object.freeze({ maxTroops: 12000, label: 'large (3,001–12,000 troops)' }),
+  Object.freeze({ maxTroops: 36000, label: 'huge (12,001–36,000 troops)' }),
+  Object.freeze({ maxTroops: 72000, label: 'gigantic (36,001–72,000 troops)' }),
+  Object.freeze({ maxTroops: null,  label: 'colossal (72,001 or more troops)' })
+]);
+function armySizeBandLabel(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const row of ARMY_SIZE_BANDS){ if(row.maxTroops == null || n <= row.maxTroops) return row.label; }
+  return ARMY_SIZE_BANDS[ARMY_SIZE_BANDS.length - 1].label;
+}
+// Proximity modifier (RR p.453): same 6-mi hex +2; adjacent 6-mi hexes +1; same 24-mi
+// hex 0; −1 per 24-mi hex apart. Quantized from 6-mile axial distance (🔧 4:1).
+function reconProximityMod(hexDist){
+  if(hexDist == null) return 0;
+  if(hexDist <= 0) return 2;
+  if(hexDist === 1) return 1;
+  if(hexDist <= 4) return 0;
+  return -Math.ceil((hexDist - 4) / 4);
+}
+// Terrain row (RR p.453) — by the OPPOSING army's hex (base or base-subtype key).
+// Open ground exposes (+1 to observe them); close terrain conceals (−1).
+function reconTerrainMod(terrainKeyOrBase){
+  const k = String(terrainKeyOrBase || '').toLowerCase();
+  const b = (typeof terrainBase === 'function') ? (terrainBase(k) || k) : k;
+  if(b === 'barrens' || b === 'desert' || b === 'grassland') return 1;
+  if(k === 'scrubland-low' || k === 'scrubland-sparse') return 1;
+  if(k === 'forest-taiga' || k === 'hills-rocky' || k === 'scrubland-high' || k === 'scrubland-dense' || k === 'swamp-marshy') return -1;
+  return 0;
+}
+// Scouting/screening strength (RR p.453, company-equivalents of cavalry + flyers:
+// 4 platoons = 1, battalion = 4, brigade = 16). Same brackets both directions.
+function reconScoutingMod(companyEquivalents){
+  const n = Math.max(0, Number(companyEquivalents) || 0);
+  if(n >= 101) return 3;
+  if(n >= 21) return 2;
+  if(n >= 6) return 1;
+  return 0;
+}
+
+// Results of Reconnaissance Rolls (RR p.455) — proximity tier × degree of success.
+// Tiers quantized from 6-mile axial distance (🔧 4:1): 0 → same-6 · 1–4 → same-24 ·
+// 5–8 → near (1–2 24-mi hexes) · 9+ → far (3–4 24-mi hexes).
+const RECON_RESULTS = Object.freeze({
+  'same-6': Object.freeze({
+    marginal: Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types', 'unit-strengths']), prisoner: 'very-valuable' })
+  }),
+  'same-24': Object.freeze({
+    marginal: Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' })
+  }),
+  'near': Object.freeze({
+    marginal: Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    success:  Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' })
+  }),
+  'far': Object.freeze({
+    marginal: Object.freeze({ location: 'within 4 24-mile hexes', reveals: Object.freeze(['size']), prisoner: null }),
+    success:  Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    major:    Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null })
+  })
+});
+function reconProximityTier(hexDist){
+  const d = (hexDist == null) ? 99 : hexDist;
+  if(d <= 0) return 'same-6';
+  if(d <= 4) return 'same-24';
+  if(d <= 8) return 'near';
+  return 'far';
+}
+function reconResultsFor(hexDist, degreeKey){
+  const tier = RECON_RESULTS[reconProximityTier(hexDist)];
+  if(!tier) return null;
+  if(degreeKey === 'marginal' || degreeKey === 'success' || degreeKey === 'major') return tier[degreeKey];
+  return null;
+}
+
+// Prisoner Information (RR p.456) — the 1d8 topic table × prisoner grade. Each
+// prisoner knows 1d3 pieces; a repeated topic shifts one grade RIGHT (more detail).
+const PRISONER_INFORMATION = Object.freeze([
+  Object.freeze({ d8: 1, topic: 'leader',       common: 'The name, class, approximate level, and description of the opposing army’s leader.', valuable: '…plus its total number of officers.', veryValuable: 'The leaders AND division commanders described, plus the total number of officers.' }),
+  Object.freeze({ d8: 2, topic: 'spies',        common: 'Whether the opposing army has spies infiltrated into the friendly army.', valuable: '…and if so, one spy described.', veryValuable: '…and if so, up to 1d4 spies described.' }),
+  Object.freeze({ d8: 3, topic: 'supply',       common: 'Whether the opposing army is in supply.', valuable: '…and the location of its supply base.', veryValuable: '…plus the supply base described (commander, size, stronghold value, garrison) and the supply line’s route.' }),
+  Object.freeze({ d8: 4, topic: 'spellcasters', common: 'Whether any 7th+ level spellcasters serve in the opposing army.', valuable: '…plus the most powerful spellcaster named and described.', veryValuable: 'The total number of 7th+ spellcasters, plus the most powerful named and described.' }),
+  Object.freeze({ d8: 5, topic: 'morale',       common: 'The morale modifier of the opposing army’s leader.', valuable: '…and the least charismatic commander’s name and morale modifier.', veryValuable: '…and the most- and least-charismatic commanders’ names and morale modifiers.' }),
+  Object.freeze({ d8: 6, topic: 'stance',       common: 'The strategic stance of the opposing army.', valuable: '…and the number of siege weapons it is transporting.', veryValuable: '…and the number and type of siege weapons it is transporting.' }),
+  Object.freeze({ d8: 7, topic: 'units',        common: 'The type of each unit in the opposing army.', valuable: 'The type and strength of each unit.', veryValuable: 'The type and strength of each unit, plus its strategic objective.' }),
+  Object.freeze({ d8: 8, topic: 'judges-choice', common: 'Judge’s choice of any of the above or another piece of common information.', valuable: 'Judge’s choice of valuable information.', veryValuable: 'Judge’s choice of very valuable information.' })
+]);
+const PRISONER_GRADES = Object.freeze(['common', 'valuable', 'very-valuable']);
+function prisonerInformationText(d8, grade){
+  const row = PRISONER_INFORMATION.find(r => r.d8 === d8) || null;
+  if(!row) return null;
+  if(grade === 'very-valuable') return row.veryValuable;
+  if(grade === 'valuable') return row.valuable;
+  return row.common;
+}
+
+// Results of Interrogation (RR p.457) — 2d6 + the interrogator's CHA + applicable
+// proficiencies/bribes (Judge-priced).
+const INTERROGATION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'false',   label: 'False information', pieces: 0 }),
+  Object.freeze({ max: 5,    key: 'nothing', label: 'Nothing',           pieces: 0 }),
+  Object.freeze({ max: 8,    key: 'one',     label: 'One piece of information',  pieces: 1 }),
+  Object.freeze({ max: 11,   key: 'two',     label: 'Two pieces of information', pieces: 2 }),
+  Object.freeze({ max: null, key: 'all',     label: 'All known information',     pieces: 99 })
+]);
+function interrogationBand(total){
+  for(const b of INTERROGATION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return INTERROGATION_BANDS[INTERROGATION_BANDS.length - 1];
+}
+
+// Domain Pillaging Requirements (RR p.458) — army size + time by domain size.
+const PILLAGE_REQUIREMENTS = Object.freeze([
+  Object.freeze({ maxFamilies: 500,   troops: 600,   timeDice: Object.freeze({ n: 0, d: 0, flat: 1 }), timeLabel: '1 day' }),
+  Object.freeze({ maxFamilies: 2500,  troops: 2400,  timeDice: Object.freeze({ n: 1, d: 3, flat: 0 }), timeLabel: '1d3 days' }),
+  Object.freeze({ maxFamilies: 7500,  troops: 7200,  timeDice: Object.freeze({ n: 1, d: 4, flat: 0 }), timeLabel: '1d4 days' }),
+  Object.freeze({ maxFamilies: 12500, troops: 12000, timeDice: Object.freeze({ n: 1, d: 6, flat: 0 }), timeLabel: '1d6 days' }),
+  Object.freeze({ maxFamilies: null,  troops: 24000, timeDice: Object.freeze({ n: 1, d: 8, flat: 0 }), timeLabel: '1d8 days' })
+]);
+function pillageRequirementRow(totalFamilies){
+  const n = Math.max(0, Number(totalFamilies) || 0);
+  for(const row of PILLAGE_REQUIREMENTS){ if(row.maxFamilies == null || n <= row.maxFamilies) return row; }
+  return PILLAGE_REQUIREMENTS[PILLAGE_REQUIREMENTS.length - 1];
+}
+
+// Results of Pillaging (RR p.458) — ONE roll of each die multiplies the family counts
+// (the printed Sarotem example: 3d6 rolled 13 → 13gp × 500 families). Salting the
+// earth (RR p.459): ×4 the time, flat yields, the domain destroyed.
+const PILLAGE_RESULTS = Object.freeze({
+  goldPerPeasantDice:   Object.freeze({ n: 3,  d: 6 }),   // gp per peasant family
+  goldPerUrbanDice:     Object.freeze({ n: 10, d: 6 }),   // gp per urban family
+  suppliesPerPeasantDice: Object.freeze({ n: 1, d: 10, mult: 5 }),  // ×5 gp per peasant family
+  prisonersPer10Dice:   Object.freeze({ n: 1, d: 10 }),   // per 10 families (peasant + urban)
+  familiesLostPer10Dice: Object.freeze({ n: 1, d: 10 }),  // per 10 families
+  ransomGpPerPrisoner: 40
+});
+const SALT_THE_EARTH = Object.freeze({
+  timeMult: 4, goldPerUrban: 75, goldPerPeasant: 20, suppliesPerPeasant: 50, prisonersPerFamily: 1
+});
+
+// ─── Phase 3 Military W5 — supply (RR pp.450–452) ─────────────────────────
+// Length-of-supply terrain weights (RR p.451, "Each Hex of Terrain | Counts as").
+// Keyed on the BASE terrain (the engine normalizes via terrainBase before lookup).
+// A road segment counts ½ and a navigable-waterway segment 0, REGARDLESS of the
+// underlying terrain (the route follows the road/river) — handled as overrides in
+// supplyLineHexWeight, not as terrain keys. Cap: 16 weighted hexes (96 miles).
+const SUPPLY_LINE_WEIGHTS = Object.freeze({
+  barrens: 4, desert: 4,
+  jungle: 2, mountains: 2, swamp: 2,
+  hills: 1.5, forest: 1.5,
+  grassland: 1, scrubland: 1, scrub: 1, plains: 1, steppe: 1, savanna: 1, taiga: 1,
+  water: 0                                   // an open-water hex IS a waterway (×0)
+});
+const SUPPLY_LINE_ROAD_MULT = 0.5;           // RR p.451 — every two road hexes count as one
+const SUPPLY_LINE_WATERWAY_MULT = 0;         // RR p.451 — waterway hexes are not counted
+const SUPPLY_LINE_MAX_WEIGHTED_HEXES = 16;   // RR p.451 — beyond 16 (96 mi) the line is overextended
+// Racial terrain treatments (RR p.451): elves treat forest as grassland; dwarves treat
+// hills & mountains as grassland; beastmen (little need of food, forage rapaciously)
+// treat ALL terrain as grassland. treatment ∈ null | 'elf' | 'dwarf' | 'beastman'.
+function supplyLineHexWeight(terrainKey, opts){
+  const o = opts || {};
+  if(o.waterway) return SUPPLY_LINE_WATERWAY_MULT;
+  if(o.road) return SUPPLY_LINE_ROAD_MULT;
+  let key = String(terrainKey || '').toLowerCase();
+  if(o.treatment === 'beastman') key = 'grassland';
+  else if(o.treatment === 'elf' && key === 'forest') key = 'grassland';
+  else if(o.treatment === 'dwarf' && (key === 'hills' || key === 'mountains')) key = 'grassland';
+  return (SUPPLY_LINE_WEIGHTS[key] != null) ? SUPPLY_LINE_WEIGHTS[key] : 1;
+}
+
+// Equipment Availability on Campaign (RR p.452): an army of 1,200+ troops is its own
+// market (its baggage train of merchants/craftsmen), Class VI up to Class II — wired
+// into the Trade Wizard market-class logic; lost while supply lines are not clear.
+const ARMY_MARKET_CLASS = Object.freeze([
+  Object.freeze({ minTroops: 72000, marketClass: 'II' }),
+  Object.freeze({ minTroops: 36001, marketClass: 'III' }),
+  Object.freeze({ minTroops: 12001, marketClass: 'IV' }),
+  Object.freeze({ minTroops: 3001,  marketClass: 'V' }),
+  Object.freeze({ minTroops: 1200,  marketClass: 'VI' })
+]);
+function armyMarketClassForSize(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const r of ARMY_MARKET_CLASS){ if(n >= r.minTroops) return r.marketClass; }
+  return null;                                // under 1,200 troops — no baggage-train market
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
+  // House-rule self-registration (§15.5 kernel slice 3) — a module self-registers its rules + categories
+  registerHouseRule, registeredHouseRules, registerHouseRuleCategory, houseRuleCategories,
   // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
   FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
   // Terrain model (Phase_2.5_Terrain_Model_Plan.md, T1) — taxonomy + resolution layer
@@ -1906,10 +2738,33 @@ Object.assign(ACKS, {
   ENCOUNTER_CATEGORY_COLUMNS, ENCOUNTER_TERRITORY_CLASSES, encounterCategoryColumnIndex, rollEncounterCategory,
   ENCOUNTER_RARITY_BY_TERRITORY, rollEncounterRarity,
   ENCOUNTER_FREQUENCY, restEncounterChecksForDay, territoryClassForHex,
+  // Phase 3 Military W2 — the Vagaries of Incursion tables (JJ pp.100–103) + recon bands (RR p.452)
+  INCURSION_DAILY_PCT, incursionDailyPct, BORDER_CONFIGURATIONS, DANGEROUS_BORDERS_TERRITORY,
+  effectiveTerritoryWithBorders, DOMAIN_REACTION_BANDS, domainEncounterReactionBand,
+  RECON_ROLL_BANDS, reconRollBand,
+  // Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470)
+  STRATEGIC_STANCES, STRATEGIC_SITUATIONS, resolveStrategicSituation,
+  BATTLE_ATTACK_TARGETS, BATTLE_ATTACK_MODIFIERS,
+  UNIT_MORALE_BANDS, unitMoraleBand, BATTLE_MORALE_MODIFIERS,
+  PURSUIT_THROWS, BATTLEFIELD_ENCOUNTER_DISTANCE, battlefieldEncounterSpec, rollBattlefieldDistanceFt,
+  FORAY_STAKES, HERO_QUALIFICATION, reinforcementThrowTarget,
+  OFFICER_CASUALTY_MODS, OFFICER_CASUALTY_OUTCOMES,
+  // Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460)
+  ARMY_LARGE_MULTIPLIERS, armyLargeMultiplierRow, WAR_MACHINE_SPEED,
+  ARMY_WEATHER_EFFECTS, armyWeatherSpeedMult, weatherWarEffects,
+  RECON_RANGE, reconRange24, RECON_SIZE_MODS, reconSizeMod, ARMY_SIZE_BANDS, armySizeBandLabel,
+  reconProximityMod, reconTerrainMod, reconScoutingMod,
+  RECON_RESULTS, reconProximityTier, reconResultsFor,
+  PRISONER_INFORMATION, PRISONER_GRADES, prisonerInformationText, INTERROGATION_BANDS, interrogationBand,
+  PILLAGE_REQUIREMENTS, pillageRequirementRow, PILLAGE_RESULTS, SALT_THE_EARTH,
+  // Phase 3 Military W5 — supply (RR pp.450–452)
+  SUPPLY_LINE_WEIGHTS, SUPPLY_LINE_ROAD_MULT, SUPPLY_LINE_WATERWAY_MULT, SUPPLY_LINE_MAX_WEIGHTED_HEXES,
+  supplyLineHexWeight, ARMY_MARKET_CLASS, armyMarketClassForSize,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
+  CONSTRUCTION_CF_PER_GP, constructionLaborForGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
   // Phase 2.5 §16 CoL-2 — wage-by-level (RR p.168) + Living Expenses helpers (RR p.173).

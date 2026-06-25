@@ -30,6 +30,13 @@ nppBackup/
 node_modules/
 package-lock.json
 
-# Recovery / dev scripts that aren't part of the tool
+# Disposable scratch: one-shot refactor/recovery scripts that aren't part of the tool.
+# NOTE (audit A7, 2026-06-24): the DURABLE catalog generators (build_catalog / build_encounter_tables
+# / build_troop_catalog + the mm_*.json inputs) used to live here and were therefore unrecoverable
+# (a bus-factor hole, audit T4). They now live tracked under tools/build/. Keep only genuine scratch
+# in outputs/.
 outputs/
 *.tmp.js
+
+# DEV-root handoff channel lives outside the repo; a team-builder worktree write must not get tracked
+_handoffs/

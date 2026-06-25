@@ -1,0 +1,8 @@
+# Keep the "Open a blank issue" escape hatch for anything the forms don't cover.
+blank_issues_enabled: true
+contact_links:
+  - name: Questions, ideas & general discussion
+    url: https://github.com/joachimxb/acks-god-mode#readme
+    about: >
+      For how-to questions and open-ended discussion, please start with the README.
+      Use the bug-report and feature-request forms above for concrete bugs and requests.

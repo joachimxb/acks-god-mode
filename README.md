@@ -2,9 +2,9 @@
 
 **A single-HTML-file campaign engine for the Adventurer Conqueror King System Imperial Imprint (ACKS II).**
 
-A GM-facing tool for running an ACKS II campaign — domains, characters and retainers, a hex map of the world, overland travel, the economy, and more — all in your browser, all in one HTML file, all backed by a transparent `.acks.json` save format you own.
+A GM-facing tool for running an ACKS II campaign — domains, characters and retainers, a hex map of the world, overland travel, the economy, mass warfare, encounters, religion, and more — all in your browser, all in one HTML file, all backed by a transparent `.acks.json` save format you own.
 
-Current release: **v0.20.0**. See [`CHANGELOG.md`](CHANGELOG.md) for the full release history; the headline features below are the high points.
+For the current version and the full release history, see [`CHANGELOG.md`](CHANGELOG.md) and the repo's [Releases](https://github.com/joachimxb/acks-god-mode/releases); the feature overview below is kept current with the shipped tool.
 
 ## Try it
 
@@ -20,17 +20,25 @@ The tool is a *run-the-world* engine: it tracks the state of a campaign and help
 
 **Solidly built and in daily use:**
 
-- **Domains** — monthly income/expense bookkeeping, the full ACKS II morale model, vassalage and tribute, taxes and services, garrison expenses, strongholds, and the propose-review-commit turn cycle.
+- **Domains** — monthly income/expense bookkeeping, the full ACKS II morale model, vassalage and tribute, taxes and services, garrison expenses, strongholds, barbarian clanholds and transitional realms (RR pp.353–354), a derived demographic census of who lives in each settlement and realm (by class and level, with expected wealth and magic-item availability, JJ pp.214–217), and the propose-review-commit turn cycle.
 - **Characters, officers & magistrates** — PCs / NPCs / henchmen with five-axis classification, ability scores (STR / INT / WIL / DEX / CON / CHA), saving throws, XP and level-up, retainers, the Officers tab, and the magistrate subsystem.
 - **Recruitment, loyalty & calamity** — mercenary / henchman / specialist hiring with availability, reaction-to-hiring, persuasion, signing bonuses, and persistent candidates; the loyalty-roll subsystem; and hireling calamity tracking (RR pp.164–172).
 - **A campaign map** — a clickable, zoomable, layered SVG hex map (colour by terrain / domain / land value / population / morale and more, with settlement / stronghold / lair symbols and per-side roads, rivers, and ford/bridge edges). Author the world right on the map: create a grid, place and edit hexes, paint terrain and roads and rivers.
-- **Overland travel** — plan a journey across the map and run it hex by hex: roads speed you and keep you from getting lost, rivers are a barrier you ford (RR p.271), terrain paces each leg, and a failed Navigation throw gets you genuinely, unknowingly lost (RR p.275). Per-traveller **provisioning** — food and water carried as real inventory, foraging, and the hunger/thirst ladders (RR p.278) — and a per-character **activity budget** that tracks how each character's day is spent.
-- **Economy & trade** — mercantile ventures (bulk arbitrage with demand modifiers and vagaries), retail equipment buy/sell at a market (the 🛒 Trade wizard, Equipment Availability by Market Class, RR p.124), Markets & Merchandise, located **stashes** with a multi-denomination coin purse and a composable item model, and carry encumbrance.
+- **Overland travel** — plan a journey across the map and run it hex by hex: roads speed you and keep you from getting lost, rivers are a barrier you ford (RR p.271), terrain paces each leg, and a failed Navigation throw gets you genuinely, unknowingly lost (RR p.275). Per-traveller **provisioning** — food and water carried as real inventory, foraging, and the hunger/thirst ladders (RR p.278) — and a per-character **activity budget** that tracks how each character's day is spent. Ride and pack **mounts** (RR p.130) to carry more and travel faster, fed and watered on the road like their riders.
+- **Economy & trade** — mercantile ventures (bulk arbitrage with demand modifiers and vagaries), retail equipment buy/sell at a market (the 🛒 Trade wizard, Equipment Availability by Market Class, RR p.124), Markets & Merchandise, located **stashes** with a multi-denomination coin purse and a composable item model, banking and loans (borrow capital, bank your treasure, accrue interest — RR p.42, p.313), and carry encumbrance.
+- **Encounters & a living wilderness** — a persistent-monster layer where lairs are first-class places, wandering bands cross borders and settle, and the RAW wilderness-encounter procedure (distance → surprise → evasion → reaction → influence, RR pp.280–287) runs in a step-by-step panel; hex search and tracking; a built-in monster catalogue and the JJ terrain encounter tables.
+- **Warfare** — units, armies, and the mass-combat layer: muster an army from a domain or party, march it on the same travel engine (with supply lines, RR pp.450–452), fight the full ACKS II battle engine (RR pp.461–472), lay sieges (RR pp.473–485), invade / occupy / conquer / pillage domains, and run the optional Vagaries of Incursion. A 📋 Review tab is the GM's work queue, with the world clock in two buttons.
+- **Politics & governance** — senatorial republics and oligarchies: a realm's governance with named senators (leading senators, their clients, and independents), factions, voting on policy with bribery and disputes, and the ruler's options when a vote turns against him (RR pp.355–360, JJ pp.402–407).
+- **Downtime & realm play** — Hideouts & Hijinks (carousing, smuggling, syndicates, trials, RR pp.358–370), Favors & Duties (the monthly liege↔vassal obligation engine, RR pp.345–348), domain advancement (Outlands → Civilized), gladiatorial games (house-rule-gated), and the character lifecycle: aging, disease, death and inheritance, and optional dynasties (RR p.19, pp.311–313; JJ p.84; AXIOMS 19).
+- **Construction** — a guided wizard raises strongholds, settlement buildings, civic monuments, roads, field fortifications, ships, war machines, sanctums, dungeons, mines, and vaults over time on the Day Clock, with a damage-and-repair lifecycle (RR pp.131–137, p.174).
+- **Religion & divine power** — deities, congregations, and a per-character divine-power ledger; a congregation generates divine power monthly to consecrate fields or earn experience (RR pp.421–425).
+- **The arcane domain** — a mage's sanctum draws apprentices and companions, and a built or conquered dungeon becomes a monster farm yielding arcane power; the full magic-research engine handles spell research, item creation, identification, constructs, crossbreeds, necromancy, rituals, and experimentation (RR pp.386–420). The magic-item economy ties in: identify, appraise, buy, sell, and use what you find.
+- **Generators & custom content** — generate a complete RAW NPC (occupation, class, level, proficiencies, wealth, magic items), a settlement's notables, a court, or an NPC party; build custom classes and races with a point-buy Class Builder (JJ pp.289–331); commission a sage; track what your world knows with a Knowledge/Lore layer; and roll treasure hoards (Treasure Tome).
 - **World & events** — top-level hexes, settlements, and rumors with an auto-emit pipeline; a typed **event log** that records every meaningful action; GM-fiat edits, a Chronicle, an Event Wizard, and an event-context envelope that powers derived per-entity histories.
 - **Inspector & calendar** — browse / inspect / create across every entity kind; a day-tick orchestrator and Day Clock that advance the calendar and resolve in-flight activity.
 - **House rules registry** — opt in to mechanics that diverge from RAW; when a rule is off, its data stays hidden and non-functional. The default with no rules toggled is RAW-as-written.
 
-**Sketched in the data layer or not yet built** (some appear as disabled "· coming" tabs in the app): combat resolution, hijinks, spell/magic research, religion and divine power, mass warfare (Domains at War), persistent-monster encounters, the full construction wizard (its data layer ships; the guided UI doesn't yet), and the player-facing Portal. These are tracked in the changelog and the in-app coverage as they land.
+**Still to come:** round-by-round **tactical man-to-man combat** is resolved at your table — the engine fights mass battles and sieges (and even abstract or blow-by-blow arena bouts) and records adventure outcomes, but not individual-initiative skirmishes; **mounted combat** isn't resolved yet (mounts are modelled, ridden, and provisioned, but a fight from the saddle is the GM's call); and the dedicated player-facing **Portal** is still its own future product (the save already models player-vs-GM control, and the tool can export a player-safe, fog-of-war view of a campaign, but there's no separate player app yet). These are tracked in the changelog and the in-app coverage as they land.
 
 RAW page citations (`RR p.344`, `JJ p.99`, etc.) are threaded through the UI labels and event-log entries throughout.
 
@@ -41,19 +49,21 @@ RAW page citations (`RR p.344`, `JJ p.99`, etc.) are threaded through the UI lab
 3. The quickest tour is **🎲 Load demo campaign**. To build your own, pick a **starter template** — on the hosted site it loads in one click; running from a local `file://` copy, you choose the template file from the bundled `Templates/` folder.
 4. To save: when prompted, choose a folder to keep your `.acks.json` files. The browser reuses this folder for future saves.
 5. To open later: **📂 Open campaign…** → pick a `.acks.json` file.
-6. To merge a domain (or a whole campaign) into the one you have open: **📥 Import domains…** in the Domains toolbar.
+6. To bring world data (domains, hexes, settlements, lairs) into the campaign you have open, use the **📊 Import / Export** box on the **World** tab — it reads and writes an Excel (`.xlsx`) workbook. To open a different campaign file outright, use **📂 Open campaign…**.
 
 ## Your data is yours
 
 Every campaign you build is a single `.acks.json` file in a folder you choose on your own computer. The tool never uploads your campaign anywhere — your saves go directly from your browser to your local disk via the File System Access API (or via download in Firefox/Safari).
 
-One caveat in the interest of honesty: the page itself loads its two UI libraries — Tailwind CSS and Alpine.js — from public CDNs each visit, so it needs an internet connection to *load and render*. Your campaign *data*, though, never leaves your machine.
+And it runs **fully offline**: the page ships its two UI libraries — Tailwind CSS and Alpine.js — vendored alongside it (no CDN, no external fetch, no analytics or tracking of any kind), so once you have the file it loads and renders with no internet connection at all. Nothing — your campaign data *or* the page itself — ever leaves your machine.
 
 To back up a campaign: copy the `.acks.json` file. To share a campaign or a single domain: send the file to another GM. To version-control your campaign: commit the file to your own git repo.
 
+That openness is also a **building block**: the `.acks.json` file is a documented, self-describing world-state layer, and the engine that reads and advances it runs headless in Node with no dependencies — so a companion tool, a Discord bot, or an AI GM-assistant can read from and write to the same campaign state. If you want to build against it, see [`INTEGRATION.md`](INTEGRATION.md) (the contract, the headless engine, and a JSON Schema at [`schema/acks-campaign.schema.json`](schema/acks-campaign.schema.json)).
+
 ## Templates
 
-Six starter `.acks.json` templates ship with the tool. On the hosted site they load in one click from the welcome screen; you can also **📂 Open** them directly, or **📥 Import** a domain from one into an existing campaign.
+Six starter `.acks.json` templates ship with the tool. On the hosted site they load in one click from the welcome screen; you can also **📂 Open** them directly.
 
 | Template file | What it is |
 |---|---|
@@ -76,7 +86,7 @@ ACKS God Mode is released under the **GNU Affero General Public License v3.0** (
 - If you host a modified version as a service for other people, you must publish your changes under the same license.
 - Attribution to the original author is required.
 
-**ACKS II** (the rules system) is © Autarch / Imperial Imprint. The tool implements ACKS II mechanics and cites RAW page numbers, but does not redistribute rulebook text. To play ACKS II you need a copy of the rulebooks — get them from [autarch.co](https://www.autarch.co).
+**ACKS II** (the rules system) is © Autarch / Imperial Imprint. The tool implements ACKS II mechanics and cites RAW page numbers throughout. It reproduces no rulebook prose — but, like any campaign automation, it does carry the **mechanical facts** the rules engine needs: notably the numeric stat lines for monsters (from the Monstrous Manual) and troop types (from the rulebook), reorganized into the tool's own data structures so combat, encounters, and mass warfare can be resolved. It is not a substitute for the books — there are no rules explanations, no flavour text, no art, no spell or item descriptions. To play ACKS II you need a copy of the rulebooks — get them from [autarch.co](https://www.autarch.co).
 
 ## Filing issues
 
@@ -88,7 +98,7 @@ Bugs, broken mechanics, feature suggestions: open an issue on this repo's **Issu
 
 ## Contributing
 
-Pull requests are welcome for bug fixes and small improvements; larger features are best discussed in an issue first. The full branch / PR / release policy lives in [`CONTRIBUTING.md`](CONTRIBUTING.md) — read it before opening a PR.
+Pull requests are welcome for bug fixes and small improvements; larger features are best discussed in an issue first. The full branch / PR / release policy lives in [`CONTRIBUTING.md`](CONTRIBUTING.md) — read it before opening a PR — and [`ARCHITECTURE.md`](ARCHITECTURE.md) maps the codebase (the engine / UI / `index.html` layers) for anyone changing the code.
 
 **One thing to know up front:** I'm the sole copyright holder, which keeps the project's licensing flexible going forward. To preserve that, every pull request must include this line in its description:
 

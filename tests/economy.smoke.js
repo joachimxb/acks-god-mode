@@ -22,17 +22,8 @@
 const path = require('path');
 // Load all engine modules in order; each accumulates onto global.ACKS. acks-engine-economy.js
 // captures its constants from catalogs/engine/entities at load, so it loads after those three.
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
-  'acks-engine-subsystems.js',
-  'acks-demo-template.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
+require(path.join(__dirname, '..', 'acks-demo-template.js'));
 const ACKS = global.ACKS;
 const ORACLE = require(path.join(__dirname, 'fixtures', 'economy-demo-oracle.json'));
 
@@ -104,6 +95,10 @@ function buildDemoCampaign(){
   // which would likewise perturb the pure income/expense/treasury invariant asserted below.
   // Disable it here — favors-and-duties.smoke.js owns the F&D gp flows end-to-end.
   camp.houseRules['favor-duty-auto-roll'] = { enabled: false };
+  // T6 single-home — _finishLoad strips the nested hex/settlement mirror after the lift (the unit
+  // mirror was already stripped inside migrateCampaign). Mirror that here so the rebuilt campaign
+  // matches the real loaded shape (campaign.hexes/.settlements/.units are the single home).
+  if(ACKS.stripHexSettlementMirrors) ACKS.stripHexSettlementMirrors(camp);
   return camp;
 }
 
@@ -116,15 +111,15 @@ function computeDomainEconomy(camp, d){
     incomeSum: ACKS.incomeSum({income:inc}), expenseSum: ACKS.expenseSum({expenses:exp}), moraleModSum: ACKS.moraleModSum({moraleMods:mm}),
     monthlyGrossIncome: ACKS.monthlyGrossIncome(camp, d), monthlyExpenses: ACKS.monthlyExpenses(camp, d), monthlyNet: net,
     incomeFactor: ACKS.incomeFactor(d.demographics.morale), tributeOwed: ACKS.tributeOwed(camp, d), domainXpFromNet: ACKS.domainXpFromNet(camp, d, net),
-    totalFamilies: ACKS.totalFamilies(d), effectiveUrbanFamilies: ACKS.effectiveUrbanFamilies(d), banditCount: ACKS.banditCount(d),
-    garrisonHeadcount: ACKS.garrisonHeadcount(d), garrisonCost: ACKS.garrisonCost(d), garrisonBR: ACKS.garrisonBR(d), requiredGarrison: ACKS.requiredGarrison(camp, d),
+    totalFamilies: ACKS.totalFamilies(camp, d), effectiveUrbanFamilies: ACKS.effectiveUrbanFamilies(camp, d), banditCount: ACKS.banditCount(d),
+    garrisonHeadcount: ACKS.garrisonHeadcount(camp, d), garrisonCost: ACKS.garrisonCost(camp, d), garrisonBR: ACKS.garrisonBR(camp, d), requiredGarrison: ACKS.requiredGarrison(camp, d),
     effectiveClassification: ACKS.effectiveDomainClassification(d), effectiveRuler: ACKS.effectiveRuler(camp, d),
-    strongholdRequired: ACKS.strongholdRequired(d), strongholdValue: ACKS.strongholdValue(camp, d), domainTotalLandImprovementBonus: ACKS.domainTotalLandImprovementBonus(d),
-    marketClass: ACKS.marketClass(d), tradeRevenuePerFamily: ACKS.tradeRevenuePerFamily(d),
+    strongholdRequired: ACKS.strongholdRequired(d), strongholdValue: ACKS.strongholdValue(camp, d), domainTotalLandImprovementBonus: ACKS.domainTotalLandImprovementBonus(camp, d),
+    marketClass: ACKS.marketClass(camp, d), tradeRevenuePerFamily: ACKS.tradeRevenuePerFamily(camp, d),
     magistrateSalaries: { captainOfGuard: ACKS.magistrateSalaryForRole(camp,d,'captainOfGuard'), chaplain: ACKS.magistrateSalaryForRole(camp,d,'chaplain'), munerator: ACKS.magistrateSalaryForRole(camp,d,'munerator'), steward: ACKS.magistrateSalaryForRole(camp,d,'steward') },
     magistrateAdminCandidates: ACKS.magistrateAdminCandidates(camp, d),
-    hexEffectiveValues: ((d.geography && d.geography.hexes) || []).map(h => ({ id:h.id, eff: ACKS.effectiveHexValue(h) })),
-    settlements: ACKS.hexSettlements(d).map(x => ({ name:x.settlement.name, marketClass: ACKS.settlementMarketClass(x.settlement), tradeRate: ACKS.settlementTradeRate(x.settlement), capacity: ACKS.settlementCapacity(x.settlement) }))
+    hexEffectiveValues: ACKS.hexesForDomain(camp, d.id).map(h => ({ id:h.id, eff: ACKS.effectiveHexValue(h) })),
+    settlements: ACKS.hexSettlements(camp, d).map(x => ({ name:x.settlement.name, marketClass: ACKS.settlementMarketClass(x.settlement), tradeRate: ACKS.settlementTradeRate(x.settlement), capacity: ACKS.settlementCapacity(x.settlement) }))
   };
 }
 
@@ -132,14 +127,17 @@ function computeDomainEconomy(camp, d){
 function makeRng(seed){ let s = seed >>> 0; return function(){ s = (s + 0x6D2B79F5)|0; let t = Math.imul(s ^ (s>>>15), 1|s); t = (t + Math.imul(t ^ (t>>>7), 61|t)) ^ t; return ((t ^ (t>>>14))>>>0)/4294967296; }; }
 
 console.log('--- Engine surface ---');
-['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
+['incomeBreakdown','expenseBreakdown','moraleModifiersFor','incomeSum','expenseSum','moraleModSum','monthlyNet','incomeFactor','domainXpFromNet','domainRulerXpAward','tributeOwed','effectiveHexValue','domainTotalLandImprovementBonus','settlementTradeRate','settlementMarketClass','settlementCapacity','hexSettlements','totalFamilies','effectiveUrbanFamilies','banditCount','garrisonHeadcount','garrisonCost','garrisonBR','requiredGarrison','strongholdValue','rulerCharacter','effectiveRuler','magistrateSalaryForRole','vassalChainUnder','proposeMonthlyTurn','commitTurn']
   .forEach(fn => check('ACKS.' + fn + ' is a function', typeof ACKS[fn] === 'function', 'got ' + typeof ACKS[fn]));
 
 console.log('--- (a) Characterization oracle: campaign-build fidelity (invariants) ---');
 const demo = buildDemoCampaign();
 const byId = {};
 demo.domains.forEach(d => byId[d.id] = d);
-check('demo rebuilt with 4 domains', demo.domains.length === 4, 'got ' + demo.domains.length);
+// Demo refresh (2026-06-24, World-Layer): the demo now ships a 5th domain — the dom-gravewolf-clans
+// beastman clanhold (Tribal Domains showcase). The oracle was regenerated to match (March + Tidewrack
+// byte-identical; Northwatch/Saltcombe rulers bumped to L7 for Senate eligibility; clanhold added).
+check('demo rebuilt with 5 domains', demo.domains.length === 5, 'got ' + demo.domains.length);
 Object.keys(ORACLE.invariants).forEach(id => {
   const d = byId[id], inv = ORACLE.invariants[id];
   if(!d){ check('invariant domain present: ' + id, false); return; }
@@ -147,8 +145,9 @@ Object.keys(ORACLE.invariants).forEach(id => {
     && (d.demographics.urbanFamilies||0) === inv.urbanFamiliesRaw
     && d.demographics.morale === inv.morale
     && (d.treasury.gp||0) === inv.treasuryGp
-    && ((d.geography&&d.geography.hexes)||[]).length === inv.nestedHexCount
-    && ((d.garrison&&d.garrison.units)||[]).length === inv.garrisonUnitCount
+    // T6 single-home — count via the canonical accessors (geography.hexes / garrison.units are gone).
+    && ACKS.hexesForDomain(demo, d.id).length === inv.nestedHexCount
+    && ACKS.unitsStationedAt(demo, { kind: 'domain-garrison', id: d.id }).length === inv.garrisonUnitCount
     && (d.liegeId||null) === inv.liegeId
     && (d.rulerCharacterId||null) === inv.rulerCharacterId,
     'rebuilt campaign drifted from the captured one for ' + id);
@@ -180,7 +179,9 @@ check('incomeFactor clamps out-of-range (99 → 1)', ACKS.incomeFactor(99) === 1
 
 // Synthetic domain: service 4gp + tax 2gp on peasant AND urban families (RR Collecting Revenue —
 // codifies the audit I2 rebuttal), and trade revenue by market class.
-function mkCampaign(domain){ return { houseRules:{}, domains:[domain], characters:[], settlements:[], hexes:[] }; }
+// T6 single-home — lift the domain's nested geography.hexes/.settlement into campaign.hexes/.settlements
+// (what the readers now read), exactly as the real load (_finishLoad) does.
+function mkCampaign(domain){ const c = { houseRules:{}, domains:[domain], characters:[], settlements:[], hexes:[], rumors:[] }; ACKS.liftToTopLevelCollections(c); return c; }
 function mkDomain(over){
   return Object.assign({
     id:'dom-test', name:'Testmark', liegeId:null, rulerCharacterId:null, administersThisMonth:false, classification:'Borderlands',
@@ -195,14 +196,15 @@ function mkDomain(over){
 // fam 100 + urb 220 (a 220-family settlement → Class VI, trade 1gp/family). I2: service + tax on BOTH.
 const tradeDom = mkDomain({ demographics:{ peasantFamilies:100, urbanFamilies:0, morale:0 },
   geography:{ controlledHexes:1, hexes:[ { id:'hex-t', valuePerFamily:6, landImprovementBonus:0, families:100, settlement:{ name:'Markettown', families:220, totalInvestment:0 } } ] } });
-const tradeRows = ACKS.incomeBreakdown(mkCampaign(tradeDom), tradeDom);
+const tradeCamp = mkCampaign(tradeDom);
+const tradeRows = ACKS.incomeBreakdown(tradeCamp, tradeDom);
 const svcRow = tradeRows.find(r => /^Service revenue/.test(r.label));
 const taxRow = tradeRows.find(r => /^Tax /.test(r.label));
 const tradeRow = tradeRows.find(r => /^Trade revenue/.test(r.label));
 check('service revenue = 4 × (peasant+urban) = 4 × 320 = 1280', svcRow && svcRow.gp === 1280, svcRow && ('got ' + svcRow.gp));
 check('tax = 2 × (peasant+urban) = 2 × 320 = 640 (I2 rebuttal: urban families ARE taxed)', taxRow && taxRow.gp === 640, taxRow && ('got ' + taxRow.gp));
 check('trade revenue = Class VI rate 1 × 220 = 220', tradeRow && tradeRow.gp === 220 && /Class VI/.test(tradeRow.label), tradeRow && ('got ' + JSON.stringify(tradeRow)));
-check('effectiveUrbanFamilies reads the settlement (220)', ACKS.effectiveUrbanFamilies(tradeDom) === 220);
+check('effectiveUrbanFamilies reads the settlement (220)', ACKS.effectiveUrbanFamilies(tradeCamp, tradeDom) === 220);
 
 // Garrison required = per-family rate by classification × peasant + 2 × urban (RR p.351).
 check('requiredGarrison Civilized = 2 × 100', ACKS.requiredGarrison(mkCampaign(mkDomain({classification:'Civilized'})), mkDomain({classification:'Civilized'})) === 200);
@@ -229,6 +231,15 @@ check('isHenchman(henchRuler) is true (sanity)', ACKS.isHenchman(henchRuler) ===
 check('domainXpFromNet henchman SUBTRACTS the wage = max(0, 6000 − 500 − 5000) = 500', ACKS.domainXpFromNet(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainXpFromNet(hCamp, hDom, 6000));
 check('domainXpFromNet floors at 0 (net below threshold)', ACKS.domainXpFromNet(pcCamp, pcDom, 3000) === 0);
 
+// domainRulerXpAward (RR p.342): the XP a ruler ACTUALLY gains from domain income = the wage-adjusted
+// basis, with NO ½-share — domain income is the explicit exception ("they do not reduce earned XP
+// from domains by 50%"). Regression for the 2026-06-24 audit double-penalty (acks-authority C1): the
+// commit path used to ×0.5 a henchman ruler's domain XP ON TOP of the wage subtraction.
+check('domainRulerXpAward henchman ruler is NOT halved = wage-adjusted basis 500 (bug awarded 250)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === 500, 'got ' + ACKS.domainRulerXpAward(hCamp, hDom, 6000));
+check('domainRulerXpAward === domainXpFromNet for the henchman ruler (no extra ×0.5)', ACKS.domainRulerXpAward(hCamp, hDom, 6000) === ACKS.domainXpFromNet(hCamp, hDom, 6000));
+check('domainRulerXpAward non-henchman = full basis 1000', ACKS.domainRulerXpAward(pcCamp, pcDom, 6000) === 1000, 'got ' + ACKS.domainRulerXpAward(pcCamp, pcDom, 6000));
+check('domainRulerXpAward floors at 0 (net below threshold)', ACKS.domainRulerXpAward(pcCamp, pcDom, 3000) === 0);
+
 console.log('--- (c) Headless monthly turn (no DOM) ---');
 // No-rng default path runs without throwing — the 5-line "engine runs a turn headless" snippet.
 let snippetOk = true;
@@ -236,9 +247,9 @@ try {
   const c0 = buildDemoCampaign();
   const prop0 = ACKS.proposeMonthlyTurn(c0);
   const res0 = ACKS.commitTurn(c0, prop0);
-  snippetOk = !prop0.error && !res0.error && res0.committed === 4 && c0.currentTurn === 6;
+  snippetOk = !prop0.error && !res0.error && res0.committed === 5 && c0.currentTurn === 6;
 } catch(e){ snippetOk = false; console.log('  (snippet threw: ' + e.message + ')'); }
-check('default-rng headless turn runs: propose + commit, 4 committed, turn 5 → 6', snippetOk);
+check('default-rng headless turn runs: propose + commit, 5 committed, turn 5 → 6', snippetOk);
 
 // Seeded turn — deterministic + treasury deltas equal the monthly net.
 function runSeededTurn(seed){
@@ -249,8 +260,8 @@ function runSeededTurn(seed){
   return { camp, before, prop, res };
 }
 const r1 = runSeededTurn(424242);
-check('seeded propose has no error + 4 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 4);
-check('seeded commit: 4 committed, no error, turn advanced to 6', r1.res.committed === 4 && !r1.res.error && r1.camp.currentTurn === 6);
+check('seeded propose has no error + 5 domain rows', !r1.prop.error && r1.prop.turnProposal.length === 5);
+check('seeded commit: 5 committed, no error, turn advanced to 6', r1.res.committed === 5 && !r1.res.error && r1.camp.currentTurn === 6);
 // Treasury delta == monthly net (incomeFactor 1, no construction queued) PLUS any passive-investment
 // payout credited to the domain (the demo's "Saltspur Distillery" pays 30,000 × 1% = 300/mo to
 // Saltspur — exercises the lifted processPassiveInvestmentsForTurn in the headless turn). So
@@ -280,6 +291,42 @@ r1.camp.domains.forEach((d1) => {
   if(d3 && (d1.demographics.peasantFamilies !== d3.demographics.peasantFamilies || d1.demographics.morale !== d3.demographics.morale)) anyDiff = true;
 });
 check('a different seed changes population/morale outcomes', anyDiff);
+
+console.log('--- (d) Passive-investment payout survives the load-time reconcile (canonical-setter bug) ---');
+// Regression for the confirmed bug: processPassiveInvestmentsForTurn wrote domain.treasury.gp
+// DIRECTLY, bypassing the treasury stash — so the load-time reconcileTreasuryScalars pass
+// (scalar := stash sum) silently clobbered the payout (the gp vanished on reload: 23895 → 23595).
+// The fix routes the payout through _applyDomainTreasuryDelta (deposits to the stash + keeps the
+// scalar in lockstep). Synthetic round-trip first, then end-to-end on the demo.
+const psCamp = { schemaVersion:2, currentTurn:3, houseRules:{}, characters:[], settlements:[], hexes:[], rumors:[], stashes:[], passiveInvestments:[],
+  domains:[ mkDomain({ id:'dom-ps', name:'Passiveton', treasury:{ gp:1000 },
+    geography:{ controlledHexes:1, hexes:[ { id:'hex-ps', valuePerFamily:6, landImprovementBonus:0, families:100 } ] } }) ] };
+ACKS.migrateAllDomainTreasuries(psCamp);
+const psDom = psCamp.domains[0];
+check('synthetic domain materialized a treasury stash', !!psDom.treasuryStashId);
+check('treasury stash sum == scalar at start (1000)', ACKS.domainTreasuryGp(psCamp, psDom.id) === 1000 && (psDom.treasury.gp||0) === 1000,
+  'stash ' + ACKS.domainTreasuryGp(psCamp, psDom.id) + ' / scalar ' + (psDom.treasury && psDom.treasury.gp));
+psCamp.passiveInvestments = [{ id:'inv-ps', enabled:true, name:'Brewery', type:'commerce', riskTier:'balanced', capital:30000, destinationDomainId:'dom-ps', ownerCharacterId:null }];
+const psGp = ACKS.passiveInvestmentMonthlyGp(psCamp.passiveInvestments[0]); // 30000 × 1% = 300
+check('passiveInvestmentMonthlyGp = 300 (sanity)', psGp === 300, 'got ' + psGp);
+const psRes = ACKS.processPassiveInvestmentsForTurn(psCamp);
+check('payout reported (totalGp 300)', psRes.totalGp === 300, 'got ' + psRes.totalGp);
+check('passive payout credited the scalar (1300)', (psDom.treasury.gp||0) === 1300, 'got ' + (psDom.treasury && psDom.treasury.gp));
+check('passive payout ALSO deposited to the treasury stash — lockstep (1300)', ACKS.domainTreasuryGp(psCamp, psDom.id) === 1300, 'got ' + ACKS.domainTreasuryGp(psCamp, psDom.id));
+// THE REGRESSION: the load-time reconcile must NOT clobber the payout.
+const psDrift = ACKS.reconcileTreasuryScalars(psCamp);
+check('passive payout SURVIVES reconcileTreasuryScalars (the reload round-trip — was the bug)', (psDom.treasury.gp||0) === 1300, 'got ' + (psDom.treasury && psDom.treasury.gp));
+check('reconcile is a no-op after the canonical-setter payout (0 domains drifted)', psDrift === 0, 'got ' + psDrift);
+
+// End-to-end on the demo: its domains materialize treasury stashes (v0.17.0 always-on), so the
+// load-time reconcile is REAL — re-running it must not drop the demo's passive payout (Saltspur 300).
+check('demo domains materialized treasury stashes (reconcile is real)', r1.camp.domains.every(d => !!d.treasuryStashId));
+ACKS.reconcileTreasuryScalars(r1.camp);
+Object.keys(ORACLE.expected).forEach(id => {
+  const d = r1.camp.domains.find(x => x.id === id);
+  const want = ORACLE.invariants[id].treasuryGp + ORACLE.expected[id].monthlyNet + (passiveByDomain[id]||0);
+  check('treasury SURVIVES the load-time reconcile for ' + ORACLE.expected[id].name + ' (= ' + want + ')', d && (d.treasury.gp||0) === want, d && ('got ' + d.treasury.gp));
+});
 
 console.log('\n=============================================');
 console.log('economy.smoke.js — Passed: ' + passed + ', Failed: ' + failed);

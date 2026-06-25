@@ -1,0 +1,68 @@
+name: Bug report
+description: Something is broken, a mechanic is wrong, or the tool behaves unexpectedly.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. ACKS God Mode runs entirely in your
+        browser — your campaign data never leaves your machine — so the details below
+        help reproduce the problem without it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you were trying to do
+      description: What were you doing in the tool when the problem appeared?
+      placeholder: e.g. Advancing the monthly turn on a domain with two vassals.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-vs-actual
+    attributes:
+      label: What happened vs. what you expected
+      description: Describe the actual behavior and what you expected instead.
+      placeholder: |
+        Expected: the vassal's tribute to deduct from the realm net.
+        Actual: the net was unchanged and the treasury didn't move.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: A numbered list, if you can. The more precise, the faster the fix.
+      placeholder: |
+        1. Load the demo campaign (🎲 Demo).
+        2. Open the March of Saltspur → Vassalage tab.
+        3. ...
+    validations:
+      required: false
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      description: The tool targets Chromium browsers (Chrome / Edge / Brave). Which one, and which version?
+      placeholder: e.g. Chrome 126 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: save-file
+    attributes:
+      label: A minimal .acks.json that reproduces it (optional but very helpful)
+      description: >
+        If you can, attach (or paste) a small `.acks.json` save that triggers the bug.
+        Scrub anything sensitive — what matters is the *shape* that triggers it, not your
+        real campaign. You can drag a file into this field to attach it.
+    validations:
+      required: false
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors (optional)
+      description: >
+        If you're comfortable: open the browser dev tools (F12) → Console, reproduce the
+        bug, and paste any red error lines here.
+      render: text
+    validations:
+      required: false

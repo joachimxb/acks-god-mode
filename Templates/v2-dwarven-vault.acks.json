@@ -55,115 +55,6 @@
         "controlledHexes": 3,
         "claimedHexes": 4,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-kazad-doln-gates",
-            "coord": {
-              "q": 0,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 0,
-            "valuePerFamily": 9,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "mountain",
-            "primaryStructure": "Great Gates of Kazad-Doln",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-kazad-doln-vault",
-              "name": "Kazad-Doln (the Great Vault)",
-              "families": 850,
-              "totalInvestment": 240000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": null,
-              "demandModifiers": {
-                "armor-weapons": -2,
-                "metals-ores": -3,
-                "stone-products": -2,
-                "grain-vegetables": 2
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class IV underground city. Vault halls cut into living stone over twelve generations. Forges, vaults, ancestor-shrines, and the Vaultlord's hall."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-ancestor-hall",
-                "name": "Hall of Ancestors",
-                "kind": "temple",
-                "description": "Burial-vault of every Vaultlord since the founding. Site of investiture and oath-taking."
-              },
-              {
-                "schemaVersion": 2,
-                "id": "poi-deep-forges",
-                "name": "Deep Forges",
-                "kind": "industry",
-                "description": "Three master forges and twenty journeyman-forges. The vault's economic engine."
-              }
-            ],
-            "monsterNotes": "Deep tunnels below the vault host kobold and worse. The Vaultguards keep them out.",
-            "notes": "Domain seat. The vault itself."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-kazad-doln-mines",
-            "coord": {
-              "q": 1,
-              "r": 0
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 120,
-            "valuePerFamily": 9,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "mountain",
-            "primaryStructure": "Iron-mine complex",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-iron-mine",
-                "name": "Kazad-Doln Iron Mine",
-                "kind": "industry",
-                "description": "Active iron mine. Worked by a clan of journeyman miners."
-              }
-            ],
-            "monsterNotes": "Occasional deep-tunnel intruders.",
-            "notes": "The vault's iron supply."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-kazad-doln-farms",
-            "coord": {
-              "q": -1,
-              "r": 1
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 60,
-            "valuePerFamily": 5,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "mountain valley",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "The little surface-farming the vault tolerates. Most grain is bought in from the lowlands."
-          }
-        ],
         "terrain": "mountain",
         "features": []
       },
@@ -207,32 +98,6 @@
         "rate": "standard",
         "moraleImpact": 0
       },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-kazad-vaultguard",
-            "displayName": "Dwarven Vaultguard",
-            "unitTypeKey": "dwarven-vaultguard",
-            "count": 80,
-            "monthlyWage": 15,
-            "brPerSoldier": 0.125,
-            "stationedAtHexId": "hex-kazad-doln-gates"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-kazad-arbalest",
-            "displayName": "Dwarven Crossbowmen",
-            "unitTypeKey": "dwarven-crossbow",
-            "count": 40,
-            "monthlyWage": 12,
-            "brPerSoldier": 0.1,
-            "stationedAtHexId": "hex-kazad-doln-gates"
-          }
-        ],
-        "totalMonthlyCost": 1680,
-        "totalBR": 14
-      },
       "stronghold": {
         "type": "Dwarven Vault (great)",
         "buildValue": 220000,
@@ -253,7 +118,8 @@
             "quantity": 1,
             "notes": "Twelve halls cut from living stone."
           }
-        ]
+        ],
+        "constructibleId": "cst-g3ie79p"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -309,53 +175,6 @@
         "controlledHexes": 1,
         "claimedHexes": 1,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-brokk-hold",
-            "coord": {
-              "q": 2,
-              "r": -1
-            },
-            "classification": "Civilized",
-            "explored": true,
-            "families": 0,
-            "valuePerFamily": 8,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "mountain",
-            "primaryStructure": "Brokk's Hold (daughter-vault)",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-brokk-hold",
-              "name": "Brokk's Hold",
-              "families": 220,
-              "totalInvestment": 55000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": "chr-thane-brokk",
-              "demandModifiers": {
-                "armor-weapons": -3
-              },
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "Class VI weaponcraft daughter-vault. Specializes in war-axes and crossbows."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-brokk-forge",
-                "name": "Brokk's Forge",
-                "kind": "industry",
-                "description": "The thane's master forge. His personal axe was forged here three decades ago."
-              }
-            ],
-            "monsterNotes": "",
-            "notes": "Brokk's seat. Single-hex domain — the hold is the whole domain."
-          }
-        ],
         "terrain": "mountain",
         "features": []
       },
@@ -394,22 +213,6 @@
         "rate": "standard",
         "moraleImpact": 0
       },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-brokk-vaultguard",
-            "displayName": "Dwarven Vaultguard",
-            "unitTypeKey": "dwarven-vaultguard",
-            "count": 25,
-            "monthlyWage": 15,
-            "brPerSoldier": 0.125,
-            "stationedAtHexId": "hex-brokk-hold"
-          }
-        ],
-        "totalMonthlyCost": 375,
-        "totalBR": 3.13
-      },
       "stronghold": {
         "type": "Dwarven Vault (small)",
         "buildValue": 50000,
@@ -430,7 +233,8 @@
             "quantity": 1,
             "notes": "Two halls and the master forge."
           }
-        ]
+        ],
+        "constructibleId": "cst-wy9qhgp"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -486,10 +290,23 @@
         "spells": 11
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Magical Engineering",
-        "Craft (smithing)"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        },
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        }
       ],
       "classPowers": [
         "Dwarven darkvision",
@@ -582,9 +399,19 @@
         "spells": 9
       },
       "proficiencies": [
-        "Craft (smithing)",
-        "Theology",
-        "Magical Engineering"
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        },
+        {
+          "key": "theology",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Cast divine spells",
@@ -672,9 +499,19 @@
         "spells": 13
       },
       "proficiencies": [
-        "Craft (smithing)",
-        "Manual of Arms",
-        "Leadership"
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Dwarven darkvision",
@@ -801,7 +638,74 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-g3ie79p",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "dwarven-vault-great",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Dwarven Vault (great)",
+      "hexId": "hex-kazad-doln-gates",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-vault-of-kazad-doln",
+      "buildValue": 220000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Dwarven Vault (great)\" (220 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-wy9qhgp",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "dwarven-vault-small",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Dwarven Vault (small)",
+      "hexId": "hex-brokk-hold",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-thane-hold-of-brokk",
+      "buildValue": 50000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Dwarven Vault (small)\" (50 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [
@@ -888,5 +792,282 @@
       ]
     }
   ],
-  "lairs": []
+  "lairs": [],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-kazad-vaultguard",
+      "displayName": "Dwarven Vaultguard",
+      "unitTypeKey": "dwarven-vaultguard",
+      "count": 80,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.125,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-vault-of-kazad-doln"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-kazad-arbalest",
+      "displayName": "Dwarven Crossbowmen",
+      "unitTypeKey": "dwarven-crossbow",
+      "count": 40,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.1,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-vault-of-kazad-doln"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-brokk-vaultguard",
+      "displayName": "Dwarven Vaultguard",
+      "unitTypeKey": "dwarven-vaultguard",
+      "count": 25,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.125,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-thane-hold-of-brokk"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": [],
+  "researchProjects": [],
+  "apprenticeships": [],
+  "hexes": [
+    {
+      "schemaVersion": 2,
+      "id": "hex-kazad-doln-gates",
+      "coord": {
+        "q": 0,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 9,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "mountain",
+      "primaryStructure": "Great Gates of Kazad-Doln",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-ancestor-hall",
+          "name": "Hall of Ancestors",
+          "kind": "temple",
+          "description": "Burial-vault of every Vaultlord since the founding. Site of investiture and oath-taking."
+        },
+        {
+          "schemaVersion": 2,
+          "id": "poi-deep-forges",
+          "name": "Deep Forges",
+          "kind": "industry",
+          "description": "Three master forges and twenty journeyman-forges. The vault's economic engine."
+        }
+      ],
+      "monsterNotes": "Deep tunnels below the vault host kobold and worse. The Vaultguards keep them out.",
+      "notes": "Domain seat. The vault itself.",
+      "domainId": "dom-vault-of-kazad-doln",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-kazad-doln-mines",
+      "coord": {
+        "q": 1,
+        "r": 0
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 120,
+      "valuePerFamily": 9,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "mountain",
+      "primaryStructure": "Iron-mine complex",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-iron-mine",
+          "name": "Kazad-Doln Iron Mine",
+          "kind": "industry",
+          "description": "Active iron mine. Worked by a clan of journeyman miners."
+        }
+      ],
+      "monsterNotes": "Occasional deep-tunnel intruders.",
+      "notes": "The vault's iron supply.",
+      "domainId": "dom-vault-of-kazad-doln",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-kazad-doln-farms",
+      "coord": {
+        "q": -1,
+        "r": 1
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 60,
+      "valuePerFamily": 5,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "mountain valley",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "The little surface-farming the vault tolerates. Most grain is bought in from the lowlands.",
+      "domainId": "dom-vault-of-kazad-doln",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-brokk-hold",
+      "coord": {
+        "q": 2,
+        "r": -1
+      },
+      "classification": "Civilized",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 8,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "mountain",
+      "primaryStructure": "Brokk's Hold (daughter-vault)",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-brokk-forge",
+          "name": "Brokk's Forge",
+          "kind": "industry",
+          "description": "The thane's master forge. His personal axe was forged here three decades ago."
+        }
+      ],
+      "monsterNotes": "",
+      "notes": "Brokk's seat. Single-hex domain — the hold is the whole domain.",
+      "domainId": "dom-thane-hold-of-brokk",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    }
+  ],
+  "settlements": [
+    {
+      "schemaVersion": 2,
+      "id": "set-kazad-doln-vault",
+      "name": "Kazad-Doln (the Great Vault)",
+      "families": 850,
+      "totalInvestment": 240000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {
+        "armor-weapons": -2,
+        "metals-ores": -3,
+        "stone-products": -2,
+        "grain-vegetables": 2
+      },
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class IV underground city. Vault halls cut into living stone over twelve generations. Forges, vaults, ancestor-shrines, and the Vaultlord's hall.",
+      "hexId": "hex-kazad-doln-gates",
+      "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-brokk-hold",
+      "name": "Brokk's Hold",
+      "families": 220,
+      "totalInvestment": 55000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": "chr-thane-brokk",
+      "demandModifiers": {
+        "armor-weapons": -3
+      },
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "Class VI weaponcraft daughter-vault. Specializes in war-axes and crossbows.",
+      "hexId": "hex-brokk-hold",
+      "placesOfPower": []
+    }
+  ],
+  "rumors": []
 }

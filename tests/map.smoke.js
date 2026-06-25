@@ -18,16 +18,7 @@
  */
 
 const path = require('path');
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
-  'acks-engine-subsystems.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let passed = 0, failed = 0;
@@ -230,10 +221,12 @@ check('unknown classification → neutral', ACKS.hexFillColor({ classification: 
 // ─── hexFillLayers / hexFillLegend ───
 section('hexFillLayers + hexFillLegend');
 const layers = ACKS.hexFillLayers();
-check('full §4.1 catalog (9 layers)', Array.isArray(layers) && layers.length === 9);
+// 10 layers: the §4.1 nine + the Terrain-T3 'biome' fill (inserted right after 'terrain').
+check('full catalog (10 layers = §4.1 nine + biome T3)', Array.isArray(layers) && layers.length === 10);
 check('terrain is first (default)', layers[0].id === 'terrain');
+check('biome (T3) follows terrain', layers[1].id === 'biome');
 check('every layer has id + label', layers.every(l => l.id && l.label));
-check('the M0–M2 four lead the catalog', layers.slice(0, 4).map(l => l.id).join(',') === 'terrain,domain,land-value,classification');
+check('terrain + biome lead, then the M0–M2 trio', layers.slice(0, 5).map(l => l.id).join(',') === 'terrain,biome,domain,land-value,classification');
 check('legend(terrain) → 10 rows (9 land + water)', ACKS.hexFillLegend('terrain').length === 10);
 check('legend(land-value) → 7 rows', ACKS.hexFillLegend('land-value').length === 7);
 check('legend(classification) → 4 rows', ACKS.hexFillLegend('classification').length === 4);
@@ -345,7 +338,7 @@ check('mapTerrainTypes values are all recognized by hexFillColor (terrain)', ACK
 
 // ─── M6 extra fill layers (population / morale / secured / economy / exploration) ───
 section('hexFillColor — M6 layers + ctx');
-check('catalog now lists all 9 §4.1 fills', ACKS.hexFillLayers().length === 9);
+check('catalog now lists all §4.1 fills + biome T3 (10)', ACKS.hexFillLayers().length === 10);
 // secured (per-domain via ctx)
 const secCtx = { securedStateByDomain: { 'dom-a': 'adequate', 'dom-b': 'critical' } };
 check('secured: adequate vs critical differ', ACKS.hexFillColor({ domainId:'dom-a' }, 'secured', secCtx) !== ACKS.hexFillColor({ domainId:'dom-b' }, 'secured', secCtx));

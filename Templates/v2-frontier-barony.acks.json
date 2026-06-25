@@ -50,95 +50,6 @@
         "controlledHexes": 3,
         "claimedHexes": 4,
         "controlledHexList": [],
-        "hexes": [
-          {
-            "schemaVersion": 2,
-            "id": "hex-tower-of-thornreach",
-            "coord": {
-              "q": 0,
-              "r": 0
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 75,
-            "valuePerFamily": 6,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "hills",
-            "primaryStructure": "Tower of Thornreach (stronghold seat)",
-            "settlement": {
-              "schemaVersion": 2,
-              "id": "set-thornreach-town",
-              "name": "Thornreach Town",
-              "families": 80,
-              "totalInvestment": 10000,
-              "foundedTurn": 1,
-              "foundedByCharacterId": "chr-halvard-bold",
-              "demandModifiers": {},
-              "rumors": [],
-              "entryways": null,
-              "regulatedAssets": null,
-              "notes": "A walled hamlet hard against the Tower. Hosts the Sunday market."
-            },
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Domain seat. Both the Tower and the town stand here."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-northern-farmsteads",
-            "coord": {
-              "q": 0,
-              "r": -1
-            },
-            "classification": "Borderlands",
-            "explored": true,
-            "families": 110,
-            "valuePerFamily": 7,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "plains",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [],
-            "monsterNotes": "",
-            "notes": "Better soil than the rest of the barony. Targeted for land improvement."
-          },
-          {
-            "schemaVersion": 2,
-            "id": "hex-thorn-wood",
-            "coord": {
-              "q": 1,
-              "r": 0
-            },
-            "classification": "Outlands",
-            "explored": false,
-            "families": 0,
-            "valuePerFamily": 4,
-            "landImprovementBonus": 0,
-            "landImprovementProjects": [],
-            "terrain": "forest",
-            "primaryStructure": "",
-            "settlement": null,
-            "lairs": [],
-            "dungeons": [],
-            "pointsOfInterest": [
-              {
-                "schemaVersion": 2,
-                "id": "poi-thorn-cairn",
-                "name": "The Thorn Cairn",
-                "kind": "ruin",
-                "description": "A pre-imperial barrow at the wood's edge. Local elders forbid disturbing it."
-              }
-            ],
-            "monsterNotes": "Goblins, wolves, occasional wandering boar.",
-            "notes": "The hex Sir Halvard intends to clear once the goblins are dealt with."
-          }
-        ],
         "terrain": "hills and woodland",
         "features": []
       },
@@ -177,42 +88,6 @@
         "rate": "standard",
         "moraleImpact": 0
       },
-      "garrison": {
-        "units": [
-          {
-            "schemaVersion": 2,
-            "id": "gar-thornreach-foot",
-            "displayName": "Light Infantry",
-            "unitTypeKey": "light-infantry",
-            "count": 30,
-            "monthlyWage": 6,
-            "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-tower-of-thornreach"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-thornreach-bows",
-            "displayName": "Bowmen",
-            "unitTypeKey": "bowmen",
-            "count": 12,
-            "monthlyWage": 9,
-            "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-tower-of-thornreach"
-          },
-          {
-            "schemaVersion": 2,
-            "id": "gar-thornreach-horse",
-            "displayName": "Light Cavalry",
-            "unitTypeKey": "light-cavalry",
-            "count": 6,
-            "monthlyWage": 15,
-            "brPerSoldier": 0.083,
-            "stationedAtHexId": null
-          }
-        ],
-        "totalMonthlyCost": 378,
-        "totalBR": 2.27
-      },
       "stronghold": {
         "type": "Tower",
         "buildValue": 15000,
@@ -226,7 +101,8 @@
             "quantity": 1,
             "notes": "Tower of Thornreach. 30' high × 20' diameter."
           }
-        ]
+        ],
+        "constructibleId": "cst-nhdi2z0"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -284,10 +160,22 @@
         "spells": 13
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Mounted Combat",
-        "Land Surveying"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "mounted-combat",
+          "ranks": 1
+        },
+        {
+          "key": "land-surveying",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 5,
@@ -376,8 +264,14 @@
         "spells": 15
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Endurance"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "endurance",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 3,
@@ -471,7 +365,41 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-nhdi2z0",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "tower",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Tower",
+      "hexId": "hex-tower-of-thornreach",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-of-thornreach",
+      "buildValue": 15000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 1,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Tower\" (15 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [
@@ -549,5 +477,208 @@
       "notes": "Old badger setts colonized by goblins. Skirmish the Northern Farmsteads in the fortnight before harvest. (legacy Creature: goblins, HD: 1-1, No. appearing: 2d10)",
       "history": []
     }
-  ]
+  ],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-foot",
+      "displayName": "Light Infantry",
+      "unitTypeKey": "light-infantry",
+      "count": 30,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-bows",
+      "displayName": "Bowmen",
+      "unitTypeKey": "bowmen",
+      "count": 12,
+      "monthlyWage": 9,
+      "brPerSoldier": 0.063,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-horse",
+      "displayName": "Light Cavalry",
+      "unitTypeKey": "light-cavalry",
+      "count": 6,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.083,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": [],
+  "researchProjects": [],
+  "apprenticeships": [],
+  "hexes": [
+    {
+      "schemaVersion": 2,
+      "id": "hex-tower-of-thornreach",
+      "coord": {
+        "q": 0,
+        "r": 0
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 75,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "hills",
+      "primaryStructure": "Tower of Thornreach (stronghold seat)",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Domain seat. Both the Tower and the town stand here.",
+      "domainId": "dom-barony-of-thornreach",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-northern-farmsteads",
+      "coord": {
+        "q": 0,
+        "r": -1
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 110,
+      "valuePerFamily": 7,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "plains",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Better soil than the rest of the barony. Targeted for land improvement.",
+      "domainId": "dom-barony-of-thornreach",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-thorn-wood",
+      "coord": {
+        "q": 1,
+        "r": 0
+      },
+      "classification": "Outlands",
+      "explored": false,
+      "families": 0,
+      "valuePerFamily": 4,
+      "landImprovementBonus": 0,
+      "landImprovementProjects": [],
+      "terrain": "forest",
+      "primaryStructure": "",
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [
+        {
+          "schemaVersion": 2,
+          "id": "poi-thorn-cairn",
+          "name": "The Thorn Cairn",
+          "kind": "ruin",
+          "description": "A pre-imperial barrow at the wood's edge. Local elders forbid disturbing it."
+        }
+      ],
+      "monsterNotes": "Goblins, wolves, occasional wandering boar.",
+      "notes": "The hex Sir Halvard intends to clear once the goblins are dealt with.",
+      "domainId": "dom-barony-of-thornreach",
+      "constructionSupervisorCharacterIds": [],
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "elevationFt": 0
+    }
+  ],
+  "settlements": [
+    {
+      "schemaVersion": 2,
+      "id": "set-thornreach-town",
+      "name": "Thornreach Town",
+      "families": 80,
+      "totalInvestment": 10000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": "chr-halvard-bold",
+      "demandModifiers": {},
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "A walled hamlet hard against the Tower. Hosts the Sunday market.",
+      "hexId": "hex-tower-of-thornreach",
+      "placesOfPower": []
+    }
+  ],
+  "rumors": []
 }

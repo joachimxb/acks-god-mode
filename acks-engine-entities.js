@@ -36,7 +36,7 @@ const ID_PREFIXES = new Proxy({}, { get(_, key){ return (global.ACKS.ID_PREFIXES
 
 function blankCampaign(opts={}){
   const name = opts.name || 'New Campaign';
-  return {
+  const c = {
     schemaVersion: SCHEMA_VERSION,
     kind: 'campaign',
     id: opts.id || newId(ID_PREFIXES.campaign),
@@ -49,85 +49,23 @@ function blankCampaign(opts={}){
     houseRules: opts.houseRules || {},
     // Reserved for Phase 6 Claude integration
     campaignContext: opts.campaignContext || { theme:'', tone:'', season:'', aiNotes:'' },
-    // Collections
-    domains: opts.domains || [],
-    characters: opts.characters || [],
-    parties: opts.parties || [],
-    ventures: opts.ventures || [],
-    passiveInvestments: opts.passiveInvestments || [],
-    // campaign.log[] removed 2026-05-28 (Foundation #234). The Campaign Log view now
-    // derives from eventLog. migrateCampaign drops any legacy log array on load.
-    // Reserved for Phase 2.8 Rumors, Phase 4 Religion, Phase 4 Banking
-    deities: opts.deities || [],
-    banks: opts.banks || [],
-    loans: opts.loans || [],
-    // Turn Cycle v2 (Foundation #178) — typed-event inbox + immutable history.
-    // pendingEvents are submitted by GM / players / tools / agents and await resolution at Advance Month.
-    // eventLog is append-only history of everything that has been applied or rejected, with attribution.
+    // Turn Cycle v2 (Foundation #178) — typed-event inbox + immutable history. These are the event
+    // inbox/log (NOT id-collections), so they stay explicit here rather than in the §15.5 registry.
+    // campaign.log[] was removed 2026-05-28 (Foundation #234); the Campaign Log view derives from eventLog.
     pendingEvents: opts.pendingEvents || [],
     eventLog: opts.eventLog || [],
-    // Top-Level Collections Refactor (Foundation #193) — hexes, settlements, rumors live here.
-    // Each entry carries a reference id back to its parent (Hex.domainId, Settlement.hexId).
-    // Rumors carry a reach[] array of {settlementId, apparentLevel, gainedAtTurn, distortedText} entries.
-    // liftToTopLevelCollections() populates these from legacy nested storage on load (idempotent).
-    hexes: opts.hexes || [],
-    settlements: opts.settlements || [],
-    rumors: opts.rumors || [],
-    // Phase 2.95 Stash A (2026-05-29) — Stash subsystem top-level collection.
-    // Always-on core (the inventory-stash-system toggle was removed v0.17.0); the
-    // Domain Treasury and every party camp materialize into this array on load.
-    stashes: opts.stashes || [],
-    // Wave A relation collections (Architecture.md §3.5 — landed alongside Stash A).
-    // These are empty containers in commit 2; setters / accessors / migrations
-    // land in later commits per the wave plan. Each carries its own history[].
-    henchmanships: opts.henchmanships || [],
-    specialistContracts: opts.specialistContracts || [],
-    hirelingContracts: opts.hirelingContracts || [],
-    magistracies: opts.magistracies || [],
-    vassalages: opts.vassalages || [],
-    tributaryAgreements: opts.tributaryAgreements || [],
-    // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation
-    // relation collection (RR pp.345–348). Populated by the monthly turn's auto-roll
-    // (default-ON favor-duty-auto-roll) or by Inspector Create. Lazy-defaulted on load.
-    favorDutyObligations: opts.favorDutyObligations || [],
-    // Wave B.5 (Architecture.md §3.7) — Notable items + custody. Empty containers in
-    // commit 2; setters / promote-to-notable / custody-transfer land in B.5.2.
-    // Gated by notable-items-tracking house rule (default OFF until UI ships).
-    notableItems: opts.notableItems || [],
-    itemCustody: opts.itemCustody || [],
-    // #442 (Architecture.md §2.4) — Group entity: count-level abstraction for kobold
-    // packs, bandit gangs, abstract militia, and future DaW Units. Empty by default;
-    // the data layer is a benign no-op until Phase 3 Military surfaces it.
-    groups: opts.groups || [],
-    // 2026-05-30 post-survey reservations — additive optional collections + fields.
-    // None are functional yet; consumer subsystems ship in v1.0. See Data_Dictionary §13.2.
     // Calendar day-tick pipeline (#478) — global day clock; 1 means start-of-month.
-    currentDayInMonth: opts.currentDayInMonth || 1,
-    // Phase 2.5 Journeys (#475) — day-tick consumer entity (sole entity in this collection
-    // is the Journey; Journey day records nest as journey.dayRecords[]).
-    journeys: opts.journeys || [],
-    // Phase 2.95 Outposts (#395) — persistent located containers (formerly "Camps").
-    outposts: opts.outposts || [],
-    // Phase 3.5 Delves — Dungeon as first-class entity (separate from Lair); Abstract
-    // Dungeons + Sanctum Attunement both reference. Distinct from hex.dungeons[] legacy nested data.
-    dungeons: opts.dungeons || [],
-    // Wave E (Architecture.md §3.5) — Religion + Sanctums relation entities
-    congregations: opts.congregations || [],
-    divineFavors:  opts.divineFavors  || [],
-    attunements:   opts.attunements   || [],
-    // Wave F (Architecture.md §3.5) — Settlement Adventures relation entity
-    settlementVisits: opts.settlementVisits || [],
-    // Wave D + Phase 6 Codes shared — Oath relation entity (Architecture.md §3.5 Wave D)
-    oaths: opts.oaths || [],
-    // Phase 5 Domain Variants (gap K) — domain incursion event log
-    vagaryOfIncursionEvents: opts.vagaryOfIncursionEvents || [],
-    // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
-    projects:       opts.projects       || [],
-    constructibles: opts.constructibles || [],
-    // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed
-    // entities (the RAW-core layer). Lifted from legacy nested hex.lairs[] by migrateCampaign.
-    lairs: opts.lairs || []
+    currentDayInMonth: opts.currentDayInMonth || 1
   };
+  // Top-level array collections — seeded from the §15.5 collection registry (every descriptor with
+  // seedInBlank:true; the central seed + per-collection provenance live in acks-engine.js). A module
+  // that adds a collection self-registers via ACKS.registerCollection from its own file and is picked
+  // up here automatically — it does NOT edit this factory (the 3-site DRY win). opts.<name> still
+  // overrides the empty default, so blankCampaign({ characters:[...] }) behaves exactly as before.
+  for(const cn of global.ACKS.seededCollections()){
+    c[cn] = opts[cn] || [];
+  }
+  return c;
 }
 
 function blankDomain(opts={}){
@@ -141,6 +79,14 @@ function blankDomain(opts={}){
     lastModifiedAt: new Date().toISOString().slice(0,10),
     type: opts.type || 'rural',
     classification: opts.classification || 'Borderlands',
+    // Phase 5 Tribal Domains — the RAW domain-TYPE (RR pp.353–354). 'ordinary' (default) is byte-
+    // identical to today; clanhold/transitional/demchi own the per-hex family cap, the levy, the F&D
+    // set, and the senate gate. ('ordinary' is the RAW word, and keeps the TYPE axis distinct from the
+    // Civilized/Borderlands/Outlands classification axis.) dominantRace tags a beastman (auto-clanhold)
+    // / demi-human population. Defensive-read on old saves (domainTypeOf ⇒ 'ordinary', dominantRaceOf
+    // ⇒ null) — no migration.
+    domainType: opts.domainType || 'ordinary',
+    dominantRace: opts.dominantRace || null,
     tags: opts.tags || [],
     // Ruler — v2: ONLY the character ID. The legacy `ruler:{...}` struct is gone.
     rulerCharacterId: opts.rulerCharacterId || null,
@@ -148,9 +94,18 @@ function blankDomain(opts={}){
     administersThisMonth: opts.administersThisMonth || false,
     // Vassalage
     liegeId: opts.liegeId || null,
+    // Multi-actor / Player Portal (#222, B2) — the player who controls this domain in a multi-player
+    // campaign (null = GM-run). The player-view serializer (projectCampaignForPlayer) partitions on it;
+    // additive + lazy (readers use `?? null`), so existing saves load unchanged with no migration.
+    controllingPlayerId: opts.controllingPlayerId || null,
     vassalIds: opts.vassalIds || [],
     isRealm: opts.isRealm || false,
-    // Geography (hexes live here for v2; canonical-store lift to campaign-level remains deferred per task #119)
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ p.102; lazy on old saves).
+    // dangerousBordersOverride: the GM's border-configuration judgment ('secure' | 'line' |
+    // 'flank' | 'spearhead' | 'isolated'); null = derive from the hex map.
+    dangerousBordersOverride: opts.dangerousBordersOverride || null,
+    // Geography — single-home (T6): hexes live ONLY in campaign.hexes[] (claimed by hex.domainId);
+    // geography carries the domain-level cartography aggregates, not a per-domain hex mirror.
     geography: opts.geography || {
       hexMapId: null,
       primaryHex: { q:0, r:0 },
@@ -158,7 +113,6 @@ function blankDomain(opts={}){
       controlledHexes: 1,
       claimedHexes: 1,
       controlledHexList: [],
-      hexes: [],
       terrain: '',
       features: []
     },
@@ -192,8 +146,9 @@ function blankDomain(opts={}){
       other: []
     },
     taxPolicy: opts.taxPolicy || { rate:'standard', moraleImpact:0 },
-    // Forces — units carry IDs in v2; future Forces tab (#41) uses them
-    garrison: opts.garrison || { units: [], totalMonthlyCost: 0, totalBR: 0 },
+    // Forces — single-home (T6): garrison units live in campaign.units[] (stationedAt this domain),
+    // read via unitsStationedAt. No nested garrison mirror on the domain (a caller that builds a
+    // legacy d.garrison.units gets it promoted + stripped by the load-time lift).
     // Foundation #16 — stronghold is now a list of components. A domain can have multiple
     // fortifications (Tower + Castle + Vault, etc.); each component carries its own type,
     // buildValue, and per-building catalog. garrisonCapacity sums across components.
@@ -218,6 +173,13 @@ function blankDomain(opts={}){
     council: opts.council || null,
     // Domain history — log of monthly turn snapshots and notable events
     history: opts.history || [],
+    // === Domain Completion DC-0 (team) === GM override for the RR p.340 "road-connected to a
+    // small town within 24 miles" condition. null = use DC-0's DERIVED road-to-small-town check
+    // (ACKS.roadConnectedToSmallTown); true/false = GM override for map-less campaigns. Read
+    // defensively everywhere (`domain.roadToTownOverride ?? derived`); deliberately NOT lazy-injected
+    // into migrateCampaign, so the 6 templates stay true migrate-no-ops (absent ⇒ undefined ⇒ derive).
+    // The `!== undefined` guard preserves an explicit `false` passed via opts. (Plan §11.1 / §12.)
+    roadToTownOverride: (opts.roadToTownOverride !== undefined ? opts.roadToTownOverride : null),
     notes: opts.notes || ''
   };
 }
@@ -265,6 +227,18 @@ function blankHex(opts={}){
     terrainSubtype: opts.terrainSubtype || '',
     koppen:         opts.koppen || '',
     biomeOverride:  opts.biomeOverride || '',
+    // Phase_2.5_Hex_Scales_and_Weather_Plan.md §5 + §9 (HW-4) — the three interlocked map scales.
+    // hexScale: which tier this hex belongs to ('local' 1.5-mi | 'regional' 6-mi | 'continental' 24-mi).
+    // DEFAULT 'regional' — the canonical, shipped behaviour (every domain mechanic resolves at 6-mile).
+    // parentHexId: the id of the COARSER hex that contains this one (a continental hex for a regional
+    // child; a regional hex for a local child); null = derive the parent from coords (cube/4, §5.2) —
+    // STORED WINS. childHexIds is COMPUTED, never stored (Architecture §3.3). Both additive + read
+    // defensively (an old hex with neither reads as a parentless regional hex); deliberately NOT lazy-
+    // injected into migrateCampaign, so the 6 templates + demo stay true migrate-no-ops (absent ⇒
+    // 'regional'/null). Continental hexes own the climate (koppen) + the rolled weather; their land
+    // value / families are AGGREGATES of children (ACKS.aggregateContinentalCell), not stored here.
+    hexScale:    (opts.hexScale === 'local' || opts.hexScale === 'continental') ? opts.hexScale : 'regional',
+    parentHexId: opts.parentHexId || null,
     // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
     // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
     hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the
@@ -293,6 +267,12 @@ function blankHex(opts={}){
     // grants no drinking water. Additive optional flags — no coordinate migration (Provisioning §3.1).
     hasLake:    opts.hasLake === true,
     freshWater: opts.freshWater === true,
+    // Phase 3 Voyages (#145) V3a — the sea-navigation zone (RR p.320), meaningful only when
+    // terrain==='water': 'lake'|'river'|'coast'|'open-sea' → the staying-on-course target
+    // (4+/4+/7+/11+, ACKS.SEA_NAV_THROWS) + the fog/snow weathering ½. null = unset → read as
+    // 'coast' (the forgiving default; auto-derivation from distance-to-shore is V4). Additive
+    // optional — NOT lazy-injected into migrateCampaign, so the 6 templates + demo stay migrate-no-ops.
+    seaZone: (opts.seaZone === 'lake' || opts.seaZone === 'river' || opts.seaZone === 'coast' || opts.seaZone === 'open-sea') ? opts.seaZone : null,
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],
@@ -316,9 +296,20 @@ function blankSettlement(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
     id: opts.id || newId(ID_PREFIXES.settlement),
+    // T6 single-home — the canonical hex link: campaign.settlements[].hexId is what settlementForHex
+    // keys on (the lift sets it when promoting an embedded settlement; foundSettlementOnHex sets it).
+    hexId: opts.hexId || null,
     name,
     families: opts.families || 75,
     totalInvestment: opts.totalInvestment || 10000,
+    // Urban investment paid over time (RR p.353 — "deduct the expense at a rate of 500gp per day").
+    // investmentBudgetGp = committed-but-unpaid gp the GM ordered; it drips into totalInvestment at
+    // 500gp/day on the Day Clock (the 'urban-investment' day consumer). investmentDripPaid = the
+    // cumulative gp ever paid via the drip; floor(investmentDripPaid/1000) is the family-milestone
+    // index that seeds the reproducible 1d10-per-1,000gp immigration roll. Both lazy (|| 0), so old
+    // saves migrate for free.
+    investmentBudgetGp: opts.investmentBudgetGp || 0,
+    investmentDripPaid: opts.investmentDripPaid || 0,
     foundedTurn: opts.foundedTurn || 1,
     foundedByCharacterId: opts.foundedByCharacterId || null,
     demandModifiers: opts.demandModifiers || {},
@@ -332,6 +323,11 @@ function blankSettlement(opts={}){
     // #522 (2026-05-30) M&M depth — default to arrays so settlement.entryways[] / .regulatedAssets[] are always iterable from UI without null-guards.
     entryways: Array.isArray(opts.entryways) ? opts.entryways : [],
     regulatedAssets: Array.isArray(opts.regulatedAssets) ? opts.regulatedAssets : [],
+    // Settlement Demographics SD-1 (2026-06-16) — the RAW p.214 GM override on the derived
+    // Step-3 roster. null = pure RAW expectation; else per-bucket multipliers, e.g. the
+    // "city of wizards" = { mage: 3 } or "denuded" = { all: 0.5 }. Read by ACKS.expectedDemographics;
+    // additive + defensive (migration-free; templates stay migrate-no-ops). See Settlement_Demographics_Plan.md.
+    demographicOverrides: opts.demographicOverrides || null,
     notes: opts.notes || ''
   };
 }
@@ -361,6 +357,12 @@ function blankLair(opts={}){
     precisePlacement: opts.precisePlacement || '',   // GM narrative: "cave on the eastern slope"
     knownToPlayers: opts.knownToPlayers === true,    // discovered via search/tracking? (§6)
     hiddenDC: (opts.hiddenDC === undefined ? null : opts.hiddenDC),  // hex-search modifier
+    // Phase 4 Sanctums AD-A — a lair is hex-anchored (wilderness) OR dungeon-anchored (a room in a
+    // monster-farm dungeon). dungeonId null for every shipped lair (additive; the arcane overlay sets it
+    // via ACKS.anchorLairToDungeon). areaIndex/depthRank = the room ordinal + the deeper-is-stronger rank.
+    dungeonId: opts.dungeonId || null,
+    areaIndex: (opts.areaIndex === undefined ? null : opts.areaIndex),
+    depthRank: (opts.depthRank === undefined ? null : opts.depthRank),
     // Content — the STRUCTURED population (survey §5; NOT a flat count).
     monsterCatalogKey: opts.monsterCatalogKey || '', // → MONSTER_CATALOG (M2); free string until then
     lairPct: (opts.lairPct === undefined ? null : opts.lairPct),     // the monster's Lair % (0 = never lairs)
@@ -421,7 +423,7 @@ function blankEncounter(opts={}){
     // E4m adds pursuitEncounterId — the chase encounter this band IS, when a third party
     // meets a band that is mid-hunt (dispersing the meeting ends the chase; D9 recalls).
     partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
-    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null }, opts.monsterSide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null, residentCharacterId: null, residentSettlementId: null, garrisonDomainId: null, garrisonUnitId: null, garrisonTroopTypeKey: null }, opts.monsterSide || {}),
     // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
     distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
     surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }
@@ -437,15 +439,8 @@ function blankEncounter(opts={}){
   };
 }
 
-function blankDungeon(opts={}){
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.dungeon),
-    name: opts.name || '',
-    levels: opts.levels || 1,
-    description: opts.description || ''
-  };
-}
+// blankDungeon — the reconciled two-facet factory lives in acks-engine-delves.js (Delves D2, burst4);
+// the vestigial stub that was here is superseded + removed (Data_Dictionary §13.2).
 
 function blankPointOfInterest(opts={}){
   return {
@@ -467,16 +462,222 @@ function blankLandImprovementProject(opts={}){
   };
 }
 
-function blankGarrisonUnit(opts={}){
+// Phase 3 Military W1 (2026-06-12) — the Unit factory. Unit is the Group's military
+// sibling kind (campaign.units[]; Architecture §2.4): a count of soldiers with troop
+// type + the military lifecycle (source / training / stationing / unit loyalty +
+// calamities / supply state). The legacy garrison-unit shape is a strict SUBSET —
+// blankGarrisonUnit below delegates here, and the load migration extends nested
+// garrison/company units in place (reference-unified mirrors, Architecture §3.3).
+// Wage + BR defaults derive from TROOP_CATALOG (RR pp.438–441) for the troop type;
+// stored values act as GM overrides thereafter.
+function blankUnit(opts={}){
+  const typeKey = opts.unitTypeKey || 'light-infantry';
+  const race = opts.race || 'man';
+  const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : {};
+  const row = (typeof A.findTroopType === 'function')
+    ? A.findTroopType(typeKey, { race, veteran: !!opts.veteran, loadout: opts.loadout || null })
+    : null;
   return {
     schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.garrisonUnit),
-    displayName: opts.displayName || 'Light Infantry',
-    unitTypeKey: opts.unitTypeKey || 'light-infantry',
+    id: opts.id || newId(ID_PREFIXES.unit),
+    displayName: opts.displayName || (row ? row.label : 'Light Infantry'),
+    unitTypeKey: typeKey,
+    race,
+    loadout: opts.loadout || null,                 // equipment variant A/B/C… (RR catalogs); null = default
+    veteran: opts.veteran || false,                // RR p.430 — +1 morale, veteran wage; ≤25% of human mercs
+    elite: opts.elite || false,                    // RR p.434 — behind the elite-troops house rule
     count: opts.count || 0,
-    monthlyWage: opts.monthlyWage || 6,
-    brPerSoldier: opts.brPerSoldier || 0.034,
-    stationedAtHexId: opts.stationedAtHexId || null
+    casualties: opts.casualties || 0,
+    monthlyWage: opts.monthlyWage != null ? opts.monthlyWage : (row ? row.wageGpMonth : 0),   // per soldier
+    brPerSoldier: opts.brPerSoldier != null ? opts.brPerSoldier : (row ? row.brPerCreature : 0),
+    source: opts.source || 'mercenary',            // mercenary | conscript | militia | clanhold | follower | vassal | slave
+    scale: opts.scale || 'company',                // platoon | company | battalion | brigade (RR p.437)
+    trainingState: opts.trainingState || null,     // {targetTroopType, startedAtDay, completesAtDay} (RR p.431, W7)
+    lieutenantCharacterId: opts.lieutenantCharacterId || null,
+    commanderCharacterId: opts.commanderCharacterId || null,
+    // Where the unit is assigned: {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
+    // The §5.5 Outpost demotion — stationing is a field, not a container entity.
+    stationedAt: opts.stationedAt || null,
+    // ownerDomainId — the domain (and thereby realm) that raised + owns this unit. RELATIONAL, not
+    // geographic: it survives un-stationing, so a unit in an army or in transit still knows which
+    // garrison it belongs to (muster timing, wages, the disband fall-back). The 2026-06-22 muster-
+    // model rework dropped the geographic home (homeHexId) + the idle map-hint (stationedAtHexId): a
+    // unit has a hex only when in an army on campaign or standing at a {kind:'hex'} station; a
+    // garrisoning unit is abstract (no coordinate). migrateCampaign renames homeDomainId -> this +
+    // drops homeHexId/stationedAtHexId on load.
+    ownerDomainId: opts.ownerDomainId || null,
+    loyalty: opts.loyalty != null ? opts.loyalty : 0,  // unit loyalty score (RR p.429; ± employer CHA at hire)
+    moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
+    calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
+    supplyState: opts.supplyState || 'supplied',   // supplied | underfed | starving | dehydrated (RR p.452)
+    // Movement state is the lazy musterState / musterPending (NOT emitted here): a unit MUSTERS to an
+    // army / sortie / hex (callUpUnit / musterUnitToDestination) or is LEVIED in over ½/¼/remainder.
+    // Both absent = the unit is present (garrisoning or in the field). The 2026-06-22 muster model
+    // dropped the old rally/return-march journey markers — units muster, they no longer march.
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Legacy factory — kept as a thin delegate so every existing caller gets the W1 superset
+// shape (additive) + RAW catalog wage/BR defaults (the old hardcoded 6gp/0.034 BR were
+// the interim MERCENARY_UNIT_DEFAULTS values, retired with TROOP_CATALOG).
+function blankGarrisonUnit(opts={}){
+  return blankUnit(opts);
+}
+
+// Phase 3 Military W1 — the Army factory. Divisions are EMBEDDED (no independent
+// lifetime, nothing external points at them — Architecture §3.1; the old `div-` prefix
+// reservation is dropped). Armies move on the journey engine (journeyId, W4); supply
+// runs Simplified by default (RR p.452 — RAW's own automation mode, a per-army choice).
+function blankArmy(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.army),
+    name: opts.name || '',
+    leaderCharacterId: opts.leaderCharacterId || null,
+    // §12 Group model — the individuated roster (officers / riding-along PCs), displayed
+    // exactly like a party's members. The leader is one of them; division commanders are
+    // drawn from them. Additive + lazy ([]); armies are runtime-only, so templates stay no-ops.
+    memberCharacterIds: opts.memberCharacterIds || [],
+    // [{name, commanderCharacterId, adjutantCharacterId, unitIds: [], role: 'vanguard'|'main'|'rear-guard'}]
+    divisions: opts.divisions || [],
+    strategicStance: opts.strategicStance || 'defensive',   // offensive | defensive | evasive (RR p.448)
+    journeyId: opts.journeyId || null,                      // armies march as journeys (W4); null = in garrison
+    currentHexId: opts.currentHexId || null,
+    supplyBaseIds: opts.supplyBaseIds || [],                // friendly domains / strongholds / border forts (RR p.450)
+    supplySimplified: opts.supplySimplified != null ? opts.supplySimplified : true,  // RR p.452 default mode
+    // ── W5 supply (RR pp.450–452) — all lazy (older saves read defensively) ──
+    lastSupplyCheckOrd: opts.lastSupplyCheckOrd != null ? opts.lastSupplyCheckOrd : null,  // world ordinal of the last weekly check
+    supplyTerrainTreatment: opts.supplyTerrainTreatment || null,   // GM override: null (auto) | 'elf' | 'dwarf' | 'beastman'
+    requisitioning: opts.requisitioning || null,            // {atOrd, gp} while feeding off the land — −50% march speed (RR p.451)
+    lastInitiative: opts.lastInitiative != null ? opts.lastInitiative : null,
+    // ── W4 maneuvers (RR pp.447–460) — all lazy (older saves read defensively) ──
+    marchedOrds: opts.marchedOrds || [],                    // world ordinals marched (last 14) — the 3-of-7 rest rule (RR p.448)
+    forcedMarchOrds: opts.forcedMarchOrds || [],            // the forced-march subset (rest the day after or fatigued, RR p.449)
+    warMachines: opts.warMachines || null,                  // null | {count, assembled} — caps speed 6/12 mi/day (RR p.449)
+    intelReports: opts.intelReports || [],                  // reconnaissance reports incl. held prisoners (RR pp.452–457)
+    reconModifier: opts.reconModifier != null ? opts.reconModifier : 0,        // standing GM mod on ITS rolls (magic/spies/stratagems)
+    concealmentModifier: opts.concealmentModifier != null ? opts.concealmentModifier : 0,  // standing GM mod on rolls AGAINST it
+    alliedLeaderCharacterIds: opts.alliedLeaderCharacterIds || [],   // GM-marked allies beyond the realm chain
+    permittedDomainIds: opts.permittedDomainIds || [],      // domains whose ground this army may enter uninvited (no invasion)
+    invasions: opts.invasions || {},                        // {domainId: worldOrd} — the once-per-domain invasion stamp (RR p.458)
+    pillage: opts.pillage || null,                          // {domainId, startedOrd, daysRequired, saltTheEarth, unitsProportion} | null
+    prisoners: opts.prisoners != null ? opts.prisoners : 0, // held prisoners (ransom 40gp/head or Construction labor, RR p.458)
+    // ── Garrison reaction (2026-06-14) — a sally force deployed to meet a domain threat (an
+    //    incursion band). The army marches to the band's hex (W4); the slot-88 military day
+    //    consumer fires the resolution on co-location — abstract drive-off or a W3 battle
+    //    (RAW JJ pp.104–106). Both lazy (older armies read undefined → null = a plain army). ──
+    reactionTargetGroupId: opts.reactionTargetGroupId || null,  // the threat band this force was deployed against
+    reactionBattleId: opts.reactionBattleId || null,            // the W3 battle the resolution created (the re-fire guard)
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Phase 3 Military W3 (2026-06-12) — the Battle entity (RR pp.461–472): one engagement
+// between two sides, from setup through the 10-phase battle turns to the aftermath.
+// Sides hold battle-unit working records (snapshots pointing back at world Units/Groups/
+// heroes — world casualties land only when the aftermath is APPLIED). Resolution verbs
+// live in acks-engine-battles.js. campaign.battles[] is lazy-defaulted on load.
+function blankBattleSide(opts={}){
+  return {
+    label: opts.label || '',
+    kind: opts.kind || 'adhoc',                 // army | garrison | groups | adhoc
+    armyId: opts.armyId || null,
+    domainId: opts.domainId || null,            // garrison sides — whose garrison
+    groupIds: opts.groupIds || [],
+    stance: opts.stance || 'defensive',         // offensive | defensive | evasive (RR p.448)
+    leaderCharacterId: opts.leaderCharacterId || null,
+    commanders: opts.commanders || [],          // [{characterId, zones: ['left'|'center'|'right']}]
+    units: opts.units || [],                    // battle-unit records (see acks-engine-battles.js)
+    deployRestriction: opts.deployRestriction || 'all',   // all | vanguard | rear-guard (the situation's role)
+    zonesDenied: opts.zonesDenied || [],        // zones the surprised side cannot deploy into (RR p.463)
+    startingUnitCount: opts.startingUnitCount || 0,       // stamped at beginBattle
+    breakPoint: opts.breakPoint || 0,           // ⅓ starting units, rounded up (RR p.467)
+    startingBr: opts.startingBr || 0,           // Σ roster BR at begin (the troop-XP ratio reads it)
+    withdrawn: opts.withdrawn || false,         // voluntarily withdrew (phase 10)
+    gmAttackMod: opts.gmAttackMod || 0          // standing GM attack-throw modifier (conditions, stratagems)
+  };
+}
+function blankBattle(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.battle),
+    name: opts.name || '',
+    hexId: opts.hexId || null,
+    scale: opts.scale || 'company',             // platoon | company | battalion | brigade (RR p.437)
+    status: opts.status || 'setup',             // setup | fighting | ended | resolved
+    awareness: opts.awareness || 'mutual',      // mutual | mutual-unawareness | unilateral-a | unilateral-b
+    situation: opts.situation || 'pitched-battle',        // STRATEGIC_SITUATIONS key
+    attackerSide: opts.attackerSide || 'a',
+    surprisedSide: opts.surprisedSide || null,  // null | 'a' | 'b'
+    options: opts.options || {
+      armySizeAsymmetry: false,                 // RR p.464 optional rule (recommended ON for monster fights)
+      advantageousTerrain: null,                // null | 'a' | 'b' — which side holds the hill/ridgeline (−2 vs it)
+      cannotRetreat: null                       // null | 'a' | 'b' | 'both' — +2 morale (surrounded/trapped)
+    },
+    turnNumber: opts.turnNumber || 0,
+    sides: opts.sides || { a: blankBattleSide(), b: blankBattleSide() },
+    forays: opts.forays || [],                  // heroic foray records (declare → resolve → applied by the turn)
+    turnLog: opts.turnLog || [],                // one record per battle turn (lines + the _pre revert snapshot)
+    result: opts.result || null,                // {winner, loser, endedBy, endedAtTurn} once ended
+    aftermath: opts.aftermath || null,          // the computed proposal; applied:true once world-writes land
+    createdAtTurn: opts.createdAtTurn || 1,
+    createdOnDay: opts.createdOnDay || 1,
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Phase 3 Military W6 (2026-06-13, burst3 team session) — the Siege entity (RR pp.473–485):
+// an investment of a garrisoned stronghold / urban settlement by a besieging army. The
+// default resolution is Sieges Simplified (the Duration-of-Siege table, days-to-capture); the
+// detailed blockade / reduction / assault state is the per-instance opt-up. daysElapsed is
+// DERIVED (worldOrd − startedOrd) — not stored. campaign.sieges[] is read defensively (no
+// migrateCampaign injector, so the 6 templates + demo stay migrate-no-ops). Setters + the
+// slot-90 day-tick consumer + the simplified resolver live in acks-engine-sieges.js.
+function blankSiege(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.siege),
+    name: opts.name || '',
+    status: opts.status || 'investing',          // investing | resolved
+    resolutionMode: opts.resolutionMode || 'simplified',  // simplified (default) | detailed
+    besiegerArmyId: opts.besiegerArmyId || null,
+    defenderDomainId: opts.defenderDomainId || null,      // the besieged domain (garrison + stronghold value)
+    defenderArmyId: opts.defenderArmyId || null,          // a defending army holed up inside (optional)
+    hexId: opts.hexId || null,                            // where the stronghold stands
+    // Stronghold profile — authored, or estimated from strongholdValue at startSiege (RR p.474).
+    stronghold: Object.assign({
+      material: 'stone',                                  // stone | wood (wood = ⅒ the shp)
+      strongholdShp: 0,                                   // total structural hit points
+      shpDamage: 0,                                       // damage dealt so far — breaches = ⌊shpDamage / 1000⌋
+      unitCapacity: 0,                                    // units it can defend (RR p.473)
+      siteType: 'normal'                                  // normal | riverbank(×2) | peninsula(×3) | island(×4) | mountain(×5)
+    }, opts.stronghold || {}),
+    // Blockade state (RR pp.474–475) — the detailed opt-up.
+    blockade: Object.assign({
+      inPlace: false,
+      circumvallationFeet: 0,                             // each 250' replaces 2 blockading units; full ring → −4 smuggling
+      weeksPrep: 0,                                       // weeks of warning before encirclement (more stored supplies)
+      storedSuppliesGp: 0,                                // current value of stored supplies (depletes as the garrison eats)
+      suppliesExhausted: false
+    }, opts.blockade || {}),
+    // Besieger / defender war machines (the Sieges-Simplified bonus-unit table, RR p.485) —
+    // {typeKey: count}. Bonus units widen the unit advantage; detailed bombardment reads them too.
+    besiegerArtillery: opts.besiegerArtillery || {},
+    defenderArtillery: opts.defenderArtillery || {},
+    // Simplified clock (RR pp.484–485).
+    daysRequired: opts.daysRequired != null ? opts.daysRequired : null,   // null = '−' (besieger too weak; blockade only)
+    unitAdvantageAtStart: opts.unitAdvantageAtStart != null ? opts.unitAdvantageAtStart : null,
+    startedOrd: opts.startedOrd != null ? opts.startedOrd : null,         // worldOrd when investing began
+    captureReady: opts.captureReady || false,            // the simplified clock has run out — the GM resolves
+    lastTickOrd: opts.lastTickOrd != null ? opts.lastTickOrd : null,      // last slot-90 advance
+    assaultBattleId: opts.assaultBattleId || null,       // the W3 Battle an assault handed off to
+    resolution: opts.resolution || null,                 // {outcome: captured|lifted|surrendered|destroyed, endedAtTurn, battleId?}
+    history: opts.history || [],
+    notes: opts.notes || ''
   };
 }
 
@@ -592,9 +793,16 @@ function isCharacterQualifiedForRole(character, roleKey){
   if (!character) return false;
   const role = MAGISTRATE_ROLES[roleKey];
   if (!role) return false;
-  const profs = (character.proficiencies || []).map(p => String(p || '').toLowerCase());
+  // PT-0: route proficiency detection through the canonical accessor — it alias-folds and normalizes
+  // BOTH the needle and the stored {key,ranks} entry to the same slug, so a required 'Manual of Arms'
+  // matches {key:'manual-of-arms'} (and 'Heraldry'→manual-of-arms via the alias). The shape-aware
+  // de-hyphenated substring scan is the standalone-engine fallback.
+  const canon = (global.ACKS && typeof global.ACKS.hasProficiency === 'function') ? global.ACKS.hasProficiency : null;
+  const profs = (character.proficiencies || []).map(p =>
+    (typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '').toLowerCase().replace(/-/g, ' '));
   function hasProf(name){
-    const needle = String(name || '').toLowerCase();
+    if (canon) return canon(character, name);
+    const needle = String(name || '').toLowerCase().replace(/-/g, ' ');
     if (!needle) return false;
     return profs.some(p => p.startsWith(needle) || p.includes(needle));
   }
@@ -750,7 +958,10 @@ function blankStrongholdComponent(opts={}){
     type: opts.type || '',
     name: opts.name || '',
     buildValue: opts.buildValue || 0,
-    structures: opts.structures || []
+    structures: opts.structures || [],
+    // Phase 4 Construction Wave C — link to the first-class Constructible mirror
+    // (migrateStrongholdComponentsToConstructibles, acks-engine.js). null until mirrored.
+    constructibleId: opts.constructibleId || null
   };
 }
 
@@ -763,19 +974,25 @@ function migrateStrongholdToComponents(domain){
   const legacyType = s.type || '';
   const legacyBuildValue = s.buildValue || 0;
   const legacyStructures = Array.isArray(s.structures) ? s.structures : [];
+  // Wave C — carry the Constructible-mirror link forward, so a stronghold already mirrored in its
+  // legacy single-stronghold shape (s.constructibleId set by migrateStrongholdComponentsToConstructibles)
+  // keeps the link on its new component[0] — otherwise a load→convert→save→reload would mint a duplicate mirror.
+  const legacyConstructibleId = s.constructibleId || null;
   s.components = [];
   // Only create a component if there's anything to migrate (avoid spurious empty entries).
   if(legacyType || legacyBuildValue > 0 || legacyStructures.length > 0){
     s.components.push(blankStrongholdComponent({
       type: legacyType,
       buildValue: legacyBuildValue,
-      structures: legacyStructures
+      structures: legacyStructures,
+      constructibleId: legacyConstructibleId
     }));
   }
   // Drop the legacy fields so we don't carry duplicate state.
   delete s.type;
   delete s.buildValue;
   delete s.structures;
+  delete s.constructibleId;
 }
 
 // Total build value across all components.
@@ -819,11 +1036,21 @@ function blankCharacter(opts={}){
     // #453 — c.kind retired. Five-axis fields below are canonical.
     // Architecture.md §2. Readers use ACKS.displayKind(c) for the legacy string.
     controlledBy: _controlledBy,        // 'player' | 'gm'
+    // Multi-actor / Player Portal (#222, B2) — WHICH player owns this character (null = unassigned / a
+    // GM NPC). `controlledBy` says player-vs-GM; this says which one, so projectCampaignForPlayer can
+    // partition player A from player B. Additive + lazy (readers use `?? null`) — no migration.
+    ownerPlayerId: opts.ownerPlayerId || null,
     socialTier:   _socialTier,          // 'independent' | 'henchman' | 'specialist' | 'follower' | 'hireling' | 'mercenary' | 'slave'
     lifecycleState: _lifecycleState,    // 'active' | 'candidate' | 'departed' | 'imprisoned' | 'dominated' | 'deceased'
     creatureTypes:  opts.creatureTypes || ['humanoid'],
     isEnchantedCreature: opts.isEnchantedCreature === true,
     hitDice: opts.hitDice || null,      // Per-class HD derivation deferred to Phase 6.
+    // Detail level (2026-06-18 doctrine) — an NPC may be created 'lightweight' (a named
+    // stub: type + wage + classification, abilities left at the 10-default) or 'full'
+    // (rolled). A lightweight NPC is never a dead end — ACKS.expandCharacterToFull upgrades
+    // it in place. Absent ⇒ 'full' (existing/template chars + PCs read as full; defensive,
+    // no migration). The reusable lightweight↔full primitive for every NPC-creation surface.
+    detailLevel: opts.detailLevel || 'full',
     id: opts.id || newId(ID_PREFIXES.character),
     name,
     alignment: opts.alignment || 'N',
@@ -863,6 +1090,27 @@ function blankCharacter(opts={}){
     // Location — v2 uses stable hex ID, not (q,r) coord
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
+    // Settlement Demographics SD-1 (2026-06-16) — the home pointer: the settlement this NPC is
+    // rostered in (the realized side of ACKS.realizedDemographics). Distinct from currentHexId
+    // (where it stands now). null = unplaced. Additive + defensive; SD-2 wires the auto-set
+    // sources (recruit/generate/encounter) + placementRole. See Settlement_Demographics_Plan.md.
+    homeSettlementId: opts.homeSettlementId || null,
+    // Settlement Demographics SD-3 (2026-06-16) — the realm home pointer: the DOMAIN this NPC serves
+    // in (the realized side of ACKS.realmCommandStructure — an entourage office-holder of a realm).
+    // Distinct from homeSettlementId (an urban resident) and currentHexId. null = not a realm retainer.
+    // The realm tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
+    homeDomainId: opts.homeDomainId || null,
+    // Settlement Demographics SD-2 (2026-06-16) — the civic placement role (JJ Step 4, p.217):
+    // which part of the settlement this NPC belongs to (tower-of-knowledge / temple / …). null =
+    // use the bucket-derived suggestion (ACKS.effectivePlacementRole). Additive + defensive.
+    placementRole: opts.placementRole || null,
+    // Settlement Demographics SD-4 (2026-06-19) — the RURAL home pointer: the wilderness/countryside
+    // HEX this NPC lives in (the realized side of ACKS.domainRuralDemographics — "A Typical Hex").
+    // Distinct from homeSettlementId (an urban resident) + currentHexId (where it stands now). The
+    // rural tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
+    // (Note: this homeHexId is the Character's census residence — the Unit entity has NO home hex; a
+    // unit's owner is unit.ownerDomainId, its location is unit.stationedAt. Different entity, no collision.)
+    homeHexId: opts.homeHexId || null,
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,
     travelPace: opts.travelPace || 'walking',
@@ -921,6 +1169,49 @@ function blankCharacter(opts={}){
     // Effective loyalty = clamp(loyalty + permanentWoundPenalty + mortalityPenalty, -4, +4).
     permanentWoundPenalty: opts.permanentWoundPenalty || 0,
     mortalityPenalty:      opts.mortalityPenalty      || 0,
+    // === Delves D1 — Mortal Wounds (team burst3 2026-06-13 — acks-engine-mortal-wounds.js) ===
+    // The wound-record array (RR pp.300–301 + Appendix C pp.517–523). applyMortalWound pushes
+    // a record {table,damageType,d20,d6,condition,permanentWound,bedRestDaysRemaining,outcome,…};
+    // the slot-58 convalescence consumer advances bedRestDaysRemaining + resolves recovery. Read
+    // defensively as (c.mortalWounds || []) everywhere — NO migrateCampaign injector, so the 6
+    // templates + demo stay migrate-no-ops (the team-session defensive-read discipline, CLAUDE §15).
+    mortalWounds: opts.mortalWounds || [],
+    // === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.4) ===
+    // Divine power: a per-character spendable resource (gp-equivalent) a divine caster
+    // accrues from worship/sacrifice. It CANNOT be stored — each accrual fades one month
+    // after it is received (RR p.422), so it's an expiring ledger of {accruedAtTurn, amountGp,
+    // source, deityId, expiresAtTurn} entries; reliquaryStoreGp is the craftpriest reliquary's
+    // ONE non-expiring exception (0 for everyone else). Spendable now = Σ unexpired entries +
+    // reliquaryStoreGp (ACKS.divinePowerAvailable). Additive + read DEFENSIVELY everywhere
+    // (char.divinePower?.entries || []); deliberately NOT lazy-injected into migrateCampaign, so
+    // legacy saves + the 6 templates stay migrate-no-ops (R0). Accrual/expiry land in R1.
+    divinePower: (opts.divinePower && typeof opts.divinePower === 'object')
+      ? { entries: Array.isArray(opts.divinePower.entries) ? opts.divinePower.entries : [],
+          reliquaryStoreGp: Number(opts.divinePower.reliquaryStoreGp) || 0 }
+      : { entries: [], reliquaryStoreGp: 0 },
+    // === end Religion R0 ===
+    // === Character Lifecycle CL-1 (burst4) === (RR p.19 — aging / attribute adjustments / death from old age)
+    // Run the person forward. The monthly aging pass (ACKS.processAgingForTurn — hooked into commitTurn
+    // like living-expenses) advances `age` with the calendar, applies the RR p.19 progressive attribute
+    // adjustment on a category crossing, and fires the death-from-old-age Death save inside the threshold
+    // window. All read DEFENSIVELY (absent ⇒ the default below) — NO migrateCampaign injector, so the 6
+    // templates + demo stay migrate-no-ops (the team-session discipline, CLAUDE §15 / Plan §13.4).
+    //   age:        years (number) | null. null ⇒ the aging pass SKIPS the character (opt-in seeding — the
+    //               GM sets it on the sheet for the characters he cares about; survey §14 Q1).
+    //   ageMonths:  0–11, the within-year accumulator the monthly turn advances (one turn = one month);
+    //               at 12 it rolls over → age++ (Q2: advance age monthly, no calendar-epoch coupling).
+    //   ageCategory: a display cache of ACKS.ageCategoryFor(c) (that derivation is canonical, rule #10);
+    //               the pass reconciles it. null until set/derived; ageless races (elf/nobiran) → 'adult'.
+    //   agingDeathSave: the death-from-old-age bookkeeping {dueInMonths,thresholdKey,resolved:[]} | null
+    //               (RR p.19 — a Death save within 1d12 months of Old+CON / Ancient+CON / max-age-&-yearly).
+    //   reserveXp:  the RAW Reserve XP fund (RR p.311) carried ON the character (survey §14 Q3 — inherited
+    //               by the successor); seeded now for CL-4a. Default 0.
+    age: (typeof opts.age === 'number' ? opts.age : null),
+    ageMonths: opts.ageMonths || 0,
+    ageCategory: opts.ageCategory || null,
+    agingDeathSave: opts.agingDeathSave || null,
+    reserveXp: opts.reserveXp || 0,
+    // === end Character Lifecycle CL-1 ===
     // Reserved for Phase 2.8 Rumors — Status tracking
     upkeepMonthly: opts.upkeepMonthly || 0,
     honor: opts.honor || [],
@@ -1368,7 +1659,14 @@ function blankGroup(opts={}){
     groupTemplate: opts.groupTemplate || {
       monsterCatalogKey: null,           // Key into the planned MONSTER_CATALOG
       creatureTypes: ['humanoid'],       // Same multi-valued axis as Character.creatureTypes[]
-      hitDice: null                      // RAW HD string e.g. '1-1', '4+1'
+      hitDice: null,                     // RAW HD string e.g. '1-1', '4+1'
+      // #476 E10 — when set, this band is drawn from a domain's TRAINED MILITIA in revolt
+      // (RR p.433: "any rebels will be drawn from the militia"): its BR + identity read the
+      // TROOP_CATALOG, not the MM. troopRace/troopLoadout/troopVeteran resolve the row via
+      // findTroopType (mirroring unitTroopRow); troopLabel is the display name. Absent/null
+      // = an ordinary creature band (priced via monsterCatalogKey). monsterCatalogKey stays
+      // 'bandit' on a militia band so the encounter machinery still treats it as men.
+      troopTypeKey: null
     },
     count: opts.count || 0,              // Roster strength
     casualties: opts.casualties || 0,    // Combat losses to this group (active = count - casualties)
@@ -1385,6 +1683,14 @@ function blankGroup(opts={}){
     // or heads home, and the monthly turn reconciles it to banditCount (dissolving it when
     // morale recovers to −1 or better — the men return to their fields).
     banditryDomainId: opts.banditryDomainId || null,
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ pp.100–106; lazy on old saves).
+    // Set = this band arrived as a DOMAIN ENCOUNTER: the verdict bundle the incursion
+    // consumer recorded. Shape: { domainId, attitude (hostile|unfriendly|neutral|
+    // mercantilist|friendly), disposition ('lingering'|'migrating'), fullStrength,
+    // treasureType, rulerAware, monstersIntel, arrivedAtTurn, arrivedOnDay }. A
+    // migrating band wanders on via the monster-bands consumer; a lingering one holds
+    // (wanderState.halted) as the standing threat the BR comparison priced.
+    incursion: opts.incursion || null,
     // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
     // saves). null = the defaults govern: an un-housed living band WANDERS (migration
     // movement — half expedition speed, random steps, never directly back). Shape:
@@ -1416,6 +1722,24 @@ function blankJourney(opts={}){
     participantCharacterIds: opts.participantCharacterIds || [],
     packAnimalIds: opts.packAnimalIds || [],
     shipId: opts.shipId || null,                        // voyage modes only (reserved)
+    // W4 — an ARMY's march (RR p.448: armies move on the standard expedition rules).
+    // When set, the army governs the journey: its slowest-unit speed × the large-army
+    // multiplier × war-machine cap, the ARMY weather table, no navigation throw, no
+    // per-hex encounter draws, no character survival (army supply is W5). Lazy field.
+    armyId: opts.armyId || null,
+    // A single UNIT marching to rally at an army's muster point (callUpUnit). Like an army
+    // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
+    // On arrival the unit is stationed to the army. Lazy field.
+    unitId: opts.unitId || null,
+    // The unit's march is a RETURN HOME (returnUnitHome — the symmetric counterpart of the
+    // call-up rally): on arrival the unit falls back into its home-domain garrison rather than
+    // joining an army. Lazy field (default false; old saves read falsy). Set with journey.unitId.
+    unitReturnHome: opts.unitReturnHome || false,
+    // The unit's march is a FREE march (startUnitMarch — the Garrison-table "March" verb): on
+    // arrival the unit halts at the destination hex (neither rallies to an army nor returns home).
+    // Lazy field (default false; old saves read falsy). Set with journey.unitId. No supply line —
+    // supply is army-only; a lone unit just carries what it carries. (2026-06-17)
+    unitMarch: opts.unitMarch || false,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,
@@ -1450,8 +1774,14 @@ function blankJourney(opts={}){
     lastTravelWorldOrd: opts.lastTravelWorldOrd != null ? opts.lastTravelWorldOrd : null,
     daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,
     // Mode + pace
-    mode: opts.mode || 'foot',                          // J1: land modes only; enum reserves sea/air (§13)
+    mode: opts.mode || 'foot',                          // J1: land modes; voyage-* modes ride a Vessel via shipId (§13)
     pace: opts.pace || 'normal',                        // forced-march | normal | cautious | half-ancillary
+    // Voyages V2 (voyage modes only — a journey with a shipId): the propulsion the captain runs
+    // ('auto' takes the faster of sail/oar given the wind; 'sail'/'oar' force it) + the GM toggle for
+    // 24-hour open-sea sailing (×2 distance, gated on navigator + full crew + sail-capable). Lazy
+    // fields, read defensively (journey.propulsion || 'auto') — no migration; land journeys ignore them.
+    propulsion: opts.propulsion || 'auto',              // auto | sail | oar
+    continuousSailing: opts.continuousSailing || false, // 24h open-sea sail toggle (RR p.318)
     // GM speed override (§26) — a positive number sets the day's mile BUDGET directly, bypassing
     // base × weather × temperature × pace (per-hex terrain/ground/road still apply, §24). null = pace
     // governs (the default). The grayed-in-UI pace value is preserved and still drives fatigue.
@@ -1541,6 +1871,11 @@ function blankProject(opts={}){
     estimatedCompletionTurn: opts.estimatedCompletionTurn || null,
     // Day cadence (consumed when Calendar C2 lands; monthly fallback used today)
     daysElapsed: opts.daysElapsed || 0,                                   // since startedAtTurn — used by day-tick consumer
+    // Completion spec (Construction Wave C — 2026-06-18). For a stronghold-component project, the
+    // Construction Wizard stashes {componentType, structures:[{structureKey,quantity}]} here so the
+    // construction-completed handler can rebuild the real stronghold component (so the domain's
+    // stronghold value grows) + link it to the minted Constructible mirror. null for other kinds.
+    completionSpec: opts.completionSpec || null,
     // History (DF-style "world remembers" per Architecture.md §10.10)
     history: opts.history || [],                                          // appended on key events (started, vagary, paused, completed)
     // Notes
@@ -1592,8 +1927,153 @@ function blankConstructible(opts={}){
   };
 }
 
+// =============================================================================
+// === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.1–§4.3) ===
+// Wave E (Architecture.md §3.5). Catalog-free RAW core: the Deity reference entity +
+// the Congregation + the DivineFavor relation. RAW-faithful per the D1 ruling — DivineFavor
+// tracks `standing` + a transgression log, NOT a numeric `favorLevel`; divine *power* (the
+// expiring ledger on the character, §4.4) is the only numeric resource. No `kind` field is
+// stored (the Entity Registry + collection membership carry the kind — the blankLair precedent).
+// =============================================================================
+
+// §4.1 — Deity. A first-class, system-agnostic reference entity (CORR-3). Ships generic;
+// the Auran pantheon is an optional content pack (§11.4), never baked in (principle #4).
+function blankDeity(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.deity),
+    name: opts.name || '',
+    alignment: opts.alignment || 'Neutral',          // Lawful | Neutral | Chaotic
+    portfolio: opts.portfolio || '',                  // free text — "war, the dawn, justice"
+    codeOfBehavior: opts.codeOfBehavior || '',        // free text (or a Phase 6 code ref) — what adherents uphold
+    // Blood-sacrifice posture (RR p.422). Lawful/Neutral → none|animals-only; Chaotic → sapient.
+    acceptsBloodSacrifice: opts.acceptsBloodSacrifice || 'none', // none | animals-only | sapient
+    // Auran Empyrean rule: animal sacrifice yields the CASTER nothing (pure devotion to the god).
+    sacrificeAsDevotion: opts.sacrificeAsDevotion === true,
+    notes: opts.notes || '',
+    status: opts.status || 'active',                  // active | dormant
+    history: opts.history || []
+  };
+}
+
+// §4.2 — Congregation. A divine caster's body of faithful (personal proselytizing and/or
+// Domain Worship). Generates divine power weekly (the accrual math lands in R1). Domain-worship
+// DP is DERIVED from the domain's live families × morale, never stored. templeRef is the optional
+// {kind,id} site pointer (kept null until placed — Inspector edits it via Raw JSON for now).
+function blankCongregation(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.congregation),
+    name: opts.name || '',
+    deityId: opts.deityId || null,
+    highPriestCharacterId: opts.highPriestCharacterId || null,  // the divine caster who draws the power
+    templeRef: opts.templeRef || null,                          // { kind:'settlement'|'outpost'|'stronghold'|'hex', id } | null
+    personalCongregants: opts.personalCongregants || 0,         // from proselytizing — full 10gp/50/week rate
+    domainWorshipDomainId: opts.domainWorshipDomainId || null,  // ruler/chaplain path; DP from this domain is DERIVED
+    proselytizingValueThisMonthGp: opts.proselytizingValueThisMonthGp || 0, // accumulator → congregant gain at month end
+    maintainedWeeksThisMonth: opts.maintainedWeeksThisMonth || 0,           // 0..4; un-maintained weeks drive decline
+    lastMaintainedAtTurn: (opts.lastMaintainedAtTurn != null ? opts.lastMaintainedAtTurn : null),
+    foundedAtTurn: opts.foundedAtTurn || 1,
+    status: opts.status || 'active',                            // active | declining | abandoned | suppressed
+    history: opts.history || []
+  };
+}
+
+// §4.3 — DivineFavor. The (character ↔ deity) relation (Architecture §3, Wave E). RAW-faithful
+// (D1): `standing` is the categorical relationship state (RAW has NO numeric favor score), with a
+// transgression log. One active favor per (character, deity); a divine caster normally has one patron.
+function blankDivineFavor(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.divineFavor),
+    characterId: opts.characterId || null,
+    deityId: opts.deityId || null,
+    standing: opts.standing || 'good-standing',     // good-standing | lapsed | excommunicate (RAW, not numeric)
+    codeOfBehaviorAck: opts.codeOfBehaviorAck === true,  // does this character uphold the deity's code
+    sinceTurn: opts.sinceTurn || 1,
+    lastSacrificeAtTurn: (opts.lastSacrificeAtTurn != null ? opts.lastSacrificeAtTurn : null),
+    lastWorshipAtTurn: (opts.lastWorshipAtTurn != null ? opts.lastWorshipAtTurn : null), // last pray-and-sacrifice
+    transgressionsLog: opts.transgressionsLog || [], // [{turn, kind, severity, tableRoll, consequence, atonedAtTurn|null}] — R5 owns the table
+    status: opts.status || 'active',
+    history: opts.history || []
+  };
+}
+// === end Religion R0 ===
+
+// === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore + Knowledge factories ===
+// Knowledge_Layer_Plan.md §6 / Sages_Knowledge_RAW_Survey.md §6+§16. Lore = a first-class fact
+// (rumors subsume in Wave B); Knowledge = the per-knower relation (the believed-vs-true link,
+// confidence + provenance). FIRST-hand Lore is DERIVED from the eventLog (acks-engine-knowledge.js
+// firstHandLore); a stored Knowledge record is SECOND-hand (heard/read/deduced/gossip).
+function blankLore(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.lore),
+    // The fact as the GM states it (the TRUE statement of the fact). A Knower's distorted
+    // belief lives on the Knowledge record's believedText (the secret-identity case), not here.
+    text: opts.text || '',
+    loreKind: opts.loreKind || 'fact',          // fact|rumor|secret|identity ('rumor' reserved for the Wave-B Rumors migration)
+    truthValue: opts.truthValue || 'unknown',   // true|false|partial|unknown — is the statement actually true in the world?
+    topic: opts.topic || '',                    // a short subject tag for grouping/search
+    subjectIds: opts.subjectIds || [],          // entity ids the fact is ABOUT (mixed-kind) → powers loreOnSubject
+    qualityDimensions: opts.qualityDimensions || [], // the What's-the-Word 6 dimensions (GM-filled; empty in v1)
+    createdAtTurn: opts.createdAtTurn || 1,
+    createdByCharacterId: opts.createdByCharacterId || null,
+    notes: opts.notes || '',
+    history: opts.history || []
+  };
+}
+function blankKnowledge(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.knowledge),
+    knowerKind: opts.knowerKind || 'character', // character|group|faction|domain|settlement (a ROLE, read via predicates)
+    knowerId: opts.knowerId || null,
+    loreId: opts.loreId || null,
+    certainty: opts.certainty || 'rumored',     // rumored|suspected|probable|certain (the DF suspicion dimension, not a bool)
+    source: opts.source || { kind: 'told-by', byId: null }, // provenance: witnessed|told-by|sage|treatise|deduced|gossip|rumor|gm
+    believedText: opts.believedText || '',      // what THIS Knower believes (may differ from Lore.text); '' = the true text
+    learnedAtTurn: opts.learnedAtTurn || 1,
+    learnedAtHexId: opts.learnedAtHexId || null,
+    status: opts.status || 'active',            // active|forgotten
+    history: opts.history || []
+  };
+}
+
+// === Delves D5 (team burst11 2026-06-20) — the SettlementVisit entity (svt-, Wave F) =========
+// Phase_3.5_Delves_Plan.md §4.4 — the off-screen settlement layer: a settlement-scoped STAY record,
+// the vessel for the urban-incident generator (JJ ch.3 / pp.81–84) + the holed-up day-cadence mode.
+// The svt- prefix + campaign.settlementVisits[] collection + the registry kind 🛤 were RESERVED
+// 2026-05-30 (lazyDefaultV1ScopeReservations + blankCampaign + entity-registry); this lane mints the
+// factory that makes the kind real (+ the field-schema). The campaign-activity venues (Emporium /
+// Guildhouse / Temple / Tower — buy / hire / research) are NOT here — that's the activity-budget
+// #346 venue layer (Milestone A). The SettlementVisit is the adventure-INCIDENT surface only.
+function blankSettlementVisit(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.settlementVisit),   // 'svt-' (reserved 2026-05-30)
+    name: opts.name || '',                                // optional GM label (else derived from the settlement)
+    settlementId: opts.settlementId || null,
+    hexId: opts.hexId || null,                            // the settlement's hex (incident Event.context + day-clock)
+    partyId: opts.partyId || null,
+    participantCharacterIds: opts.participantCharacterIds || [],
+    mode: opts.mode || 'holed-up',                        // holed-up | wandering | looking-for-trouble (JJ p.80)
+    status: opts.status || 'active',                      // active | departed
+    // [{ dayInMonth, turn, roll(1d100[+30 dark]), afterDark, incidentKey, label, category, cite,
+    //    reactionCall, tone, reaction{natural,total,band}, theft{save,target,failed,gpLost},
+    //    diseaseExposure, combatRisk, authority, rumor, rewardGp, affectedCharacterId, resolved, eventId }]
+    incidents: opts.incidents || [],
+    arrivedAtTurn: opts.arrivedAtTurn || null,
+    arrivedAtDayInMonth: opts.arrivedAtDayInMonth || null,
+    departedAtTurn: opts.departedAtTurn || null,
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+// === end Delves D5 ===========================================================================
+
 Object.assign(ACKS, {
-  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
+  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory
@@ -1602,10 +2082,22 @@ Object.assign(ACKS, {
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)
   blankGroup,
+  // Phase 3 Military W1 (2026-06-12) — Unit (Group's military sibling) + Army factories
+  blankUnit, blankArmy,
+  // Phase 3 Military W3 (2026-06-12) — Battle entity + side factories (RR pp.461–472)
+  blankBattle, blankBattleSide,
+  // Phase 3 Military W6 (2026-06-13, burst3) — Siege entity factory (RR pp.473–485)
+  blankSiege,
   // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   blankProject, blankConstructible,
+  // === Religion R0 (team 2026-06-13) — Wave E: Deity + Congregation + DivineFavor factories ===
+  blankDeity, blankCongregation, blankDivineFavor,
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact + Knowledge per-knower relation ===
+  blankLore, blankKnowledge,
+  // === Delves D5 (team burst11 2026-06-20) — SettlementVisit (svt-, the off-screen settlement layer) ===
+  blankSettlementVisit,
   MAGISTRATE_ROLES, MAGISTRATE_ROLE_KEYS, MAGISTRATE_SALARY_FRACTION, emptyMagistrates, ensureMagistratesShape, isCharacterQualifiedForRole,
   LOYALTY_BANDS, loyaltyBandFor, applyLoyaltyFloors, rollLoyalty
 });

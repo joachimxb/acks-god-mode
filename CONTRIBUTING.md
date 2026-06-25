@@ -17,17 +17,24 @@ Thanks for your interest in improving ACKS God Mode. This is the public statemen
 4. Open a **pull request into `main`**. Please don't self-merge — the maintainer reviews and merges.
 5. The maintainer reviews and merges. (Merging to `main` does **not** deploy — see Releases.)
 
-Run the test suite before opening a PR:
+Run the suite and the lints before opening a PR (CI runs all three on every push):
 
 ```sh
-npm test
+npm test             # the engine smoke suites
+npm run lint:docs    # public docs vs the engine — no removed token referenced as live
+npm run lint:engine  # engine module boundary — no bare cross-module private call
 ```
 
-There are no runtime dependencies; the suites load the engine modules headless in Node.
+There are no runtime dependencies; the suites load the engine modules headless in Node. Tests live in `tests/*.smoke.js` — each a standalone headless Node script, auto-discovered by `tests/run.js` (drop in a file, no runner edit). For a map of the codebase (the engine / Alpine-UI / `index.html` layers and how they fit together), see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Releases
 
 Releases are the maintainer's action. The maintainer merges `main → release` — **this merge is the deploy** (GitHub Pages rebuilds `release`) — tags the release commit `vMAJOR.MINOR.PATCH`, and cuts a GitHub Release whose notes are the matching `CHANGELOG.md` section (stable builds marked **Latest**).
+
+**Release checklist** (per release):
+- Bump the version in **both** `package.json` (`version`) and `acks-engine.js` (`ENGINE_VERSION`) — they must match, and a smoke test (`tests/schema.smoke.js`) fails the build if they drift. `package.json` is the canonical source of truth; `ENGINE_VERSION` is what gets stamped onto saved files as `engineVersion` (see [`INTEGRATION.md`](INTEGRATION.md) §6).
+- Move the `## [Unreleased]` changelog entries under a new `## [x.y.z] - YYYY-MM-DD` heading.
+- Sanity-check the front door: the `README.md` feature list and the in-app welcome banner describe the *current* surface (no shipped subsystem listed as unbuilt). The README and banner are kept **version-agnostic** on purpose — they point at the changelog / Releases rather than naming a number — and `npm test` (`tests/front-door.smoke.js`) fails closed if a hard-coded `vX.Y.Z` string sneaks back in, but the feature description is still a human check.
 
 Builds meant for someone else to test are cut as **pre-releases** (`-beta` / `-rc`, e.g. `v0.10.0-rc.1`) with GitHub's "pre-release" box checked, and are **not** merged to `release` (that would make them public).
 

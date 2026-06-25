@@ -13,10 +13,7 @@
 'use strict';
 const path = require('path');
 const DIR = path.join(__dirname, '..');
-[
-  'acks-engine-catalogs.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
-  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-subsystems.js',
-].forEach(f => require(path.join(DIR, f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let pass = 0, fail = 0; const failures = [];
@@ -201,6 +198,37 @@ section('hexName — sub-type shows in the name; unset is omitted (canonical hex
   ok('unset sub-type omitted', ACKS.hexName({ terrain: 'barrens', coord: { q: 0, r: 0 } }) === 'Barrens (0000)');
   ok('empty-string sub-type omitted', ACKS.hexName({ terrain: 'barrens', terrainSubtype: '', coord: { q: 0, r: 0 } }) === 'Barrens (0000)');
   ok('settlement wins — no sub-type shown', ACKS.hexName({ terrain: 'barrens', terrainSubtype: 'tundra', settlement: { name: 'Keep' }, coord: { q: 0, r: 0 } }) === 'Keep (0000)');
+}
+
+// =============================================================================
+section('T3 — biome fill layer (map render; the map radios/legend/SVG are data-driven from these)');
+{
+  // HEX_BIOME_COLORS covers every JJ p.40 biome (so no biome ever renders neutral by accident).
+  ok('HEX_BIOME_COLORS has all 10 BIOMES', ACKS.BIOMES.every(b => ACKS.HEX_BIOME_COLORS[b]));
+  ok('HEX_BIOME_COLORS has exactly the 10 biomes', Object.keys(ACKS.HEX_BIOME_COLORS).length === 10);
+  // the "Color by:" radio catalog now offers a Biome layer, right after Terrain.
+  const layers = ACKS.hexFillLayers();
+  const ids = layers.map(l => l.id);
+  ok('hexFillLayers includes biome', ids.indexOf('biome') >= 0);
+  ok('biome sits right after terrain', ids.indexOf('biome') === ids.indexOf('terrain') + 1);
+  ok('biome layer labelled "Biome"', (layers.find(l => l.id === 'biome') || {}).label === 'Biome');
+  // hexFillColor('biome', …) — derives the biome (Köppen → biomeForHex) then maps to a colour.
+  ok('jungle/Af → Rainforest colour', ACKS.hexFillColor({ terrain: 'jungle', koppen: 'Af' }, 'biome') === ACKS.HEX_BIOME_COLORS.Rainforest);
+  ok('grassland/Dfa → Prairie colour', ACKS.hexFillColor({ terrain: 'grassland', koppen: 'Dfa' }, 'biome') === ACKS.HEX_BIOME_COLORS.Prairie);
+  ok('barrens/ET → Tundra colour', ACKS.hexFillColor({ terrain: 'barrens', koppen: 'ET' }, 'biome') === ACKS.HEX_BIOME_COLORS.Tundra);
+  ok('biomeOverride wins over Köppen', ACKS.hexFillColor({ terrain: 'jungle', koppen: 'Af', biomeOverride: 'Tundra' }, 'biome') === ACKS.HEX_BIOME_COLORS.Tundra);
+  // the biome legend = the 10 biomes + an "Unset" row (the no-Köppen fallback colour).
+  const leg = ACKS.hexFillLegend('biome');
+  ok('biome legend has 11 rows (10 + Unset)', leg.length === 11);
+  ok('biome legend labels match BIOMES', ACKS.BIOMES.every((b, i) => leg[i].label === b));
+  ok('biome legend last row is Unset', leg[leg.length - 1].label === 'Unset');
+  const unsetColor = leg[leg.length - 1].color;
+  // a hex with no Köppen / override → biome '' → the Unset colour (neutral; never a hole).
+  ok('unset biome → the Unset colour', ACKS.hexFillColor({ terrain: 'grassland' }, 'biome') === unsetColor);
+  ok('Unset colour is distinct from every biome colour', ACKS.BIOMES.every(b => ACKS.HEX_BIOME_COLORS[b] !== unsetColor));
+  // regression: the existing terrain layer is unchanged by the new case.
+  ok('terrain layer fill unchanged (forest)', ACKS.hexFillColor({ terrain: 'forest' }, 'terrain') === ACKS.HEX_TERRAIN_COLORS.forest);
+  ok('default layer still terrain', ACKS.hexFillColor({ terrain: 'desert' }, 'land-value') !== undefined);
 }
 
 // =============================================================================

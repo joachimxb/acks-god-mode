@@ -17,5 +17,24 @@ jobs:
           node-version: '20'
       # The GitHub repo root IS the "ACKS God Mode/" folder (package.json + tests/ live
       # here), so no working-directory override is needed.
+      # Install dev dependencies. The SHIPPED artifact stays runtime-dependency-free; the only
+      # dependency is jsdom (devDependency), used by the behavioral-UI test tier
+      # (tests/behavior.smoke.js, audit E1). Without it that suite self-skips, so the install is
+      # what makes the behavioral net actually run in CI. `npm install` (not `npm ci`) because the
+      # lockfile is intentionally gitignored; jsdom is range-pinned in package.json.
+      - name: Install dev dependencies (jsdom — behavioral test tier)
+        run: npm install --no-audit --no-fund
       - name: Run smoke suites
         run: npm test
+      # Doc-drift backstop: fails if a removed engine token is still referenced as live in the
+      # public docs that ship in this repo (README/CHANGELOG/CONTRIBUTING). The broad DEV-root
+      # design-doc check runs in the §8.9 doc-pass (_audits/doc_drift_lint.js — those docs aren't
+      # in this repo).
+      - name: Doc-drift lint (public docs vs engine)
+        run: npm run lint:docs
+      # Engine module-boundary backstop: the engine is N IIFE modules; a module-private helper
+      # (leading-underscore, not exported) is reachable from another module only as ACKS._x. A BARE
+      # `_x(` cross-module call is a latent ReferenceError (the `_ruralHexes` bug class). Fails CI on
+      # exactly that shape. (Deferred_Followons §5 / Architecture §9.)
+      - name: Engine cross-module-private lint
+        run: npm run lint:engine

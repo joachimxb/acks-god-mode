@@ -1,49 +1,84 @@
 {
-  "_comment": "Characterization oracle for the economy lift (audit batch 3, refactor/economy-into-engine). 'expected' = PRE-LIFT index.html economy outputs against the pristine demo (migrateCampaign + the _finishLoad engine steps), captured 2026-06-06 from the live browser before any code moved. The lifted engine MUST reproduce these. 'invariants' = raw campaign fields the test asserts on its own rebuilt campaign first, so a build-fidelity drift fails loudly before the economy compare. Numeric compares use a 1e-9 epsilon (one float artifact: garrisonBR). Regenerate via the oracle eval in the session transcript if the demo template changes.",
+  "_comment": "Characterization oracle for the economy lift — the lifted engine must reproduce these per-domain economy snapshots on the shipped demo. Refreshed 2026-06-24 (demo World-Layer refresh): + the dom-gravewolf-clans beastman clanhold; Northwatch/Saltcombe rulers bumped to L7 (Senate of the March eligibility). March + Tidewrack unchanged (asserted byte-identical at regen). [D4 re-baseline 2026-06-25: incursion-rate tuning — every domain brought up to its RAW garrison + stronghold minimum (removes the JJ p.102 one-classification demotion) and its border set to secure (dangerousBordersOverride), dropping the daily domain-encounter chance from 27-44%/day to 1-5%/day so the garrison auto-defense keeps the queue bounded. All 5 domains move (added garrison cost lowers monthlyNet; stronghold value + garrison headcount rise). Engine tables (JJ p.101/102) unchanged.] [D4 re-baseline 2026-06-25: incursion-rate tuning — every domain brought up to its RAW garrison + stronghold minimum (removes the JJ p.102 one-classification demotion) and its border set to secure (dangerousBordersOverride), dropping the daily domain-encounter chance from 27-44%/day to 1-5%/day so the garrison auto-defense keeps the queue bounded. All 5 domains move (added garrison cost lowers monthlyNet; stronghold value + garrison headcount rise). Engine tables (JJ p.101/102) unchanged.]",
   "_capturedFromTurn": 5,
   "_domainOrder": [
     "dom-march-of-saltspur",
     "dom-barony-northwatch",
     "dom-barony-saltcombe",
-    "dom-tidewrack"
+    "dom-tidewrack",
+    "dom-gravewolf-clans"
   ],
   "expected": {
     "dom-march-of-saltspur": {
       "name": "March of Saltspur",
       "income": [
-        { "label": "Land revenue (hex-by-hex, 4 hexes, 480 families) [improved +1 total]", "gp": 3560 },
-        { "label": "Service revenue (4 × 700)", "gp": 2800 },
-        { "label": "Tax (2 × 700)", "gp": 1400 },
-        { "label": "Trade revenue (Saltspur Class VI: 1 × 220)", "gp": 220 },
-        { "label": "Tariffs", "gp": 280 },
-        { "label": "Tribute from Barony of Northwatch (vassal)", "gp": 425 },
-        { "label": "Tribute from Barony of Saltcombe (vassal)", "gp": 500 }
+        {
+          "label": "Land revenue (hex-by-hex, 4 hexes, 480 families) [improved +1 total]",
+          "gp": 3392
+        },
+        {
+          "label": "Service revenue (4 × 700)",
+          "gp": 2800
+        },
+        {
+          "label": "Tax (2 × 700)",
+          "gp": 1400
+        },
+        {
+          "label": "Trade revenue (Saltspur Class VI: 1 × 220)",
+          "gp": 220
+        },
+        {
+          "label": "Tariffs",
+          "gp": 280
+        },
+        {
+          "label": "Tribute from Barony of Northwatch (vassal)",
+          "gp": 425
+        },
+        {
+          "label": "Tribute from Barony of Saltcombe (vassal)",
+          "gp": 500
+        }
       ],
       "expenses": [
-        { "label": "Garrison [req 1,880] · Captain of the Guard Sir Tomas, Castellan of Saltspur: 186gp salary", "gp": 1490 },
-        { "label": "Liturgies", "gp": 700 },
-        { "label": "Tithes · Chaplain Brother Cassian: 88gp salary", "gp": 700 },
-        { "label": "Stronghold maintenance", "gp": 480 },
-        { "label": "Urban upkeep (1gp × 220 urban)", "gp": 220 }
+        {
+          "label": "Garrison [req 1 880] · Captain of the Guard Sir Tomas, Castellan of Saltspur: 236gp salary",
+          "gp": 1886
+        },
+        {
+          "label": "Liturgies",
+          "gp": 700
+        },
+        {
+          "label": "Tithes · Chaplain Brother Cassian: 88gp salary",
+          "gp": 700
+        },
+        {
+          "label": "Stronghold maintenance",
+          "gp": 480
+        },
+        {
+          "label": "Urban upkeep (1gp × 220 urban)",
+          "gp": 220
+        }
       ],
-      "moraleMods": [
-        { "label": "Stronghold below minimum (75,000/120,000gp, RR p.349)", "value": -1 }
-      ],
-      "incomeSum": 9185,
-      "expenseSum": 3590,
-      "moraleModSum": -1,
-      "monthlyGrossIncome": 9185,
-      "monthlyExpenses": 3590,
-      "monthlyNet": 5595,
+      "moraleMods": [],
+      "incomeSum": 9017,
+      "expenseSum": 3986,
+      "moraleModSum": 0,
+      "monthlyGrossIncome": 9017,
+      "monthlyExpenses": 3986,
+      "monthlyNet": 5031,
       "incomeFactor": 1,
       "tributeOwed": 0,
-      "domainXpFromNet": 595,
+      "domainXpFromNet": 31,
       "totalFamilies": 700,
       "effectiveUrbanFamilies": 220,
       "banditCount": 0,
-      "garrisonHeadcount": 110,
-      "garrisonCost": 1490,
-      "garrisonBR": 9.870000000000001,
+      "garrisonHeadcount": 143,
+      "garrisonCost": 1886,
+      "garrisonBR": 3.338,
       "requiredGarrison": 1880,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
@@ -56,209 +91,493 @@
         "isPC": false
       },
       "strongholdRequired": 120000,
-      "strongholdValue": 75000,
+      "strongholdValue": 120000,
       "domainTotalLandImprovementBonus": 1,
       "marketClass": "VI",
       "tradeRevenuePerFamily": 1,
-      "magistrateSalaries": { "captainOfGuard": 186, "chaplain": 88, "munerator": 88, "steward": 88 },
+      "magistrateSalaries": {
+        "captainOfGuard": 236,
+        "chaplain": 88,
+        "munerator": 88,
+        "steward": 88
+      },
       "magistrateAdminCandidates": [],
       "hexEffectiveValues": [
-        { "id": "hex-saltspur-keep", "eff": 8 },
-        { "id": "hex-saltspur-fields", "eff": 7 },
-        { "id": "hex-saltpans", "eff": 8 },
-        { "id": "hex-coastal-march", "eff": 6 }
+        {
+          "id": "hex-saltspur-keep",
+          "eff": 8
+        },
+        {
+          "id": "hex-saltspur-fields",
+          "eff": 7
+        },
+        {
+          "id": "hex-saltpans",
+          "eff": 8
+        },
+        {
+          "id": "hex-coastal-march",
+          "eff": 6
+        }
       ],
       "settlements": [
-        { "name": "Saltspur", "marketClass": "VI", "tradeRate": 1, "capacity": 499 }
+        {
+          "name": "Saltspur",
+          "marketClass": "VI",
+          "tradeRate": 1,
+          "capacity": 499
+        }
       ]
     },
     "dom-barony-northwatch": {
       "name": "Barony of Northwatch",
       "income": [
-        { "label": "Land revenue (hex-by-hex, 2 hexes, 135 families)", "gp": 810 },
-        { "label": "Service revenue (4 × 195)", "gp": 780 },
-        { "label": "Tax (2 × 195)", "gp": 390 }
+        {
+          "label": "Land revenue (hex-by-hex, 2 hexes, 135 families)",
+          "gp": 810
+        },
+        {
+          "label": "Service revenue (4 × 195)",
+          "gp": 780
+        },
+        {
+          "label": "Tax (2 × 195)",
+          "gp": 390
+        }
       ],
       "expenses": [
-        { "label": "Garrison [req 525]", "gp": 240 },
-        { "label": "Liturgies", "gp": 195 },
-        { "label": "Tithes", "gp": 195 },
-        { "label": "Stronghold maintenance", "gp": 135 },
-        { "label": "Urban upkeep (1gp × 60 urban)", "gp": 60 },
-        { "label": "Tribute to March of Saltspur (liege) (auto · RAW)", "gp": 425 }
+        {
+          "label": "Garrison [req 525]",
+          "gp": 528
+        },
+        {
+          "label": "Liturgies",
+          "gp": 195
+        },
+        {
+          "label": "Tithes",
+          "gp": 195
+        },
+        {
+          "label": "Stronghold maintenance",
+          "gp": 135
+        },
+        {
+          "label": "Urban upkeep (1gp × 60 urban)",
+          "gp": 60
+        },
+        {
+          "label": "Tribute to March of Saltspur (liege) (auto · RAW)",
+          "gp": 425
+        }
       ],
-      "moraleMods": [
-        { "label": "Garrison below required (3gp/family)", "value": -2 },
-        { "label": "Stronghold below minimum (15,000/60,000gp, RR p.349)", "value": -2 }
-      ],
+      "moraleMods": [],
       "incomeSum": 1980,
-      "expenseSum": 1250,
-      "moraleModSum": -4,
+      "expenseSum": 1538,
+      "moraleModSum": 0,
       "monthlyGrossIncome": 1980,
-      "monthlyExpenses": 1250,
-      "monthlyNet": 730,
+      "monthlyExpenses": 1538,
+      "monthlyNet": 442,
       "incomeFactor": 1,
       "tributeOwed": 425,
       "domainXpFromNet": 0,
       "totalFamilies": 195,
       "effectiveUrbanFamilies": 60,
       "banditCount": 0,
-      "garrisonHeadcount": 35,
-      "garrisonCost": 240,
-      "garrisonBR": 1.48,
+      "garrisonHeadcount": 83,
+      "garrisonCost": 528,
+      "garrisonBR": 0.86,
       "requiredGarrison": 525,
       "effectiveClassification": "Borderlands",
       "effectiveRuler": {
         "name": "Baron Yorick of Northwatch",
         "class": "Fighter",
-        "level": 6,
-        "personalAuthority": 0,
-        "gpThreshold": 1200,
+        "level": 7,
+        "personalAuthority": 2,
+        "gpThreshold": 2400,
         "administersThisMonth": false,
         "isPC": false
       },
       "strongholdRequired": 60000,
-      "strongholdValue": 15000,
+      "strongholdValue": 60000,
       "domainTotalLandImprovementBonus": 0,
       "marketClass": "VI*",
       "tradeRevenuePerFamily": 0,
-      "magistrateSalaries": { "captainOfGuard": 30, "chaplain": 24, "munerator": 24, "steward": 24 },
+      "magistrateSalaries": {
+        "captainOfGuard": 66,
+        "chaplain": 24,
+        "munerator": 24,
+        "steward": 24
+      },
       "magistrateAdminCandidates": [],
       "hexEffectiveValues": [
-        { "id": "hex-northwatch-tower", "eff": 6 },
-        { "id": "hex-northwatch-farms", "eff": 6 }
+        {
+          "id": "hex-northwatch-tower",
+          "eff": 6
+        },
+        {
+          "id": "hex-northwatch-farms",
+          "eff": 6
+        }
       ],
       "settlements": [
-        { "name": "Northwatch Village", "marketClass": "VI*", "tradeRate": 0, "capacity": 0 }
+        {
+          "name": "Northwatch Village",
+          "marketClass": "VI*",
+          "tradeRate": 0,
+          "capacity": 0
+        }
       ]
     },
     "dom-barony-saltcombe": {
       "name": "Barony of Saltcombe",
       "income": [
-        { "label": "Land revenue (hex-by-hex, 2 hexes, 165 families)", "gp": 990 },
-        { "label": "Service revenue (4 × 255)", "gp": 1020 },
-        { "label": "Tax (2 × 255)", "gp": 510 },
-        { "label": "Trade revenue (Saltcombe Town Class VI: 1 × 90)", "gp": 90 },
-        { "label": "Pilgrim offerings", "gp": 40 }
+        {
+          "label": "Land revenue (hex-by-hex, 2 hexes, 165 families)",
+          "gp": 990
+        },
+        {
+          "label": "Service revenue (4 × 255)",
+          "gp": 1020
+        },
+        {
+          "label": "Tax (2 × 255)",
+          "gp": 510
+        },
+        {
+          "label": "Trade revenue (Saltcombe Town Class VI: 1 × 90)",
+          "gp": 90
+        },
+        {
+          "label": "Pilgrim offerings",
+          "gp": 40
+        }
       ],
       "expenses": [
-        { "label": "Garrison [req 510]", "gp": 120 },
-        { "label": "Liturgies", "gp": 255 },
-        { "label": "Tithes", "gp": 255 },
-        { "label": "Stronghold maintenance", "gp": 165 },
-        { "label": "Urban upkeep (1gp × 90 urban)", "gp": 90 },
-        { "label": "Tribute to March of Saltspur (liege) (auto · RAW)", "gp": 500 }
+        {
+          "label": "Garrison [req 510]",
+          "gp": 510
+        },
+        {
+          "label": "Liturgies",
+          "gp": 255
+        },
+        {
+          "label": "Tithes",
+          "gp": 255
+        },
+        {
+          "label": "Stronghold maintenance",
+          "gp": 165
+        },
+        {
+          "label": "Urban upkeep (1gp × 90 urban)",
+          "gp": 90
+        },
+        {
+          "label": "Tribute to March of Saltspur (liege) (auto · RAW)",
+          "gp": 500
+        }
       ],
-      "moraleMods": [
-        { "label": "Garrison below required (2gp/family)", "value": -2 },
-        { "label": "Stronghold below minimum (18,000/45,000gp, RR p.349)", "value": -2 }
-      ],
+      "moraleMods": [],
       "incomeSum": 2650,
-      "expenseSum": 1385,
-      "moraleModSum": -4,
+      "expenseSum": 1775,
+      "moraleModSum": 0,
       "monthlyGrossIncome": 2650,
-      "monthlyExpenses": 1385,
-      "monthlyNet": 1265,
+      "monthlyExpenses": 1775,
+      "monthlyNet": 875,
       "incomeFactor": 1,
       "tributeOwed": 500,
       "domainXpFromNet": 0,
       "totalFamilies": 255,
       "effectiveUrbanFamilies": 90,
       "banditCount": 0,
-      "garrisonHeadcount": 20,
-      "garrisonCost": 120,
-      "garrisonBR": 0.68,
+      "garrisonHeadcount": 85,
+      "garrisonCost": 510,
+      "garrisonBR": 0.85,
       "requiredGarrison": 510,
       "effectiveClassification": "Civilized",
       "effectiveRuler": {
         "name": "Lady Mira of Saltcombe",
         "class": "Cleric",
-        "level": 6,
-        "personalAuthority": -1,
-        "gpThreshold": 1200,
+        "level": 7,
+        "personalAuthority": 1,
+        "gpThreshold": 2400,
         "administersThisMonth": false,
         "isPC": false
       },
       "strongholdRequired": 45000,
-      "strongholdValue": 18000,
+      "strongholdValue": 45000,
       "domainTotalLandImprovementBonus": 0,
       "marketClass": "VI",
       "tradeRevenuePerFamily": 1,
-      "magistrateSalaries": { "captainOfGuard": 15, "chaplain": 32, "munerator": 32, "steward": 32 },
+      "magistrateSalaries": {
+        "captainOfGuard": 64,
+        "chaplain": 32,
+        "munerator": 32,
+        "steward": 32
+      },
       "magistrateAdminCandidates": [],
       "hexEffectiveValues": [
-        { "id": "hex-saltcombe-shrine", "eff": 6 },
-        { "id": "hex-saltcombe-fields", "eff": 6 }
+        {
+          "id": "hex-saltcombe-shrine",
+          "eff": 6
+        },
+        {
+          "id": "hex-saltcombe-fields",
+          "eff": 6
+        }
       ],
       "settlements": [
-        { "name": "Saltcombe Town", "marketClass": "VI", "tradeRate": 1, "capacity": 0 }
+        {
+          "name": "Saltcombe Town",
+          "marketClass": "VI",
+          "tradeRate": 1,
+          "capacity": 0
+        }
       ]
     },
     "dom-tidewrack": {
       "name": "Free Holding of Tidewrack",
       "income": [
-        { "label": "Land revenue (hex-by-hex, 2 hexes, 120 families)", "gp": 720 },
-        { "label": "Service revenue (4 × 205)", "gp": 820 },
-        { "label": "Tax (2 × 205)", "gp": 410 },
-        { "label": "Trade revenue (Tidewrack Class VI: 1 × 85)", "gp": 85 }
+        {
+          "label": "Land revenue (hex-by-hex, 2 hexes, 120 families)",
+          "gp": 720
+        },
+        {
+          "label": "Service revenue (4 × 205)",
+          "gp": 820
+        },
+        {
+          "label": "Tax (2 × 205)",
+          "gp": 410
+        },
+        {
+          "label": "Trade revenue (Tidewrack Class VI: 1 × 85)",
+          "gp": 85
+        }
       ],
       "expenses": [
-        { "label": "Garrison [req 650]", "gp": 0 },
-        { "label": "Liturgies", "gp": 205 },
-        { "label": "Tithes", "gp": 205 },
-        { "label": "Stronghold maintenance", "gp": 120 },
-        { "label": "Urban upkeep (1gp × 85 urban)", "gp": 85 }
+        {
+          "label": "Garrison [req 650]",
+          "gp": 660
+        },
+        {
+          "label": "Liturgies",
+          "gp": 205
+        },
+        {
+          "label": "Tithes",
+          "gp": 205
+        },
+        {
+          "label": "Stronghold maintenance",
+          "gp": 120
+        },
+        {
+          "label": "Urban upkeep (1gp × 85 urban)",
+          "gp": 85
+        }
       ],
-      "moraleMods": [
-        { "label": "Garrison below required (4gp/family)", "value": -4 },
-        { "label": "Stronghold below minimum (0/30,000gp, RR p.349)", "value": -3 }
-      ],
+      "moraleMods": [],
       "incomeSum": 2035,
-      "expenseSum": 615,
-      "moraleModSum": -7,
+      "expenseSum": 1275,
+      "moraleModSum": 0,
       "monthlyGrossIncome": 2035,
-      "monthlyExpenses": 615,
-      "monthlyNet": 1420,
+      "monthlyExpenses": 1275,
+      "monthlyNet": 760,
       "incomeFactor": 1,
       "tributeOwed": 0,
       "domainXpFromNet": 0,
       "totalFamilies": 205,
       "effectiveUrbanFamilies": 85,
       "banditCount": 0,
-      "garrisonHeadcount": 0,
-      "garrisonCost": 0,
-      "garrisonBR": 0,
+      "garrisonHeadcount": 55,
+      "garrisonCost": 660,
+      "garrisonBR": 4.565,
       "requiredGarrison": 650,
       "effectiveClassification": "Outlands",
       "effectiveRuler": {
         "name": "Sevrina Vael, Tide-Warden of Tidewrack",
         "class": "Explorer",
         "level": 7,
-        "personalAuthority": 0,
+        "personalAuthority": 1,
         "gpThreshold": 2400,
         "administersThisMonth": false,
         "isPC": false
       },
       "strongholdRequired": 30000,
-      "strongholdValue": 0,
+      "strongholdValue": 30000,
       "domainTotalLandImprovementBonus": 0,
       "marketClass": "VI",
       "tradeRevenuePerFamily": 1,
-      "magistrateSalaries": { "captainOfGuard": 0, "chaplain": 26, "munerator": 26, "steward": 26 },
+      "magistrateSalaries": {
+        "captainOfGuard": 82,
+        "chaplain": 26,
+        "munerator": 26,
+        "steward": 26
+      },
       "magistrateAdminCandidates": [],
       "hexEffectiveValues": [
-        { "id": "hex-tidewrack-strand", "eff": 6 },
-        { "id": "hex-tidewrack-cove", "eff": 6 }
+        {
+          "id": "hex-tidewrack-strand",
+          "eff": 6
+        },
+        {
+          "id": "hex-tidewrack-cove",
+          "eff": 6
+        }
       ],
       "settlements": [
-        { "name": "Tidewrack", "marketClass": "VI", "tradeRate": 1, "capacity": 249 }
+        {
+          "name": "Tidewrack",
+          "marketClass": "VI",
+          "tradeRate": 1,
+          "capacity": 249
+        }
       ]
+    },
+    "dom-gravewolf-clans": {
+      "name": "Gravewolf Clans",
+      "income": [
+        {
+          "label": "Land revenue (hex-by-hex, 2 hexes, 90 families)",
+          "gp": 540
+        },
+        {
+          "label": "Service revenue (4 × 90)",
+          "gp": 360
+        },
+        {
+          "label": "Tax (2 × 90)",
+          "gp": 180
+        }
+      ],
+      "expenses": [
+        {
+          "label": "Garrison [req 360]",
+          "gp": 360
+        },
+        {
+          "label": "Liturgies",
+          "gp": 90
+        },
+        {
+          "label": "Tithes",
+          "gp": 90
+        },
+        {
+          "label": "Stronghold maintenance",
+          "gp": 90
+        }
+      ],
+      "moraleMods": [],
+      "incomeSum": 1080,
+      "expenseSum": 630,
+      "moraleModSum": 0,
+      "monthlyGrossIncome": 1080,
+      "monthlyExpenses": 630,
+      "monthlyNet": 450,
+      "incomeFactor": 1,
+      "tributeOwed": 0,
+      "domainXpFromNet": 0,
+      "totalFamilies": 90,
+      "effectiveUrbanFamilies": 0,
+      "banditCount": 0,
+      "garrisonHeadcount": 75,
+      "garrisonCost": 360,
+      "garrisonBR": 2.9400000000000004,
+      "requiredGarrison": 360,
+      "effectiveClassification": "Outlands",
+      "effectiveRuler": {
+        "name": "Grakka Gravewolf, Clan-Chief",
+        "class": "Fighter",
+        "level": 6,
+        "personalAuthority": 1,
+        "gpThreshold": 1200,
+        "administersThisMonth": false,
+        "isPC": false
+      },
+      "strongholdRequired": 30000,
+      "strongholdValue": 30000,
+      "domainTotalLandImprovementBonus": 0,
+      "marketClass": "VI*",
+      "tradeRevenuePerFamily": 0,
+      "magistrateSalaries": {
+        "captainOfGuard": 45,
+        "chaplain": 11,
+        "munerator": 11,
+        "steward": 11
+      },
+      "magistrateAdminCandidates": [],
+      "hexEffectiveValues": [
+        {
+          "id": "hex-gravewolf-crag",
+          "eff": 6
+        },
+        {
+          "id": "hex-skarn-hold",
+          "eff": 6
+        }
+      ],
+      "settlements": []
     }
   },
   "invariants": {
-    "dom-march-of-saltspur": { "name": "March of Saltspur", "peasantFamilies": 480, "urbanFamiliesRaw": 220, "morale": 1, "treasuryGp": 18000, "nestedHexCount": 4, "garrisonUnitCount": 3, "liegeId": null, "rulerCharacterId": "chr-marquis-aelric" },
-    "dom-barony-northwatch": { "name": "Barony of Northwatch", "peasantFamilies": 135, "urbanFamiliesRaw": 60, "morale": 0, "treasuryGp": 1200, "nestedHexCount": 2, "garrisonUnitCount": 2, "liegeId": "dom-march-of-saltspur", "rulerCharacterId": "chr-baron-yorick" },
-    "dom-barony-saltcombe": { "name": "Barony of Saltcombe", "peasantFamilies": 165, "urbanFamiliesRaw": 90, "morale": 1, "treasuryGp": 1800, "nestedHexCount": 2, "garrisonUnitCount": 1, "liegeId": "dom-march-of-saltspur", "rulerCharacterId": "chr-baroness-mira" },
-    "dom-tidewrack": { "name": "Free Holding of Tidewrack", "peasantFamilies": 120, "urbanFamiliesRaw": 85, "morale": -1, "treasuryGp": 2400, "nestedHexCount": 2, "garrisonUnitCount": 0, "liegeId": null, "rulerCharacterId": "chr-tidewrack-warden" }
+    "dom-march-of-saltspur": {
+      "name": "March of Saltspur",
+      "peasantFamilies": 480,
+      "urbanFamiliesRaw": 220,
+      "morale": 1,
+      "treasuryGp": 18000,
+      "nestedHexCount": 4,
+      "garrisonUnitCount": 3,
+      "liegeId": null,
+      "rulerCharacterId": "chr-marquis-aelric"
+    },
+    "dom-barony-northwatch": {
+      "name": "Barony of Northwatch",
+      "peasantFamilies": 135,
+      "urbanFamiliesRaw": 60,
+      "morale": 0,
+      "treasuryGp": 1200,
+      "nestedHexCount": 2,
+      "garrisonUnitCount": 2,
+      "liegeId": "dom-march-of-saltspur",
+      "rulerCharacterId": "chr-baron-yorick"
+    },
+    "dom-barony-saltcombe": {
+      "name": "Barony of Saltcombe",
+      "peasantFamilies": 165,
+      "urbanFamiliesRaw": 90,
+      "morale": 1,
+      "treasuryGp": 1800,
+      "nestedHexCount": 2,
+      "garrisonUnitCount": 1,
+      "liegeId": "dom-march-of-saltspur",
+      "rulerCharacterId": "chr-baroness-mira"
+    },
+    "dom-tidewrack": {
+      "name": "Free Holding of Tidewrack",
+      "peasantFamilies": 120,
+      "urbanFamiliesRaw": 85,
+      "morale": -1,
+      "treasuryGp": 2400,
+      "nestedHexCount": 2,
+      "garrisonUnitCount": 1,
+      "liegeId": null,
+      "rulerCharacterId": "chr-tidewrack-warden"
+    },
+    "dom-gravewolf-clans": {
+      "name": "Gravewolf Clans",
+      "peasantFamilies": 90,
+      "urbanFamiliesRaw": 0,
+      "morale": -1,
+      "treasuryGp": 2400,
+      "nestedHexCount": 2,
+      "garrisonUnitCount": 2,
+      "liegeId": null,
+      "rulerCharacterId": "chr-grakka-gravewolf"
+    }
   }
 }

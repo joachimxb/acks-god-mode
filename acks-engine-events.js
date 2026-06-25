@@ -55,9 +55,55 @@ const ID_PREFIXES = new Proxy({}, { get(_, key){ return (global.ACKS.ID_PREFIXES
 //   3. Add a handler function and register it in EVENT_HANDLERS.
 //   4. Document in Data_Dictionary.md and Integration_Guide.md.
 
-// 9.5.1 — Kind catalog. Frozen. Adding a kind is non-breaking; removing one is
-// a major schema bump.
-const EVENT_KINDS = Object.freeze([
+// 9.5.1 — Kind catalog + the typed-event self-registration kernel (the CLAUDE §15.5 family, slice 5
+// — the LAST, after prefixes + collections + house rules + migrations). EVENT_KINDS / EVENT_SCHEMAS /
+// EVENT_WIZARD_OPTOUT were three frozen literals that every event-shipping subsystem had to edit
+// (together with the already-decentralized EVENT_HANDLERS, the "4 parallel registries" — the BIGGEST
+// team-session merge-conflict surface; "the Lead unions the events.js registries by hand", §15.4).
+// They are now accumulating stores: a subsystem self-registers its kind from its OWN module at load
+// via ACKS.registerEventKind('foo', { schema, wizardOptOut, handler }) instead of editing these
+// central literals (the §15.5 north star — the registerDayConsumer idiom). The core + legacy set is
+// seeded below, byte-identical to the old freezes — the kind STRINGS here (this seed MUST run first:
+// the scattered registerEventHandler calls below throw on an unknown kind), the SCHEMAS at their
+// literal (§9.5.3), the wizard opt-outs at theirs (below). EVENT_HANDLERS has had its own registrar
+// since Foundation #178 (registerEventHandler, §9.5.9) — this slice converts only the remaining three.
+// Readers (validateEvent, isWizardEmittable, wizardEmittableKinds, the schema generator, drift-lint,
+// the ACKS export) read the live stores, so they observe every registration regardless of load order.
+// Adding a kind is non-breaking; removing one is a major schema bump.
+const EVENT_KINDS = [];                 // accumulating store (was Object.freeze([...]))
+const EVENT_SCHEMAS = {};               // accumulating store (was Object.freeze({...}))
+const EVENT_WIZARD_OPTOUT = new Set();  // accumulating store (was Object.freeze(new Set([...])))
+function _eventSchemaSig(s){ return JSON.stringify([(s && s.R) || null, (s && s.O) || null]); }
+function registerEventSchema(kind, schema){
+  if(!kind || !schema) return EVENT_SCHEMAS;
+  const ex = EVENT_SCHEMAS[kind];
+  if(!ex){ EVENT_SCHEMAS[kind] = schema; }
+  else if(_eventSchemaSig(ex) !== _eventSchemaSig(schema) && typeof console !== 'undefined' && console.warn){
+    console.warn('[ACKS] event-schema for "' + kind + '" re-registered with different content; keeping the original.');
+  }
+  return EVENT_SCHEMAS;
+}
+function registerEventWizardOptOut(kind){ if(kind) EVENT_WIZARD_OPTOUT.add(kind); return EVENT_WIZARD_OPTOUT; }
+function registerEventKind(kind, opts){
+  // The unified registrar — the §15.5 one-call entry for a subsystem. opts:
+  //   { schema?, wizardOptOut?, handler? }. Idempotent on the kind string (push only if new); a schema
+  //   conflict warns + keeps the original; a handler (if given) forwards to registerEventHandler (which
+  //   requires the kind registered first — done just above). Falsy-safe; mirrors registerPrefix /
+  //   registerCollection / registerHouseRule.
+  opts = opts || {};
+  if(!kind || typeof kind !== 'string') return EVENT_KINDS;
+  if(EVENT_KINDS.indexOf(kind) < 0) EVENT_KINDS.push(kind);
+  if(opts.schema) registerEventSchema(kind, opts.schema);
+  if(opts.wizardOptOut) registerEventWizardOptOut(kind);
+  if(opts.handler) registerEventHandler(kind, opts.handler);
+  return EVENT_KINDS;
+}
+function registeredEventKinds(){ return EVENT_KINDS.slice(); }
+
+// Seed the core + legacy kind STRINGS (byte-identical ORDER to the old freeze). New kinds do NOT
+// extend this literal — a subsystem calls ACKS.registerEventKind from its own module (the §15.5
+// convention). The schemas + wizard opt-outs are seeded at their own literals (below).
+[
   'player-plan',
   'gm-fiat',
   'treasury-grant',
@@ -91,6 +137,13 @@ const EVENT_KINDS = Object.freeze([
   'construction-damaged',
   'construction-repair-started',
   'construction-demolished',
+  // Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit emitted by
+  // acks-engine-followers.js (attractFollowers already minted the follower Characters + the troop Group
+  // + marked the ruler attracted-once). The Stronghold-tab card + review modal drive it.
+  'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (attractFollowers bumps the
+  // domain's peasant population per the Families Arriving with Followers table, RR p.337); record-only audit.
+  'follower-families-arrived',
   // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
   // (day-tick consumer + startJourney); opted out of the Event Wizard below.
   'journey-start',
@@ -101,6 +154,10 @@ const EVENT_KINDS = Object.freeze([
   'journey-encounter',
   'journey-aborted',
   'journey-rerouted',
+  // Fog-of-war from travel (audit B3, 2026-06-24) — engine-emitted when a journey ENTERS a
+  // previously-unexplored hex (flips hex.explored false→true). Auditable; integrators / the
+  // Player Portal react to it to reveal the map. Opted out of the Event Wizard below.
+  'hex-discovered',
   // Phase 2.5 Provisioning V4 (2026-06-06) — the general Forage/Hunt activity record. Emitted by
   // forageActivity/huntActivity (record-only; the verb already applied the yield) — opted out of the
   // Event Wizard below. Carries payload.activityCost so the #346 day budget counts it (forage=ancillary,
@@ -123,6 +180,64 @@ const EVENT_KINDS = Object.freeze([
   // disbanded, or casualties settled as population loss); a no-change plague month emits nothing.
   // Record-only (the processor already applied the world changes); chronicle-visible.
   'domain-banditry',
+  // Phase 3 Military W2 (2026-06-12) — one Vagaries of Incursion domain encounter (JJ
+  // pp.100–106): the daily probability struck, monsters arrived. The payload carries the
+  // whole verdict bundle (probability + identity + linger/migrate + the domain reaction +
+  // recon-lite + the platoon-scale BR comparison); the context envelope carries the entry
+  // hex + the domain + the materialized Group. Record-only (the incursion day consumer's
+  // commit already placed the band); chronicle-visible.
+  'domain-incursion',
+  // Phase 3 Military W3 (2026-06-12) — the battle engine (RR pp.461–472). All three are
+  // record-only audits emitted by acks-engine-battles.js, stamping subdayContext =
+  // {cadence:'battle-turn', battleId, turnNumber} (the reserved field's second referent).
+  // battle-started: the engagement is joined (beginBattle); chronicle-visible.
+  'battle-started',
+  // battle-turn: one ~10-minute battle turn's digest (the lines ride the payload).
+  // Always campaignLogHidden — the audit trail; battle-resolved narrates.
+  'battle-turn',
+  // battle-resolved: the ONE comprehensive outcome record (applyBattleAftermath) —
+  // winner, casualties, spoils, XP; chronicle-visible.
+  'battle-resolved',
+  // Phase 3 Military W4 (2026-06-12) — the campaign cycle (RR pp.447–460). Both are
+  // record-only audits emitted through the day-tick notable channel (the slot-88
+  // military consumer); the commits write the state.
+  // army-contact: two opposing armies met in a 6-mile hex — both contact recon
+  // results, the derived awareness, the strategic situation, and (when stances make
+  // a battle) the created Battle's id. Chronicle-visible.
+  'army-contact',
+  // domain-warfare: the invasion/occupation/conquest/pillage lifecycle, action-
+  // discriminated (payload.action: invaded | occupied | occupation-ended |
+  // conquered | pillaged | requisitioned | looted — the F&D/E10 one-kind-many-actions pattern).
+  // Chronicle-visible.
+  'domain-warfare',
+  // Phase 3 Military W5 (2026-06-13) — the weekly supply check outcome (type: army-supplied |
+  // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
+  // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
+  'army-supply',
+  // Weather-on-war (RR p.449, 2026-06-18) — a weather epidemic befalls an army (the weekly
+  // disease check; frigid/cold exposure + rainy/snowy wetness). Record-only GM-resolve audit
+  // owned by the slot-88 military consumer (its commit advances the weekly cadence). Core RAW —
+  // NOT gated on the optional vagaries-of-war table. The per-unit Death saves are the GM's.
+  'army-disease',
+  // Forward supply base (RR p.451, Construction Wave C 2026-06-19) — an army built a 10,000gp
+  // border fort as a forward supply base (a Class VI market + a line-extending relay). Record-only
+  // audit; buildSupplyBaseFort mints the Constructible + designates it.
+  'army-supply-base-built',
+  // Phase 3 Military W8 (2026-06-17) — the Vagaries of Recruitment / War / Battle (JJ pp.110–117),
+  // record-only GM-resolve audits owned by acks-engine-vagaries.js. Each carries the rolled vagary's
+  // name + brief + a structured effect descriptor (ready for a future auto-apply wave). Behind the
+  // three vagaries-of-* rules (default OFF). recruitment = monthly per recruiting ruler; war = weekly
+  // per army on campaign; battle = the 1d4 complications rolled per heroic foray.
+  'vagary-of-recruitment', 'vagary-of-war', 'vagary-of-battle',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — the siege lifecycle (RR pp.473–485),
+  // record-only audits owned by acks-engine-sieges.js (the Siege entity + the slot-90 consumer
+  // hold the state). siege-started: the investment begins (chronicle-visible). siege-progress:
+  // a method milestone — blockade established / bombardment / assault joined / capture-ready /
+  // supplies-exhausted (routine reduction days are campaignLogHidden). siege-resolved: the
+  // stronghold is captured / destroyed / surrenders, or the siege is lifted (chronicle-visible).
+  'siege-started',
+  'siege-progress',
+  'siege-resolved',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -145,8 +260,287 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
-]);
+  'market-transaction',
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only + always campaignLogHidden
+  // (a die roll is table chatter — DQ6); emitted by ACKS.recordProficiencyThrow only when the
+  // GM ticks "record" in the throw modal. The throw itself is ephemeral by default.
+  'proficiency-throw',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 (2026-06-13) — RR p.340 classification advancement
+  // (Outlands→Borderlands→Civilized) fired by the monthly turn. Record-only (the floor was
+  // already applied by processClassificationAdvancement); chronicle-visible. Carries the
+  // Event.context envelope (the domain + its capital hex).
+  'domain-advanced',
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425, #146) ===
+  // Engine-emitted record-only events (the verbs in acks-engine-religion.js already applied state).
+  'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
+  'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
+  'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ===
+  'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
+  // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
+  'divine-wrath',           // the gods confront an arcane usurper of a settlement (Religion-emitted; GM-resolved)
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + divine transgression (JJ p.400) ===
+  // Record-only, engine-emitted (consecrateAltar / consecrateRuler / applyDivineTransgression already
+  // applied the state). consecrate-FIELDS + the generic DP spend stay under the shipped 'consecration'
+  // kind (kind-discriminated payload); the manifest's reserved consecrate-fields/divine-power-spend names
+  // are folded there. Carry the Event.context envelope.
+  'consecrate-altar',       // DP spent to consecrate an altar → a Place of Power (pinnacle/sinkhole)
+  'consecrate-ruler',       // a 9th+ chaplain blesses a ruler → a 12-month domain buff (morale/loyalty/vagary)
+  'divine-transgression',   // a divine caster offends his deity → the JJ p.400 table outcome (standing/death)
+  // === Hijinks HJ-1 (team) ===
+  // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
+  // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
+  // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
+  'hijink-attempted',
+  'hijink-resolved',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) ===
+  // RR pp.300–301 + Appendix C pp.517–523. Record-only audit — the wound/recovery state is
+  // applied by ACKS.applyMortalWound + the slot-58 convalescence consumer (acks-engine-mortal-
+  // wounds.js); these events keep the eventLog well-formed on replay. Carry the Event.context
+  // envelope (the wounded character as subject). 'mortal-wound' also records a Tampering side effect.
+  'mortal-wound',
+  'wound-recovery',
+  // === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial lifecycle (RR pp.358–369),
+  // engine-emitted by formSyndicate / collectSyndicateTribute / resolveHijinkTrial. Record-only.
+  'hijink-syndicate-formed',
+  'hijink-tribute',
+  'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — crew assignment + change-in-management takeover. Record-only.
+  'hijink-crew-assigned',
+  'syndicate-takeover',
+  // === Character Lifecycle CL-1 (burst4) === — aging (RR p.19). Record-only audit: the age/category
+  // /attribute state is applied by ACKS.processAgingForTurn (acks-engine-lifecycle.js, the monthly pass
+  // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
+  // (the aging character as subject). 'death-from-old-age' carries the Death-save result (died bool).
+  'aging-milestone',
+  'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit of a generated hoard's
+  // materialization (ACKS.materializeHoard, acks-engine-treasure.js). The state is applied by the stash
+  // setters (depositToStash / promoteLineToNotableItem) + minted captive Characters; this keeps the
+  // eventLog well-formed + carries the Event.context envelope (primaryHexId = the hoard's hex,
+  // relatedEntities = the lair + any captives). Treasure generation is GM authoring, never a character activity.
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (RR p.171 / p.112): a lore
+  // query resolved on the shipped Proficiency-Throws Layer-1 die (in-specialty 3+ / out 18+, or a
+  // PC-sage's Knowledge/Loremastery throw), the fee via GP Wave B. Record-only (the consultSage
+  // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
+  // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
+  'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (commissionSage +
+  // the slot-64 day-tick consumer; Phase_4_Sages_Plan.md §3.3). Both record-only (the verb / the
+  // day-tick commit already applied the state): -started at commissioning, -resolved when the
+  // research completes. The §528 envelope (sage = source, client = beneficiary, the commission = subject).
+  'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — the periodic-fee retainer (retainSage / endSageRetainer + the slot-64
+  // monthly billing; acks-engine-sages.js). All record-only (the verb / the day-tick commit already
+  // moved the gp via GP Wave B): -started at retainer, -fee-paid each month (campaignLogHidden — the
+  // routine bill, off the Campaign Log), -ended on a voluntary end or an unpaid lapse. §528 envelope
+  // (sage = source, client = beneficiary).
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (readTreatise /
+  // referenceTreatise; acks-engine-sages.js; RR p.146). Record-only (the verb already rolled);
+  // two phases on one kind — phase:'read' (the 6-day study, narrates) + phase:'reference' (the
+  // 1-hour ancillary re-roll, campaignLogHidden). §528 envelope (reader subject, treatise source).
+  'treatise-read',
+  // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
+  // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
+  // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
+  // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
+  'senate-vote',
+  'policy-enacted',
+  // === Politics P-3 (team) === — RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only.
+  // senate-influenced: bribe/intimidate/seduce/gift/escaped/ill-treated/reveal. senate-dispute-opened:
+  // the dispute-lifecycle transitions (opened/escalated/cleared/abandoned/reestablished — action-discriminated).
+  'senate-influenced',
+  'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — the Senate-MOTION wizard (RR pp.355–360). Engine-
+  // emitted by acks-engine-politics.js (openSenateMotion / resolveSenateMotion), record-only: the
+  // verb already applied state (the motion sub-record on senate.motions[]; resolve reuses senateVote
+  // + enactPolicy + clearSenateDispute). Carries the Event.context envelope (apex hex + ruler + the
+  // voting senators). Wizard opt-out below.
+  'senate-motion-opened',
+  'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — the rule-of-the-few OLIGARCHY governance mode
+  // (JJ pp.402–404). Engine-emitted by acks-engine-politics.js (establishOligarchy /
+  // dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision), record-only: the verb
+  // already applied state (the apex governance sub-tree; decisions by MAJORITY, NOT the 2d6 senate
+  // vote). Carries the Event.context envelope (apex hex + ruler + the oligarchs). Wizard opt-out below.
+  'oligarchy-established',
+  'oligarchy-dissolved',
+  'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — the generative Senate-Materialization Wizard
+  // (RR pp.355–360). Engine-emitted by acks-engine-politics.js (materializeSenate), record-only: the
+  // verb already minted the senate/factions/senatorships + set the apex governance senatorial. Carries
+  // the Event.context envelope (apex hex + ruler + the seated senators). Wizard opt-out below.
+  'senate-materialized',
+  // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
+  // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
+  // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
+  // the GP Wave B adventure-result disbursement); this keeps the eventLog well-formed on replay.
+  // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
+  // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
+  'delve-foray',
+  // === Delves D4 (team) === — Phase 3.5 (JJ ch.13). The Abstract Wilderness foray (the most-
+  // abstract travel rung). Record-only audit: ACKS.commitWildernessForay applies the state
+  // (Mortal Wounds casualties, unit casualties, clearLair → hexSecuringBlockers, the GP Wave B
+  // adventure-result disbursement). Carries the Event.context envelope (the lair as site + the
+  // casualties + beneficiaries). Event Wizard opt-out below.
+  'wilderness-foray',
+  // === Delves D5 (team burst11) === — Phase 3.5 (JJ ch.3, the off-screen settlement layer).
+  // Record-only audit emitted by acks-engine-delves.js. 'settlement-visited' = a party opens a
+  // SettlementVisit (arrival in town); 'urban-incident' = an urban incident occurs during the stay
+  // (the holed-up day-consumer's resolution OR a GM-pressed wandering/looking roll). Diseases ride
+  // the shipped CL-2 'disease-contracted' (a disease-exposure incident calls ACKS.contractDisease);
+  // casualties ride the shipped Delves-D1 'mortal-wound'. Event Wizard opt-out below.
+  'settlement-visited',
+  'urban-incident',
+  // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
+  // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
+  // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
+  // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
+  'disease-contracted',
+  'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — persistent conditions (RR pp.507–516). Record-only
+  // audit emitted by acks-engine-lifecycle.js (applyCondition + the slot-59 conditions day-consumer's
+  // resolution). 'condition-cleared' is the resolution event — outcome ∈ cleared|warmed|cured|recovered|died
+  // (like disease-recovered carrying died:bool); the eventLog narrative reads correctly for each.
+  'condition-applied',
+  'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — death & inheritance (RR pp.311–313). Record-only
+  // audit emitted by acks-engine-lifecycle.js. 'character-died' is the unified cause-tagged death record
+  // (fired by recordCharacterDeath — routed from the aging/disease/condition death sites + the reconcile
+  // sweep for D1/battle/fiat deaths set outside this module); 'inheritance-resolved' carries the
+  // succession economy (successor + Reserve XP + Heroic Funeral + the will/heir transfer). Wizard opt-out below.
+  'character-died',
+  'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — character transformation (JJ pp.94–95). Record-only audit
+  // emitted by acks-engine-lifecycle.js (transformCharacter / revertCharacter). 'character-transformed'
+  // records the form + trigger + the keep-class-abilities Spells save + the initial alignment-drift Death
+  // save; 'transformation-reverted' records reverting to the original form. The monthly drift-save schedule
+  // rides processAgingForTurn (no event kind of its own — recorded on the ledger + history, the aging-arm idiom).
+  'character-transformed',
+  'transformation-reverted',
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
+  // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
+  // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
+  // the arcanePowerSpentThisMonth wallet, the harvested components). These keep the eventLog well-formed
+  // on replay + carry the Event.context envelope (the caster as subject + the dungeon as site).
+  'dungeon-attuned',          // a caster attunes to a dungeon (built-auto / conquered-throw)
+  'attunement-ended',         // an attunement lapses (relinquished / superseded / left-vicinity / death)
+  'sovereignty-established',  // a caster cows (some of) a dungeon's inhabitants (reaction / recruit / slay / fiat)
+  'sovereignty-lost',         // sovereignty relinquished or the monsters departed
+  'arcane-power-extracted',   // the monthly arcane-power yield is refreshed (campaignLogHidden — routine)
+  'dungeon-harvested',        // monster parts culled for special components (RR p.387)
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-C; RR pp.386–387) ===
+  // Record-only audits emitted by acks-engine-sanctums.js (onDungeonConstructed mints the dun- entity
+  // + auto-attunes; the incursion/wander commit paths anchor a settled lair into a dungeon; the
+  // adventurers-arrive GM prompt). They carry the Event.context envelope (the dungeon as site).
+  'dungeon-established',       // a kind:'dungeon' Construction Project completes → a Dungeon entity is minted (auto-attuned if arcane L9+)
+  'dungeon-populated',        // a wandering/arriving band lairs WITHIN a dungeon (RR p.386 — Vagaries-of-Incursion reuse)
+  'dungeon-invaded',          // an incursion draw of men/dwarves/elves at an owned dungeon = adventurers come to clear it (RR p.387 — Phase 3.5 hook)
+  // === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2) === the arcane↔divine seam STUB. A caster
+  // designates a human/demi-human settlement a "dungeon" + extracts arcane power from its peasants → a
+  // rumor-grade flag emitted by acks-engine-sanctums.js (flagArcaneUsurpation) for Religion (Wave E) to
+  // consume (divine wrath + the 10/10/80 co-extraction). No divine mechanics here — record only.
+  'arcane-usurpation',        // a caster usurps a settlement's families to extract arcane power (RR p.388 — Religion-consumed)
+  // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits emitted by acks-engine-sanctums.js
+  // (onSanctumConstructed / attractToSanctum / processSanctumsForTurn already applied state — the kindSpecific
+  // facilities scaffold, the generated Character + henchmanship/apprenticeship records, the yearly throw).
+  'sanctum-established',      // a kind:'sanctum' Constructible completes → facilities + the first attraction
+  'apprentice-attracted',     // a sanctum draws companions (L1–3) + apprentices (L0)
+  'apprentice-advanced',      // an apprentice's yearly research throw succeeds → an L1 companion (henchman)
+  'apprentice-discouraged',   // an apprentice rolls an unmodified 1–3 → discouraged, leaves the sanctum
+  // === Phase 4 — Magic Research (the Arcane-Domain consumer, AD-M1; RR pp.388–393) ===
+  // Record-only audits emitted by acks-engine-magic-research.js (the startResearchProject / process
+  // ResearchForTurn / payAndRollResearchThrow verbs already applied state — the rsp- project, the cost
+  // pools, the spent arcane power, the minted Notable Item / written identification / gained formula).
+  'magic-research-started',   // a caster begins a research project (material paid at the start)
+  'magic-research-progress',  // monthly research investment toward a project (campaignLogHidden — routine)
+  'magic-research-completed', // the throw (or no-throw) succeeds → the result applied
+  'magic-research-failed',    // the throw fails → all time, money, materials & components lost (RR p.388)
+  'magic-item-created',       // item creation mints a Notable Item (RR pp.391–393)
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured',   // manufacture a construct (a Group; mindless auto-controlled, else a reaction)
+  'crossbreed-created',       // breed a new crossbreed creature (a Group; the progenitors are consumed)
+  'necromancy-performed',     // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
+  // === Phase 4 — Magic Research AD-M3 (rituals; RR p.398) ===
+  'ritual-learned',           // learn a ritual spell → the caster's ritual repertoire (a magicFormula kind:'ritual')
+  'ritual-cast',              // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
+  // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
+  'magic-experiment-breakthrough', // a successful experiment exceeds its target → a minor/major/revolutionary breakthrough
+  'magic-experiment-mishap',       // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits — the verbs (takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount) +
+  // the monthly processBankingForTurn already moved the gp through the GP Wave B grammar. ===
+  'loan-issued',       // a loan is taken — the principal advanced creditor → debtor
+  'loan-repaid',       // a loan repayment debtor → creditor (settled when balance hits 0)
+  'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
+  'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
+  'bank-withdrawal',   // gp withdrawn from a bank account
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (Phase_4_Banking_Plan.md B3).
+  // Record-only: reconcileFeudalLoans (acks-engine-banking.js) materializes a kind:'feudal' Loan from a
+  // GIVEN F&D loan obligation (it moves no gp — the principal already moved in giveLoanObligation). ===
+  'loan-reconciled',   // a shipped F&D feudal loan promoted onto the shared Loan relation (fdObligationId link)
+  // === Banking B4/B5 (team burst9 2026-06-20) — the loan-lifecycle close-out events (B2 left
+  // markLoanDefaulted/writeOffLoan history-only) + letters of credit (loc-, the inter-market draw
+  // primitive). Record-only audits — the verbs in acks-engine-banking.js already moved the gp through
+  // the GP Wave B grammar (a LoC issue/redeem rides the 'external' banking-network handle). ===
+  'loan-defaulted',          // a commercial loan called in default (stops accruing; RR p.42 bounty-hunter note)
+  'loan-written-off',        // the creditor forgives a loan's remaining balance
+  'letter-of-credit-issued', // a letter of credit drawn against a bank account (face + fee → the banking network)
+  'letter-of-credit-redeemed', // a letter of credit drawn at its destination market (network → the bearer)
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
+  // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
+  // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
+  'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
+  'lore-shared',                   // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (Knowledge_Layer_Plan.md §6.4).
+  // Record-only audit emitted by acks-engine-knowledge.js promoteRumorToLore (the loreKind:'rumor' Lore
+  // item was already authored). Bridges the shipped Rumors subsystem into the generalized Lore layer.
+  'rumor-promoted',                // a campaign rumor is promoted into a loreKind:'rumor' Lore item
+  // === Magic Items (team) === — #143 W1; owned by acks-engine-magic-items.js (the identify / use /
+  // appraise verbs apply the state — the identification write, the charge depletion, the appraisal
+  // record). Distinct from magic-item-created (Magic Research mints) / magic-item-sale (M&M) /
+  // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
+  'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
+  'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
+  'item-appraised',      // a character appraises a magic item (the TT p.28 price spread + rarity)
+  // === Generators G1 (team burst8 2026-06-19) === — #435/Phase 4.8 §4. ONE event kind, NO new
+  // entity/prefix (a generation run is an EVENT, not an entity — §3.1; the reserved gen- stays unused).
+  // Record-only, owned by acks-engine-generators.js (generateAndLandNPC already pushed the produced
+  // Character); the event carries the run's params + seed + the produced ids (context.relatedEntities)
+  // so "what did the generator make here, and how" is one eventLog filter (the derived-history pattern).
+  'generation',          // a generator run produced one or more entities (NPC Generator; the Wizards family later)
+  // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
+  // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
+  'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
+  'magic-item-commission-resolved', // the commission's research throw resolves (item delivered | up-front lost)
+  // === Gladiators G2 (team burst9 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // resolveAndCommitBout / holdGame / recruitGladiator verbs apply the state — the bout result + XP +
+  // Mortal-Wounds casualties, the game.status flip, the minted gladiator Character). Record-only audits;
+  // behind the default-OFF gladiator-games rule. Carry the Event.context envelope (settlement/school/combatants).
+  'bout-resolved',          // an abstract bout is resolved → winner/casualties/XP/crowd reaction (RAW p.25/27/28)
+  'gladiator-game-held',    // a Game/Munus is staged → all its scheduled bouts resolved (RAW p.22)
+  'gladiator-recruited',    // a gladiator joins a school (buy-trained / buy-candidate / impress-prisoner; RAW p.23)
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // slot-62 day-tick consumer + checkUprising + sponsorGame apply the state). Record-only audits; behind
+  // the default-OFF gladiator-games rule. Carry the Event.context envelope (school/character/settlement).
+  'gladiator-trained',      // a candidate graduates (or is maimed) at the end of training — 1d20 (RAW p.25)
+  'gladiator-uprising',     // a spark triggers the uprising 2d6 cascade for a school (RAW p.26)
+  'game-sponsored',         // a munerator sponsors a Munus — budget + scheduled bouts (RAW p.22)
+  // === Magic Items MI-3 (team burst11) === — #143 the magic-item MARKET; owned by acks-engine-magic-
+  // items.js (the appraiseMagicItemAtMarket / sellMagicItem / buyMagicItem verbs own the gp [GP Wave B]
+  // + the NotableItem custody; these are record-only audits). TT pp.26–28. Distinct from the W1
+  // item-appraised (context-free spread) / item-transfer / market-transaction.
+  'magic-item-appraised',   // a MARKET price estimate for a magic item (transactability + offered buy/sell + headroom)
+  'magic-item-sold',        // a magic item changed hands at a market (payload.direction ∈ 'buy'|'sell')
+  // === Gladiators G5 (team burst11 2026-06-20) === — #150; owned by acks-engine-gladiators.js (the
+  // round-by-round tactical bout — resolveAndCommitBoutTactical with opts.logRounds). A record-only,
+  // campaignLogHidden VERBOSE per-round audit; the bout's result still rides the shipped bout-resolved.
+  'bout-round'              // a tactical-bout round's blow-by-blow (opt-in verbose log; RAW p.27)
+].forEach(k => registerEventKind(k));
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
 // "superseded" handles the conflict policy (Decision 6 in plan §12): later event overrides earlier.
@@ -160,8 +554,10 @@ const EVENT_STATUS = Object.freeze({
 
 // 9.5.3 — Payload schemas. Each entry lists required (R) and optional (O) fields with
 // a short type hint. validateEvent enforces the required set. Companion tools should
-// consult Integration_Guide.md for the canonical reference; this is engine-side.
-const EVENT_SCHEMAS = Object.freeze({
+// consult Integration_Guide.md for the canonical reference; this is engine-side. Seeded into
+// the EVENT_SCHEMAS accumulating store declared at §9.5.1 — a subsystem registers its schema via
+// ACKS.registerEventKind('foo', { schema }) from its own module (the §15.5 convention).
+Object.entries({
   'player-plan': {
     R: { domainId: 'string' },
     O: { intendedActions: 'array', freeformNotes: 'string', proposedBudget: 'object' }
@@ -380,6 +776,16 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { constructibleId: 'string' },
     O: { reason: 'string', narrative: 'string' }
   },
+  // Phase 4 Construction Wave C — follower attraction (RR p.334).
+  'follower-arrival': {
+    R: { domainId: 'string', rulerCharacterId: 'string' },
+    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', families: 'number', troopTableKey: 'string', narrative: 'string' }
+  },
+  // === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337).
+  'follower-families-arrived': {
+    R: { domainId: 'string', rulerCharacterId: 'string', families: 'number' },
+    O: { classification: 'string', hexCount: 'number', perHex: 'object', narrative: 'string' }
+  },
   // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
   'journey-start': {
     R: { journeyId: 'string' },
@@ -392,6 +798,12 @@ const EVENT_SCHEMAS = Object.freeze({
   'journey-arrived': {
     R: { journeyId: 'string' },
     O: { destinationHexId: 'string', narrative: 'string' }
+  },
+  // Fog-of-war from travel (audit B3, 2026-06-24). hexIds = the hex(es) newly revealed this day;
+  // the context envelope's involvedHexIds mirrors them, primaryHexId = the party's end hex.
+  'hex-discovered': {
+    R: { hexIds: 'array' },
+    O: { journeyId: 'string', partyId: 'string', firstExploredTurn: 'number', narrative: 'string' }
   },
   'journey-lost': {
     R: { journeyId: 'string' },
@@ -458,6 +870,111 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { action: 'string', morale: 'number', target: 'number', killed: 'number',
          familiesLost: 'number', occupationMonths: 'number', bands: 'object', narrative: 'string' }
   },
+  // Phase 3 Military W2 — the Vagaries of Incursion domain encounter (JJ pp.100–106).
+  // groupId = the materialized band; chance/roll = the daily probability; identity =
+  // {label,key,rarity}; disposition = lingering|migrating (+ fullStrength/treasureType);
+  // reaction = {roll,total,attitude,mods}; recon = {ruler:{...},monsters:{...}};
+  // brComparison = {monsterBr,garrisonBr,verdict}.
+  'domain-incursion': {
+    R: { domainId: 'string' },
+    O: { groupId: 'string', hexId: 'string', chance: 'object', identity: 'object',
+         count: 'number', disposition: 'string', fullStrength: 'boolean', treasureType: 'string',
+         reaction: 'object', recon: 'object', brComparison: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W3 — the battle engine audits (RR pp.461–472). Emitted by
+  // acks-engine-battles.js; the entity (campaign.battles[]) is the working state.
+  'battle-started': {
+    R: { battleId: 'string' },
+    O: { hexId: 'string', name: 'string', situation: 'string', scale: 'string',
+         sideA: 'object', sideB: 'object', narrative: 'string' }
+  },
+  'battle-turn': {
+    R: { battleId: 'string', turnNumber: 'number' },
+    O: { lines: 'object', narrative: 'string' }
+  },
+  'battle-resolved': {
+    R: { battleId: 'string' },
+    O: { winner: 'string', endedBy: 'string', turns: 'number', spoilsGp: 'number',
+         prisoners: 'number', casualties: 'object', xp: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W4 — the campaign-cycle audits (RR pp.447–460). Emitted through
+  // the day-tick notable channel; the military consumer's commit writes the state.
+  // army-contact: both recon summaries + awareness + the strategic situation; when
+  // stances make a battle, battleId points at the created W3 Battle (setup state).
+  'army-contact': {
+    R: { actingArmyId: 'string', otherArmyId: 'string' },
+    O: { hexId: 'string', awareness: 'string', situation: 'string', situationLabel: 'string',
+         battle: 'boolean', battleId: 'string', reconActing: 'object', reconOther: 'object',
+         narrative: 'string' }
+  },
+  // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged |
+  // requisitioned | looted (the W5 requisition/loot verbs) | reaction-battle |
+  // reaction-driven-off (the garrison-reaction resolution, JJ pp.104–106, 2026-06-14).
+  'domain-warfare': {
+    R: { action: 'string', domainId: 'string' },
+    O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
+         moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
+         saltTheEarth: 'boolean', results: 'object',
+         requisitionedGp: 'number', lootedGp: 'number', familiesLost: 'number', gp: 'number',
+         groupId: 'string', battleId: 'string', forceBr: 'number', bandBr: 'number',
+         attitude: 'string', effectiveAttitude: 'string',
+         narrative: 'string' }
+  },
+  // army-supply (W5): the weekly supply check outcome.
+  'army-supply': {
+    R: { armyId: 'string', inSupply: 'boolean' },
+    O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
+         condition: 'string', narrative: 'string' }
+  },
+  // army-disease (RR p.449): a weather epidemic befell the army (the weekly disease check hit).
+  'army-disease': {
+    R: { armyId: 'string', contracted: 'boolean' },
+    O: { causes: 'object', condPct: 'number', tempPct: 'number',
+         condition: 'string', temperature: 'string', narrative: 'string' }
+  },
+  // army-supply-base-built (RR p.451): an army raised a 10,000gp border fort as a forward base.
+  'army-supply-base-built': {
+    R: { armyId: 'string', constructibleId: 'string' },
+    O: { hexId: 'string', cost: 'number', narrative: 'string' }
+  },
+  // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Record-only;
+  // `effect` is the structured descriptor (effect.category + params). recruitment is keyed to the
+  // recruiting ruler; war to the army; battle to a (battle, foray) pair carrying the 1d4 vagaries.
+  'vagary-of-recruitment': {
+    R: { rulerCharacterId: 'string', vagaryKey: 'string' },
+    O: { name: 'string', brief: 'string', domainId: 'string', roll: 'number', mod: 'number',
+         pickBest: 'boolean', pickWorst: 'boolean', recruitingKinds: 'object', realmUnitScale: 'string',
+         effect: 'object', narrative: 'string' }
+  },
+  'vagary-of-war': {
+    R: { armyId: 'string', vagaryKey: 'string' },
+    O: { name: 'string', brief: 'string', roll: 'number', mod: 'number', total: 'number',
+         pickBest: 'boolean', pickWorst: 'boolean', siege: 'boolean', realmUnitScale: 'string',
+         effect: 'object', narrative: 'string' }
+  },
+  'vagary-of-battle': {
+    R: { battleId: 'string', forayId: 'string' },
+    O: { count: 'number', vagaries: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W6 — the siege audits (RR pp.473–485). acks-engine-sieges.js owns the state.
+  'siege-started': {
+    R: { siegeId: 'string', besiegerArmyId: 'string' },
+    O: { defenderDomainId: 'string', defenderArmyId: 'string', strongholdShp: 'number',
+         unitCapacity: 'number', unitAdvantage: 'number', daysRequired: 'number',
+         siteType: 'string', resolutionMode: 'string', narrative: 'string' }
+  },
+  'siege-progress': {
+    R: { siegeId: 'string', phase: 'string' },
+    O: { circumvallationFeet: 'number', storedSuppliesGp: 'number', weeksOfSupply: 'number',
+         shpDealt: 'number', shpDamage: 'number', breaches: 'number', reducedToRubble: 'boolean',
+         battleId: 'string', daysElapsed: 'number', daysRequired: 'number',
+         campaignLogHidden: 'boolean', narrative: 'string' }
+  },
+  'siege-resolved': {
+    R: { siegeId: 'string', outcome: 'string' },
+    O: { besiegerWon: 'boolean', battleId: 'string', besiegerArmyId: 'string',
+         defenderDomainId: 'string', narrative: 'string' }
+  },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
   'encounter-resolved': {
@@ -503,8 +1020,584 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
+  },
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only (recordProficiencyThrow logs
+  // it directly as applied); no required fields beyond the actor + throw breakdown.
+  'proficiency-throw': {
+    R: {},
+    O: { actorCharacterId: 'string', taskKey: 'string', label: 'string', target: 'number',
+         natural: 'number', modifierTotal: 'number', total: 'number', success: 'boolean',
+         secret: 'boolean', modifiers: 'array', narrative: 'string' }
+  },
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — the RR p.340 classification-advancement record (engine-emitted,
+  // record-only; the floor lives on domain.classificationAdvancedTo). reason ∈
+  // 'pop+road+morale' | 'territory+pop+morale' | 'urban-settlement'.
+  'domain-advanced': {
+    R: { domainId: 'string', from: 'string', to: 'string' },
+    O: { reason: 'string', atTurn: 'number', narrative: 'string' }
+  },
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425) ===
+  'divine-power-accrued': {
+    R: { characterId: 'string', amountGp: 'number', source: 'string' },
+    O: { deityId: 'string' }
+  },
+  'consecration': {
+    R: { casterCharacterId: 'string', kind: 'string', divinePowerSpentGp: 'number' },
+    O: { domainId: 'string', familiesConsecrated: 'number', throwResult: 'object', landValueDelta: 'number', purpose: 'string' }
+  },
+  'divine-favor-changed': {
+    R: { characterId: 'string', action: 'string' },
+    O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
+  },
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (RR pp.421–422) ===
+  'blood-sacrifice': {
+    R: { casterCharacterId: 'string', componentValueGp: 'number' },
+    O: { victimRef: 'object', multipliers: 'object', throwResult: 'object', divinePowerGained: 'number', arcaneStoredGp: 'number', yieldsNothing: 'boolean', deityId: 'string' }
+  },
+  // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
+  'divine-wrath': {
+    R: { settlementId: 'string', usurperCharacterId: 'string', level: 'number', severity: 'string' },
+    O: { familiesXp: 'number', forceXp: 'number' }
+  },
+  // === Religion R3/R5 (team burst10 2026-06-20) — consecration (RR p.422) + transgression (JJ p.400) ===
+  'consecrate-altar': {
+    R: { casterCharacterId: 'string', settlementId: 'string', divinePowerSpentGp: 'number' },
+    O: { altarValueGp: 'number', placeOfPowerKind: 'string', placeOfPowerId: 'string' }
+  },
+  'consecrate-ruler': {
+    R: { casterCharacterId: 'string', domainId: 'string', divinePowerSpentGp: 'number' },
+    O: { rulerCharacterId: 'string', throwResult: 'object', buff: 'object' }
+  },
+  'divine-transgression': {
+    R: { characterId: 'string', tableRoll: 'number', transgression: 'string' },
+    O: { deityId: 'string', severity: 'string', standingEffect: 'string', died: 'boolean', narrativeNote: 'string' }
+  },
+  // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
+  'hijink-attempted': {
+    R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
+    O: { bossCharacterId: 'string', settlementId: 'string', hexId: 'string', narrative: 'string' }
+  },
+  'hijink-resolved': {
+    R: { hijinkId: 'string', outcome: 'string' },
+    O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
+  },
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === (RR pp.300–301 + Appendix C pp.517–523)
+  // A combatant felled to 0 hp rolls on the Mortal Wounds table (or a slain character rolls the
+  // Tampering with Mortality side-effect — tampering:true). outcome ∈ killed|incapacitated|recovered.
+  'mortal-wound': {
+    R: { characterId: 'string' },
+    O: { table: 'string', damageType: 'string', d20: 'number', d6: 'number', modified: 'number',
+         condition: 'string', permanentWound: 'string', outcome: 'string', bedRestDays: 'number',
+         tampering: 'boolean', bandId: 'string', mortalityDelta: 'number', narrative: 'string' }
+  },
+  // An incapacitated character finishes convalescence (emitted by the slot-58 consumer's commit).
+  'wound-recovery': {
+    R: { characterId: 'string' },
+    O: { woundIndex: 'number', condition: 'string', narrative: 'string' }
+  },
+  // === Hijinks HJ-2 (team 2026-06-13) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-syndicate-formed': {
+    R: { syndicateId: 'string', bossCharacterId: 'string' },
+    O: { baseSettlementId: 'string', marketClass: 'string', narrative: 'string' }
+  },
+  'hijink-tribute': {
+    R: { syndicateId: 'string', totalGp: 'number' },
+    O: { bossCharacterId: 'string', turn: 'number', narrative: 'string' }
+  },
+  'hijink-trial': {
+    R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
+    O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
+  },
+  // === Hijinks HJ-3 (team 2026-06-20) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-crew-assigned': {
+    R: { hijinkId: 'string', crew: 'array' },
+    O: { crewBonus: 'number', narrative: 'string' }
+  },
+  'syndicate-takeover': {
+    R: { syndicateId: 'string', newBossCharacterId: 'string' },
+    O: { oldBossCharacterId: 'string', reason: 'string', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-1 (burst4) === (RR p.19; engine-emitted by processAgingForTurn, record-only)
+  // A character crosses into a new age category (the progressive attribute adjustment) — or, with
+  // thresholdArmed, enters a death-from-old-age window.
+  'aging-milestone': {
+    R: { characterId: 'string' },
+    O: { fromCategory: 'string', toCategory: 'string', ageNow: 'number', attributeDeltas: 'object',
+         thresholdArmed: 'string', dueInMonths: 'number', narrative: 'string' }
+  },
+  // The death-from-old-age Death save result (died ∈ true|false). On death the pass sets
+  // lifecycleState 'deceased'. threshold ∈ old|ancient|max.
+  'death-from-old-age': {
+    R: { characterId: 'string', died: 'boolean' },
+    O: { threshold: 'string', save: 'number', target: 'number', narrative: 'string' }
+  },
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit (see EVENT_KINDS).
+  'treasure-generated': {
+    R: { treasureType: 'string' },
+    O: { mode: 'string', totalGp: 'number', totalStone: 'number', stashId: 'string', lairId: 'string',
+         coins: 'object', gemCount: 'number', jewelryCount: 'number', magicSlotCount: 'number',
+         captiveCount: 'number', narrative: 'string' }
+  },
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (consultSage; RR p.171 / p.112).
+  // Record-only (the verb already rolled the throw + debited the fee); the answer narrates. throw =
+  // { natural, total, target, success, margin, secret }; activityCost = the #346 day tag.
+  'sage-consultation': {
+    R: { sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
+         answerText: 'string', loreId: 'string', activityCost: 'object' }
+  },
+  // === Sages SG-2 (burst8 b8-sages, #147) === — the multi-week SageCommission (Phase_4_Sages_Plan.md
+  // §3.3). Record-only (commissionSage / the slot-64 day-tick commit already applied the state).
+  'sage-commission-started': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', daysRequired: 'number', feeGp: 'number', secret: 'boolean' }
+  },
+  'sage-commission-resolved': {
+    R: { sageCommissionId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', subject: 'string', success: 'boolean', throw: 'object',
+         answerText: 'string', daysRequired: 'number' }
+  },
+  // === Sages SG-3 (team) === — the periodic-fee retainer (record-only). started: the standing
+  // arrangement; fee-paid: a monthly bill; ended: a voluntary end or an unpaid lapse (reason).
+  'sage-retainer-started': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', consultDiscount: 'number', specialty: 'string' }
+  },
+  'sage-retainer-fee-paid': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGp: 'number', monthsPaid: 'number' }
+  },
+  'sage-retainer-ended': {
+    R: { sageRetainerId: 'string', sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', feeGpPerMonth: 'number', monthsPaid: 'number', reason: 'string' }
+  },
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — the treatise re-roll book (RR p.146;
+  // readTreatise / referenceTreatise). phase = 'read' (the 6-day study) | 'reference' (the re-roll).
+  'treatise-read': {
+    R: { readerCharacterId: 'string', itemId: 'string', phase: 'string' },
+    O: { proficiency: 'string', treatiseRanks: 'number', effectiveRanks: 'number', taskKey: 'string',
+         query: 'string', settlementId: 'string', target: 'number', throw: 'object', activityCost: 'object' }
+  },
+  // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
+  // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
+  'senate-vote': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', mode: 'string', outcome: 'string', approved: 'boolean',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', rollCount: 'number', narrative: 'string' }
+  },
+  // The ruler's enactment of a policy (sets/clears senate.dispute). outcome ∈ enacted|defied|dispute-cleared.
+  'policy-enacted': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
+         outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
+  },
+  // === Politics P-3 (team) === (RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate-influence action (bribe/intimidate/seduce/gift/escaped/ill-treated/reveal). action discriminates.
+  'senate-influenced': {
+    R: { senateId: 'string' },
+    O: { action: 'string', senatorshipId: 'string', byCharacterId: 'string', value: 'number',
+         period: 'string', gp: 'number', paid: 'boolean', success: 'boolean', natural: 'number', total: 'number',
+         votes: 'number', reactionBonus: 'number', qualifies: 'boolean', controlled: 'number',
+         revealedCount: 'number', narrative: 'string' }
+  },
+  // A dispute-lifecycle transition. action ∈ opened|escalated|cleared|abandoned|reestablished.
+  'senate-dispute-opened': {
+    R: { senateId: 'string' },
+    O: { action: 'string', topic: 'string', attempts: 'number', replaceRulerCount: 'number',
+         forVotes: 'number', againstVotes: 'number', hostileCount: 'number', cooldownMonths: 'number',
+         reestablishAtTurn: 'number', honeymoonUntilTurn: 'number', apexDomainId: 'string', narrative: 'string' }
+  },
+  // === Politics P-5 (burst9 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A motion is tabled before the senate (kind ∈ policy|edict|dispute).
+  'senate-motion-opened': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         restricted: 'boolean', title: 'string', narrative: 'string' }
+  },
+  // A motion is resolved (votes gathered + enacted/rejected/dispute). status ∈ enacted|rejected|
+  // defied|dispute-cleared|dispute-escalated; outcome ∈ approved|rejected|no-majority.
+  'senate-motion-resolved': {
+    R: { senateId: 'string' },
+    O: { motionId: 'string', kind: 'string', matter: 'string', policyObjective: 'string',
+         outcome: 'string', approved: 'boolean', status: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', revealedCount: 'number', narrative: 'string' }
+  },
+  // === Politics P-7 (burst10 2026-06-20) === (JJ pp.402–404; engine-emitted by acks-engine-politics.js, record-only)
+  // The apex realm adopts the oligarchy governance mode (fromMode = the prior mode).
+  'oligarchy-established': {
+    R: { apexDomainId: 'string' },
+    O: { fromMode: 'string', memberCount: 'number', decisionRule: 'string', narrative: 'string' }
+  },
+  // The oligarchy is dissolved → the realm becomes feudal|senatorial. action ∈ dissolved|secession|conquered.
+  'oligarchy-dissolved': {
+    R: { apexDomainId: 'string' },
+    O: { into: 'string', action: 'string', narrative: 'string' }
+  },
+  // A majority decision by the oligarchs (NOT 2d6 voting). outcome ∈ passed|rejected|deadlock.
+  'oligarchy-decision': {
+    R: { apexDomainId: 'string' },
+    O: { policy: 'string', decisionRule: 'string', outcome: 'string',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number', narrative: 'string' }
+  },
+  // === Politics P-7 wizard (burst11 2026-06-20) === (RR pp.355–360; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate is generatively convened over a realm's apex (the 7-step construction materialized).
+  'senate-materialized': {
+    R: { senateId: 'string' },
+    O: { apexDomainId: 'string', seats: 'number', leadingSenators: 'number', factions: 'number',
+         independentMinorVotes: 'number', realmFamilies: 'number', minSenatorLevel: 'number', narrative: 'string' }
+  },
+  // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
+  // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
+  // carries the final disbursement (outcome cleared|withdrawn + magic-item rolls).
+  'delve-foray': {
+    R: { delveId: 'string' },
+    O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
+         outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
+         magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
+  },
+  // === Delves D4 (team) === (JJ ch.13; engine-emitted by ACKS.commitWildernessForay, record-only).
+  // An Abstract Wilderness foray resolved in one roll: the result, the character casualties + unit
+  // casualties, the treasure/XP, and whether a lair was cleared (Wilderness Clearing, JJ p.68).
+  'wilderness-foray': {
+    R: { result: 'string' },
+    O: { lairId: 'string', monster: 'string', defeated: 'boolean', monsterLevel: 'number',
+         expeditionLevel: 'number', treasureGp: 'number', magicItemRolls: 'number', combatXp: 'number',
+         casualties: 'array', unitCasualties: 'array', lairCleared: 'boolean', narrative: 'string' }
+  },
+  // === Delves D5 (team burst11) === (JJ ch.3; engine-emitted by acks-engine-delves.js, record-only).
+  // A party opens a stay in a settlement.
+  'settlement-visited': {
+    R: { visitId: 'string' },
+    O: { settlementId: 'string', mode: 'string', participantCount: 'number', narrative: 'string' }
+  },
+  // An urban incident during a stay: the rolled d100 incident + its mechanical hooks (reaction band,
+  // disease exposure, combat risk, theft) — the consequences (disease/casualty) ride their own events.
+  'urban-incident': {
+    R: { visitId: 'string', incidentKey: 'string' },
+    O: { settlementId: 'string', roll: 'number', afterDark: 'boolean', category: 'string',
+         reactionBand: 'string', diseaseExposure: 'boolean', combatRisk: 'boolean',
+         affectedCharacterId: 'string', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
+  // record-only). A character contracts a disease (infected); then the disease resolves.
+  'disease-contracted': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', onsetDays: 'number', symptomDays: 'number', willDie: 'boolean',
+         saveRoll: 'number', saveTotal: 'number', saveTarget: 'number', narrative: 'string' }
+  },
+  // The disease's resolution. outcome ∈ recovered|cured|died; on death the consumer sets
+  // lifecycleState 'deceased'.
+  'disease-recovered': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-3 (burst7, team) === (RR pp.507–516; engine-emitted by
+  // acks-engine-lifecycle.js, record-only). A persistent condition is applied; then it resolves.
+  'condition-applied': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', effect: 'string', narrative: 'string' }
+  },
+  // The condition's resolution. outcome ∈ cleared|warmed|cured|recovered|died; on death the consumer
+  // sets lifecycleState 'deceased'.
+  'condition-cleared': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', outcome: 'string', died: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-4a (burst8, team) === (RR pp.311–313; engine-emitted, record-only).
+  // The unified cause-tagged death record. cause ∈ wounds|disease|old-age|exposure|enervation|battle|fiat|unknown.
+  'character-died': {
+    R: { characterId: 'string', cause: 'string' },
+    O: { heroic: 'boolean', reserveXp: 'number', deceasedTurn: 'number', sourceEventId: 'string', narrative: 'string' }
+  },
+  // The succession economy resolved (RR pp.311–313): the successor + Reserve XP + Heroic Funeral + the will/heir transfer.
+  'inheritance-resolved': {
+    R: { deceasedId: 'string' },
+    O: { successorId: 'string', successorMode: 'string', heirId: 'string', reserveXpApplied: 'number',
+         funeralXp: 'number', funeralGpSpent: 'number', heroic: 'boolean', transferredGp: 'number',
+         bankFeeGp: 'number', bankFeePct: 'number', treasureLost: 'number', stashesTransferred: 'number',
+         successorStartXp: 'number', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-5 (team) === (JJ pp.94–95; engine-emitted by acks-engine-lifecycle.js, record-only).
+  // A character is transformed into a monster: the form + trigger + the keep-class-abilities Spells save +
+  // the initial alignment-drift Death save. On transform the verb flips lifecycleState 'transformed'.
+  'character-transformed': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', keptClassAbilities: 'boolean', spellsSave: 'number',
+         spellsTarget: 'number', retainedSelf: 'boolean', rejectedGift: 'boolean', afterTheFlesh: 'boolean',
+         reversible: 'boolean', initialDriftSave: 'number', initialDriftSaved: 'boolean', narrative: 'string' }
+  },
+  // The transformation is reversed (cured / dispelled); on revert lifecycleState returns to 'active'.
+  'transformation-reverted': {
+    R: { characterId: 'string', form: 'string' },
+    O: { trigger: 'string', triggerLabel: 'string', reason: 'string', keptSelf: 'boolean',
+         driftSaveCount: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
+  'dungeon-attuned': {
+    R: { dungeonId: 'string', mageCharacterId: 'string', method: 'string' },
+    O: { attunementId: 'string', throwResult: 'object', narrative: 'string' }
+  },
+  'attunement-ended': {
+    R: { attunementId: 'string', dungeonId: 'string' },
+    O: { mageCharacterId: 'string', status: 'string', reason: 'string', narrative: 'string' }
+  },
+  'sovereignty-established': {
+    R: { dungeonId: 'string', characterId: 'string', method: 'string' },
+    O: { groupIds: 'object', leaderCharacterIds: 'object', throwResult: 'object', narrative: 'string' }
+  },
+  'sovereignty-lost': {
+    R: { dungeonId: 'string', characterId: 'string' },
+    O: { reason: 'string', narrative: 'string' }
+  },
+  'arcane-power-extracted': {
+    // AD-F: a usurped settlement extracts arcane power too (RR p.388 #3) — so the SOURCE is dungeonId OR
+    // settlementId (both optional; the constant is the caster + the gp yield). Backward-compatible: existing
+    // dungeon events carry dungeonId (now in O) + characterId + gpValue (the new R set), so they still validate.
+    R: { characterId: 'string', gpValue: 'number' },
+    O: { dungeonId: 'string', settlementId: 'string', familiesXp: 'number', subjugatedXp: 'number', narrative: 'string' }
+  },
+  'dungeon-harvested': {
+    R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
+    O: { componentValueGp: 'number', method: 'string', bountyGp: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (AD-C; RR pp.386–387) ===
+  'dungeon-established': {
+    R: { dungeonId: 'string', origin: 'string' },
+    O: { builtByProjectId: 'string', ownerCharacterId: 'string', buildValueGp: 'number', narrative: 'string' }
+  },
+  'dungeon-populated': {
+    R: { dungeonId: 'string', lairId: 'string' },
+    O: { monsterKey: 'string', count: 'number', via: 'string', narrative: 'string' }
+  },
+  'dungeon-invaded': {
+    R: { dungeonId: 'string' },
+    O: { groupId: 'string', monsterKey: 'string', partyDescription: 'string', via: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2 — the divine seam stub) ===
+  'arcane-usurpation': {
+    R: { characterId: 'string', settlementId: 'string' },
+    O: { familiesXp: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — Sanctums AD-B (RR p.386) ===
+  'sanctum-established': {
+    R: { constructibleId: 'string' },
+    O: { builderCharacterId: 'string', narrative: 'string' }
+  },
+  'apprentice-attracted': {
+    R: { sanctumConstructibleId: 'string', masterCharacterId: 'string' },
+    O: { companionCharacterIds: 'object', apprenticeCharacterIds: 'object', initial: 'boolean', narrative: 'string' }
+  },
+  'apprentice-advanced': {
+    R: { apprenticeshipId: 'string', apprenticeCharacterId: 'string', masterCharacterId: 'string' },
+    O: { roll: 'number', total: 'number', intMod: 'number', narrative: 'string' }
+  },
+  'apprentice-discouraged': {
+    R: { apprenticeshipId: 'string', apprenticeCharacterId: 'string', masterCharacterId: 'string' },
+    O: { roll: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research (AD-M1; RR pp.388–393) ===
+  'magic-research-started': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { baseCost: 'number', materialCostGp: 'number', narrative: 'string' }
+  },
+  'magic-research-progress': {
+    R: { projectId: 'string', researcherCharacterId: 'string' },
+    O: { kind: 'string', investedGp: 'number', researchCostGp: 'number', narrative: 'string' }
+  },
+  'magic-research-completed': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { kindResult: 'object', throwResult: 'object', narrative: 'string' }
+  },
+  'magic-research-failed': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { lostGp: 'number', throwResult: 'object', narrative: 'string' }
+  },
+  'magic-item-created': {
+    R: { projectId: 'string', notableItemId: 'string' },
+    O: { makerCharacterId: 'string', itemKind: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', undead: 'boolean', narrative: 'string' }
+  },
+  'crossbreed-created': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', progenitorsKilled: 'number', narrative: 'string' }
+  },
+  'necromancy-performed': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', willing: 'boolean', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M3 (rituals; RR p.398) ===
+  'ritual-learned': {
+    R: { projectId: 'string' },
+    O: { researcherCharacterId: 'string', ritualKey: 'string', ritualLevel: 'number', name: 'string', narrative: 'string' }
+  },
+  'ritual-cast': {
+    R: { projectId: 'string' },
+    O: { researcherCharacterId: 'string', ritualKey: 'string', ritualLevel: 'number', mode: 'string', notableItemId: 'string', storedForm: 'string', name: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
+  'magic-experiment-breakthrough': {
+    R: { projectId: 'string', level: 'string' },
+    O: { researcherCharacterId: 'string', kind: 'string', margin: 'number', xpBonus: 'number', result: 'object', narrative: 'string' }
+  },
+  'magic-experiment-mishap': {
+    R: { projectId: 'string', tier: 'string' },
+    O: { researcherCharacterId: 'string', kind: 'string', roll: 'number', assistantsTier: 'string', narrative: 'string' }
+  },
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits of the gp the banking verbs / processBankingForTurn already moved through the grammar.
+  // creditor/debtor are typed counterparty objects { kind, id?, label? }. ===
+  'loan-issued': {
+    R: { loanId: 'string' },
+    O: { kind: 'string', principalGp: 'number', interestRateMonthly: 'number', collateralized: 'boolean',
+         creditor: 'object', debtor: 'object', marketSettlementId: 'string', narrative: 'string' }
+  },
+  'loan-repaid': {
+    R: { loanId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', settled: 'boolean', narrative: 'string' }
+  },
+  'loan-interest': {
+    R: { loanId: 'string' },
+    O: { interestGp: 'number', paidGp: 'number', capitalizedGp: 'number', balanceGp: 'number',
+         disreputable: 'boolean', debtOverXp: 'boolean', narrative: 'string' }
+  },
+  'bank-deposit': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', custodyFeeGp: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  'bank-withdrawal': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (record-only; the
+  // principal already moved in giveLoanObligation — this only materializes the shared Loan record). ===
+  'loan-reconciled': {
+    R: { loanId: 'string', fdObligationId: 'string' },
+    O: { kind: 'string', principalGp: 'number', creditor: 'object', debtor: 'object', narrative: 'string' }
+  },
+  // === Banking B4/B5 (team burst9 2026-06-20) — loan close-out + letters of credit (record-only;
+  // the verbs in acks-engine-banking.js already moved the gp through the grammar). ===
+  'loan-defaulted': {
+    R: { loanId: 'string' },
+    O: { balanceGp: 'number', debtOverXp: 'boolean', bountyTriggered: 'boolean', narrative: 'string' }
+  },
+  'loan-written-off': {
+    R: { loanId: 'string' },
+    O: { forgivenGp: 'number', reason: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-issued': {
+    R: { letterId: 'string' },
+    O: { accountId: 'string', faceValueGp: 'number', issueFeeGp: 'number', issuingMarketSettlementId: 'string', drawingMarketSettlementId: 'string', narrative: 'string' }
+  },
+  'letter-of-credit-redeemed': {
+    R: { letterId: 'string' },
+    O: { faceValueGp: 'number', atMarketSettlementId: 'string', bearer: 'object', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
+  // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
+  'lore-learned': {
+    R: { loreId: 'string', knowerId: 'string' },
+    O: { knowerKind: 'string', certainty: 'string', sourceKind: 'string', sourceById: 'string', believedText: 'string', learnedAtHexId: 'string', narrative: 'string' }
+  },
+  'lore-shared': {
+    R: { loreId: 'string', toKnowerId: 'string' },
+    O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (record-only; the
+  // loreKind:'rumor' Lore item was authored by acks-engine-knowledge.js promoteRumorToLore).
+  'rumor-promoted': {
+    R: { rumorId: 'string', loreId: 'string' },
+    O: { loreKind: 'string', truthValue: 'string', apparentLevel: 'string', consumed: 'boolean', narrative: 'string' }
+  },
+  // === Magic Items (team) === — #143 W1 (acks-engine-magic-items.js). knownProperties/learned/throw
+  // are objects/arrays (typed 'object', the kindResult/throwResult convention). characterId is REQUIRED
+  // for identify (you identify AS someone) but optional for charge-spend/appraise (the party may act).
+  'item-identified': {
+    R: { itemId: 'string', characterId: 'string', method: 'string' },
+    O: { rarity: 'string', full: 'boolean', success: 'boolean', knownProperties: 'object', learned: 'object', throw: 'object', narrative: 'string' }
+  },
+  'item-charge-spent': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', count: 'number', chargesBefore: 'number', chargesAfter: 'number', depleted: 'boolean', narrative: 'string' }
+  },
+  'item-appraised': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
+  },
+  // === Generators G1 (team burst8 2026-06-19) === — a generation run's audit record (record-only).
+  // producedCharacterIds carries the ids (also in context.relatedEntities); the rest is the run's params.
+  'generation': {
+    R: { generator: 'string', producedCharacterIds: 'array' },
+    O: { occupation: 'string', classKey: 'string', bucket: 'string', level: 'number', race: 'string', attributeMethod: 'string', detailLevel: 'string', wealthGp: 'number', magicItemValue: 'number', seed: 'string', narrative: 'string' }
+  },
+  // === Magic Items W2 (burst8, team) === — #143 commissioning (acks-engine-magic-items.js). projectId =
+  // the routed Magic Research item-creation project; notableItemId is set on a successful delivery.
+  'magic-item-commissioned': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string' },
+    O: { itemName: 'string', baseCost: 'number', commissionPriceGp: 'number', upFrontGp: 'number', researchFeeGp: 'number', narrative: 'string' }
+  },
+  'magic-item-commission-resolved': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
+    O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
+  },
+  // === Gladiators G2 (team burst9 2026-06-20) === — record-only audit (see EVENT_KINDS). The verbs in
+  // acks-engine-gladiators.js already applied the state (the bout result + XP + Mortal-Wounds casualties).
+  'bout-resolved': {
+    R: { boutId: 'string', winnerSide: 'string' },
+    O: { gameId: 'string', kind: 'string', d10: 'number', death: 'boolean', crowdReaction: 'string',
+         casualties: 'array', xpAwarded: 'array', freedomEarned: 'array', narrative: 'string' }
+  },
+  'gladiator-game-held': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', boutCount: 'number', budgetGp: 'number', narrative: 'string' }
+  },
+  'gladiator-recruited': {
+    R: { characterId: 'string', schoolId: 'string' },
+    O: { method: 'string', gladiatorType: 'string', level: 'number', costGp: 'number', narrative: 'string' }
+  },
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — record-only audit (see EVENT_KINDS).
+  'gladiator-trained': {
+    R: { characterId: 'string' },
+    O: { schoolId: 'string', gladiatorType: 'string', graduationRoll: 'number', maimed: 'boolean', narrative: 'string' }
+  },
+  'gladiator-uprising': {
+    R: { schoolId: 'string' },
+    O: { spark: 'string', modifier: 'number', gladiatorCount: 'number', leaders: 'number', supporters: 'number',
+         supportPct: 'number', revolt: 'boolean', narrative: 'string' }
+  },
+  'game-sponsored': {
+    R: { gameId: 'string' },
+    O: { settlementId: 'string', muneratorCharacterId: 'string', budgetGp: 'number', minBudget: 'number',
+         boutCount: 'number', rejectedCount: 'number', days: 'number', narrative: 'string' }
+  },
+  // === Magic Items MI-3 (team burst11) === — the magic-item market (acks-engine-magic-items.js).
+  // Record-only; settlementId carries the market (Event.context.settlementId picks it up).
+  'magic-item-appraised': {
+    R: { itemId: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', baseCost: 'number', apparentValue: 'number',
+         created: 'boolean', offeredBuyGp: 'number', offeredSellGp: 'number', transactable: 'boolean',
+         buy: 'object', sell: 'object', narrative: 'string' }
+  },
+  'magic-item-sold': {
+    R: { itemId: 'string', direction: 'string', settlementId: 'string' },
+    O: { characterId: 'string', marketClass: 'string', rarity: 'string', created: 'boolean', priceGp: 'number', qty: 'number', narrative: 'string' }
+  },
+  // === Gladiators G5 (team burst11 2026-06-20) === — record-only verbose audit (see EVENT_KINDS); the
+  // tactical resolver applied the bout via the shipped bout-resolved — bout-round is the opt-in blow-by-blow.
+  'bout-round': {
+    R: { boutId: 'string', round: 'number' },
+    O: { initiative: 'object', lines: 'array', hp: 'object', narrative: 'string' }
   }
-});
+}).forEach(([k, s]) => registerEventSchema(k, s));
 
 // 9.5.4 — Submitter string conventions. Documented here, enforced loosely.
 // Format: "<kind>:<id>" or bare "gm". Patterns:
@@ -521,6 +1614,70 @@ function isEventKindKnown(kind){
 
 function isEventStatusValid(status){
   return Object.values(EVENT_STATUS).indexOf(status) >= 0;
+}
+
+// 9.5.4b — Event-context derivation (#528 / audit D1, 2026-06-24). The context envelope
+// (primaryHexId / settlementId / domainId / relatedEntities) powers the derived-history
+// accessors — domainHistory / hexHistory / settlementHistory / characterHistory read the
+// inverted index _buildEventLogIndex builds from it (byHex / bySettlement / byRelated).
+// Engine handlers populate it inline, but the GENERIC public write-path (newEvent + applyEvent
+// — the documented integrator path, INTEGRATION.md §5) left it all-null, so an externally
+// authored event (a treasury-grant, a player-plan, …) fell out of every history view. This
+// helper back-fills the envelope from the event's OWN well-known payload id fields, so a
+// public-path event is indexed exactly like an engine-authored one. Conservative: it only ADDS
+// ids it recognizes (the table below); an unknown payload yields the same empty envelope as
+// before (no throw, no guesswork). Kinds are the registry-canonical entity kinds (Data_Dictionary
+// §1); the byRelated index keys on "kind:id", so every related id ALSO lands in relatedEntities
+// (the domainId/settlementId/primaryHexId scalars additionally feed byHex/bySettlement).
+const _EVENT_CONTEXT_ID_FIELDS = [
+  // domains — the scalar `domainId` also seeds the context.domainId field (informational)
+  { field: 'domainId',            kind: 'domain',       role: 'site',        scalar: 'domainId' },
+  { field: 'attackerDomainId',    kind: 'domain',       role: 'attacker' },
+  { field: 'defenderDomainId',    kind: 'domain',       role: 'defender' },
+  { field: 'fromDomainId',        kind: 'domain',       role: 'origin' },
+  { field: 'toDomainId',          kind: 'domain',       role: 'destination' },
+  { field: 'originDomainId',      kind: 'domain',       role: 'origin' },
+  { field: 'destinationDomainId', kind: 'domain',       role: 'destination' },
+  // characters
+  { field: 'characterId',         kind: 'character',    role: 'subject' },
+  { field: 'actorCharacterId',    kind: 'character',    role: 'subject' },
+  { field: 'subjectCharacterId',  kind: 'character',    role: 'subject' },
+  { field: 'casterId',            kind: 'character',    role: 'subject' },
+  { field: 'rulerId',             kind: 'character',    role: 'ruler' },
+  { field: 'rulerCharacterId',    kind: 'character',    role: 'ruler' },
+  { field: 'heirId',              kind: 'character',    role: 'heir' },
+  { field: 'recruitCharacterId',  kind: 'character',    role: 'recruit' },
+  // hexes / settlements — scalars feed byHex / bySettlement directly
+  { field: 'hexId',               kind: null,           scalar: 'primaryHexId' },
+  { field: 'primaryHexId',        kind: null,           scalar: 'primaryHexId' },
+  { field: 'settlementId',        kind: null,           scalar: 'settlementId' },
+  // other first-class entities the history accessors slice on
+  { field: 'partyId',             kind: 'party',        role: 'subject' },
+  { field: 'journeyId',           kind: 'journey',      role: 'subject' },
+  { field: 'groupId',             kind: 'group',        role: 'subject' },
+  { field: 'armyId',              kind: 'group',        role: 'subject' },
+  { field: 'unitId',              kind: 'group',        role: 'subject' },
+  { field: 'lairId',              kind: 'lair',         role: 'site' },
+  { field: 'deityId',             kind: 'deity',        role: 'patron' },
+  { field: 'congregationId',      kind: 'congregation', role: 'subject' },
+  { field: 'notableItemId',       kind: 'notable-item', role: 'subject' },
+  { field: 'constructibleId',     kind: 'constructible',role: 'subject' },
+  { field: 'senateId',            kind: 'senate',       role: 'site' }
+];
+function _deriveEventContext(kind, payload){
+  const ctx = { primaryHexId: null, involvedHexIds: [], settlementId: null, domainId: null, relatedEntities: [] };
+  if(!payload || typeof payload !== 'object') return ctx;
+  const seen = new Set();
+  for(const m of _EVENT_CONTEXT_ID_FIELDS){
+    const v = payload[m.field];
+    if(typeof v !== 'string' || !v) continue;
+    if(m.scalar && ctx[m.scalar] == null) ctx[m.scalar] = v;
+    if(m.kind){
+      const k = m.kind + ':' + v;
+      if(!seen.has(k)){ seen.add(k); ctx.relatedEntities.push({ kind: m.kind, id: v, role: m.role || null }); }
+    }
+  }
+  return ctx;
 }
 
 // 9.5.5 — Factory. Returns a fresh pending event with id, timestamp, status set.
@@ -558,14 +1715,12 @@ function newEvent(kind, opts){
     // time by per-kind _deriveEventContext helpers. Powers derived history accessors
     // (hexHistory, settlementHistory, etc.) per Architecture.md §3.5 Wave Hex-history.
     // Pre-existing events without context degrade gracefully — accessors use optional
-    // chaining and return only contextualized events.
-    context: opts.context || {
-      primaryHexId:     null,
-      involvedHexIds:   [],
-      settlementId:     null,
-      domainId:         null,
-      relatedEntities:  []  // [{kind: 'character'|'group'|'constructible'|..., id, role}]
-    },
+    // chaining and return only contextualized events. D1 (2026-06-24): when the caller
+    // doesn't supply context (the generic public path), DERIVE it from the payload's
+    // well-known id fields (_deriveEventContext) so externally-authored events are indexed
+    // into the history accessors exactly like engine-authored ones. A handler that passes
+    // context explicitly is never clobbered.
+    context: opts.context || _deriveEventContext(kind, opts.payload),
     // `gameTimeAt` stays calendar-pure ({year, month, day}). Sub-day temporal context
     // (encounter id, round number, turn number, initiative order) lives in this parallel
     // namespace. Null for day-cadence events. Architecture.md §7 schema decision (Joachim 2026-05-30).
@@ -723,17 +1878,54 @@ function registerEventHandler(kind, fn){
 // (or its JSON fallback) is lossless. _restoreCampaignInPlace mutates the SAME
 // campaign object reference back to the snapshot so callers holding the reference
 // (and Alpine's reactive proxy) see the rolled-back state.
+// F1 (perf, audit 2026-06-24): the eventLog is an UNBOUNDED, APPEND-ONLY history. Deep-cloning
+// it on every applyEvent made the rollback snapshot O(history) — measured 53 ms at 20k entries,
+// so a commit that applies dozens of events spent 1.6–2.6 s (3–8 s in-browser) cloning logs it
+// never needed to restore. Exclude the append-only logs (eventLog + the reserved eventLogArchive)
+// from the deep clone and instead record their reference + length; on rollback we re-point them
+// and truncate any appended tail (O(tail)) rather than restore a clone. Clone cost is now
+// O(entity-state), independent of how long the campaign has been played. The snapshot is an
+// envelope { snap, logRef, logLen, archiveRef, archiveLen }; _restoreCampaignInPlace understands it.
 function _cloneForRollback(c){
-  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
-  return JSON.parse(JSON.stringify(c));
+  if(!c || typeof c !== 'object'){
+    let snap; try { snap = (typeof structuredClone === 'function') ? structuredClone(c) : JSON.parse(JSON.stringify(c)); } catch(e){ snap = JSON.parse(JSON.stringify(c)); }
+    return { snap, logRef: null, logLen: 0, archiveRef: null, archiveLen: 0 };
+  }
+  const logRef = Array.isArray(c.eventLog) ? c.eventLog : null;
+  const archiveRef = Array.isArray(c.eventLogArchive) ? c.eventLogArchive : null;
+  // Shallow-omit the append-only logs (the spread shares every OTHER top-level value by reference),
+  // then deep-clone the rest — so structuredClone never walks the long log arrays.
+  const { eventLog, eventLogArchive, ...rest } = c;
+  let snap; try { snap = (typeof structuredClone === 'function') ? structuredClone(rest) : JSON.parse(JSON.stringify(rest)); } catch(e){ snap = JSON.parse(JSON.stringify(rest)); }
+  return { snap, logRef, logLen: logRef ? logRef.length : 0, archiveRef, archiveLen: archiveRef ? archiveRef.length : 0 };
 }
-function _restoreCampaignInPlace(target, snap){
-  if(!target || !snap || typeof snap !== 'object') return;
-  for(const k of Object.keys(target)){ if(!(k in snap)) delete target[k]; }
-  for(const k of Object.keys(snap)){ target[k] = snap[k]; }
+function _restoreCampaignInPlace(target, snapshot){
+  if(!target || !snapshot || typeof snapshot !== 'object') return;
+  const isEnvelope = ('snap' in snapshot) && ('logRef' in snapshot);
+  const snap = isEnvelope ? snapshot.snap : snapshot;        // tolerate a raw clone (legacy shape)
+  if(!snap || typeof snap !== 'object') return;
+  const LOG_KEYS = isEnvelope ? { eventLog: 1, eventLogArchive: 1 } : {};
+  for(const k of Object.keys(target)){ if(!LOG_KEYS[k] && !(k in snap)) delete target[k]; }
+  for(const k of Object.keys(snap)){
+    if(LOG_KEYS[k]) continue;
+    const sv = snap[k], tv = target[k];
+    // Restore top-level ARRAY contents IN PLACE so callers holding the array reference across a
+    // rollback don't diverge from campaign[k] (e.g. commitTurn's `const domains = campaign.domains`,
+    // captured before the event pass — without this, an F2 batch rollback would swap campaign.domains
+    // for a fresh clone while the loop kept mutating the stale array, dropping the whole turn's math).
+    if(Array.isArray(sv) && Array.isArray(tv)){ tv.length = 0; for(let i = 0; i < sv.length; i++) tv.push(sv[i]); }
+    else target[k] = sv;
+  }
+  if(isEnvelope){
+    // The append-only logs were excluded from the clone — re-point each to its original array
+    // (defends against a handler that reassigned it) and truncate any tail it appended, restoring
+    // the pre-event length in O(tail) instead of O(history).
+    if(snapshot.logRef){ if(snapshot.logRef.length > snapshot.logLen) snapshot.logRef.length = snapshot.logLen; target.eventLog = snapshot.logRef; }
+    if(snapshot.archiveRef){ if(snapshot.archiveRef.length > snapshot.archiveLen) snapshot.archiveRef.length = snapshot.archiveLen; target.eventLogArchive = snapshot.archiveRef; }
+  }
 }
 
-function applyEvent(campaign, event){
+function applyEvent(campaign, event, opts){
   validateEvent(event);
   const handler = EVENT_HANDLERS[event.kind];
   if(!handler){
@@ -754,6 +1946,13 @@ function applyEvent(campaign, event){
   // the pre-event state before re-throwing. The existing catch at the call site
   // (commitTurn ~3114 / resolvePendingEvent ~11916) then marks the event rejected,
   // logs the engine error, and toasts — now with no orphaned partial state.
+  //
+  // F2 (audit 2026-06-24): when the CALLER owns rollback for a whole batch (commitTurn snapshots
+  // once for the accepted-event pass — the GM's transactional unit), it passes {transactional:false}
+  // so we skip the per-event snapshot. The throw still propagates; the caller restores the batch.
+  if(opts && opts.transactional === false){
+    return handler(campaign, event);
+  }
   const _snapshot = _cloneForRollback(campaign);
   try {
     return handler(campaign, event);
@@ -970,7 +2169,8 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     const hexLabel = function(id){
       if(!id) return null;
       const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
-      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      const st = (h && A && A.settlementForHex) ? A.settlementForHex(campaign, h.id) : null;   // T6 single-home
+      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (st && st.name ? ' · ' + st.name : '');
       return id;
     };
     if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
@@ -1029,44 +2229,22 @@ function applyEvent_gmFiat(campaign, event){
     case 'domain':     entity = (campaign.domains||[]).find(x => x.id === target.id); break;
     case 'character':  entity = (campaign.characters||[]).find(x => x.id === target.id); break;
     case 'hex':
-      // Top-level collection first (Foundation #14/#193 — domainless wilderness hexes live ONLY
-      // here; domained hexes are reference-unified, same object). Then walk legacy nested storage.
+      // Single-home (T6): hexes live in the canonical campaign.hexes[] (domained + domainless wilderness
+      // alike; the per-domain geography.hexes mirror is gone).
       entity = (campaign.hexes||[]).find(h => h.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          const h = (d.geography?.hexes||[]).find(h => h.id === target.id);
-          if(h) entity = h;
-        });
-      }
       break;
     case 'settlement':
-      // Check top-level collection first (Foundation #14), then walk legacy nested storage.
+      // T6 single-home — the settlement lives in the canonical campaign.settlements[].
       entity = (campaign.settlements||[]).find(s => s.id === target.id) || null;
-      if(!entity){
-        (campaign.domains||[]).forEach(d => {
-          (d.geography?.hexes||[]).forEach(h => {
-            if(h.settlement && h.settlement.id === target.id) entity = h.settlement;
-          });
-        });
-      }
       break;
     case 'rumor':
       entity = (campaign.rumors||[]).find(r => r.id === target.id) || null;
       break;
     case 'garrison-unit':
-      // §310.3f-fix7 — garrison units live two places: domain.garrison.units
-      // (the domain's garrison) and character.mercenaryCompany.units (a
-      // patron's private retinue). Walk both.
-      (campaign.domains||[]).forEach(d => {
-        const u = (d.garrison && d.garrison.units || []).find(u => u.id === target.id);
-        if(u) entity = u;
-      });
-      if(!entity){
-        (campaign.characters||[]).forEach(c => {
-          const u = (c.mercenaryCompany && c.mercenaryCompany.units || []).find(u => u.id === target.id);
-          if(u) entity = u;
-        });
-      }
+      // T6 single-home — every unit (garrison or private retinue) lives in the canonical
+      // campaign.units[]; find it by id there (the nested domain.garrison.units /
+      // character.mercenaryCompany.units mirror is gone).
+      entity = (campaign.units||[]).find(u => u && u.id === target.id) || null;
       break;
     default: {
       // Entity Registry fallback (#562 — 2026-05-31). The Registry (acks-engine-entity-registry.js,
@@ -1092,11 +2270,11 @@ function applyEvent_gmFiat(campaign, event){
   // dormant until the families-per-hex per-hex editor became reachable. (2026-06-01.)
   const _eng = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
   if(target.kind === 'domain' && mutation.fieldPath === 'demographics.peasantFamilies'){
-    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(entity, mutation.newValue);
+    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(campaign, entity, mutation.newValue);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'families'){
-    const owningDomain = (campaign.domains||[]).find(dd =>
-      (dd.geography?.hexes||[]).some(h => h.id === target.id));
-    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
+    // Single-home (T6): a hex's owning domain is its hex.domainId (campaign.hexes is canonical).
+    const owningDomain = (entity && entity.domainId) ? (campaign.domains||[]).find(dd => dd.id === entity.domainId) : null;
+    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(campaign, owningDomain);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'domainId'){
     // Canonical setter (#10): a hex's domainId is the truth; moving it must move its geography.hexes
     // mirror too. Routes through the exported reconciler so the hex panel, the Inspector, the Event
@@ -1248,11 +2426,10 @@ function applyEvent_adventureResult(campaign, event){
   let targetHex = null;
   let targetDomainId = null;
   if(p.hexId){
-    (campaign.domains||[]).forEach(d => {
-      const h = (d.geography?.hexes||[]).find(x => x.id === p.hexId);
-      if(h){ targetHex = h; targetDomainId = d.id; }
-    });
+    // Single-home (T6): hexes are canonical in campaign.hexes[]; the owning domain is hex.domainId.
+    targetHex = (campaign.hexes||[]).find(x => x.id === p.hexId) || null;
     if(!targetHex) throw new Error('adventure-result: hex not found: '+p.hexId);
+    targetDomainId = targetHex.domainId || null;
     if(!targetHex.explored){ targetHex.explored = true; changed.hexesChanged.push(targetHex.id); summaryParts.push('hex '+targetHex.id+' marked explored'); }
   }
 
@@ -1417,9 +2594,11 @@ function applyEvent_dawResult(campaign, event){
   function applyLossesToDomain(domainId, losses){
     if(!domainId) return;
     const d = (campaign.domains||[]).find(x => x.id === domainId);
-    if(!d || !d.garrison) return;
+    if(!d) return;
+    // T6 single-home — the domain's garrison units come from campaign.units[] by stationedAt.
+    const garrison = global.ACKS.domainGarrisonUnits(campaign, d);
     (losses||[]).forEach(loss => {
-      const u = (d.garrison.units||[]).find(x => x.id === loss.unitId);
+      const u = garrison.find(x => x.id === loss.unitId);
       if(u){
         u.count = Math.max(0, (u.count||0) - (loss.count||0));
         changed.domainsChanged.push(d.id);
@@ -1764,12 +2943,32 @@ function applyEvent_constructionCompleted(campaign, event){
   if(!proj){ return { result: { narrativeSummary: 'construction-completed: project not found' } }; }
   proj.lifecycleState = 'complete';
   proj.completedAtTurn = campaign.currentTurn || null;
+  // ── Wave F — a REPAIR project restores its target instead of spawning a new Constructible ──
+  // (before this, a completing isRepair project fell through to the generic spawn below and created a
+  // spurious duplicate Constructible). Restore the target's SHP + damageState (+ its sub-structures);
+  // v1 is a full restore — partial repair is a later refinement.
+  if(proj.isRepair && proj.repairTargetConstructibleId){
+    const target = _findConstructibleInternal(campaign, proj.repairTargetConstructibleId);
+    if(target){
+      if(target.maxShp != null) target.currentShp = target.maxShp;
+      target.damageState = 'intact';
+      target.constructionState = 'complete';
+      if(target.operationalState === 'abandoned') target.operationalState = 'operational';
+      (target.subStructures || []).forEach(s => { if(s){ if(s.maxShp != null) s.currentShp = s.maxShp; s.damageState = 'intact'; } });
+      _pushConstructionHistory(target, { turn: campaign.currentTurn || null, type: 'repaired', narrative: 'Repaired — restored to intact.' });
+    }
+    _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Repair complete on ' + (target ? (target.name || target.id) : proj.repairTargetConstructibleId) });
+    return { result: { projectId: proj.id, constructibleId: target ? target.id : null,
+      narrativeSummary: 'Repair complete — ' + (target ? (target.name || 'the structure') : 'the structure') + ' restored to intact.' } };
+  }
   // Spawn the Constructible. Wave A pattern — minimal viable Constructible.
   // Wave C+ populates per-kind functionData + subStructures.
   const A = (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || null;
   const factory = (A && A.blankConstructible) || null;
+  // AD-C (RR p.386) — a kind:'dungeon' Project mints a first-class Dungeon (dun-), NOT a generic cst-.
+  const isDungeonProject = proj.constructibleKind === 'dungeon';
   let cst = p.constructibleId ? _findConstructibleInternal(campaign, p.constructibleId) : null;
-  if(!cst && factory){
+  if(!cst && factory && !isDungeonProject){
     cst = factory({
       id: p.constructibleId,
       constructibleKind: proj.constructibleKind,
@@ -1786,13 +2985,76 @@ function applyEvent_constructionCompleted(campaign, event){
     campaign.constructibles = campaign.constructibles || [];
     campaign.constructibles.push(cst);
   }
-  _pushConstructionHistory(cst, {
+  if(cst) _pushConstructionHistory(cst, {
     turn: campaign.currentTurn || null,
     type: 'completed',
-    narrative: p.narrative || ('Constructed: ' + (cst ? cst.name : proj.name) + ' (' + (cst ? cst.buildValue : proj.totalCost) + ' gp)')
+    narrative: p.narrative || ('Constructed: ' + cst.name + ' (' + cst.buildValue + ' gp)')
   });
-  _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Spawned Constructible ' + (cst ? cst.id : '') });
-  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, narrativeSummary: 'Completed construction of ' + (cst ? cst.name : proj.name) + ' — ' + ((cst && cst.buildValue) || 0).toLocaleString() + ' gp value.' } };
+  // Construction Wave C (2026-06-18) — a domain-owned stronghold-component Project adds a real component
+  // to the owner domain's stronghold (so strongholdValue, which reads the components, grows) and links
+  // the minted Constructible as that component's mirror — the SAME forward/back link pair
+  // migrateStrongholdComponentsToConstructibles makes (comp.constructibleId is the migration's dedup key,
+  // so on next load the migration treats the new component as already-mirrored → no double-mint; the
+  // economy reads the component, not the Constructible, so no double-count — zero-drift preserved).
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    const blankComp = A && A.blankStrongholdComponent;
+    if(dom && typeof blankComp === 'function'){
+      dom.stronghold = dom.stronghold || {};
+      if(!Array.isArray(dom.stronghold.components)){
+        // Legacy single-stronghold → seed a components array from the existing stronghold FIRST, so its
+        // buildValue isn't dropped (strongholdValue sums components only when the array is present, else
+        // it reads the legacy buildValue). Mirrors the migration's [s] treatment + carries any mirror link.
+        const s = dom.stronghold, seeded = [];
+        if(s.type || s.name || (s.buildValue || 0) > 0 || (Array.isArray(s.structures) && s.structures.length)){
+          const legacy = blankComp({ type: s.type || '', name: s.name || s.type || 'Stronghold',
+            buildValue: s.buildValue || 0, structures: Array.isArray(s.structures) ? s.structures : [] });
+          if(s.constructibleId) legacy.constructibleId = s.constructibleId;
+          seeded.push(legacy);
+        }
+        dom.stronghold.components = seeded;
+      }
+      const spec = proj.completionSpec || {};
+      const comp = blankComp({
+        type: spec.componentType || '',
+        name: proj.name || cst.name,
+        buildValue: proj.totalCost || cst.buildValue || 0,
+        structures: Array.isArray(spec.structures) ? spec.structures : []
+      });
+      comp.constructibleId = cst.id;                  // forward link — the migration's dedup key
+      cst.functionData = cst.functionData || {};
+      cst.functionData.legacyComponentId = comp.id;   // back link
+      cst.siteType = 'stronghold-courtyard';
+      dom.stronghold.components.push(comp);
+      _pushConstructionHistory(cst, { turn: campaign.currentTurn || null, type: 'added-to-stronghold',
+        narrative: 'Added as a component of ' + (dom.name || 'the domain') + "'s stronghold (+" + (comp.buildValue || 0).toLocaleString() + ' gp value).' });
+    }
+  }
+  // AD-C (RR p.386) — a completed kind:'dungeon' Project mints a first-class Dungeon entity (dun-),
+  // auto-attuning the arcane-L9+ owner. Try-guarded + late-bound (a missing module can never fail
+  // construction completion); idempotent (onDungeonConstructed returns an existing build). Mirrors the sanctum hook.
+  let dungeon = null;
+  if(isDungeonProject && A && typeof A.onDungeonConstructed === 'function'){
+    try { const r = A.onDungeonConstructed(campaign, proj, { event: event }); dungeon = (r && r.dungeon) || null; } catch(_e){ /* never let the dungeon hook fail construction */ }
+  }
+  _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Spawned ' + (isDungeonProject ? 'Dungeon' : 'Constructible') + ' ' + (dungeon ? dungeon.id : (cst ? cst.id : '')) });
+  // Sanctums AD-B (RR p.386) — a completed kind:'sanctum' Constructible scaffolds its research facilities
+  // and draws its first apprentices/companions. Idempotent (the sanctumEstablished guard) + try-guarded
+  // (late-bound; a missing module can never fail construction completion). The arcane/religion precedent.
+  if(cst && cst.constructibleKind === 'sanctum' && A && typeof A.onSanctumConstructed === 'function'){
+    try { A.onSanctumConstructed(campaign, cst, { event: event }); } catch(_e){ /* never let the sanctum hook fail construction */ }
+  }
+  const builtName = dungeon ? dungeon.name : (cst ? cst.name : proj.name);
+  const builtValue = (dungeon ? dungeon.buildValueGp : (cst && cst.buildValue)) || 0;
+  // Construction Wave C — follower attraction heads-up (RR p.334). A completed stronghold-component that
+  // grows a domain whose ruler is name-level (9th+) may now attract followers. We don't materialize here
+  // (the GM reviews + accepts via the Stronghold tab's Followers card) — just hint it in the narrative.
+  let followerHint = '';
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair && A && typeof A.domainFollowerEligibility === 'function'){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    try { if(dom && A.domainFollowerEligibility(campaign, dom).ok) followerHint = ' Its ruler may now attract followers (RR p.334) — review on the Stronghold tab.'; } catch(_e){}
+  }
+  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' + followerHint } };
 }
 registerEventHandler('construction-completed', applyEvent_constructionCompleted);
 
@@ -1803,6 +3065,11 @@ function applyEvent_constructionVagary(campaign, event){
   if(!proj){ return { result: { narrativeSummary: 'construction-vagary: project not found' } }; }
   if(typeof p.delayDays === 'number'){
     proj.daysElapsed = (proj.daysElapsed||0) - p.delayDays;  // negative tick — delay
+  }
+  // Wave I — a vagary actually sets the labor back (the completion check reads laborInvested, not
+  // daysElapsed): a delay loses labor, a good-progress vagary (negative laborLost) adds it.
+  if(typeof p.laborLost === 'number'){
+    proj.laborInvested = Math.max(0, (proj.laborInvested||0) - p.laborLost);
   }
   if(typeof p.costPenaltyGp === 'number'){
     proj.gpSpent = (proj.gpSpent||0) + p.costPenaltyGp;
@@ -1828,6 +3095,16 @@ function applyEvent_constructionDamaged(campaign, event){
     if(sub){
       sub.currentShp = Math.max(0, (sub.currentShp ?? sub.maxShp ?? 0) - (p.shpLost||0));
       sub.damageState = sub.currentShp === 0 ? 'destroyed' : (sub.currentShp <= (sub.maxShp||0)/2 ? 'breached' : 'damaged');
+      // Multi-story cascade (D@W Battles): destroying a story collapses every story ABOVE it. Each
+      // sub-structure carries a `level` (0 = ground); a destroyed story takes the higher levels with it.
+      if(sub.currentShp === 0){
+        const lvl = sub.level || 0;
+        cst.subStructures.forEach(s => {
+          if(s && s !== sub && (s.level || 0) > lvl && s.damageState !== 'destroyed'){
+            s.currentShp = 0; s.damageState = 'destroyed';
+          }
+        });
+      }
     }
   } else {
     cst.currentShp = Math.max(0, (cst.currentShp ?? cst.maxShp ?? 0) - (p.shpLost||0));
@@ -1836,6 +3113,10 @@ function applyEvent_constructionDamaged(campaign, event){
       cst.damageState = cst.currentShp === 0 ? 'destroyed' : (cst.currentShp <= max/4 ? 'ruined' : (cst.currentShp <= max/2 ? 'breached' : 'damaged'));
     } else {
       cst.damageState = 'damaged';
+    }
+    // A structure reduced to 0 SHP takes every sub-structure with it (the whole thing has collapsed).
+    if(cst.currentShp === 0 && Array.isArray(cst.subStructures)){
+      cst.subStructures.forEach(s => { if(s){ s.currentShp = 0; s.damageState = 'destroyed'; } });
     }
   }
   _pushConstructionHistory(cst, {
@@ -1898,6 +3179,24 @@ function applyEvent_constructionDemolished(campaign, event){
 }
 registerEventHandler('construction-demolished', applyEvent_constructionDemolished);
 
+// Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit: attractFollowers
+// (acks-engine-followers.js) already minted the follower Characters + the troop Group + marked the ruler
+// attracted-once; this handler keeps the event well-formed on replay (the arcane/research audit posture).
+function applyEvent_followerArrival(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'followers arrive (RR p.334)' } };
+}
+registerEventHandler('follower-arrival', applyEvent_followerArrival);
+
+// === Followers Wave B (team b11) === — Families Arriving with Followers (RR p.337). Record-only audit:
+// attractFollowers (acks-engine-followers.js) already bumped the domain's peasant population; this handler
+// keeps the event well-formed on replay (the follower-arrival audit posture).
+function applyEvent_followerFamiliesArrived(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || ((p.families || 0) + ' peasant families settle with the followers (RR p.337)') } };
+}
+registerEventHandler('follower-families-arrived', applyEvent_followerFamiliesArrived);
+
 // ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
 // The Journey day-tick consumer mutates journey state in its commit() and emits these
 // events as an audit trail via emitDayTickEvents (which constructs + pushes the event
@@ -1932,6 +3231,56 @@ function applyEvent_domainBanditryAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'domain banditry' } };
 }
 registerEventHandler('domain-banditry', applyEvent_domainBanditryAudit);
+// Phase 3 Military W2 — the domain-incursion record shares the audit posture: the
+// incursion day consumer's commit already materialized the band; this handler only
+// keeps the event well-formed on replay.
+function applyEvent_domainIncursionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'domain encounter (Vagaries of Incursion)' } };
+}
+registerEventHandler('domain-incursion', applyEvent_domainIncursionAudit);
+// Phase 3 Military W3 — the battle audits share the posture: acks-engine-battles.js
+// owns the world state (the Battle entity + the aftermath's casualty/XP writes); these
+// handlers only keep the events well-formed on replay.
+function applyEvent_battleAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'battle record' } };
+}
+registerEventHandler('battle-started', applyEvent_battleAudit);
+registerEventHandler('battle-turn', applyEvent_battleAudit);
+registerEventHandler('battle-resolved', applyEvent_battleAudit);
+// Phase 3 Military W4 — the campaign-cycle audits share the posture: the slot-88
+// military consumer's commit (and the conquest/pillage verbs) own the world state;
+// these handlers only keep the events well-formed on replay.
+function applyEvent_warfareAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'campaign record' } };
+}
+registerEventHandler('army-contact', applyEvent_warfareAudit);
+registerEventHandler('domain-warfare', applyEvent_warfareAudit);
+registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
+registerEventHandler('army-disease', applyEvent_warfareAudit);  // RR p.449 weather epidemic — record-only (the GM resolves the Death saves)
+registerEventHandler('army-supply-base-built', applyEvent_warfareAudit); // RR p.451 forward fort — record-only (buildSupplyBaseFort owns the state)
+// Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) share the audit
+// posture: acks-engine-vagaries.js rolls them + (for the self-contained omen mod) the consumer commit
+// applies; these handlers only keep the events well-formed on replay (the GM applies the rest).
+function applyEvent_vagaryAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'vagary' } };
+}
+registerEventHandler('vagary-of-recruitment', applyEvent_vagaryAudit);
+registerEventHandler('vagary-of-war', applyEvent_vagaryAudit);
+registerEventHandler('vagary-of-battle', applyEvent_vagaryAudit);
+// Phase 3 Military W6 — the siege audits share the posture: acks-engine-sieges.js (the Siege
+// entity + the slot-90 consumer + the setters) owns the world state; these handlers only keep
+// the events well-formed on replay.
+function applyEvent_siegeAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'siege record' } };
+}
+registerEventHandler('siege-started', applyEvent_siegeAudit);
+registerEventHandler('siege-progress', applyEvent_siegeAudit);
+registerEventHandler('siege-resolved', applyEvent_siegeAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -1940,6 +3289,305 @@ function applyEvent_favorDutyAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
 }
 registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
+// === DC-2 (team) ===
+// Domain Completion DC-2 — the classification-advancement record shares the audit posture:
+// processClassificationAdvancement (commitTurn end-of-month) already raised the permanent floor
+// (domain.classificationAdvancedTo); this handler exists only so the event is well-formed if ever
+// replayed (a no-op beyond recording the narrative).
+function applyEvent_domainAdvancedAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative ||
+    (p.domainId ? ('domain advanced to ' + (p.to || '?')) : 'domain advanced') } };
+}
+registerEventHandler('domain-advanced', applyEvent_domainAdvancedAudit);
+// === Religion R1 (team 2026-06-13) — record-only audit posture. The religion verbs in
+// acks-engine-religion.js (accrueDivinePower / consecrateFields / prayAndSacrifice / …) already
+// applied the ledger + domain state; these handlers exist only so the events are well-formed if
+// ever replayed (a no-op beyond the recorded narrative). Mirrors favor-duty / banditry / survival.
+function applyEvent_religionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'religion event' } };
+}
+registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
+registerEventHandler('consecration', applyEvent_religionAudit);
+registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
+// === Religion R2 (team 2026-06-14) — blood sacrifice shares the record-only audit posture
+// (bloodSacrifice already applied the ledger/arcane store; the handler keeps the event well-formed). ===
+registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
+// === Religion Wave E (2026-06-19) — divine-wrath shares the record-only audit posture (the monthly
+// processDivineWrathForTurn already escalated/faded the wrath; the handler keeps the event well-formed). ===
+registerEventHandler('divine-wrath', applyEvent_religionAudit);
+// === Religion R3/R5 (team burst10 2026-06-20) — consecration + transgression share the audit posture
+// (consecrateAltar / consecrateRuler / applyDivineTransgression already applied the state). ===
+registerEventHandler('consecrate-altar', applyEvent_religionAudit);
+registerEventHandler('consecrate-ruler', applyEvent_religionAudit);
+registerEventHandler('divine-transgression', applyEvent_religionAudit);
+// === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
+// startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
+// handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
+function applyEvent_hijinkAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'hijink' } };
+}
+registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
+registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
+// === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — record-only audit posture: the
+// wound/recovery state is applied by ACKS.applyMortalWound + the slot-58 convalescence consumer
+// (acks-engine-mortal-wounds.js); these handlers keep the events well-formed on replay (a no-op
+// beyond the recorded narrative). Mirrors survival / banditry / hijink.
+function applyEvent_mortalWoundAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'mortal wound' } };
+}
+registerEventHandler('mortal-wound', applyEvent_mortalWoundAudit);
+registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
+// === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial events share the audit
+// posture: formSyndicate / collectSyndicateTribute / resolveHijinkTrial already moved the gp
+// + state; the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
+registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
+registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
+// === Hijinks HJ-3 (team 2026-06-20) === — crew/takeover share the record-only audit posture.
+registerEventHandler('hijink-crew-assigned', applyEvent_hijinkAudit);
+registerEventHandler('syndicate-takeover', applyEvent_hijinkAudit);
+// === Character Lifecycle CL-1 (burst4) === — aging events share the record-only audit posture:
+// ACKS.processAgingForTurn already advanced the age/category/attributes; the handler keeps the event
+// well-formed on replay (records the narrative only). Mirrors mortal-wound / survival / banditry.
+function applyEvent_agingAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'aging' } };
+}
+registerEventHandler('aging-milestone', applyEvent_agingAudit);
+registerEventHandler('death-from-old-age', applyEvent_agingAudit);
+// === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit posture: the hoard's
+// state is applied by ACKS.materializeHoard (the stash deposit + notable promotion + minted captive
+// Characters, acks-engine-treasure.js); this handler keeps the event well-formed on replay (records
+// the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_treasureAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'treasure generated' } };
+}
+registerEventHandler('treasure-generated', applyEvent_treasureAudit);
+// === Politics P-2 (burst5 2026-06-14) === — the senate events share the record-only audit posture:
+// ACKS.senateVote / ACKS.enactPolicy (acks-engine-politics.js) already computed the tally + set/cleared
+// senate.dispute; the handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_senateAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'senate event' } };
+}
+registerEventHandler('senate-vote', applyEvent_senateAudit);
+registerEventHandler('policy-enacted', applyEvent_senateAudit);
+// === Politics P-3 (team) === — the influence + dispute-lifecycle events share the same record-only
+// audit posture: ACKS.bribeSenator / intimidate / seduce / gift / resolveDisputeByConsult / abandon /
+// reestablish (acks-engine-politics.js) already applied the state (the standing influenceModifiers[] /
+// the dispute transition); the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-influenced', applyEvent_senateAudit);
+registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
+// === Politics P-5 (burst9 2026-06-20) === — the Senate-motion events share the same record-only audit:
+// ACKS.openSenateMotion / resolveSenateMotion (acks-engine-politics.js) already applied the state (the
+// motion sub-record + the reused senateVote/enactPolicy/clearSenateDispute effects); the handler keeps
+// the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-motion-opened', applyEvent_senateAudit);
+registerEventHandler('senate-motion-resolved', applyEvent_senateAudit);
+// === Politics P-7 (burst10 2026-06-20) === — the oligarchy events share the same record-only audit:
+// ACKS.establishOligarchy / dissolveOligarchy / secedeFromOligarchy / resolveOligarchyDecision
+// (acks-engine-politics.js) already applied the state (the apex governance sub-tree + the decision);
+// the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('oligarchy-established', applyEvent_senateAudit);
+registerEventHandler('oligarchy-dissolved', applyEvent_senateAudit);
+registerEventHandler('oligarchy-decision', applyEvent_senateAudit);
+// === Politics P-7 wizard (burst11 2026-06-20) === — the generative senate-materialization event shares
+// the same record-only audit: ACKS.materializeSenate (acks-engine-politics.js) already minted the
+// senate/factions/senatorships + set the apex governance senatorial; the handler keeps the event
+// well-formed on replay (records the narrative only).
+registerEventHandler('senate-materialized', applyEvent_senateAudit);
+// === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
+// already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
+// disbursement); this handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_delveAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
+}
+registerEventHandler('delve-foray', applyEvent_delveAudit);
+// === Delves D4 (team) === — the Abstract Wilderness foray shares the same record-only audit posture:
+// ACKS.commitWildernessForay already applied the state (Mortal Wounds, unit casualties, clearLair, the
+// adventure-result disbursement); this keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('wilderness-foray', applyEvent_delveAudit);
+// === Delves D5 (team burst11) === — the off-screen settlement events share the same record-only audit
+// posture: acks-engine-delves.js already applied the state (the SettlementVisit / its incidents[];
+// disease via contractDisease, casualties via applyMortalWound — both emit their own events); this
+// keeps the settlement events well-formed on replay (records the narrative only).
+registerEventHandler('settlement-visited', applyEvent_delveAudit);
+registerEventHandler('urban-incident', applyEvent_delveAudit);
+// === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
+// acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
+// well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_diseaseAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'disease' } };
+}
+registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
+registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
+// === Character Lifecycle CL-3 (burst7, team) === — condition events share the record-only audit
+// posture: acks-engine-lifecycle.js already applied the condition state (applyCondition + the slot-59
+// consumer's drain/save/resolution); the handler keeps the event well-formed on replay (records the
+// narrative only). Mirrors aging / disease / mortal-wound.
+function applyEvent_conditionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'condition' } };
+}
+registerEventHandler('condition-applied', applyEvent_conditionAudit);
+registerEventHandler('condition-cleared', applyEvent_conditionAudit);
+// === Character Lifecycle CL-4a (burst8, team) === — death + succession events share the record-only
+// audit posture: acks-engine-lifecycle.js (recordCharacterDeath / resolveSuccession) already applied the
+// state (lifecycleState 'deceased' + the cause tags; the successor's XP + the reserve/funeral/inheritance
+// transfer); the handler keeps the event well-formed on replay (records the narrative only). Mirrors aging.
+function applyEvent_lifecycleDeathAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'character death' } };
+}
+registerEventHandler('character-died', applyEvent_lifecycleDeathAudit);
+registerEventHandler('inheritance-resolved', applyEvent_lifecycleDeathAudit);
+// === Character Lifecycle CL-5 (team) === — transformation events share the record-only audit posture:
+// acks-engine-lifecycle.js (transformCharacter / revertCharacter) already applied the state (the
+// transformationState ledger + the lifecycleState 'transformed'/'active' flip); the handler keeps the
+// event well-formed on replay (records the narrative only). Mirrors aging / disease / death.
+function applyEvent_transformationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'transformation' } };
+}
+registerEventHandler('character-transformed', applyEvent_transformationAudit);
+registerEventHandler('transformation-reverted', applyEvent_transformationAudit);
+// === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
+// attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
+// state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
+// wallet, the harvested components); these handlers keep the events well-formed on replay (records the
+// narrative only). Mirrors religion / delve / aging.
+function applyEvent_arcaneAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'arcane domain event' } };
+}
+registerEventHandler('dungeon-attuned', applyEvent_arcaneAudit);
+registerEventHandler('attunement-ended', applyEvent_arcaneAudit);
+registerEventHandler('sovereignty-established', applyEvent_arcaneAudit);
+registerEventHandler('sovereignty-lost', applyEvent_arcaneAudit);
+registerEventHandler('arcane-power-extracted', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
+// === Phase 4 — The Arcane Domain (AD-C; RR pp.386–387) === record-only audits (onDungeonConstructed mints
+// the dun- entity; the incursion/wander settle paths anchor a lair into a dungeon; the adventurers-arrive prompt).
+registerEventHandler('dungeon-established', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-populated', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-invaded', applyEvent_arcaneAudit);
+// === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2) === the divine-seam stub (flagArcaneUsurpation in
+// acks-engine-sanctums.js already stamped the settlement flag); Religion consumes it when Wave E lands.
+registerEventHandler('arcane-usurpation', applyEvent_arcaneAudit);
+// === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits (onSanctumConstructed / attractToSanctum /
+// processSanctumsForTurn in acks-engine-sanctums.js already applied state); same audit posture as the arcane events.
+registerEventHandler('sanctum-established', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-attracted', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-advanced', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-discouraged', applyEvent_arcaneAudit);
+// === Phase 4 — Magic Research (AD-M1) === — record-only audit posture: the startResearchProject /
+// processResearchForTurn / payAndRollResearchThrow verbs in acks-engine-magic-research.js already applied
+// state (the rsp- project + cost pools, the spent arcane power + consumed components, the minted Notable
+// Item / written identification / gained formula); these handlers keep the events well-formed on replay.
+function applyEvent_researchAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'magic research event' } };
+}
+registerEventHandler('magic-research-started', applyEvent_researchAudit);
+registerEventHandler('magic-research-progress', applyEvent_researchAudit);
+registerEventHandler('magic-research-completed', applyEvent_researchAudit);
+registerEventHandler('magic-research-failed', applyEvent_researchAudit);
+registerEventHandler('magic-item-created', applyEvent_researchAudit);
+registerEventHandler('construct-manufactured', applyEvent_researchAudit);
+registerEventHandler('crossbreed-created', applyEvent_researchAudit);
+registerEventHandler('necromancy-performed', applyEvent_researchAudit);
+registerEventHandler('ritual-learned', applyEvent_researchAudit);
+registerEventHandler('ritual-cast', applyEvent_researchAudit);
+registerEventHandler('magic-experiment-breakthrough', applyEvent_researchAudit);
+registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
+// === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313) === record-only
+// audit posture: takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount + the monthly
+// processBankingForTurn (acks-engine-banking.js) already moved the gp through the GP Wave B grammar;
+// these handlers keep the events well-formed on replay (a no-op beyond the recorded narrative).
+function applyEvent_bankingAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'banking event' } };
+}
+registerEventHandler('loan-issued', applyEvent_bankingAudit);
+registerEventHandler('loan-repaid', applyEvent_bankingAudit);
+registerEventHandler('loan-interest', applyEvent_bankingAudit);
+registerEventHandler('bank-deposit', applyEvent_bankingAudit);
+registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
+// === Banking B2 (team burst8 2026-06-19) === — the feudal-loan reconcile reuses the same record-only audit.
+registerEventHandler('loan-reconciled', applyEvent_bankingAudit);
+// === Banking B4/B5 (team burst9 2026-06-20) === — loan close-out + letters of credit reuse the same record-only audit.
+registerEventHandler('loan-defaulted', applyEvent_bankingAudit);
+registerEventHandler('loan-written-off', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-issued', applyEvent_bankingAudit);
+registerEventHandler('letter-of-credit-redeemed', applyEvent_bankingAudit);
+// === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
+// shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
+// keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
+function applyEvent_loreAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'lore event' } };
+}
+registerEventHandler('lore-learned', applyEvent_loreAudit);
+registerEventHandler('lore-shared', applyEvent_loreAudit);
+// === Knowledge Layer Wave B (team burst11 2026-06-20) === — rumor→lore promotion (acks-engine-knowledge.js
+// promoteRumorToLore already authored the Lore item); the same record-only audit handler keeps it replay-safe.
+registerEventHandler('rumor-promoted', applyEvent_loreAudit);
+
+// === Magic Items (team) === — #143 W1 record-only audits. acks-engine-magic-items.js owns the state
+// (the identifyMagicItem / useMagicItemCharge / appraiseMagicItem verbs already wrote the notableItem's
+// identification + intrinsic.charges + emitted the record); this handler keeps the events well-formed
+// on replay, mirroring applyEvent_researchAudit.
+function applyEvent_magicItemAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'magic item event' } };
+}
+registerEventHandler('item-identified', applyEvent_magicItemAudit);
+registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
+registerEventHandler('item-appraised', applyEvent_magicItemAudit);
+// === Magic Items W2 (burst8, team) === — commissioning events share the record-only audit posture
+// (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
+registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
+// === Magic Items MI-3 (team burst11) === — the market verbs (acks-engine-magic-items.js) own the gp
+// (GP Wave B) + the NotableItem custody; this keeps the appraise/sale events well-formed on replay.
+registerEventHandler('magic-item-appraised', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-sold', applyEvent_magicItemAudit);
+
+// === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
+// (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
+// the event well-formed on replay (mirrors applyEvent_magicItemAudit / applyEvent_loreAudit).
+function applyEvent_generationAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'generation run' } };
+}
+registerEventHandler('generation', applyEvent_generationAudit);
+
+// === Gladiators G2 (team burst9 2026-06-20) === — #150; the bout/game/recruit events share the
+// record-only audit posture: acks-engine-gladiators.js (resolveAndCommitBout / holdGame /
+// recruitGladiator) already applied the bout result + XP + Mortal-Wounds casualties + the minted
+// Character; these handlers keep the events well-formed on replay (a no-op beyond the narrative).
+function applyEvent_gladiatorAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'gladiator event' } };
+}
+registerEventHandler('bout-resolved', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-game-held', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-recruited', applyEvent_gladiatorAudit);
+// === Gladiators G3/G4 (team burst10 2026-06-20) === — same record-only audit; the slot-62 consumer +
+// checkUprising + sponsorGame already applied the state (graduation / morale cascade / scheduled bouts).
+registerEventHandler('gladiator-trained', applyEvent_gladiatorAudit);
+registerEventHandler('gladiator-uprising', applyEvent_gladiatorAudit);
+registerEventHandler('game-sponsored', applyEvent_gladiatorAudit);
+// === Gladiators G5 (team burst11 2026-06-20) === — same record-only audit; the round-by-round tactical
+// resolver applied the bout via the shipped bout-resolved, and bout-round is its opt-in verbose per-round log.
+registerEventHandler('bout-round', applyEvent_gladiatorAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -1964,7 +3612,8 @@ registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
 //
 // gp only in v1; `currency` is carried on the payload but only 'gp' actually moves.
 
-const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external']);
+const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external',
+  'bank-account']);   // === Banking (team b7 2026-06-19) — a deposit account doubles as a wealth-handle (resolved late via A.findBankAccount)
 function _gpwACKS(){ return (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || {}; }
 
 // How much gp a handle can currently provide. { available, gated } — gated:true means a
@@ -1989,6 +3638,11 @@ function _wealthLegAvailable(campaign, handle){
         if(it && (it.facets||[]).indexOf('coin') >= 0 && (it.denomination||'gp') === 'gp') gp += (Number(it.qty)||0);
       }
       return { available: gp, gated:true };
+    }
+    // === Banking (team b7 2026-06-19) — a deposit account's gp (resolved late via the banking module). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      return { available: acc ? (Number(acc.balanceGp)||0) : 0, gated:true };
     }
     default: return { available: 0, gated:true };
   }
@@ -2025,6 +3679,15 @@ function _applyWealthLeg(campaign, handle, signedAmount, ctx){
         if(A.withdrawFromStash) A.withdrawFromStash(campaign, st.id, [{ itemId: coinLine.id, qty: -signedAmount }], { reason: label });
       }
       return { kind:'stash', id: handle.id, delta: signedAmount };
+    }
+    // === Banking (team b7 2026-06-19) — move gp into/out of a deposit account's balance (resolved
+    // late via the banking module; the account IS the canonical store, so a direct balance write). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      if(!acc) throw new Error('wealth-transfer: unknown bank account '+handle.id);
+      const before = Number(acc.balanceGp)||0;
+      acc.balanceGp = before + signedAmount;
+      return { kind:'bank-account', id: handle.id, before, after: acc.balanceGp, delta: signedAmount };
     }
     default: return null;
   }
@@ -2481,7 +4144,7 @@ function marketBuy(campaign, opts){
     targetTurn: campaign.currentTurn || 1,
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'buy', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
-               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               marketClass: _marketClassRoman(set) || opts.marketClassRoman || null, totalGp, currency:'gp', lines,
                activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
                partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemTo: opts.itemTo || 'carry' }
@@ -2532,7 +4195,7 @@ function marketSell(campaign, opts){
     targetTurn: campaign.currentTurn || 1,
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'sell', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
-               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               marketClass: _marketClassRoman(set) || opts.marketClassRoman || null, totalGp, currency:'gp', lines,
                activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
                partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemFrom: opts.itemFrom || 'carry' }
@@ -2661,7 +4324,9 @@ function reverseMarketTransaction(campaign, eventId, opts){
 // the audit record of a move the verb already made.
 
 function _provHasProf(ch, re){
-  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''));
+  // PT-0: read the canonical {key} (slug) as well as legacy strings / {name}; the single-word
+  // forage/hunt regexes (/survival/i, /hunting/i) match the slug keys directly.
+  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''));
 }
 // Territory class for forage/hunt modifiers: a hex's domain classification, else 'Unsettled' (wilderness).
 function _provTerritoryClass(campaign, hex){
@@ -2672,7 +4337,6 @@ function _provTerritoryClass(campaign, hex){
   }
   return 'Unsettled';
 }
-function _provD20(rng){ return 1 + Math.floor((rng || Math.random)() * 20); }
 // Apply the SUCCESS yield for `kind`, tagging any added inventory line with `evId` so a reroll can
 // surgically reverse JUST this attempt (independent of other stacked forages). Returns
 // { yieldDays, yieldStone, pre } — `pre` (water only) is the snapshot a reverse restores.
@@ -2780,14 +4444,17 @@ function forageActivity(campaign, opts){
       return { ok: true, success: true, auto: true, event: ev, newWaterDays: ch.waterDaysCarried };
     }
     const target = dry ? 18 : 14;
-    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    // PT-6 → Layer 1: autoFailBand 0 — RR p.278 forage has NO natural-1 auto-fail (must be preserved).
+    const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }], autoFailBand: 0, proficient: false, rng: rng });
+    const rolled = fr.natural, success = fr.success;
     const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'water', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev, newWaterDays: ch.waterDaysCarried };
   }
 
   if(kind === 'firewood'){
     const target = forest ? 3 : 14;
-    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }], autoFailBand: 0, proficient: false, rng: rng });  // PT-6 → Layer 1 (no auto-fail, RR p.278)
+    const rolled = fr.natural, success = fr.success;
     const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'firewood', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev };
   }
@@ -2798,7 +4465,9 @@ function forageActivity(campaign, opts){
   if(dry) terrMod -= 4;
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Borderlands') terrMod -= 2;
   const target = 18;
-  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1: bonus (Survival) + terrMod (terrain/territory) itemized; autoFailBand 0 (no auto-fail, RR p.278).
+  const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: rng });
+  const rolled = fr.natural, success = fr.success;
   const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'food', rolled, target, bonus, terrMod, success });
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
 }
@@ -2859,7 +4528,10 @@ function huntActivity(campaign, opts){
   let terrMod = 0;
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
   const target = 14;
-  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1: Survival/Hunting bonus + territory terrMod itemized; autoFailBand 0 (no auto-fail,
+  // RR p.278). The throw consumes ONE rng BEFORE the wandering draw — order preserved (byte-identical).
+  const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: rng });
+  const rolled = fr.natural, success = fr.success;
   const encounter = _huntWanderingDraw(campaign, ch, hex, rng);
   const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true, encounter: encounter });
   return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, encounter: encounter, event: ev };
@@ -2885,8 +4557,10 @@ function rerollProvisioningActivity(campaign, eventId, opts){
   const bonus = Number(ev.payload.bonus) || 0;
   const terrMod = Number(ev.payload.terrMod) || 0;
   const target = Number(ev.payload.target) || 14;
-  const rolled = _provD20(opts.rng || Math.random);
-  const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1 (the forage/hunt reroll re-throws the same throw): autoFailBand 0, no auto-fail (RR p.278).
+  const fr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'bonus', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: opts.rng || Math.random });
+  const rolled = fr.natural;
+  const success = fr.success;
   if(oldSuccess && !success){
     _provReverseYield(campaign, ch, ev);
   } else if(!oldSuccess && success){
@@ -3035,9 +4709,11 @@ function rerollHexSearch(campaign, eventId, opts){
   // state with the success (no lair pool here). Defensive — the flip applies only when the
   // journey still holds the expected state (a same-session affordance, like the lair reverse).
   if(ev.payload.method === 'landmark-search'){
-    const lRolled = _provD20(rng);
-    const lScore = lRolled + bonus + mod;
-    const lSuccess = (lRolled !== 1) && (lScore >= target);
+    // PT-6 → Layer 1 (the landmark-search reroll, RR p.285): nat-1 auto-fail (autoFailBand 1).
+    const lr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+    const lRolled = lr.natural;
+    const lScore = lr.total;
+    const lSuccess = lr.success;
     const lj = (campaign.journeys || []).find(x => x && x.id === ev.payload.landmarkJourneyId) || null;
     if(lj){
       if(lSuccess && !ev.payload.landmarkFound && lj.status === 'lost'){
@@ -3055,9 +4731,11 @@ function rerollHexSearch(campaign, eventId, opts){
              found: null, landmarkFound: lSuccess, event: ev };
   }
   if(ev.payload.foundLairId) _reverseSearchDiscovery(campaign, ev);   // the old find returns to the pool before the re-pick
-  const rolled = _provD20(rng);
-  const score = rolled + bonus + mod;
-  const success = (rolled !== 1) && (score >= target);
+  // PT-6 → Layer 1 (the search reroll): nat-1 auto-fail (autoFailBand 1).
+  const sr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+  const rolled = sr.natural;
+  const score = sr.total;
+  const success = sr.success;
   let found = null;
   if(success){
     let pool = _undiscoveredLairsAt(campaign, ev.payload.hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
@@ -3094,9 +4772,12 @@ function hexSearchActivity(campaign, opts){
   const target = (typeof A.wildernessSearchTargetForSpeed === 'function') ? A.wildernessSearchTargetForSpeed(sp.speed) : 18;
   const bonus = _cohortHasProf(sp.cohort, /tracking/i) ? 4 : 0;   // any member with Tracking → +4 (extra ranks do NOT add here — RR p.120)
   const mod = (opts.specific || landmarkJourney) ? -4 : 0;        // the landmark IS a specific point of interest (RR p.285 ¶3)
-  const rolled = _provD20(rng);
-  const score = rolled + bonus + mod;
-  const throwSuccess = (rolled !== 1) && (score >= target);        // unmodified 1 always fails (ACKS-general)
+  // PT-6 → Layer 1 (the search throw, RR pp.276–277): nat-1 auto-fail (autoFailBand 1); the Tracking
+  // +4 and specific/landmark −4 carry as itemized modifiers. Byte-identical to the inline 1d20.
+  const sr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+  const rolled = sr.natural;
+  const score = sr.total;
+  const throwSuccess = sr.success;                                 // unmodified 1 always fails (ACKS-general)
   // What a successful throw finds: an undiscovered lair whose hiddenDC the score also clears
   // (hiddenDC raises that one lair's bar — well-hidden). The Judge picks among qualifiers (RR
   // p.276 "the Judge will decide which one"); v1 picks randomly. In landmark mode the hour
@@ -3164,14 +4845,17 @@ function hexSearchActivity(campaign, opts){
     const prior = (campaign.eventLog || []).filter(e => e && e.event && e.event.kind === 'hex-search'
       && e.event.payload && e.event.payload.hexId === hexId && e.event.payload.success
       && e.event.payload.method !== 'track-home').length;
-    const sRoll = _provD20(rng);
     const sBonus = prior * 4;
+    // PT-6 → Layer 1 (RR p.277 Land Surveying): nat-1 (sr.botch) → a false reading; else sr.success
+    // (≥ 18). sBonus is rng-free so moving it before the roll preserves rng order → byte-identical.
+    const sr = A.rollProficiencyThrow({ target: 18, modifiers: [{ source: 'prior-searches', value: sBonus }], autoFailBand: 1, proficient: false, fumbleEffect: 'false-reading', rng: rng });
+    const sRoll = sr.natural;
     const trueCount = ((typeof A.lairsAtHex === 'function') ? (A.lairsAtHex(campaign, hexId) || []) : []).filter(l => l && l.status !== 'dynamic').length;
-    if(sRoll === 1){
+    if(sr.botch){
       let fake = trueCount + ((rng() < 0.5 ? 1 : -1) * (1 + Math.floor(rng() * 3)));
       if(fake < 0 || fake === trueCount) fake = trueCount + 1;
       survey = { assessed: true, falseReading: true, count: fake, rolled: sRoll, target: 18, bonus: sBonus };
-    } else if(sRoll + sBonus >= 18){
+    } else if(sr.success){
       survey = { assessed: true, falseReading: false, count: trueCount, rolled: sRoll, target: 18, bonus: sBonus };
     } else {
       survey = { assessed: false, rolled: sRoll, target: 18, bonus: sBonus };
@@ -3257,11 +4941,12 @@ function trackingFindThrow(opts){
   if(rainH)               mods.push({ source: 'rain-snow',   value: -4 * rainH });
   if(o.dimLight)          mods.push({ source: 'dim-light',   value: -4 });
   if(Number(o.gmMod))     mods.push({ source: 'gm',          value: Number(o.gmMod) });
-  const natural = _provD20(rng);
-  const total = mods.reduce((s, m) => s + m.value, natural);
-  const target = 11;
-  return { natural: natural, target: target, modifiers: mods, total: total,
-           success: (natural !== 1) && (total >= target) };
+  // PT-6 — folded onto Layer 1 (ACKS.rollProficiencyThrow): nat-1 auto-fail (autoFailBand 1, the
+  // house convention on these throws), no nat-20 rule (proficient false), target 11. The itemized
+  // mods carry through unchanged → the {natural,target,modifiers,total,success} shape is byte-
+  // identical to the inline 1d20 it replaces (this resolver was already the unified shape).
+  const r = _gpwACKS().rollProficiencyThrow({ target: 11, modifiers: mods, autoFailBand: 1, proficient: false, rng: rng });
+  return { natural: r.natural, target: r.target, modifiers: mods, total: r.total, success: r.success };
 }
 
 // Begin a follow. opts: { encounterId? OR lairId? (a fragment row's den — resolved to its
@@ -3306,7 +4991,11 @@ function beginTracking(campaign, opts){
     return { ok: false, error: 'already-tracking' };
   // The tracker: Tracking proficiency (RR p.120 — the throw IS a Tracking throw), standing
   // where the trail starts. A party that moved on must return to the meeting hex first.
-  const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
+  // PT-0: the canonical rank count (merges ["Tracking","Tracking"] AND {key:'tracking',ranks:2} → 2,
+  // matching the pre-migration count-entries value). Fallback: shape-aware count-entries.
+  const ranks = (typeof A.proficiencyRanks === 'function')
+    ? A.proficiencyRanks(ch, 'tracking')
+    : ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''))).length;
   if(ranks < 1) return { ok: false, error: 'no-tracking' };
   if(ch.currentHexId !== enc.hexId) return { ok: false, error: 'not-at-trail-hex' };
   const meetHex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
@@ -3367,7 +5056,8 @@ function beginTracking(campaign, opts){
     // Folk head for the nearest settlement (dwellings, never dens — the E4 rule).
     let best = null, bestD = Infinity;
     for(const h of (campaign.hexes || [])){
-      if(!h || !h.coord || !h.settlement) continue;
+      if(!h || !h.coord) continue;
+      if(!(A.settlementForHex && A.settlementForHex(campaign, h.id))) continue;   // T6 single-home — settled hexes only
       const d = (typeof A.hexAxialDistance === 'function') ? A.hexAxialDistance(meetHex.coord, h.coord) : Infinity;
       if(d < bestD){ best = h; bestD = d; }
     }
@@ -3604,8 +5294,8 @@ function _evasionNavAndCarry(campaign, enc, rng){
   const target = (A.JOURNEY_NAV_THROWS && A.JOURNEY_NAV_THROWS[terrain] != null) ? A.JOURNEY_NAV_THROWS[terrain] : 6;
   const ids = (enc.partySide && enc.partySide.characterIds) || [];
   let hasNav = false, hasPath = false;
-  const scan = (entry) => {
-    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+  const scan = (entry) => {       // PT-0: read the canonical {key} slug as well as legacy strings / {name}
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.key || entry.name || entry.label || entry.id || entry.proficiency)) || '');
     if(/\bnavigation\b/i.test(name)) hasNav = true;
     if(/\bpathfinding\b/i.test(name)) hasPath = true;
   };
@@ -4204,8 +5894,10 @@ function encounterToneRows(campaign, encounterId, tone, opts){
     else if(mHd - fLvl >= 3) gapKey = 'down';
   }
 
+  // PT-0: read the canonical {key} slug as well as legacy strings / {name}; de-hyphenate so a
+  // 'Mystic Aura' needle matches the slug key 'mystic-aura' under the substring indexOf below.
   const profs = face ? [].concat(face.proficiencies || [], face.classPowers || [])
-    .map(p => String((p && p.name) || p || '').toLowerCase()) : [];
+    .map(p => String((p && (p.key || p.name || p.label)) || p || '').toLowerCase().replace(/-/g, ' ')) : [];
   const hasProf = name => profs.some(p => p.indexOf(name.toLowerCase()) >= 0);
 
   let rel = (enc.reaction && enc.reaction.current) || null;
@@ -4243,7 +5935,25 @@ function encounterToneRows(campaign, encounterId, tone, opts){
         if(row.derive && row.derive.indexOf('prof:') === 0 && hasProf(row.derive.slice(5))){ r.auto = true; r.on = true; }
     }
     return r;
-  });
+  }).concat((() => {
+    // Phase 3 Military W2 — JJ p.104: a band that arrived as a DOMAIN ENCOUNTER carries
+    // its attitude toward the domain into individual meetings with adventurers (−2
+    // hostile / −1 unfriendly / +1 mercantilist / +2 friendly; neutral adds nothing).
+    // Auto-derived from the bound Group's incursion verdict; a reaction-roll circumstance,
+    // so it surfaces under every tone.
+    const incGrp = ((enc.monsterSide && enc.monsterSide.groupIds) || [])
+      .map(gid => (((campaign && campaign.groups) || []).find(g => g && g.id === gid)) || null)
+      .find(g => g && g.incursion && g.incursion.attitude);
+    if(!incGrp) return [];
+    const att = String(incGrp.incursion.attitude);
+    const val = att === 'hostile' ? -2 : att === 'unfriendly' ? -1 : att === 'mercantilist' ? 1 : att === 'friendly' ? 2 : 0;
+    if(!val) return [];
+    const dom = ((campaign && campaign.domains) || []).find(d => d && d.id === incGrp.incursion.domainId) || null;
+    return [{ key: 'incursion-attitude', group: 'Relationship',
+      label: 'The band is ' + att + ' toward ' + ((dom && dom.name) || 'the domain') + ' — a domain-encounter arrival (JJ p.104)',
+      value: val, variable: false, derive: 'incursion-attitude',
+      note: 'the domain-encounter attitude carries into individual meetings', auto: true, on: true }];
+  })());
 }
 
 // ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
@@ -4830,7 +6540,10 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
   return { ok: true, encounter: enc, event: ev };
 }
 
-const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
+// Wizard opt-outs — kinds the Event Wizard hides (owned by a dedicated flow; a raw emit would skip
+// the verb's own logic). Seeded into the EVENT_WIZARD_OPTOUT accumulating store declared at §9.5.1 —
+// a subsystem opts a kind out via ACKS.registerEventKind('foo', { wizardOptOut:true }).
+[
   'engine-standard-turn',  // engine internal flow — emitting raw would create chaos
   'recruit-hireling',      // owned by Recruiting Wizard — skips candidate individuation
   'venture-launch',        // owned by Launch Venture modal — skips investment validation
@@ -4840,6 +6553,8 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
   // not authored raw (raw emit would skip the journey state transitions).
   'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted', 'journey-rerouted',
+  // Fog-of-war from travel (audit B3) — engine-emitted on hex discovery, never authored raw.
+  'hex-discovered',
   // GP Wave B — owned by marketBuy/marketSell (raw emit would skip the availability + funds
   // gate). The wealth-transfer + item-transfer primitives stay emittable (legit GM move verbs).
   'market-transaction',
@@ -4860,8 +6575,204 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
-]));
+  'domain-banditry',
+  // === Proficiency PT-1 (team) ===
+  // owned by ACKS.recordProficiencyThrow (the throw modal) — a raw emit would carry no real
+  // throw breakdown; the GM rolls via the modal, not the Event Wizard.
+  'proficiency-throw',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — owned by processClassificationAdvancement (the monthly turn already
+  // raised the permanent floor; raw emit would narrate an advance the domain state doesn't show).
+  'domain-advanced',
+  // === Religion R1 (team 2026-06-13) — owned by the religion verbs + the monthly consumer
+  // (processReligionForTurn). Raw emit would narrate a divine-power/consecration change the ledger
+  // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
+  // ⛪ Religion view's actions, not these raw events.
+  'divine-power-accrued', 'consecration', 'divine-favor-changed',
+  // === Religion R2 (team 2026-06-14) — owned by bloodSacrifice (raw emit would record a sacrifice
+  // the divine/arcane ledgers don't show; the GM performs it via the ⛪ Religion view's action). ===
+  'blood-sacrifice',
+  // === Religion Wave E (2026-06-19) — owned by the monthly processDivineWrathForTurn (raw emit would
+  // record a divine-wrath the settlement.divineWrath state + usurpation don't show). ===
+  'divine-wrath',
+  // === Religion R3/R5 (team burst10 2026-06-20) — owned by the consecration + transgression verbs (raw
+  // emit would record an act the placesOfPower / consecrationBuff / favor standing state don't show; the
+  // GM performs them from the ⛪ Religion view / the character Faith tab). ===
+  'consecrate-altar', 'consecrate-ruler', 'divine-transgression',
+  // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
+  // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
+  'hijink-attempted', 'hijink-resolved',
+  // === Hijinks HJ-2 (team 2026-06-13) === — owned by formSyndicate / collectSyndicateTribute /
+  // resolveHijinkTrial (raw emit would record an enterprise change the syndicate/hijink doesn't show).
+  'hijink-syndicate-formed', 'hijink-tribute', 'hijink-trial',
+  // === Hijinks HJ-3 (team 2026-06-20) === — owned by startHijink / takeoverSyndicate.
+  'hijink-crew-assigned', 'syndicate-takeover',
+  // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
+  // the band; raw emit would narrate an arrival the world doesn't show).
+  'domain-incursion',
+  // Phase 3 Military W3 — owned by the battle engine (beginBattle / runBattleTurn /
+  // applyBattleAftermath emit these; raw emit would narrate a fight the entity doesn't hold).
+  'battle-started', 'battle-turn', 'battle-resolved',
+  // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
+  // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
+  // armies/domains don't show).
+  'army-contact', 'domain-warfare', 'army-supply', 'army-disease', 'army-supply-base-built',
+  // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) are AUTO-ROLLED
+  // at their RAW cadence (the monthly turn / the slot-88 weekly check / declareForay), not authored
+  // raw — a hand emit would carry no real roll. Owned by acks-engine-vagaries.js + the consumers.
+  'vagary-of-recruitment', 'vagary-of-war', 'vagary-of-battle',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — owned by ACKS.applyMortalWound +
+  // the slot-58 convalescence consumer (raw emit would narrate a wound/recovery the character's
+  // mortalWounds[] + lifecycleState don't show). The GM records a wound via the character-sheet
+  // Record-a-wound modal, not the Event Wizard.
+  'mortal-wound', 'wound-recovery',
+  // Phase 3 Military W6 (burst3) — owned by acks-engine-sieges.js (the setters + the slot-90
+  // consumer write the Siege state); a raw emit would narrate an investment the entity doesn't hold.
+  'siege-started', 'siege-progress', 'siege-resolved',
+  // === Character Lifecycle CL-1 (burst4) === — owned by ACKS.processAgingForTurn (the monthly pass);
+  // a raw emit would narrate an aging/death the character's age/lifecycleState don't show. The GM sets
+  // an age via the character sheet, not the Event Wizard.
+  'aging-milestone', 'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — owned by ACKS.materializeHoard (the
+  // Treasure Wizard); a raw emit would record a hoard the stashes/notables/captives don't show. The
+  // GM rolls + places a hoard via the wizard, not the Event Wizard.
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
+  // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
+  'sage-consultation',
+  // === Sages SG-2 (burst8 b8-sages, #147) === — owned by commissionSage / the slot-64 day-tick
+  // consumer (the 📜 Commission modal + the Day Clock); a raw emit would record a commission the
+  // sageCommissions[] state doesn't show. The GM commissions a sage via the modal, not the Wizard.
+  'sage-commission-started', 'sage-commission-resolved',
+  // === Sages SG-3 (team) === — owned by retainSage / endSageRetainer / the slot-64 monthly billing
+  // (the Consult-a-Sage modal's retainer section + the Day Clock); a raw emit would record a retainer
+  // the client.sageRetainers[] state doesn't show.
+  'sage-retainer-started', 'sage-retainer-ended', 'sage-retainer-fee-paid',
+  // === Sages SG-5 (b10-sages 2026-06-20, #147) === — owned by readTreatise / referenceTreatise (the
+  // 📖 Treatise panel in the Consult-a-Sage modal); a raw emit would carry no real re-roll breakdown.
+  'treatise-read',
+  // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
+  // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
+  'senate-vote', 'policy-enacted',
+  // === Politics P-3 (team) === — owned by the Senate tab's influence + dispute actions (acks-engine-
+  // politics.js); a raw Wizard emit would record an influence/dispute the senate state doesn't show.
+  'senate-influenced', 'senate-dispute-opened',
+  // === Politics P-5 (burst9 2026-06-20) === — owned by the Senate tab's 📜 Motion Wizard (acks-engine-
+  // politics.js openSenateMotion / resolveSenateMotion); a raw Wizard emit would record a motion the
+  // senate.motions[] state doesn't show.
+  'senate-motion-opened', 'senate-motion-resolved',
+  // === Politics P-7 (burst10 2026-06-20) === — owned by the Senate tab's ⚖ Governance card
+  // (acks-engine-politics.js establish/dissolve/secede/decide); a raw Wizard emit would record an
+  // oligarchy transition the apex governance state doesn't show.
+  'oligarchy-established', 'oligarchy-dissolved', 'oligarchy-decision',
+  // === Politics P-7 wizard (burst11 2026-06-20) === — owned by the Senate tab's 🏛 Generate-a-Senate
+  // wizard (acks-engine-politics.js materializeSenate); a raw Wizard emit would record a convening the
+  // senate/faction/senatorship state doesn't show.
+  'senate-materialized',
+  // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
+  // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
+  'delve-foray',
+  // === Delves D4 (team) === — owned by ACKS.commitWildernessForay (the Wilderness Foray modal);
+  // a raw emit would narrate a foray the casualties / treasure / lair state don't show.
+  'wilderness-foray',
+  // === Delves D5 (team burst11) === — owned by acks-engine-delves.js (startSettlementVisit + the
+  // slot-66 settlement-incidents consumer / the on-demand roller); a raw emit would narrate a visit /
+  // incident the SettlementVisit + its incidents[] don't show. The GM runs a stay via the 🏙 panel.
+  'settlement-visited', 'urban-incident',
+  // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
+  // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
+  // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
+  'disease-contracted', 'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — owned by acks-engine-lifecycle.js (applyCondition +
+  // the slot-59 conditions consumer); a raw emit would narrate a condition the character's conditions[]
+  // + lifecycleState don't show. The GM applies/clears a condition via the character sheet, not the Wizard.
+  'condition-applied', 'condition-cleared',
+  // === Character Lifecycle CL-4a (burst8, team) === — owned by acks-engine-lifecycle.js
+  // (recordCharacterDeath / resolveSuccession); a raw emit would record a death/succession the
+  // character's lifecycleState + the successor/inheritance state don't show. The GM marks a death +
+  // resolves succession on the character sheet, not the Event Wizard.
+  'character-died', 'inheritance-resolved',
+  // === Character Lifecycle CL-5 (team) === — owned by acks-engine-lifecycle.js (transformCharacter /
+  // revertCharacter); a raw Wizard emit would record a transformation the character's transformationState
+  // + lifecycleState don't show. The GM transforms / reverts a character via the character sheet, not the Wizard.
+  'character-transformed', 'transformation-reverted',
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
+  // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
+  // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
+  // att- relation + dungeon state don't show.
+  'dungeon-attuned', 'attunement-ended', 'sovereignty-established', 'sovereignty-lost',
+  'arcane-power-extracted', 'dungeon-harvested',
+  // AD-C — onDungeonConstructed mints the dun- entity; the incursion/wander settle paths anchor a lair
+  // into a dungeon; the adventurers-arrive prompt. A raw emit would record state the entities don't show.
+  'dungeon-established', 'dungeon-populated', 'dungeon-invaded',
+  // AD-F — owned by acks-engine-sanctums.js (flagArcaneUsurpation + the 🔮 Arcane modal); a raw emit would
+  // record a usurpation the settlement flag + the Religion seam don't show.
+  'arcane-usurpation',
+  // === Phase 4 — Sanctums AD-B === — owned by acks-engine-sanctums.js (onSanctumConstructed fires from the
+  // construction-completed handler; attractToSanctum + the yearly processSanctumsForTurn tick); a raw emit
+  // would record a sanctum/attraction/advancement the kindSpecific facilities + apprenticeship records don't show.
+  'sanctum-established', 'apprentice-attracted', 'apprentice-advanced', 'apprentice-discouraged',
+  // === Phase 4 — Magic Research (AD-M1) === — owned by acks-engine-magic-research.js (the project verbs
+  // + the character-sheet ⚗ Research panel); a raw emit would record a research started/progress/completed/
+  // failed or an item creation the rsp- project + the minted item don't show.
+  'magic-research-started', 'magic-research-progress', 'magic-research-completed',
+  'magic-research-failed', 'magic-item-created',
+  // AD-M2 — owned by acks-engine-magic-research.js (the creature-minting result of a research throw).
+  'construct-manufactured', 'crossbreed-created', 'necromancy-performed',
+  // AD-M3 — owned by acks-engine-magic-research.js (the ritual learn/cast result of a research throw).
+  'ritual-learned', 'ritual-cast',
+  // AD-M4 — owned by acks-engine-magic-research.js (the breakthrough/mishap of an experimental research throw).
+  'magic-experiment-breakthrough', 'magic-experiment-mishap',
+  // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
+  // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
+  'follower-arrival',
+  // === Followers Wave B (team b11) === — owned by acks-engine-followers.js (the Families-Arriving population
+  // bump); a raw emit would record peasant families the domain's demographics don't actually carry.
+  'follower-families-arrived',
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
+  // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
+  // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
+  'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal',
+  // === Banking B2 (team burst8 2026-06-19) === — owned by acks-engine-banking.js (reconcileFeudalLoans);
+  // a raw emit would record a feudal-loan link the campaign.loans[] entry doesn't actually carry.
+  'loan-reconciled',
+  // === Banking B4/B5 (team burst9 2026-06-20) === — owned by acks-engine-banking.js (markLoanDefaulted /
+  // writeOffLoan + issue/redeemLetterOfCredit); a raw emit would record a default/write-off or a letter
+  // of credit the campaign.loans[] / lettersOfCredit[] + the gp don't show.
+  'loan-defaulted', 'loan-written-off', 'letter-of-credit-issued', 'letter-of-credit-redeemed',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
+  // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
+  // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
+  'lore-learned', 'lore-shared',
+  // === Knowledge Layer Wave B (team burst11 2026-06-20) === — owned by acks-engine-knowledge.js
+  // (promoteRumorToLore); a raw emit would record a promotion the loreKind:'rumor' Lore item + its
+  // sourceRumorId link don't show. Promotion happens via the 📚 Knowledge tab's promote-rumor panel.
+  'rumor-promoted',
+  // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
+  // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
+  // identification + intrinsic.charges don't show.
+  'item-identified', 'item-charge-spent', 'item-appraised',
+  // === Generators G1 (team burst8 2026-06-19) === — owned by acks-engine-generators.js (generateAndLandNPC
+  // produces the Character + emits the run record). A raw Event-Wizard emit would record a generation
+  // that produced nothing — the Generators tab is the real surface.
+  'generation',
+  // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
+  'magic-item-commissioned', 'magic-item-commission-resolved',
+  // === Gladiators G2 (team burst9 2026-06-20) === — owned by acks-engine-gladiators.js (resolveAndCommit
+  // Bout / holdGame / recruitGladiator, driven by the ⚔ Gladiators tab); a raw Event-Wizard emit would
+  // record a bout/game/recruit the bout/game/character state doesn't show.
+  'bout-resolved', 'gladiator-game-held', 'gladiator-recruited',
+  // === Gladiators G3/G4 (team burst10 2026-06-20) === — owned by acks-engine-gladiators.js (the slot-62
+  // consumer / checkUprising / sponsorGame); a raw emit would record a graduation/uprising/game the
+  // character/school/game state doesn't show.
+  'gladiator-trained', 'gladiator-uprising', 'game-sponsored',
+  // === Magic Items MI-3 (team burst11) === — owned by acks-engine-magic-items.js (the market verbs
+  // move the gp + custody); a raw Event-Wizard emit would record a sale/appraisal nothing moved for.
+  'magic-item-appraised', 'magic-item-sold',
+  // === Gladiators G5 (team burst11 2026-06-20) === — owned by acks-engine-gladiators.js (the tactical
+  // resolver emits bout-round per round); a raw Event-Wizard emit would record arena chatter with no fight.
+  'bout-round'
+].forEach(registerEventWizardOptOut);
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
 function wizardEmittableKinds(){ return EVENT_KINDS.filter(isWizardEmittable); }
@@ -4891,7 +6802,10 @@ function defaultPayloadFor(kind){
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
-  EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, migratePendingPlayerInputToEvents,
+  EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, registerEventKind, registeredEventKinds, migratePendingPlayerInputToEvents,
+  // audit 2026-06-24 — D1 context derivation + F1/F2 batch-rollback primitives (exported so commitTurn
+  // can own a per-batch snapshot, and integrators/tests can derive context off the public path).
+  deriveEventContext: _deriveEventContext, cloneCampaignForRollback: _cloneForRollback, restoreCampaignForRollback: _restoreCampaignInPlace,
   // Safe dotted-path writer + its guard (prototype-pollution hardening, appsec C1).
   // Exposed so the safe-write contract is testable + reusable by integrators.
   _setByPath, assertSafeFieldPath, SAFE_FIELDPATH_RE, DANGEROUS_PATH_SEGMENTS,

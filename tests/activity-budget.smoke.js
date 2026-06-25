@@ -14,16 +14,7 @@
 const path = require('path');
 
 const DIR = path.join(__dirname, '..');
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
-  'acks-engine-subsystems.js',
-].forEach(f => require(path.join(DIR, f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 // ─── tiny assertion harness ───
@@ -67,6 +58,7 @@ ok('forage = ancillary', ACKS.activityCostFor('forage').cost === 'ancillary');
 ok('decree = ancillary', ACKS.activityCostFor('decree').cost === 'ancillary');
 ok('market-transaction = ancillary + loadMetered', ACKS.activityCostFor('market-transaction').cost === 'ancillary' && ACKS.activityCostFor('market-transaction').loadMetered === true);
 ok('venture = dedicated', ACKS.activityCostFor('venture').cost === 'dedicated');
+ok('research = dedicated, not strenuous', ACKS.activityCostFor('research').cost === 'dedicated' && ACKS.activityCostFor('research').strenuous === false);
 ok('unknown kind → defaulted ancillary', (() => { const c = ACKS.activityCostFor('not-a-real-kind'); return c.cost === 'ancillary' && c.defaulted === true; })());
 ok('every cost is a valid slot', Object.values(ACKS.ACTIVITY_COSTS).every(c => ['dedicated', 'ancillary', 'incidental'].includes(c.cost)));
 
@@ -215,6 +207,28 @@ ok('a halted journey costs nothing (incidental) — admin + 4 errands stay withi
 const cParty = mkCampaign({ characters: [mkChar('chr-a'), mkChar('chr-b')], journeys: [jrnPace('forced-march', 'in-transit', ['chr-a', 'chr-b'])], domains: [adminD()] });
 ok('party cap = slowest traveller (an admin member caps the party to half speed)', mp(cParty, cParty.journeys[0]) === 'half-speed');
 ok('the free companion travels at the capped half speed too', (() => { const b = ACKS.characterActivityBudget(cParty, 'chr-b', { domains: cParty.domains }); return b.ancillaryUsed === 4 && b.dedicatedUsed === 0; })());
+
+// =============================================================================
+section('characterActivityBudget() — magic research (AB-4; budget plan §13)');
+// =============================================================================
+// An in-progress research project dedicates the researcher's (and each assistant's) day — RR p.388,
+// budget plan §13. awaiting-throw / completed are not ongoing work. Derived from campaign.researchProjects.
+const mkResearch = (id, researcher, assistants, status) => ({ id, researcherCharacterId: researcher, assistantCharacterIds: assistants || [], status: status || 'in-progress', name: "Vale's Salt-Ward" });
+const cRes = mkCampaign({ characters: [mkChar('chr-a'), mkChar('chr-b')], researchProjects: [mkResearch('rsp-1', 'chr-a', ['chr-b'], 'in-progress')] });
+const bRes = ACKS.characterActivityBudget(cRes, 'chr-a');
+ok('researcher: 1 dedicated = research', bRes.dedicatedUsed === 1 && bRes.dedicated[0].kind === 'research');
+ok('researcher: source is the project', bRes.dedicated[0].sourceKind === 'research-project' && bRes.dedicated[0].sourceId === 'rsp-1');
+ok('researcher: research is not strenuous', bRes.dedicated[0].strenuous === false);
+ok('assistant also dedicates a day', ACKS.characterActivityBudget(cRes, 'chr-b').dedicatedUsed === 1);
+ok('assistant label flags assisting', /assisting/.test((ACKS.characterActivityBudget(cRes, 'chr-b').dedicated[0] || {}).label || ''));
+const cAwait = mkCampaign({ characters: [mkChar('chr-a')], researchProjects: [mkResearch('rsp-1', 'chr-a', [], 'awaiting-throw')] });
+ok('awaiting-throw research is not ongoing → not counted', ACKS.characterActivityBudget(cAwait, 'chr-a').dedicatedUsed === 0);
+const cDoneR = mkCampaign({ characters: [mkChar('chr-a')], researchProjects: [mkResearch('rsp-1', 'chr-a', [], 'completed')] });
+ok('completed research not counted', ACKS.characterActivityBudget(cDoneR, 'chr-a').dedicatedUsed === 0);
+const cResAdmin = mkCampaign({ characters: [mkChar('chr-a')], researchProjects: [mkResearch('rsp-1', 'chr-a', [], 'in-progress')], domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })] });
+ok('research + administering a domain = over budget (2 dedicated)', ACKS.characterActivityBudget(cResAdmin, 'chr-a').overBudget === true);
+const cResOther = mkCampaign({ characters: [mkChar('chr-a'), mkChar('chr-b')], researchProjects: [mkResearch('rsp-1', 'chr-b', [], 'in-progress')] });
+ok("another character's research is not mine", ACKS.characterActivityBudget(cResOther, 'chr-a').dedicatedUsed === 0);
 
 // =============================================================================
 section('characterActivityBudget() — strenuous → rest fatigue (RR p.279)');

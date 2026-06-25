@@ -22,16 +22,7 @@
 const path = require('path');
 const fs = require('fs');
 // Load all engine modules in order; each accumulates onto global.ACKS.
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
-  'acks-engine-subsystems.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let passed = 0;
@@ -110,6 +101,10 @@ check('D3 untouched', d3.pendingPlayerInput == null);
 
 console.log('--- Handler smoke (migrated frontier-barony template) ---');
 const camp = ACKS.migrateCampaign(JSON.parse(fs.readFileSync(path.join(__dirname,'..','Templates','v2-frontier-barony.acks.json'),'utf8')));
+// Single-home (T6): production lifts nested → campaign.hexes/.settlements before any event runs
+// (loadCampaignFromObject → _finishLoad). The handlers below read the canonical campaign.hexes
+// (e.g. adventure-result resolves its hex there), so lift here to mirror the real load path.
+ACKS.liftToTopLevelCollections(camp);
 const tBefore = camp.domains[0].treasury.gp;
 const grantEv = ACKS.newEvent('treasury-grant', {
   payload: { domainId: 'dom-barony-of-thornreach', amount: 500, label: 'adventurer windfall' }
@@ -149,7 +144,7 @@ check('character hp.current updated via dotted path', ch.hp.current === hpBefore
 const lairsBefore = ACKS.lairsAtHex(camp, 'hex-thorn-wood');
 check('thorn-wood goblin lair lifted to campaign.lairs before adventure', lairsBefore.length === 1 && lairsBefore[0].id === 'lai-thorn-wood-goblins');
 check('the lifted goblin lair is active before adventure', lairsBefore[0].status === 'active');
-check('nested hex.lairs cleared by the lift', (camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood').lairs||[]).length === 0);
+check('the lifted hex has no leftover nested lairs', (ACKS.findHex(camp, 'hex-thorn-wood').lairs||[]).length === 0);
 const advEv = ACKS.newEvent('adventure-result', {
   submittedBy: 'tool:rpgmaker-test',
   payload: {
@@ -163,7 +158,7 @@ const advEv = ACKS.newEvent('adventure-result', {
   }
 });
 const advR = ACKS.applyEvent(camp, advEv);
-const hexAfter = camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood');
+const hexAfter = ACKS.findHex(camp, 'hex-thorn-wood');
 check('thorn-wood hex now explored', hexAfter.explored === true);
 const lairAfter = ACKS.findLair(camp, 'lai-thorn-wood-goblins');
 check('thorn-wood goblin lair flipped to cleared (structure remains, #476 M0)', lairAfter && lairAfter.status === 'cleared');
@@ -175,9 +170,9 @@ check('adventure narrative composed', advR.result.narrativeSummary.indexOf('clea
 const dawEv = ACKS.newEvent('daw-result', {
   payload: { outcome: 'defender-holds', defenderDomainId: 'dom-barony-of-thornreach', defenderLosses: [{unitId:'gar-thornreach-foot', count: 5}] }
 });
-const footBefore = camp.domains[0].garrison.units.find(u => u.id === 'gar-thornreach-foot').count;
+const footBefore = ACKS.findUnit(camp, 'gar-thornreach-foot').count;
 ACKS.applyEvent(camp, dawEv);
-const footAfter = camp.domains[0].garrison.units.find(u => u.id === 'gar-thornreach-foot').count;
+const footAfter = ACKS.findUnit(camp, 'gar-thornreach-foot').count;
 check('daw losses applied to garrison count', footAfter === footBefore - 5);
 
 const claudeEv = ACKS.newEvent('claude-event', {
