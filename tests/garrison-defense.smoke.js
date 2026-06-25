@@ -69,17 +69,23 @@ function mk(o){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('auto-deploy — the garrison RESPONDS, and the band stays visible while it does');
-const c1 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });   // co-located → deterministic 2-day resolve
-adv(c1);                                                                 // day 1: slot-89 auto-deploys
+section('auto-deploy — the garrison RESPONDS (mustering), and the band stays visible while it does');
+const c1 = mk({ count: 8, garrisonCount: 120, bandHex: 'hex-seat' });   // co-located → muster (d1) → march (d2) → resolve (d3)
+adv(c1);                                                                 // day 1: slot-89 auto-deploys — the force MUSTERS at the seat
 const army1 = reactionArmies(c1, 'grp-threat')[0];
 ok('a reaction force is auto-deployed against the band', !!army1 && army1.autoReaction === true);
+ok('the force is MUSTERING on the deploy day (the 1-day sortie muster — not yet in the field)', !!army1 && army1.sortieMustering === true);
 ok('the band STILL stands (visible as "responding", not vanished)', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 1);
 ok('the garrison mustered out into the sortie force', ACKS.domainGarrisonUnits(c1, 'dom-r').length === 0 && ACKS.armyUnits(c1, army1).length === 1);
 ok('the army history records the auto-sortie', (army1.history || []).some(h => h.type === 'auto-deployed-reaction'));
 
+section('muster completes the next day — the force marches out (the 1-day sortie muster, RR p.434/JJ p.104)');
+adv(c1);                                                                 // day 2: slot-89 muster-completion — the force marches out
+ok('the force finished mustering (marches out the NEXT day, not the deploy day)', army1.sortieMustering === false);
+ok('the band still stands while the force closes in', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 1);
+
 section('resolution on arrival — driven off, recalled, light sortie casualties');
-adv(c1);                                                                 // day 2: slot-88 resolves the co-located contact
+adv(c1);                                                                 // day 3: slot-88 resolves the co-located contact
 ok('the band is driven off (queue drained)', ACKS.incursionBandsForDomain(c1, 'dom-r').length === 0);
 const band1 = c1.groups.find(g => g && g.id === 'grp-threat');
 ok('band repelled — currentHexId null, outcome driven-off', band1 && band1.currentHexId === null && band1.incursion.outcome === 'driven-off');

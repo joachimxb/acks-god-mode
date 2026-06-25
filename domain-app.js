@@ -3712,13 +3712,14 @@ const _component = {
     const r = window.ACKS.deployGarrisonReaction(this.currentCampaign, {
       groupId: f.groupId, unitIds: this.garrisonDeployPresentIds(), callUpUnitIds: this.garrisonDeployCallUpIds(),
       commanderCharacterId: f.commanderId || null, rallyHexId: f.rallyHexId || null, stance: f.stance || 'offensive',
+      muster: true,                                  // a garrison sortie forms up for a day, then marches out (RR p.434, JJ p.104) — same as auto-defense
       name: ((dom && dom.name) || 'Domain') + ' reaction force'
     });
     if(!r || !r.ok){ if(this.showToast) this.showToast('Could not deploy — ' + ((r && r.reason) || 'check the force')); return; }
     this.markDirty(); this.schedulePersist();
     this.garrisonDeployOpen = false;
     this.currentView = 'roster'; this.rosterSubView = 'groups'; this.selectGroup('army', r.army.id);
-    if(this.showToast) this.showToast('⚔ Deployed against ' + (band ? band.name : 'the band') + (r.journey ? ' — marching to meet them.' : ' — engaging.'));
+    if(this.showToast) this.showToast('🛡 Garrison mustering against ' + (band ? band.name : 'the band') + ' — it marches out next day.');
   },
   // The Military-tab threats-table preview: the band vs the domain's whole garrison (the default
   // force), → the likely outcome at a glance (JJ p.104).
@@ -3903,8 +3904,8 @@ const _component = {
         leaderName: leader ? leader.name : '—',
         location: hex ? (A.hexName ? hexLabelFor(hex) : hex.id) : '—',
         speed: prof.milesPerDay,
-        icon: a.pillage ? '🔥' : (marching ? '🧭' : (troops > 0 ? '🎖' : '🏚')),
-        state: a.pillage ? 'pillaging' : (marching ? ('marching → ' + this.hexLabelById(j.destinationHexId)) : (troops > 0 ? 'in the field' : 'no troops')),
+        icon: a.sortieMustering ? '🛡' : (a.pillage ? '🔥' : (marching ? '🧭' : (troops > 0 ? '🎖' : '🏚'))),
+        state: a.sortieMustering ? 'mustering to sortie' : (a.pillage ? 'pillaging' : (marching ? ('marching → ' + this.hexLabelById(j.destinationHexId)) : (troops > 0 ? 'in the field' : 'no troops'))),
         fatigued: A.armyFatigued(camp, a).fatigued
       };
     });

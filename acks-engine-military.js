@@ -1074,13 +1074,24 @@ function deployGarrisonReaction(campaign, opts){
     text: 'Deployed to meet ' + (group.name || 'a band') + (dom ? (' threatening ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
   // March to the band's hex (W4). If the band is AT the rally point already, no march — the
   // consumer resolves on the spot next tick (the army stands on the band).
+  // opts.muster (D4 follow-up 2026-06-25): the garrison forms up at the stronghold for ONE day
+  // before it marches out. A standing garrison is already concentrated at its stronghold (JJ p.103),
+  // so it musters in a DAY — not the realm time period RAW reserves for raising / calling up dispersed
+  // troops (RR p.434; "local forces… respond quickly"). The march is started a day later by the slot-89
+  // garrison-defense muster-completion step (which first SEES the army next tick — that lag IS the day).
+  // The band shows 🛡 Responding · mustering meanwhile. Both sortie paths (auto + the GM's manual ⚔
+  // Deploy) pass muster:true so they behave identically; a bare call (the march-primitive tests) does not.
   let journey = null;
   const bandHexId = group.currentHexId || null;
-  if(bandHexId && rallyHexId && bandHexId !== rallyHexId && global.ACKS && typeof global.ACKS.startArmyMarch === 'function'){
+  if(opts.muster){
+    army.sortieMustering = true;
+    (army.history = army.history || []).push({ turn, type: 'mustering',
+      text: 'Mustering at ' + (rallyHexId || 'the stronghold') + ' — marches out next day (RR p.434, JJ p.104)' });
+  } else if(bandHexId && rallyHexId && bandHexId !== rallyHexId && global.ACKS && typeof global.ACKS.startArmyMarch === 'function'){
     const r = global.ACKS.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: opts.pace || 'normal' });
     if(r && r.ok) journey = r.journey;
   }
-  return { ok: true, army, journey, rallyHexId };
+  return { ok: true, army, journey, rallyHexId, mustering: !!opts.muster };
 }
 
 // Recall a sally force — the fight's done, or it's called off: disband it, sending every unit

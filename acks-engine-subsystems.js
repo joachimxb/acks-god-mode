@@ -6641,6 +6641,7 @@ function proposeMilitaryDay(campaign, ctx){
   //        live on the army card (re-route / recall — D3), not as daily records. ──
   for(const army of active){
     if(!army.reactionTargetGroupId) continue;
+    if(army.sortieMustering) continue;                            // still forming up at the stronghold (the 1-day sortie muster) — not in the field yet
     if(army.reactionBattleId && (campaign.battles || []).some(b => b && b.id === army.reactionBattleId)) continue;  // a battle already fired
     const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
     const bandAlive = band && (typeof A.groupActiveCount === 'function' ? A.groupActiveCount(band) > 0 : true);
@@ -7213,7 +7214,7 @@ function autoDeployGarrisonReaction(campaign, dom, band){
   if(!garrisonAutoDefenseEligible(campaign, dom, band, unitIds, forceBr)) return null;
   const armyId = 'arm-rxn-' + String(band.id).replace(/^grp-/, '');
   if((campaign.armies || []).some(a => a && a.id === armyId)) return null;                        // replay guard
-  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: unitIds.slice(), armyId });
+  const res = A.deployGarrisonReaction(campaign, { groupId: band.id, unitIds: unitIds.slice(), armyId, muster: true });
   if(res && res.ok && res.army){
     res.army.autoReaction = true;
     (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',
@@ -7228,6 +7229,19 @@ function proposeGarrisonDefenseDay(campaign, ctx){
   const pendingRecords = [], notableEvents = [];
   if(!campaign || !Array.isArray(campaign.domains) || !campaign.domains.length) return { pendingRecords, notableEvents };
   if(typeof A.deployGarrisonReaction !== 'function') return { pendingRecords, notableEvents };
+  // Muster-completion (D4 follow-up 2026-06-25) — a reaction force that mustered last tick marches
+  // out NOW: the 1-day garrison sortie muster (RR p.434, JJ p.104). The army was deployed (auto OR the
+  // GM's manual ⚔ Deploy) with sortieMustering set; the slot-89 consumer first SEES it the next tick,
+  // which IS the one-day hold. Runs for EVERY mustering reaction army — incl. a manual sally in a domain
+  // that doesn't auto-defend — so it sits BEFORE the autoResolveIncursions gate. Idempotent (commit clears).
+  for(const army of (campaign.armies || [])){
+    if(!army || !army.sortieMustering || !army.reactionTargetGroupId) continue;
+    const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
+    pendingRecords.push({ kind: 'garrison-sortie-march', armyId: army.id, groupId: army.reactionTargetGroupId,
+      name: (army.name || 'Reaction force') + ' marches out',
+      label: '\u{1F6E1} ' + (army.name || 'The reaction force') + ' has mustered \u{2014} it marches out to meet '
+        + ((band && band.name) || 'the band') + ' (RR p.434, JJ p.104)', status: 'pending' });
+  }
   for(const dom of campaign.domains){
     if(!dom || !dom.autoResolveIncursions) continue;
     const bands = (typeof A.incursionBandsForDomain === 'function') ? A.incursionBandsForDomain(campaign, dom.id) : [];
@@ -7268,12 +7282,28 @@ function proposeGarrisonDefenseDay(campaign, ctx){
 // first). No band/casualty mutation here — the shipped slot-88 army-band-contact path owns the resolution;
 // this only sets the sortie in motion, so the band stays on the threats list, responding.
 function commitGarrisonDefenseRecord(campaign, record){
-  if(!campaign || !record || record.kind !== 'garrison-defense') return;
+  if(!campaign || !record) return;
   const A = _jACKS();
+  // Muster-completion: the mustered sortie marches out — clear the 1-day muster hold + start the W4
+  // march to the band (a co-located band needs no march; the slot-88 contact resolves it next tick).
+  if(record.kind === 'garrison-sortie-march'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    if(!army || !army.sortieMustering) return;                     // already marched / recalled (replay guard)
+    army.sortieMustering = false;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    const bandHexId = band ? (band.currentHexId || null) : null;
+    if(bandHexId && army.currentHexId && bandHexId !== army.currentHexId && typeof A.startArmyMarch === 'function'){
+      A.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: 'normal' });
+    }
+    (army.history = army.history || []).push({ turn: campaign.currentTurn || 1, type: 'sortie-marched',
+      text: 'Mustered and marched out to engage ' + ((band && band.name) || 'the band') + ' (JJ p.104)' });
+    return;
+  }
+  if(record.kind !== 'garrison-defense') return;
   if(typeof A.deployGarrisonReaction !== 'function') return;
   if((campaign.armies || []).some(a => a && a.reactionTargetGroupId === record.groupId)) return;   // already responding
   if(record.armyId && (campaign.armies || []).some(a => a && a.id === record.armyId)) return;       // already deployed (replay guard)
-  const res = A.deployGarrisonReaction(campaign, { groupId: record.groupId, unitIds: record.unitIds || [], armyId: record.armyId });
+  const res = A.deployGarrisonReaction(campaign, { groupId: record.groupId, unitIds: record.unitIds || [], armyId: record.armyId, muster: true });
   if(res && res.ok && res.army){
     res.army.autoReaction = true;                                  // → slot-88 auto-recall + the sortie casualties
     (res.army.history = res.army.history || []).push({ turn: campaign.currentTurn || 1, type: 'auto-deployed-reaction',

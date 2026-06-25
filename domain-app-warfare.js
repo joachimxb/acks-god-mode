@@ -117,6 +117,7 @@
   bandRespondingStatus(g){
     const a = this.bandRespondingArmy(g); if(!a) return '';
     const camp = this.currentCampaign;
+    if(a.sortieMustering) return 'mustering';                     // forming up at the stronghold (the 1-day sortie muster) — before it marches
     if(a.reactionBattleId && (camp.battles || []).some(b => b && b.id === a.reactionBattleId)) return 'in battle';
     const marching = a.journeyId && (camp.journeys || []).some(j => j && j.id === a.journeyId && j.status === 'in-transit');
     if(marching) return 'marching to engage';
