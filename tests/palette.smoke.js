@@ -27,6 +27,12 @@
 // MODAL SURFACE (2026-06-26): the 66 sized content dialogs hand-styled the same inline skeleton
 // (vellum + ink border + rounded + shadow) — routed to ONE token-driven .modal-card; the pre-existing
 // wide Action-Wizard .modal-panel pair had its hardcoded hex routed to tokens. This guard LOCKS both.
+//
+// COLOUR LONG-TAIL (2026-06-26): the translucent borders/tints (`/opacity`) + hover states that still
+// bypassed the tokens route onto color-mix opacity variants (.bdr-*/NN, .tint-*/NN) + .hover-accent/.hover-tint.
+// This guard locks the vocabulary + that no routable opacity/hover raw utility returns (the strong
+// hover:bg-red-400 is the one intentional keep). Remaining raw colour = 69 yellow (highlight, not a role)
+// + ~16 intentional gradients/categorical/ring — all correctly out of scope.
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -114,6 +120,21 @@ ok('no inline modal skeleton remains (the canonical `vellum border border-ink ro
 ok('the Action-Wizard .modal-panel bg is routed to --c-parchment (hardcoded #f7f1e2 gone from the rule)',
    /\.modal-panel\s*\{[^}]*background:\s*var\(--c-parchment\)/.test(html) &&
    !/\.modal-panel\s*\{[^}]*#f7f1e2/.test(html));
+
+// Opacity + hover token vocabulary (H1 long-tail, 2026-06-26) — the translucent borders/tints + hover
+// states that bypassed the tokens route onto color-mix opacity variants + .hover-accent/.hover-tint.
+ok('the opacity-variant role classes are defined with color-mix on the --c-* tokens',
+   html.includes('.bdr-green\\/30 { border-color: color-mix(in srgb, var(--c-success) 30%') &&
+   html.includes('.bdr-amber\\/60 { border-color: color-mix(in srgb, var(--c-warning) 60%') &&
+   html.includes('.tint-green\\/60 { background-color: color-mix(in srgb, var(--c-success-bg) 60%'));
+ok('the hover role classes route through the --c-* tokens',
+   /\.hover-accent-red:hover\s*\{\s*color:\s*var\(--c-danger\)/.test(html) &&
+   /\.hover-tint-green:hover\s*\{\s*background-color:\s*var\(--c-success-bg\)/.test(html));
+ok('no routable opacity colour utility remains (border/bg green|amber|red with /opacity)',
+   !/\b(?:border|bg)-(?:green|amber|red)-\d{2,3}\/\d{1,3}\b/.test(html));
+ok('no routable hover colour utility remains (hover:text-red|amber, light hover:bg-red|green; the strong hover:bg-red-400 is intentionally kept)',
+   !/\bhover:text-(?:red|amber)-\d{2,3}\b/.test(html) &&
+   !/\bhover:bg-(?:red|green)-(?:50|100|200)\b/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

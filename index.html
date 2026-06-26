@@ -329,6 +329,28 @@ document.addEventListener('alpine:init', () => {
   .bdr-green { border-color: var(--c-success); }
   .bdr-amber { border-color: var(--c-warning); }
   .bdr-red   { border-color: var(--c-danger); }
+  /* H1 token-routing (2026-06-26, long-tail) — opacity + hover variants of the .bdr / .tint / .accent
+     role classes, for the translucent borders/tints and the hover states that still bypassed the tokens.
+     color-mix keeps the role hue at the requested opacity; one canonical shade per role (the Tailwind
+     ramp flattens, as elsewhere in H1). The `/NN` suffix mirrors Tailwind's `/opacity`. Only the values
+     that actually occur are defined. */
+  .bdr-green\/30 { border-color: color-mix(in srgb, var(--c-success) 30%, transparent); }
+  .bdr-green\/40 { border-color: color-mix(in srgb, var(--c-success) 40%, transparent); }
+  .bdr-green\/50 { border-color: color-mix(in srgb, var(--c-success) 50%, transparent); }
+  .bdr-amber\/40 { border-color: color-mix(in srgb, var(--c-warning) 40%, transparent); }
+  .bdr-amber\/50 { border-color: color-mix(in srgb, var(--c-warning) 50%, transparent); }
+  .bdr-amber\/60 { border-color: color-mix(in srgb, var(--c-warning) 60%, transparent); }
+  .bdr-red\/40   { border-color: color-mix(in srgb, var(--c-danger) 40%, transparent); }
+  .bdr-red\/50   { border-color: color-mix(in srgb, var(--c-danger) 50%, transparent); }
+  .bdr-red\/60   { border-color: color-mix(in srgb, var(--c-danger) 60%, transparent); }
+  .tint-green\/50 { background-color: color-mix(in srgb, var(--c-success-bg) 50%, transparent); }
+  .tint-green\/60 { background-color: color-mix(in srgb, var(--c-success-bg) 60%, transparent); }
+  .tint-amber\/50 { background-color: color-mix(in srgb, var(--c-warning-bg) 50%, transparent); }
+  .tint-amber\/60 { background-color: color-mix(in srgb, var(--c-warning-bg) 60%, transparent); }
+  .hover-accent-red:hover   { color: var(--c-danger); }
+  .hover-accent-amber:hover { color: var(--c-warning); }
+  .hover-tint-red:hover     { background-color: var(--c-danger-bg); }
+  .hover-tint-green:hover   { background-color: var(--c-success-bg); }
   /* On a selected (brown .tab-active) row the dark accent text would be illegible on brown —
      let it take the row's light color, so a selected row stays fully readable like the Domains table. */
   .tab-active .accent-red, .tab-active .accent-green, .tab-active .accent-amber { color: inherit; }
@@ -584,7 +606,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- Clock-held banner — names exactly what greys the advance buttons, with jump links. -->
     <template x-if="advanceBlockers().length > 0">
-      <div class="border-2 border-red-700/60 rounded p-3 tint-red text-sm">
+      <div class="border-2 bdr-red/60 rounded p-3 tint-red text-sm">
         <div class="font-semibold mb-1">⏸ The clock is held — resolve these before the world advances:</div>
         <template x-for="b in advanceBlockers()" :key="b.kind + '-' + b.id">
           <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
@@ -1768,7 +1790,7 @@ document.addEventListener('alpine:init', () => {
                   <td class="capitalize accent-red font-semibold" x-text="e.phase"></td>
                   <td class="text-right whitespace-nowrap">
                     <button @click="openEncounterModal(e.id)" class="underline accent-red font-semibold">⚔ resolve</button>
-                    <button @click="dismissEncounter(e.id, encounterLabel(e))" class="underline opacity-70 hover:opacity-100 hover:text-red-800 ml-3" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and clear it from the queue — without walking the full panel">✕ dismiss</button>
+                    <button @click="dismissEncounter(e.id, encounterLabel(e))" class="underline opacity-70 hover:opacity-100 hover-accent-red ml-3" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and clear it from the queue — without walking the full panel">✕ dismiss</button>
                   </td>
                 </tr>
               </template>
@@ -2476,7 +2498,7 @@ document.addEventListener('alpine:init', () => {
       </template>
 
       <!-- cost preview -->
-      <div class="border border-amber-800/40 rounded p-2 text-xs" style="background:#efe6cf">
+      <div class="border bdr-amber/40 rounded p-2 text-xs" style="background:#efe6cf">
         <div class="font-semibold mb-0.5">Cost preview (RR p.388):</div>
         <div>Material (paid now): <span class="font-mono" x-text="researchNewCosts().materialCostGp.toLocaleString() + 'gp'"></span></div>
         <div>Research (labor over time): <span class="font-mono" x-text="researchNewCosts().researchCostGp.toLocaleString() + 'gp'"></span></div>
@@ -2717,7 +2739,7 @@ document.addEventListener('alpine:init', () => {
             <button x-show="lairDetailLair().status === 'active'"
                     :disabled="!lairAttackReady().ok"
                     @click="lairAttack()"
-                    :class="lairAttackReady().ok ? 'border-red-700/60 accent-red hover:bg-red-50 font-semibold' : 'border-ink/30 opacity-50 cursor-not-allowed'"
+                    :class="lairAttackReady().ok ? 'bdr-red/60 accent-red hover-tint-red font-semibold' : 'border-ink/30 opacity-50 cursor-not-allowed'"
                     class="px-2 py-0.5 border rounded"
                     :title="lairAttackReady().ok ? 'March on the den — opens the encounter panel (distance, surprise, parley or combat); resolution stays the GM’s' : lairAttackReady().reason">⚔ Attack</button>
             <button x-show="!lairDetailLair().knownToPlayers && lairDetailLair().status !== 'dynamic'" @click="lairMarkDiscovered()" class="btn" title="The players learn of this lair (GM reveal — searches & tracking also discover)">👁 Mark discovered</button>
@@ -3444,7 +3466,7 @@ document.addEventListener('alpine:init', () => {
                     <button x-show="encIdentityRerollable() && !encModal.identityPick" @click="encModal.identityPick = true; encModal.identityPickRarity = encModalEnc().rarity || ((encIdentityTableInfo() || {}).rarity || 'common'); encModal.identityPickValue = ''" class="btn ml-1" title="Choose the creature from the appropriate table instead of rolling">pick from table</button>
                   </p>
                   <p class="opacity-70" x-text="encBindingText()"></p>
-                  <div x-show="encModal.identityPick" class="border border-amber-700/50 rounded p-1.5 mt-1 space-y-1" style="background:#fdf6e3">
+                  <div x-show="encModal.identityPick" class="border bdr-amber/50 rounded p-1.5 mt-1 space-y-1" style="background:#fdf6e3">
                     <div class="flex items-center gap-1 flex-wrap">
                       <template x-if="encModalEnc().category === 'monster'">
                         <select x-model="encModal.identityPickRarity" @change="encModal.identityPickValue = ''" class="border border-ink rounded px-1 py-0.5 text-xs">
@@ -3592,7 +3614,7 @@ document.addEventListener('alpine:init', () => {
                offered = the GM's intent call; pursuing = the daily trail. Party follow
                (E5, direction 'party'): tracking = the quarry walked daily by the Day
                Clock; caught/lost/abandoned = the read-only record. -->
-          <div class="border border-amber-700/40 rounded p-2 text-xs space-y-1" style="background:#fdf3e7" x-show="encModalEnc().pursuit">
+          <div class="border bdr-amber/40 rounded p-2 text-xs space-y-1" style="background:#fdf3e7" x-show="encModalEnc().pursuit">
             <h4 class="font-semibold text-sm" x-text="((encModalEnc().pursuit || {}).direction === 'party') ? '🐾 Tracking (RR p.120)' : '🐺 Pursuit (RR p.285 + p.120 · monster-pursuit)'"></h4>
             <template x-if="(encModalEnc().pursuit || {}).status === 'offered'">
               <div class="space-y-1">
@@ -3771,7 +3793,7 @@ document.addEventListener('alpine:init', () => {
           <!-- E3a — the settle proposal (linger or migrate, JJ p.103). Transient: ⟳ re-rolls, the
                dungeon tick recomputes vs the held naturals (the E2h idiom), confirm materializes.
                Also serves the resolved-EVADED offer (the banner button below) — hence no active gate. -->
-          <div class="border border-amber-700/40 rounded p-2 space-y-1 text-xs" style="background:#f7f1df" x-show="encModal.settle">
+          <div class="border bdr-amber/40 rounded p-2 space-y-1 text-xs" style="background:#f7f1df" x-show="encModal.settle">
             <div class="flex items-center justify-between">
               <h4 class="font-semibold text-sm">🏚 Settles as lair? <span class="font-normal opacity-60">(linger or migrate — JJ p.103)</span></h4>
               <button @click="encModal.settle = null" class="btn" title="Cancel — leave the encounter open (nothing was written)">×</button>
@@ -3785,11 +3807,11 @@ document.addEventListener('alpine:init', () => {
             <div x-text="encSettleOutcomeText()"></div>
             <div class="flex items-center gap-2 mt-1">
               <button @click="encModalProposeSettle()" class="btn" title="Re-roll the settle dice (still only a proposal)">⟳</button>
-              <button @click="encModalConfirmSettle()" class="px-2 py-0.5 border border-ink rounded font-semibold" :class="encModal.settle && encModal.settle.lingers ? 'tint-green hover:bg-green-200' : 'bg-yellow-100 hover:bg-yellow-200'" x-text="encSettleConfirmLabel()"></button>
+              <button @click="encModalConfirmSettle()" class="px-2 py-0.5 border border-ink rounded font-semibold" :class="encModal.settle && encModal.settle.lingers ? 'tint-green hover-tint-green' : 'bg-yellow-100 hover:bg-yellow-200'" x-text="encSettleConfirmLabel()"></button>
             </div>
           </div>
           <template x-if="encModalEnc().status === 'resolved'">
-            <div class="border border-green-600/40 rounded p-2" style="background:#eef7ea">
+            <div class="border bdr-green/40 rounded p-2" style="background:#eef7ea">
               <span class="capitalize font-semibold" x-text="encModalEnc().outcome"></span>
               <span class="opacity-70" x-text="' · turn ' + (encModalEnc().resolvedAtTurn == null ? '?' : encModalEnc().resolvedAtTurn) + (encModalEnc().resolvedOnDayInMonth ? ', day ' + encModalEnc().resolvedOnDayInMonth : '')"></span>
               <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + encAttitudeText(encModalEnc().reaction)"></span>
@@ -4571,7 +4593,7 @@ document.addEventListener('alpine:init', () => {
       <!-- E8 (RR p.285) — the landmark mode: the recovery for a knowingly-lost journey. Always a
            specific POI (−4 baked in below); success flips the journey back to in-transit. -->
       <template x-if="searchHex.landmarkJourneyId">
-        <div class="text-xs px-2 py-1.5 border border-red-700/40 rounded" style="background:#fdecec">
+        <div class="text-xs px-2 py-1.5 border bdr-red/40 rounded" style="background:#fdecec">
           🧭 <span class="font-semibold">Searching for the party's last known landmark</span> (RR p.285 — a specific point of interest, −4). Finding it recovers the lost journey's bearings; the hour still triggers an encounter throw.
         </div>
       </template>
@@ -4779,7 +4801,7 @@ document.addEventListener('alpine:init', () => {
       <!-- Continental-scale breadcrumb (team agent-3, HW-4) — shown only at the 24-mile scale. The
            regional Show: row is hidden here (symbols/edges/journeys are 6-mile concepts); weather IS
            native at 24-mile (§7.3), so it stays available. Click a cell on the map to drill back in. -->
-      <div x-show="mapScale === 'continental'" class="vellum border border-amber-500/60 bg-amber-50/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" x-cloak>
+      <div x-show="mapScale === 'continental'" class="vellum border bdr-amber/60 tint-amber/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" x-cloak>
         <span class="font-semibold">⬣ Continental view (24-mile)</span>
         <span class="opacity-70" x-text="mapContinentalCells().length + (mapContinentalCells().length === 1 ? ' region' : ' regions') + ' · each aggregates ~16 six-mile hexes'"></span>
         <span class="italic opacity-60">— click a region to drill into it</span>
@@ -6822,7 +6844,7 @@ document.addEventListener('alpine:init', () => {
                     <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'accent-green' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
                     <td class="whitespace-nowrap">
                       <template x-if="bandRespondingArmy(g)">
-                        <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold accent-green border border-green-700/40" :title="'A garrison force is answering this band (' + bandRespondingStatus(g) + '). Manage it on the 🎖 Armies card — re-route or recall.'">🛡 Responding · <span x-text="bandRespondingStatus(g)"></span></span>
+                        <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold accent-green border bdr-green/40" :title="'A garrison force is answering this band (' + bandRespondingStatus(g) + '). Manage it on the 🎖 Armies card — re-route or recall.'">🛡 Responding · <span x-text="bandRespondingStatus(g)"></span></span>
                       </template>
                       <template x-if="!bandRespondingArmy(g)">
                         <button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)" :class="rulerUnawareOfBand(g) ? 'px-2 py-0.5 border border-ink/40 rounded text-xs opacity-50 cursor-not-allowed' : 'px-2 py-0.5 border border-ink rounded text-xs font-semibold hover-tint'" :title="rulerUnawareOfBand(g) ? 'Undetected — the ruler can’t sally until reconnaissance locates this band (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy</button>
@@ -8896,7 +8918,7 @@ document.addEventListener('alpine:init', () => {
       <!-- CoL-2 — end-of-month living-expenses + henchman-wage preview (read-only; the actual debit
            happens on commit). Mirrors the pending-events panel. Per-character target set on the Survival tab. -->
       <template x-if="turnLivingExpenseProposal && turnLivingExpenseProposal.ruleOn && (turnLivingExpenseProposal.charges||[]).length">
-        <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
+        <div class="mb-4 border-2 bdr-amber/50 rounded p-3" style="background:#f4ecd2">
           <h3 class="font-bold text-base mb-1">🏠 Living expenses + wages <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnLivingExpenseProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.173)'"></span></h3>
           <p class="text-sm opacity-70 mb-2 italic">Each self-supporting character pays living expenses for their lifestyle target (the lesser of the target and funds on hand — no debt); lieges pay their henchmen's wages. Adjust a character's target on their Survival tab.</p>
           <table class="w-full text-sm">
@@ -8926,7 +8948,7 @@ document.addEventListener('alpine:init', () => {
       <!-- ═══ SYNDICATES sub-tab — criminal-syndicate monthly tribute (RR p.362) ═══ -->
       <div x-show="monthlyTurnSubView==='syndicates'">
       <template x-if="turnSyndicateTributeProposal && turnSyndicateTributeProposal.ruleOn && (turnSyndicateTributeProposal.collections||[]).length">
-        <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
+        <div class="mb-4 border-2 bdr-amber/50 rounded p-3" style="background:#f4ecd2">
           <h3 class="font-bold text-base mb-1">🏛 Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
           <p class="text-sm opacity-70 mb-2 italic">Each active syndicate's monthly tribute is collected into its boss's purse — a boss "sits back and collects his ill-gotten gains." Turn off "Syndicates — auto-collect the monthly tribute" in the 🗡 Hijinks house rules to drive the take by hand.</p>
           <table class="w-full text-sm">
@@ -9371,7 +9393,7 @@ document.addEventListener('alpine:init', () => {
              daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
              the trail controls (rain lever, give up). -->
         <template x-if="window.ACKS.journeyTrackingPursuit && window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id)">
-          <div class="text-xs px-2 py-1.5 border border-amber-700/40 rounded flex flex-wrap items-center gap-2" style="background:#fdf3e7">
+          <div class="text-xs px-2 py-1.5 border bdr-amber/40 rounded flex flex-wrap items-center gap-2" style="background:#fdf3e7">
             <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
               — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
             <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="btn" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
@@ -9383,7 +9405,7 @@ document.addEventListener('alpine:init', () => {
              travel days — until the last known landmark is found (the Wilderness Search below,
              1 ancillary, encounter check included), the route is re-drawn, or the GM clears it. -->
         <template x-if="journeyDetail().status === 'lost'">
-          <div class="text-xs px-2 py-1.5 border border-red-700/50 rounded space-y-1" style="background:#fdecec">
+          <div class="text-xs px-2 py-1.5 border bdr-red/50 rounded space-y-1" style="background:#fdecec">
             <div>⚠ <span class="font-semibold accent-red">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
             <div class="flex flex-wrap items-center gap-2">
               <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw">🔍 Search for the landmark</button>
@@ -9491,7 +9513,7 @@ document.addEventListener('alpine:init', () => {
           <!-- CoL-1 lifestyle banner: in a settlement / stronghold / a realm ruled by a traveller (or a
                companion), no rations or water are spent — the party lives off the lifestyle (RR p.278). -->
           <template x-if="journeyProvisioningInfo(journeyDetail()).onLifestyle">
-            <div class="mb-2 text-xs accent-green bg-green-50/60 border border-green-700/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="journeyProvisioningInfo(journeyDetail()).label" x-text="' · ' + journeyProvisioningInfo(journeyDetail()).label"></span></div>
+            <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="journeyProvisioningInfo(journeyDetail()).label" x-text="' · ' + journeyProvisioningInfo(journeyDetail()).label"></span></div>
           </template>
           <div class="flex flex-wrap gap-4">
             <span title="Total ration days across all travellers + the party camp">🍖 Food: <span class="font-semibold" x-text="journeyTotalFoodDays(journeyDetail())"></span> day(s)</span>
@@ -11103,7 +11125,7 @@ document.addEventListener('alpine:init', () => {
                 <!-- CoL-1 lifestyle banner (Joachim 2026-06-06): in a settlement / stronghold / a realm the
                      party's ruler holds, no rations or water are spent — they live off the lifestyle. -->
                 <template x-if="rationsShown() && partyMembers(pt).length > 0 && partyProvisioningInfo(pt).onLifestyle">
-                  <div class="mb-2 text-xs accent-green bg-green-50/60 border border-green-700/30 rounded px-2 py-1 max-w-3xl">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
+                  <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1 max-w-3xl">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
                 </template>
                 <template x-if="partyMembers(pt).length === 0">
                   <p class="text-sm italic opacity-60">No members. Add characters below.</p>
@@ -12533,10 +12555,10 @@ document.addEventListener('alpine:init', () => {
                         </div>
                         <div class="text-sm flex items-center gap-2" x-show="recruitState.negotiations[cid] && recruitState.negotiations[cid].rollResult">
                           <button @click="recruitDecide(cid,'hire')"
-                                  class="px-3 py-1 border border-ink rounded text-sm hover:bg-green-100"
+                                  class="px-3 py-1 border border-ink rounded text-sm hover-tint-green"
                                   :class="recruitState.negotiations[cid].decision === 'hire' ? 'bg-green-200 font-semibold' : ''">✓ Hire</button>
                           <button @click="recruitDecide(cid,'reject')"
-                                  class="px-3 py-1 border border-ink rounded text-sm hover:bg-red-100"
+                                  class="px-3 py-1 border border-ink rounded text-sm hover-tint-red"
                                   :class="recruitState.negotiations[cid].decision === 'reject' ? 'bg-red-200 font-semibold' : ''">✗ Reject</button>
                           <button @click="recruitDecide(cid,'pending')"
                                   class="btn text-sm opacity-70">↩ Undo</button>
@@ -13702,7 +13724,7 @@ document.addEventListener('alpine:init', () => {
                   <span class="text-xs opacity-70" x-text="'· ' + r.breed + ' · ' + r.training + (r.role!=='mount' ? (' · '+r.role) : '')"></span>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
-                  <button @click="mountToggleJourney(m, characterEditing)" :class="mountOnActiveJourney(m, characterEditing) ? 'tint-green border-green-700/50' : 'hover-tint'" class="text-xs px-1.5 py-0.5 border border-ink rounded" :title="mountActiveJourney(characterEditing) ? 'Toggle this mount on the active journey (sets pace + feeding)' : 'Start a journey first to assign a mount'" x-text="mountOnActiveJourney(m, characterEditing) ? '✓ on journey' : '+ journey'"></button>
+                  <button @click="mountToggleJourney(m, characterEditing)" :class="mountOnActiveJourney(m, characterEditing) ? 'tint-green bdr-green/50' : 'hover-tint'" class="text-xs px-1.5 py-0.5 border border-ink rounded" :title="mountActiveJourney(characterEditing) ? 'Toggle this mount on the active journey (sets pace + feeding)' : 'Start a journey first to assign a mount'" x-text="mountOnActiveJourney(m, characterEditing) ? '✓ on journey' : '+ journey'"></button>
                   <button @click="inspectorOpenInspect('mount', m.id)" class="text-xs btn" title="Edit every field (barding, cargo, rider, role) via the Inspector">🔍</button>
                   <button @click="mountRemove(m)" class="btn text-xs accent-red" title="Remove">×</button>
                 </div>
@@ -13729,7 +13751,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="rationsShown()">
           <div class="space-y-3" x-data="{ get reg(){ return characterSurvivalRegime(characterEditing); } }">
             <!-- Regime banner: on lifestyle (no consumption) vs in the field (daily food + water) -->
-            <div class="rounded p-3 border" :class="reg.onLifestyle ? 'border-green-700/40 bg-green-50/50' : 'border-amber-700/40 bg-amber-50/50'">
+            <div class="rounded p-3 border" :class="reg.onLifestyle ? 'bdr-green/40 tint-green/50' : 'bdr-amber/40 tint-amber/50'">
               <div class="flex items-center gap-2">
                 <span x-text="reg.onLifestyle ? '🏠' : '🏕'"></span>
                 <span class="font-semibold text-sm" x-text="reg.onLifestyle ? 'On lifestyle' : 'In the field'"></span>
@@ -13858,7 +13880,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- Cost of Living (moved from Survival) — apparent level, lifestyle target, last paid, pay source -->
         <template x-if="isHouseRuleEnabled('living-expenses')">
-          <div class="border border-amber-700/40 rounded p-3 space-y-2" style="background:#f4ecd2">
+          <div class="border bdr-amber/40 rounded p-3 space-y-2" style="background:#f4ecd2">
             <h4 class="font-semibold text-sm flex items-center gap-2">🏠 Cost of living <span class="text-xs font-normal opacity-60">(RR p.173)</span></h4>
             <div class="text-sm flex items-center gap-2 flex-wrap">
               <span class="w-40">Apparent level (to NPCs)</span>
@@ -13905,7 +13927,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="h in ex.henchmen" :key="h.id">
                   <tr class="border-b border-ink/10">
                     <td class="py-1">
-                      <button class="underline hover:text-amber-800" @click="openCharacterEditor((currentCampaign.characters||[]).find(x=>x.id===h.id))" x-text="h.name || '(unnamed)'"></button>
+                      <button class="underline hover-accent-amber" @click="openCharacterEditor((currentCampaign.characters||[]).find(x=>x.id===h.id))" x-text="h.name || '(unnamed)'"></button>
                     </td>
                     <td class="capitalize opacity-80" x-text="h.role"></td>
                     <td class="text-center font-mono" x-text="h.level"></td>
@@ -13928,7 +13950,7 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- Total monthly expenses = lifestyle keep (when the rule is on) + henchmen wages -->
-        <div class="border-2 border-amber-800/50 rounded p-3 flex items-center justify-between" style="background:#efe6cf">
+        <div class="border-2 bdr-amber/50 rounded p-3 flex items-center justify-between" style="background:#efe6cf">
           <span class="font-semibold text-sm">Total monthly expenses</span>
           <span class="font-mono font-bold text-base" x-text="ex.total.toLocaleString() + ' gp'"></span>
         </div>
@@ -17476,7 +17498,7 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="(k.source && (k.source.kind==='told-by' || k.source.kind==='gossip')) && k.source.byId">
                         <span class="opacity-60 italic" x-text="'⛓ ' + knowledgeChainText(k.knowerKind, k.knowerId, l.id)" title="Provenance trail — who told whom, back to the origin (Wave B)"></span>
                       </template>
-                      <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover:text-red-700" title="Forget (drop this record)">✕</button>
+                      <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover-accent-red" title="Forget (drop this record)">✕</button>
                     </li>
                   </template>
                 </ul>
@@ -19177,7 +19199,7 @@ document.addEventListener('alpine:init', () => {
                     <button @click="svtEscalate(i)" class="btn btn-danger"
                             title="Mint a full Encounter so the GM can walk the RAW pre-combat procedure (distance → surprise → reaction → combat, RR pp.280–287) in Review ▸ ⚔ Encounters">⚔ Escalate to encounter</button>
                   </div>
-                  <template x-if="inc.escalatedEncounterId"><div class="text-xs mt-1"><button @click="svtGoToEncounter(inc.escalatedEncounterId)" class="underline accent-red hover:text-red-900 font-semibold" title="Open the escalated encounter in Review ▸ ⚔ Encounters">⚔ Escalated → open in ⚔ Encounters</button></div></template>
+                  <template x-if="inc.escalatedEncounterId"><div class="text-xs mt-1"><button @click="svtGoToEncounter(inc.escalatedEncounterId)" class="underline accent-red hover-accent-red font-semibold" title="Open the escalated encounter in Review ▸ ⚔ Encounters">⚔ Escalated → open in ⚔ Encounters</button></div></template>
                 </div>
               </template>
             </div>
@@ -19282,7 +19304,7 @@ document.addEventListener('alpine:init', () => {
 
       <!-- live forecast -->
       <template x-if="magicMarketForecast()">
-        <div class="border border-ink/40 rounded bg-amber-50/60 p-2 text-sm space-y-0.5">
+        <div class="border border-ink/40 rounded tint-amber/60 p-2 text-sm space-y-0.5">
           <template x-if="!magicMarketForecast().available"><div class="accent-red" x-text="'Cannot price this item: ' + (magicMarketForecast().reason || '?')"></div></template>
           <template x-if="magicMarketForecast().available">
             <div>
@@ -19605,7 +19627,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-baseline justify-between gap-3 border-b border-ink/30 pb-2 mb-3">
           <h2 class="text-xl font-bold whitespace-nowrap">🛠 Class Builder</h2>
           <span class="text-xs italic opacity-60 hidden md:block">Point-buy custom class (#154, JJ pp.289–331) — store the allocation + choices; the engine derives the rest</span>
-          <button @click="closeClassBuilder()" class="text-lg leading-none px-2 hover:text-red-700" title="Close">✕</button>
+          <button @click="closeClassBuilder()" class="text-lg leading-none px-2 hover-accent-red" title="Close">✕</button>
         </div>
 
         <div class="grid md:grid-cols-2 gap-4">
@@ -19692,7 +19714,7 @@ document.addEventListener('alpine:init', () => {
               <ul class="text-xs space-y-0.5">
                 <template x-for="(d, i) in ccBuilder.drawbacks" :key="'dbi'+i">
                   <li class="flex justify-between gap-2"><span x-text="d.name + ' (' + d.powerWeight + ' power)'"></span>
-                    <button @click="ccRemoveDrawback(i)" class="opacity-60 hover:text-red-700">✕</button></li>
+                    <button @click="ccRemoveDrawback(i)" class="opacity-60 hover-accent-red">✕</button></li>
                 </template>
               </ul>
             </fieldset>
@@ -19719,7 +19741,7 @@ document.addEventListener('alpine:init', () => {
               <ul class="text-xs space-y-0.5">
                 <template x-for="(p, i) in ccBuilder.powers" :key="'pwi'+i">
                   <li class="flex justify-between gap-2"><span x-text="p.name + ' · ' + p.powerWeight + 'pw' + (p.levelUnlocked > 1 ? ' @L' + p.levelUnlocked + ' (½)' : '')"></span>
-                    <button @click="ccRemovePower(i)" class="opacity-60 hover:text-red-700">✕</button></li>
+                    <button @click="ccRemovePower(i)" class="opacity-60 hover-accent-red">✕</button></li>
                 </template>
               </ul>
             </fieldset>
@@ -19788,7 +19810,7 @@ document.addEventListener('alpine:init', () => {
     <div class="modal-card max-w-2xl w-full max-h-[90vh] overflow-y-auto p-4" x-data>
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-lg font-bold">👑 Dynasty <span class="text-sm font-normal opacity-70">· AXIOMS 19 · <span x-text="(dynModalChar()||{}).name || ''"></span></span></h3>
-        <button @click="dynModal.open=false" class="text-xl leading-none px-2 hover:text-red-700" title="Close">×</button>
+        <button @click="dynModal.open=false" class="text-xl leading-none px-2 hover-accent-red" title="Close">×</button>
       </div>
       <p x-show="dynModal.lastResult" class="text-sm accent-blue mb-2" x-text="dynModal.lastResult"></p>
 
