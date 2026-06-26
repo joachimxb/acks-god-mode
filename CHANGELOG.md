@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-06-26
+
 ### Added
 - **A bleeding treasury now has consequences (RR p.349).** When a domain ends a month **insolvent** — its treasury actually in the red, not merely running a deficit it can still cover from reserves — its ruler could not pay the garrison that month, so the realm's **next domain-morale roll takes a penalty**: −1 the first insolvent month, deepening by 1 for each consecutive month the coffers stay empty (to a maximum of −4), and clearing the first month you are back in the black. Sustained insolvency therefore drags morale down — which collapses income (a sullen populace works less) and raises bandits from the unpaid and the disaffected (RR p.351). An empty treasury is no longer just a number that falls forever; it sets a realm sliding toward unrest. A wealthy domain absorbing a lean month from its reserves is untouched — the penalty bites only once the reserves are truly gone.
 
