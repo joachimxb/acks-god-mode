@@ -11,13 +11,18 @@
 //
 // FORBIDDEN (this pass eliminated them — a re-introduction is the drift returning):
 //     emerald, orange, rose, gray, slate, zinc, neutral
-// STILL ALLOWED for now (the NEXT convergence target — these raw families still appear and need
-// per-node semantic judgment to route onto the tokens; a deferred H1 follow-on, NOT a failure here):
+// STILL ALLOWED (these raw families still appear and stay allowed — they need per-node judgment):
 //     green, amber, yellow, red   (+ stone is the warm-neutral target; sky/blue/purple/etc. untouched)
 //
 // Scope = index.html + the domain-app*.js mixins. The 2026-06-25 follow-on swept the mixins' 14
 // straggler utilities (orange→amber, gray→stone) and extended this guard to cover them too.
-// (Routing the still-allowed green/amber/yellow/red families onto the --c-* tokens remains the next pass.)
+//
+// TOKEN-ROUTING (2026-06-26): the high-confidence STATIC green/amber/red utilities were routed onto the
+// --c-* tokens via a small class layer — text→.accent-{green,red,amber} (color), bg→.tint-{…} (the -bg
+// token), border→.bdr-{…} (the role colour). This guard now LOCKS those classes (a silent revert is the
+// drift returning). What remains green/amber/yellow/red-raw (and still allowed above) is the deferred
+// follow-on: the :class ternary literals (incl. shade-gradients), variant-prefixed (hover:/focus:),
+// opacity-suffixed, the yellow highlight/selection family (not a semantic role), and the mixins.
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -76,6 +81,20 @@ ok('the verbatim legacy button signature is gone (migrated to .btn)',
    !html.includes('border border-ink rounded hover:bg-yellow-100'));
 ok('.accent-green routes through the --c-success token (one success green)',
    /\.accent-green\s*\{\s*color:\s*var\(--c-success\)/.test(html));
+
+// Token-routing (2026-06-26) — lock the semantic class layer the static green/amber/red utilities route onto.
+ok('.accent-red routes through the --c-danger token (was the hardcoded #7a1f1f)',
+   /\.accent-red\s*\{\s*color:\s*var\(--c-danger\)/.test(html));
+ok('.accent-amber routes through the --c-warning token',
+   /\.accent-amber\s*\{\s*color:\s*var\(--c-warning\)/.test(html));
+ok('the .tint-{green,amber,red} background classes route through the --c-*-bg tokens',
+   /\.tint-green\s*\{\s*background-color:\s*var\(--c-success-bg\)/.test(html) &&
+   /\.tint-amber\s*\{\s*background-color:\s*var\(--c-warning-bg\)/.test(html) &&
+   /\.tint-red\s*\{\s*background-color:\s*var\(--c-danger-bg\)/.test(html));
+ok('the .bdr-{green,amber,red} border classes route through the --c-* tokens',
+   /\.bdr-green\s*\{\s*border-color:\s*var\(--c-success\)/.test(html) &&
+   /\.bdr-amber\s*\{\s*border-color:\s*var\(--c-warning\)/.test(html) &&
+   /\.bdr-red\s*\{\s*border-color:\s*var\(--c-danger\)/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
