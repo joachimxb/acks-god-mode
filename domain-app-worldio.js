@@ -33,10 +33,14 @@
       { sheet:'Lairs',       kind:'lair',       coll:'lairs',       label:'Lairs' }
     ],
     FORMAT_VERSION: 1,
-    // SheetJS community build — version-pinned CDN + SRI (plan §9 / OQ6). Swappable to a
-    // vendored copy behind this shim if appsec / offline ever wins.
-    XLSX_URL: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-    XLSX_SRI: 'sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA=='
+    // SheetJS community build — VENDORED locally (plan §9 / OQ6: "swappable to a vendored copy if
+    // appsec wins" — the CSP `script-src 'self'` blocks remote scripts, so the CDN load was, and the
+    // vendored copy mirrors the Alpine/Tailwind vendoring). Still LAZY-injected on first panel use
+    // (881 KB stays off the critical path). Re-pin via:
+    //   curl -sL https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js -o vendor/xlsx-0.18.5.full.min.js
+    //   (verify: openssl dgst -sha512 -binary … | openssl base64 -A ==
+    //    r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA==)
+    XLSX_URL: 'vendor/xlsx-0.18.5.full.min.js'
   };
 
   // ─── Pure helpers (module-private; closed over by the members below) ───
@@ -119,18 +123,15 @@
     },
     _xlsxLoading: null,        // in-flight SheetJS load promise (dedupe)
 
-    // ── SheetJS lazy-loader (XLS-5) — pinned CDN + SRI + graceful failure ──
+    // ── SheetJS lazy-loader (XLS-5) — vendored, same-origin, lazy + graceful failure ──
     _worldEnsureXLSX(){
       if(window.XLSX) return Promise.resolve(window.XLSX);
       if(this._xlsxLoading) return this._xlsxLoading;
       this._xlsxLoading = new Promise(function(resolve, reject){
         var s = document.createElement('script');
-        s.src = WORLDIO.XLSX_URL;
-        s.integrity = WORLDIO.XLSX_SRI;
-        s.crossOrigin = 'anonymous';
-        s.referrerPolicy = 'no-referrer';
+        s.src = WORLDIO.XLSX_URL;     // a same-origin vendored file (CSP 'self'); no integrity/crossOrigin needed
         s.onload = function(){ window.XLSX ? resolve(window.XLSX) : reject(new Error('The spreadsheet library loaded but did not initialise.')); };
-        s.onerror = function(){ reject(new Error('Could not load the spreadsheet library (xlsx) from the CDN — check your internet connection and try again.')); };
+        s.onerror = function(){ reject(new Error('Could not load the spreadsheet library (xlsx). Try reloading the page.')); };
         document.head.appendChild(s);
       });
       // On failure, clear so a later retry re-attempts.
