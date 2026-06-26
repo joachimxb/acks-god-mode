@@ -23,6 +23,10 @@
 // drift returning). What remains green/amber/yellow/red-raw (and still allowed above) is the deferred
 // follow-on: the :class ternary literals (incl. shade-gradients), variant-prefixed (hover:/focus:),
 // opacity-suffixed, the yellow highlight/selection family (not a semantic role), and the mixins.
+//
+// MODAL SURFACE (2026-06-26): the 66 sized content dialogs hand-styled the same inline skeleton
+// (vellum + ink border + rounded + shadow) — routed to ONE token-driven .modal-card; the pre-existing
+// wide Action-Wizard .modal-panel pair had its hardcoded hex routed to tokens. This guard LOCKS both.
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -95,6 +99,21 @@ ok('the .bdr-{green,amber,red} border classes route through the --c-* tokens',
    /\.bdr-green\s*\{\s*border-color:\s*var\(--c-success\)/.test(html) &&
    /\.bdr-amber\s*\{\s*border-color:\s*var\(--c-warning\)/.test(html) &&
    /\.bdr-red\s*\{\s*border-color:\s*var\(--c-danger\)/.test(html));
+
+// Modal surface (H1, 2026-06-26) — the 66 sized content dialogs hand-styled the same inline skeleton
+// (vellum + border-ink + rounded + shadow) across two eras; routed to ONE token-driven .modal-card.
+// The pre-existing Action-Wizard pair (.modal-backdrop/.modal-panel, wide 60vw) kept its distinct look
+// but had its hardcoded hex routed to the tokens. Lock both (a silent revert is the drift returning).
+ok('.modal-card is defined and token-driven (vellum bg + 1px --c-border)',
+   /\.modal-card\s*\{[^}]*background:\s*var\(--c-vellum\)/.test(html) &&
+   /\.modal-card\s*\{[^}]*border:\s*1px solid var\(--c-border\)/.test(html));
+ok('the sized modals use .modal-card (>= 60 usages — guards a mass-revert)',
+   (html.match(/class="modal-card\b/g) || []).length >= 60);
+ok('no inline modal skeleton remains (the canonical `vellum border border-ink rounded shadow-lg` is routed)',
+   !html.includes('vellum border border-ink rounded shadow-lg'));
+ok('the Action-Wizard .modal-panel bg is routed to --c-parchment (hardcoded #f7f1e2 gone from the rule)',
+   /\.modal-panel\s*\{[^}]*background:\s*var\(--c-parchment\)/.test(html) &&
+   !/\.modal-panel\s*\{[^}]*#f7f1e2/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
