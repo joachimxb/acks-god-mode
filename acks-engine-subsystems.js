@@ -6568,12 +6568,13 @@ function commitIncursionReconRecord(campaign, record){
 //   • bandits count as an ENEMY ARMY (RR p.351): while they plague the domain the occupation
 //     penalty builds on the morale roll — 0 the first month, then −1 per month, cumulative
 //     (RR p.349) — moraleModifiersFor reads it off d.banditryOccupationMonths (lazy field).
-// NOT here (Phase 3 Military §4.2.1): the army-scale battle (+1 morale on defeating the
-// bandit army, prisoner release) and the cumulative-% NPC bandit-leader challenger.
+// The army-scale battle (+1 morale on defeating the bandit army, prisoner release) and the
+// cumulative-% NPC bandit-leader challenger are both SHIPPED (the battle aftermath in
+// acks-engine-battles.js + _processBanditryChallenger below).
 // 🔧 The band split is presentation (RAW musters the bandits as one army): one band per
 // domain hex, at most 6, sized evenly — the scale a travelling party actually meets.
-// Gated on the 'domain-morale-banditry' rule (default ON); OFF = no reconcile runs (any
-// already-risen bands stay as world entities — the founded-dens precedent, HR-Enc).
+// RAW core — banditry is RR pp.350–351; always on (the `domain-morale-banditry` house rule
+// was removed — bandits are pure RAW, not an opt-in).
 function banditryBandsForDomain(campaign, domainId){
   return ((campaign && campaign.groups) || []).filter(g => g && g.banditryDomainId === domainId);
 }
@@ -6735,10 +6736,11 @@ function processBanditryForTurn(campaign, options){
   const A = _jACKS();
   const o = options || {};
   const rng = o.rng || Math.random;
-  const out = { ruleOn: false, domains: [], logEntries: [] };
+  // Banditry is core RAW (RR pp.350–351) — always runs; a healthy domain (morale > −2) simply has
+  // banditCount 0, so the reconcile is a no-op. (Was gated behind the removed `domain-morale-banditry`
+  // house rule; `ruleOn` is kept true for any caller that still reads it.)
+  const out = { ruleOn: true, domains: [], logEntries: [] };
   if(!campaign) return out;
-  out.ruleOn = !!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'domain-morale-banditry'));
-  if(!out.ruleOn) return out;
   const turn = campaign.currentTurn || 1;
   campaign.groups = campaign.groups || [];
   const NAMES = A.MORALE_LEVEL_NAMES || {};
