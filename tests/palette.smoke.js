@@ -45,6 +45,12 @@
 // inline active-underline that sub-tab strips add (a :style ternary, was border-color:#2a1f12) route
 // onto the --c-border / --c-parchment / --c-ink tokens. (The activity-row fills + the broader raw hex
 // still in <style> rules + other inline styles are a named follow-on — "route the remaining raw hex".)
+//
+// TINTS CLOSED + PRINT (2026-06-29): the last 3 raw tints (table/input/scrollbar hairline + the arcane-
+// purple bg/fg) became :root tokens (--c-rule-hairline / --c-arcane / --c-arcane-bg) — every inline
+// colour now routes through a token — and the one-line print rule became a real @media print block. What
+// remains is VISIBLE redesign (typography scale, stone→warm retint, wordmark, emoji de-sat) — out of
+// scope here; those need design sign-off.
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -200,18 +206,32 @@ ok('the 5 core token colours appear only in their :root definitions (not raw in 
    (html.match(/#2a1f12/gi)||[]).length === 2 && (html.match(/#6b4f24/gi)||[]).length === 1 &&
    (html.match(/#faf6ea/gi)||[]).length === 1);
 
-// Bespoke-tint convergence (H1, 2026-06-26) — the ~45 hand-picked inline tints route onto role tokens
-// (danger/success/info/warning + the neutral creams → parchment/vellum + structural browns → border).
-// The 2 off-palette purples + the decorative scrollbar/border tan stay raw. Lock: no convergeable raw
-// hex remains in ANY inline style/:style value (the only raw inline hexes left are the 3 keeps + tokens).
+// Print stylesheet (H1, 2026-06-29) — the one-liner became real @media print rules for the ledgers/
+// sheets GMs print: repeat the table header per page, keep rows whole, darken the hairlines to ink.
+ok('the print stylesheet repeats ledger headers + keeps ledger rows whole',
+   /@media print\b[\s\S]*?display:\s*table-header-group/.test(html) &&
+   /@media print\b[\s\S]*?break-inside:\s*avoid/.test(html));
+
+// Decorative neutral + arcane accent (H1, 2026-06-29) — the last 3 raw tints (the warm table/input/
+// scrollbar hairline + the categorical arcane-purple bg/fg) are now :root tokens, used ONLY in their
+// definitions; everything else routes through var(--c-rule-hairline) / var(--c-arcane) / -bg.
+ok('--c-rule-hairline + --c-arcane(-bg) are defined in :root',
+   /--c-rule-hairline:\s*#c4b88f/.test(html) && /--c-arcane:\s*#6b21a8/.test(html) && /--c-arcane-bg:\s*#f4eefb/.test(html));
+ok('the hairline + arcane hexes appear only in their :root definitions (not raw in <style>/inline)',
+   (html.match(/#c4b88f/gi)||[]).length === 1 && (html.match(/#6b21a8/gi)||[]).length === 1 &&
+   (html.match(/#f4eefb/gi)||[]).length === 1);
+
+// Bespoke-tint convergence (H1, 2026-06-26; closed 2026-06-29) — the hand-picked inline tints route onto
+// role tokens (danger/success/info/warning + creams → parchment/vellum + browns → border). The final
+// holdouts (the 2 arcane purples + the table-hairline tan) are now :root tokens too. Lock: NO raw 6-hex
+// remains in ANY inline style/:style value — every inline colour is a var() / color-mix() on a token.
 {
-  const TOKVAL = new Set(['#2f7d32','#d8ead9','#9a6a14','#f4e3bd','#7a1f1f','#f0d6d6','#1f4e6b','#d6e6f0','#2a1f12','#6b4f24','#f7f1e2','#faf6ea','#e7c46c','#3a1414','#c08a3e']);
-  const KEEP = new Set(['#6b21a8','#f4eefb','#c4b88f']);
+  const TOKVAL = new Set(['#2f7d32','#d8ead9','#9a6a14','#f4e3bd','#7a1f1f','#f0d6d6','#1f4e6b','#d6e6f0','#2a1f12','#6b4f24','#f7f1e2','#faf6ea','#e7c46c','#3a1414','#c08a3e','#6b21a8','#f4eefb','#c4b88f']);
   let rawTints = 0;
   for (const a of html.matchAll(/(?::style|x-bind:style|style)\s*=\s*("|')([\s\S]*?)\1/g))
     for (const hx of (a[2].match(/#[0-9a-fA-F]{6}/g) || []))
-      if (!TOKVAL.has(hx.toLowerCase()) && !KEEP.has(hx.toLowerCase())) rawTints++;
-  ok('no bespoke raw tint remains in inline styles (all 7 families converged to tokens; 3 keeps allowed)',
+      if (!TOKVAL.has(hx.toLowerCase())) rawTints++;
+  ok('no raw tint remains in inline styles (every inline colour routes through a token)',
      rawTints === 0, rawTints + ' raw tint(s) still inline');
 }
 

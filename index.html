@@ -360,23 +360,35 @@ document.addEventListener('alpine:init', () => {
      some sub-tab strips add is the --c-ink token too (routed in the inline :style ternaries). */
   .tab-active { background: var(--c-border); color: var(--c-parchment); }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: #c4b88f; border-radius: 3px; }
-  @media print { .no-print { display: none !important; } body, .parchment, .vellum { background: white !important; } }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--c-rule-hairline); border-radius: 3px; }
+  @media print {
+    /* H1 (2026-06-29) — real print rules for the ledgers/sheets GMs print (audit 🟠); was a one-liner.
+       All inside @media print, so the on-screen rendering is untouched. */
+    .no-print { display: none !important; }
+    body, .parchment, .vellum { background: white !important; }
+    body { font-size: 11pt; }
+    .parchment, .vellum { box-shadow: none !important; }
+    table.bookkeeping thead { display: table-header-group; }   /* repeat ledger headers on each page */
+    table.bookkeeping tr { break-inside: avoid; }              /* don't split a ledger row across a page */
+    /* the light tan hairlines vanish on white paper — darken them to ink so the ledger rules print */
+    table.bookkeeping td, table.bookkeeping th { border-bottom-color: var(--c-ink) !important; }
+    table.bookkeeping tr.subtotal td, table.bookkeeping tr.total td { border-top-color: var(--c-ink) !important; }
+  }
   /* Editable-stat component styles (new GM stat-editing standard).
      Inline display + unlock-to-edit pattern. */
   .ed-stat { display: inline-flex; align-items: center; gap: 4px; }
   .ed-stat .ed-val { font-family: monospace; }
-  .ed-stat .ed-btn { font-size: 0.75rem; padding: 0 4px; border: 1px solid #c4b88f; border-radius: 3px; background: rgba(255,255,255,0.6); cursor: pointer; }
+  .ed-stat .ed-btn { font-size: 0.75rem; padding: 0 4px; border: 1px solid var(--c-rule-hairline); border-radius: 3px; background: rgba(255,255,255,0.6); cursor: pointer; }
   .ed-stat .ed-btn:hover { background: var(--c-vellum); }
   .ed-stat .ed-edit { font-size: 0.75rem; opacity: 0.6; cursor: pointer; background: none; border: none; padding: 0 2px; }
   .ed-stat .ed-edit:hover { opacity: 1; }
   .ed-stat .ed-input { width: 6rem; font-size: 0.875rem; padding: 2px 6px; }
   input[type=number], input[type=text], select, textarea {
-    background: rgba(255,255,255,0.6); border: 1px solid #c4b88f; border-radius: 3px; padding: 2px 6px;
+    background: rgba(255,255,255,0.6); border: 1px solid var(--c-rule-hairline); border-radius: 3px; padding: 2px 6px;
   }
   input[type=number] { width: 6rem; }
   table.bookkeeping { width: 100%; border-collapse: collapse; }
-  table.bookkeeping td, table.bookkeeping th { padding: 3px 8px; border-bottom: 1px dotted #c4b88f; }
+  table.bookkeeping td, table.bookkeeping th { padding: 3px 8px; border-bottom: 1px dotted var(--c-rule-hairline); }
   table.bookkeeping th { text-align: left; font-weight: 600; }
   /* let the text-right / text-center utilities win over the default left on bookkeeping headers
      (the bare `table.bookkeeping th` rule outranks a plain `.text-right` class) so numeric
@@ -451,6 +463,11 @@ document.addEventListener('alpine:init', () => {
        archetype split). The .40 drift on a few dialogs converges up to the .45 standard. */
     --c-backdrop:        rgba(0,0,0,0.45);
     --c-backdrop-strong: rgba(0,0,0,0.55);
+    /* Structural neutral + the one categorical (non-role) accent, tokenized so :root is the sole colour
+       source (H1, 2026-06-29). The hairline is the warm table/input/scrollbar rule the bookkeeping
+       primitive is built on; the arcane purple is the magic-research surfaces' accent. */
+    --c-rule-hairline:   #c4b88f;
+    --c-arcane:          #6b21a8;   --c-arcane-bg: #f4eefb;
   }
   /* Button hierarchy. Apply .btn + an optional variant; the primary action gets .btn-primary
      (heavier border + the gold fill) so the eye finds it against the warm ground. These set
@@ -2498,7 +2515,7 @@ document.addEventListener('alpine:init', () => {
 
       <!-- experiment config (AD-M4): risk a mishap for advantages + a chance at a breakthrough (RR pp.408–411) -->
       <template x-if="researchExperimentAvailable()">
-        <div class="space-y-1.5 border rounded p-2" style="border-color:#6b21a833; background:#f4eefb">
+        <div class="space-y-1.5 border rounded p-2" style="border-color:color-mix(in srgb, var(--c-arcane) 20%, transparent); background:var(--c-arcane-bg)">
           <label class="flex items-center gap-2 font-semibold text-sm"><input type="checkbox" x-model="researchNew.experimentOn"> 🧪 Experiment <span class="opacity-60 font-normal text-[11px]">(RR pp.408–411 — risk a mishap for an advantage + a chance at a breakthrough)</span></label>
           <template x-if="researchNew.experimentOn">
             <div class="space-y-1.5">
@@ -12517,7 +12534,7 @@ document.addEventListener('alpine:init', () => {
                              individuated in a prior session at this market;
                              surfaced first via the resurfacing house rule. -->
                         <template x-if="recruitIsResurfaced(cid)">
-                          <div class="text-sm" style="background:var(--c-parchment); border:1px solid #c4b88f; border-radius:3px; padding:2px 6px; display:inline-block;">
+                          <div class="text-sm" style="background:var(--c-parchment); border:1px solid var(--c-rule-hairline); border-radius:3px; padding:2px 6px; display:inline-block;">
                             <span>↻ Previously seen at this market</span>
                             <span class="opacity-70"> · surfaced by persistent-hireling-resurfacing</span>
                           </div>
@@ -14038,7 +14055,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="p.status==='awaiting-throw'">
                   <div class="space-y-2 border-t border-ink/20 pt-2">
                     <template x-if="p.experiment">
-                      <div class="text-[11px]" style="color:#6b21a8" x-text="'🧪 Experiment: ' + p.experiment.method + ' — ' + (p.experiment.advantages||[]).length + ' advantage' + ((p.experiment.advantages||[]).length===1?'':'s') + ' · a failed throw → a ' + researchMethodMishap(p.experiment.method) + ' mishap, but a big margin is a breakthrough.'"></div>
+                      <div class="text-[11px]" style="color:var(--c-arcane)" x-text="'🧪 Experiment: ' + p.experiment.method + ' — ' + (p.experiment.advantages||[]).length + ' advantage' + ((p.experiment.advantages||[]).length===1?'':'s') + ' · a failed throw → a ' + researchMethodMishap(p.experiment.method) + ' mishap, but a big margin is a breakthrough.'"></div>
                     </template>
                     <!-- component payment (only when there's a component cost) -->
                     <template x-if="(p.componentCostGp||0) > 0">
