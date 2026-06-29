@@ -191,26 +191,23 @@ ok('the raw scrolling-overlay shell is not re-inlined (the 6-class Tailwind shel
 ok('no Family-A inline backdrop pairing remains (z-index + background:var(--c-backdrop) folded into the class)',
    !/z-index:\d+; background:var\(--c-backdrop\)/.test(html));
 
-// Segmented controls (H1, 2026-06-26) — the selected tab/segmented pill + its inline active-underline
-// route through the --c-border / --c-parchment / --c-ink tokens (were raw hex).
-ok('.tab-active (the selected segmented control) is token-driven (raw hex gone from the rule)',
-   /\.tab-active\s*\{\s*background:\s*var\(--c-border\);\s*color:\s*var\(--c-parchment\)/.test(html) &&
+// Segmented controls (H1, 2026-06-26 → 2026-06-29) — the selected tab/segmented pill is a token-driven
+// fill. As of the 2026-06-29 follow-on it is the dark --c-ink (was the mid-brown --c-border); the inline
+// active-underline still routes through --c-ink. (raw hex stays out of the rule.)
+ok('.tab-active (the universal selected state) is the dark --c-ink token (was --c-border; no raw hex)',
+   /\.tab-active\s*\{\s*background:\s*var\(--c-ink\);\s*color:\s*var\(--c-parchment\)/.test(html) &&
    !/\.tab-active\s*\{[^}]*#[0-9a-fA-F]{6}/.test(html));
 ok('no raw segmented-control active-underline remains (the border-color:#2a1f12 :style ternary → --c-ink)',
    !/border-color:#2a1f12\b/.test(html));
 
-// Tab strips (H1 follow-on, 2026-06-29) — the SELECTED tab in the top nav + the 7 sub-tab strips is now
-// a dark INK fill: .tab-ink keeps the nav folder shape, .tab-pill = ink + full rounding + no underline
-// for the sub-tabs. .tab-active itself STAYS brown (the guard above) — it remains the highlight for the
-// selected Domains/Characters table rows, which deliberately do NOT carry tab-pill/tab-ink.
-ok('.tab-pill (the sub-tab strips) is a token-driven ink pill (radius + --c-ink fill)',
-   /\.tab-pill\s*\{[^}]*border-radius:\s*9999px/.test(html) &&
-   /\.tab-pill\.tab-active\s*\{\s*background:\s*var\(--c-ink\)/.test(html));
-ok('.tab-ink (the top nav) fills the selected tab with --c-ink, folder shape kept',
-   /\.tab-ink\.tab-active\s*\{\s*background:\s*var\(--c-ink\)/.test(html));
-ok('the nav carries tab-ink and the sub-tab strips carry tab-pill (>=7 strips)',
-   /border border-ink border-b-0 text-base tab-ink/.test(html) &&
-   (html.match(/border-b-2[^"]*tab-pill/g) || []).length >= 7);
+// Tab strips (H1 follow-on, 2026-06-29) — the SELECTED state is one dark --c-ink fill everywhere (nav
+// tabs, the sub-tab strips, the selected Domains/Characters table rows, the in-dialog toggles). The
+// underline tab strips (nav sub-tabs + the modal-sheet tabs: stash / ventures / character editor)
+// additionally carry .tab-pill = full rounding + no underline, so the selected tab reads as a pill.
+ok('.tab-pill renders the underline tab strips as a full pill (radius + no underline)',
+   /\.tab-pill\s*\{[^}]*border-radius:\s*9999px[^}]*border-bottom-width:\s*0/.test(html));
+ok('every underline tab strip (sub-tabs + modal-sheet tabs) carries tab-pill (>=12)',
+   (html.match(/border-b-2[^"]*tab-pill/g) || []).length >= 12);
 
 // Core token colours (H1, 2026-06-26) — the 5 core palette hexes are now used ONLY in their :root
 // definitions; everywhere else (<style> rules + inline styles) routes through var(). The bespoke

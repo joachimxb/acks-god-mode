@@ -351,21 +351,19 @@ document.addEventListener('alpine:init', () => {
   .hover-accent-amber:hover { color: var(--c-warning); }
   .hover-tint-red:hover     { background-color: var(--c-danger-bg); }
   .hover-tint-green:hover   { background-color: var(--c-success-bg); }
-  /* On a selected (brown .tab-active) row the dark accent text would be illegible on brown —
+  /* On a selected (dark .tab-active) row the dark accent text would be illegible on the ink —
      let it take the row's light color, so a selected row stays fully readable like the Domains table. */
   .tab-active .accent-red, .tab-active .accent-green, .tab-active .accent-amber { color: inherit; }
   details > summary { cursor: pointer; }
   /* The selected segmented-control / tab pill. H1 (2026-06-26): the hex is the border-brown + parchment
      tokens (byte-identical — var(--c-border) = --c-border, var(--c-parchment) = --c-parchment). The active-underline that
      some sub-tab strips add is the --c-ink token too (routed in the inline :style ternaries). */
-  .tab-active { background: var(--c-border); color: var(--c-parchment); }
-  /* H1 follow-on (2026-06-29): the nav + sub-tab strips show the SELECTED tab as a dark INK fill, not
-     the brown .tab-active block — which stays the highlight for selected TABLE ROWS (Domains/Characters)
-     and the inline editor underline tabs. .tab-ink = ink fill, keep shape (top nav folder tabs);
-     .tab-pill = ink fill + full rounding + no underline (the sub-tab strips). */
-  .tab-ink.tab-active { background: var(--c-ink); }
+  .tab-active { background: var(--c-ink); color: var(--c-parchment); }
+  /* H1 follow-on (2026-06-29): the SELECTED state is one dark --c-ink fill everywhere — the nav tabs,
+     the sub-tab strips, the selected Domains/Characters table rows, and the in-dialog segmented toggles
+     (Buy/Sell, deposit/withdraw, …). .tab-pill additionally renders the underline tab strips (the nav
+     sub-tabs + the modal-sheet tabs) as a full pill — rounding + no underline. */
   .tab-pill { border-radius: 9999px !important; border-bottom-width: 0 !important; }
-  .tab-pill.tab-active { background: var(--c-ink); }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--c-rule-hairline); border-radius: 3px; }
   @media print {
@@ -698,7 +696,7 @@ document.addEventListener('alpine:init', () => {
     <!-- H3-b, audit 2026-06-24: an empty (count 0) world tab is softened so the eye goes to where the content is. -->
     <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
             :class="(currentView === v.id ? 'tab-active' : 'hover-tint') + (v.alignRight ? ' ml-auto' : '') + (v.count === 0 ? ' opacity-60' : '')"
-            class="px-3 py-1 rounded-t border border-ink border-b-0 text-base tab-ink">
+            class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
       <svg class="ico" aria-hidden="true"><use :href="'#i-' + v.icon"></use></svg> <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
     </button>
@@ -3999,7 +3997,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex gap-1 px-4 pt-2 border-b border-ink/20 text-sm">
           <template x-for="t in [{id:'items',label:'Items'},{id:'activity',label:'Activity'},{id:'settings',label:'Settings'}]" :key="t.id">
-            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border-b-2" :style="stashDetailTab===t.id?'border-color:var(--c-ink)':'border-color:transparent'" x-text="t.label"></button>
+            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border-b-2 tab-pill" :style="stashDetailTab===t.id?'border-color:var(--c-ink)':'border-color:transparent'" x-text="t.label"></button>
           </template>
         </div>
         <!-- ITEMS -->
@@ -4443,8 +4441,8 @@ document.addEventListener('alpine:init', () => {
             <div class="space-y-3">
               <!-- Direction -->
               <div class="flex flex-wrap gap-1 text-sm">
-                <button @click="setStashTransferDir('deposit')" :class="stashTransferDir==='deposit' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded">Carry → stash (deposit)</button>
-                <button @click="setStashTransferDir('withdraw')" :class="stashTransferDir==='withdraw' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded">Stash → carry (withdraw)</button>
+                <button @click="setStashTransferDir('deposit')" :class="stashTransferDir==='deposit' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded-full">Carry → stash (deposit)</button>
+                <button @click="setStashTransferDir('withdraw')" :class="stashTransferDir==='withdraw' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded-full">Stash → carry (withdraw)</button>
               </div>
 
               <!-- Coins -->
@@ -4527,8 +4525,8 @@ document.addEventListener('alpine:init', () => {
           <span class="inline-block mt-1 px-2 py-1 border border-ink/40 rounded bg-yellow-50">🎖 <span x-text="((tradeArmy()&&tradeArmy().name)||'Army')+'’s camp'"></span> · Class <span class="font-semibold" x-text="tradeMarketClassRoman()||'—'"></span></span>
         </div>
         <div class="flex gap-1 text-sm">
-          <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded">Buy</button>
-          <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded">Sell</button>
+          <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded-full">Buy</button>
+          <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border border-ink/40 rounded-full">Sell</button>
         </div>
       </div>
       <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
@@ -4652,7 +4650,7 @@ document.addEventListener('alpine:init', () => {
       </label>
       <div class="flex gap-1 text-sm flex-wrap">
         <template x-for="k in [['water','🥤 Water'],['food','🌿 Food'],['firewood','🪵 Firewood'],['hunt','🏹 Hunt']]" :key="k[0]">
-          <button @click="forage.kind=k[0]" :class="(forage.kind===k[0] ? 'tab-active font-semibold' : 'hover-tint') + (forageKindFits(k[0]).fits ? '' : ' opacity-40')" :title="forageKindFits(k[0]).reason || k[1]" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
+          <button @click="forage.kind=k[0]" :class="(forage.kind===k[0] ? 'tab-active font-semibold' : 'hover-tint') + (forageKindFits(k[0]).fits ? '' : ' opacity-40')" :title="forageKindFits(k[0]).reason || k[1]" class="px-3 py-1 border border-ink/40 rounded-full" x-text="k[1]"></button>
         </template>
       </div>
       <template x-if="forageActor() && forageForecast()">
@@ -8590,19 +8588,19 @@ document.addEventListener('alpine:init', () => {
         <span class="text-sm opacity-70" x-text="pluralize((currentCampaign?.ventures||[]).length, 'total venture') + ' · ' + pluralize(venturerCharacters().length, 'venturer-active character')"></span>
       </div>
       <div class="flex flex-wrap gap-1 mt-2 border-b border-ink/40">
-        <button @click="venturesSubView='active'" :class="venturesSubView==='active' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='active' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='active'" :class="venturesSubView==='active' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="venturesSubView==='active' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           Active <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.ventures||[]).filter(v=>v.status!=='complete'&&v.status!=='failed').length + ')'"></span>
         </button>
-        <button @click="venturesSubView='history'" :class="venturesSubView==='history' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='history' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='history'" :class="venturesSubView==='history' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="venturesSubView==='history' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           History <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.ventures||[]).filter(v=>v.status==='complete'||v.status==='failed').length + ')'"></span>
         </button>
-        <button @click="venturesSubView='venturers'" :class="venturesSubView==='venturers' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='venturers' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='venturers'" :class="venturesSubView==='venturers' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="venturesSubView==='venturers' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           Venturers <span class="opacity-60 text-sm" x-text="'(' + venturerCharacters().length + ')'"></span>
         </button>
-        <button @click="venturesSubView='passive'" :class="venturesSubView==='passive' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='passive' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='passive'" :class="venturesSubView==='passive' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="venturesSubView==='passive' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           💰 Passive Investment <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.passiveInvestments||[]).filter(i=>i.enabled).length + '/' + (currentCampaign?.passiveInvestments||[]).length + ')'"></span>
         </button>
-        <button @click="venturesSubView='reference'" :class="venturesSubView==='reference' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='reference' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='reference'" :class="venturesSubView==='reference' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="venturesSubView==='reference' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           📖 Reference
         </button>
       </div>
@@ -10353,9 +10351,9 @@ document.addEventListener('alpine:init', () => {
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Inspector <span class="text-sm opacity-70 font-normal">· Browse, inspect, edit any entity in your campaign</span></h2>
       <div class="flex gap-1">
-        <button @click="inspectorSubView='browse'" :class="inspectorSubView==='browse' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border border-ink rounded">📋 Browse</button>
-        <button @click="inspectorSubView='inspect'" :disabled="!inspectorSelectedId" :class="inspectorSubView==='inspect' ? 'tab-active' : (!inspectorSelectedId ? 'opacity-40' : 'hover-tint')" class="px-3 py-1 text-sm border border-ink rounded">🔎 Inspect</button>
-        <button @click="inspectorOpenCreate(inspectorSelectedKind)" :disabled="!inspectorSelectedKind" :class="inspectorSubView==='create' ? 'tab-active' : (!inspectorSelectedKind ? 'opacity-40' : 'hover-tint')" class="px-3 py-1 text-sm border border-ink rounded">✨ Create</button>
+        <button @click="inspectorSubView='browse'" :class="inspectorSubView==='browse' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border border-ink rounded-full">📋 Browse</button>
+        <button @click="inspectorSubView='inspect'" :disabled="!inspectorSelectedId" :class="inspectorSubView==='inspect' ? 'tab-active' : (!inspectorSelectedId ? 'opacity-40' : 'hover-tint')" class="px-3 py-1 text-sm border border-ink rounded-full">🔎 Inspect</button>
+        <button @click="inspectorOpenCreate(inspectorSelectedKind)" :disabled="!inspectorSelectedKind" :class="inspectorSubView==='create' ? 'tab-active' : (!inspectorSelectedKind ? 'opacity-40' : 'hover-tint')" class="px-3 py-1 text-sm border border-ink rounded-full">✨ Create</button>
       </div>
     </div>
 
@@ -12777,7 +12775,7 @@ document.addEventListener('alpine:init', () => {
     <!-- Sub-tab bar inside the modal -->
     <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
-        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'" x-text="tab.label"></button>
+        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="characterEditorTab===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
     <div class="p-4 space-y-3" x-show="characterEditing">
