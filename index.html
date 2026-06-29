@@ -355,7 +355,10 @@ document.addEventListener('alpine:init', () => {
      let it take the row's light color, so a selected row stays fully readable like the Domains table. */
   .tab-active .accent-red, .tab-active .accent-green, .tab-active .accent-amber { color: inherit; }
   details > summary { cursor: pointer; }
-  .tab-active { background: #6b4f24; color: #f7f1e2; }
+  /* The selected segmented-control / tab pill. H1 (2026-06-26): the hex is the border-brown + parchment
+     tokens (byte-identical — #6b4f24 = --c-border, #f7f1e2 = --c-parchment). The active-underline that
+     some sub-tab strips add is the --c-ink token too (routed in the inline :style ternaries). */
+  .tab-active { background: var(--c-border); color: var(--c-parchment); }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #c4b88f; border-radius: 3px; }
   @media print { .no-print { display: none !important; } body, .parchment, .vellum { background: white !important; } }
@@ -600,14 +603,14 @@ document.addEventListener('alpine:init', () => {
       <button @click="reviewSubView=tab.id" role="tab" :aria-selected="reviewSubView===tab.id ? 'true' : 'false'"
               :class="reviewSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
               class="px-3 py-1 text-sm border-b-2"
-              :style="reviewSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+              :style="reviewSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
     <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
     <button @click="reviewSubView='annals'" role="tab" :aria-selected="reviewSubView==='annals' ? 'true' : 'false'"
             :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover-tint'"
             class="px-3 py-1 text-sm border-b-2"
-            :style="reviewSubView==='annals' ? 'border-color:#2a1f12' : 'border-color:transparent'">📖 Annals</button>
+            :style="reviewSubView==='annals' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">📖 Annals</button>
   </div>
 </div>
 
@@ -997,7 +1000,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="worldSubView=tab.id" role="tab" :aria-selected="worldSubView===tab.id ? 'true' : 'false'"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
               class="px-3 py-1 text-sm border-b-2"
-              :style="worldSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+              :style="worldSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
   </div>
@@ -3881,7 +3884,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="flex gap-1 px-4 pt-2 border-b border-ink/20 text-sm">
           <template x-for="t in [{id:'items',label:'Items'},{id:'activity',label:'Activity'},{id:'settings',label:'Settings'}]" :key="t.id">
-            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border-b-2" :style="stashDetailTab===t.id?'border-color:#2a1f12':'border-color:transparent'" x-text="t.label"></button>
+            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 border-b-2" :style="stashDetailTab===t.id?'border-color:var(--c-ink)':'border-color:transparent'" x-text="t.label"></button>
           </template>
         </div>
         <!-- ITEMS -->
@@ -5051,7 +5054,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="domainsSubView=tab.id" role="tab" :aria-selected="domainsSubView===tab.id ? 'true' : 'false'"
               :class="domainsSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
               class="px-3 py-1 text-sm border-b-2"
-              :style="domainsSubView===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+              :style="domainsSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
   </div>
@@ -8361,7 +8364,7 @@ document.addEventListener('alpine:init', () => {
     <button @click="activitiesSubView = tab.id"
             :class="activitiesSubView === tab.id ? 'tab-active font-semibold' : 'hover-tint'"
             class="px-3 py-1 text-sm border-b-2 whitespace-nowrap"
-            :style="activitiesSubView === tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+            :style="activitiesSubView === tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
             :disabled="!tab.ready" :title="tab.ready ? '' : tab.placeholderNote">
       <span x-text="tab.label"></span>
       <span x-show="tab.count != null" class="opacity-70 text-sm" x-text="'· ' + tab.count"></span>
@@ -8473,19 +8476,19 @@ document.addEventListener('alpine:init', () => {
         <span class="text-sm opacity-70" x-text="pluralize((currentCampaign?.ventures||[]).length, 'total venture') + ' · ' + pluralize(venturerCharacters().length, 'venturer-active character')"></span>
       </div>
       <div class="flex flex-wrap gap-1 mt-2 border-b border-ink/40">
-        <button @click="venturesSubView='active'" :class="venturesSubView==='active' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='active' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='active'" :class="venturesSubView==='active' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='active' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           Active <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.ventures||[]).filter(v=>v.status!=='complete'&&v.status!=='failed').length + ')'"></span>
         </button>
-        <button @click="venturesSubView='history'" :class="venturesSubView==='history' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='history' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='history'" :class="venturesSubView==='history' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='history' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           History <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.ventures||[]).filter(v=>v.status==='complete'||v.status==='failed').length + ')'"></span>
         </button>
-        <button @click="venturesSubView='venturers'" :class="venturesSubView==='venturers' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='venturers' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='venturers'" :class="venturesSubView==='venturers' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='venturers' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           Venturers <span class="opacity-60 text-sm" x-text="'(' + venturerCharacters().length + ')'"></span>
         </button>
-        <button @click="venturesSubView='passive'" :class="venturesSubView==='passive' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='passive' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='passive'" :class="venturesSubView==='passive' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='passive' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           💰 Passive Investment <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.passiveInvestments||[]).filter(i=>i.enabled).length + '/' + (currentCampaign?.passiveInvestments||[]).length + ')'"></span>
         </button>
-        <button @click="venturesSubView='reference'" :class="venturesSubView==='reference' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='reference' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+        <button @click="venturesSubView='reference'" :class="venturesSubView==='reference' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="venturesSubView==='reference' ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
           📖 Reference
         </button>
       </div>
@@ -8819,7 +8822,7 @@ document.addEventListener('alpine:init', () => {
               <button @click="monthlyTurnSubView=t.id"
                       :class="monthlyTurnSubView===t.id ? 'tab-active font-semibold' : 'hover-tint'"
                       class="px-3 py-1 text-sm border-b-2 rounded-t"
-                      :style="monthlyTurnSubView===t.id ? 'border-color:#2a1f12' : 'border-color:transparent'"
+                      :style="monthlyTurnSubView===t.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
                       x-text="t.label + (t.count != null ? ' · ' + t.count : '')"></button>
             </template>
           </div>
@@ -10616,7 +10619,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="houseRulesSubView=cat.id"
             :class="houseRulesSubView===cat.id ? 'tab-active' : 'hover-tint'"
             class="px-3 py-1 text-sm border-b-2"
-            :style="houseRulesSubView===cat.id ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
+            :style="houseRulesSubView===cat.id ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
             <span x-text="cat.label"></span>
             <span class="opacity-60 text-sm" x-text="'(' + HOUSERULES.filter(r=>r.category===cat.id&&isHouseRuleEnabled(r.id)).length + '/' + HOUSERULES.filter(r=>r.category===cat.id).length + ')'"></span>
           </button>
@@ -10678,7 +10681,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="rosterSubView=tab.id"
                   :class="rosterSubView===tab.id ? 'tab-active' : 'hover-tint'"
                   class="px-3 py-1 text-sm border-b-2"
-                  :style="rosterSubView===tab.id ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'"
+                  :style="rosterSubView===tab.id ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'"
                   x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
         </template>
       </div>
@@ -10808,7 +10811,7 @@ document.addEventListener('alpine:init', () => {
                 <button @click="(act.active || act.enabled) && runCharacterAction(act, row.c)"
                         :disabled="!act.active && !act.enabled"
                         :class="act.active ? 'cursor-pointer' : (act.enabled ? 'hover-tint cursor-pointer' : 'opacity-40 cursor-not-allowed')"
-                        :style="act.active ? 'background:#2a1f12;color:#f4ecd8;border-color:#2a1f12' : ''"
+                        :style="act.active ? 'background:#2a1f12;color:#f4ecd8;border-color:var(--c-ink)' : ''"
                         class="btn text-sm"
                         :title="act.title">
                   <span x-text="act.icon + ' ' + act.label"></span>
@@ -12661,7 +12664,7 @@ document.addEventListener('alpine:init', () => {
     <!-- Sub-tab bar inside the modal -->
     <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
-        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
+        <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
     <div class="p-4 space-y-3" x-show="characterEditing">

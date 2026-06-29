@@ -40,6 +40,11 @@
 // Wizard, kept heavier like its .modal-panel). z-index/alignment/scroll stay per-modal (functional).
 // This guard locks the tokens + that no raw dim returns AND the faint bg-black/5 + rgba(0,0,0,.03|.04)
 // surface tints survive (they are NOT backdrops and must not be swept).
+//
+// SEGMENTED CONTROLS (2026-06-26): the selected tab/segmented pill (.tab-active, was raw hex) + the
+// inline active-underline that sub-tab strips add (a :style ternary, was border-color:#2a1f12) route
+// onto the --c-border / --c-parchment / --c-ink tokens. (The activity-row fills + the broader raw hex
+// still in <style> rules + other inline styles are a named follow-on — "route the remaining raw hex".)
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -161,6 +166,14 @@ ok('no raw modal backdrop dim remains (inline rgba(0,0,0,.4|.45) + the Tailwind 
    !/\bbg-black\/40\b/.test(html));
 ok('the faint surface tints are untouched (bg-black/5 + rgba(0,0,0,.03|.04) survive — not over-swept)',
    /\bbg-black\/5\b/.test(html) && /rgba\(0,0,0,\.0[34]\)/.test(html));
+
+// Segmented controls (H1, 2026-06-26) — the selected tab/segmented pill + its inline active-underline
+// route through the --c-border / --c-parchment / --c-ink tokens (were raw hex).
+ok('.tab-active (the selected segmented control) is token-driven (raw hex gone from the rule)',
+   /\.tab-active\s*\{\s*background:\s*var\(--c-border\);\s*color:\s*var\(--c-parchment\)/.test(html) &&
+   !/\.tab-active\s*\{[^}]*#[0-9a-fA-F]{6}/.test(html));
+ok('no raw segmented-control active-underline remains (the border-color:#2a1f12 :style ternary → --c-ink)',
+   !/border-color:#2a1f12\b/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
