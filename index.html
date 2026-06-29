@@ -313,11 +313,11 @@ document.addEventListener('alpine:init', () => {
 <style>
   body { font-family: 'Iowan Old Style','Palatino Linotype',Palatino,'URW Palladio L',serif; }
   [x-cloak] { display: none !important; }
-  .ink { color: #2a1f12; }
-  .parchment { background: #f7f1e2; }
-  .vellum { background: #faf6ea; }
-  .border-ink { border-color: #6b4f24; }
-  .accent-red { color: var(--c-danger); }     /* H1 token-routing: token-sourced (was #7a1f1f — the same value) */
+  .ink { color: var(--c-ink); }
+  .parchment { background: var(--c-parchment); }
+  .vellum { background: var(--c-vellum); }
+  .border-ink { border-color: var(--c-border); }
+  .accent-red { color: var(--c-danger); }     /* H1 token-routing: token-sourced (was var(--c-danger) — the same value) */
   .accent-green { color: var(--c-success); }  /* H1: one success green — was #2f5a2f, now the --c-success token */
   .accent-amber { color: var(--c-warning); }  /* H1 token-routing: one warning amber */
   /* H1 token-routing (2026-06-26) — the semantic tint (background) + border companions to the .accent-* text
@@ -356,7 +356,7 @@ document.addEventListener('alpine:init', () => {
   .tab-active .accent-red, .tab-active .accent-green, .tab-active .accent-amber { color: inherit; }
   details > summary { cursor: pointer; }
   /* The selected segmented-control / tab pill. H1 (2026-06-26): the hex is the border-brown + parchment
-     tokens (byte-identical — #6b4f24 = --c-border, #f7f1e2 = --c-parchment). The active-underline that
+     tokens (byte-identical — var(--c-border) = --c-border, var(--c-parchment) = --c-parchment). The active-underline that
      some sub-tab strips add is the --c-ink token too (routed in the inline :style ternaries). */
   .tab-active { background: var(--c-border); color: var(--c-parchment); }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -367,7 +367,7 @@ document.addEventListener('alpine:init', () => {
   .ed-stat { display: inline-flex; align-items: center; gap: 4px; }
   .ed-stat .ed-val { font-family: monospace; }
   .ed-stat .ed-btn { font-size: 0.75rem; padding: 0 4px; border: 1px solid #c4b88f; border-radius: 3px; background: rgba(255,255,255,0.6); cursor: pointer; }
-  .ed-stat .ed-btn:hover { background: #faf6ea; }
+  .ed-stat .ed-btn:hover { background: var(--c-vellum); }
   .ed-stat .ed-edit { font-size: 0.75rem; opacity: 0.6; cursor: pointer; background: none; border: none; padding: 0 2px; }
   .ed-stat .ed-edit:hover { opacity: 1; }
   .ed-stat .ed-input { width: 6rem; font-size: 0.875rem; padding: 2px 6px; }
@@ -385,12 +385,12 @@ document.addEventListener('alpine:init', () => {
   table.bookkeeping th.text-center { text-align: center; }
   /* Extra column gutter (outranks the base `table.bookkeeping td` padding, like the text-right rule above). */
   table.bookkeeping th.col-gap-left, table.bookkeeping td.col-gap-left { padding-left: 1.75rem; }
-  table.bookkeeping tr.subtotal td { border-top: 1px solid #6b4f24; font-weight: 600; }
-  table.bookkeeping tr.total td { border-top: 2px double #6b4f24; font-weight: 700; }
+  table.bookkeeping tr.subtotal td { border-top: 1px solid var(--c-border); font-weight: 600; }
+  table.bookkeeping tr.total td { border-top: 2px double var(--c-border); font-weight: 700; }
   .modal-backdrop { position: fixed; inset: 0; background: var(--c-backdrop-strong); z-index: 50;
     overflow-y: auto; padding: 1rem; }
   /* The Action-Wizard modal pair (wide 60vw workspace). H1 (2026-06-26): hardcoded hex routed to the
-     --c-* tokens (byte-identical — #f7f1e2 = --c-parchment, #6b4f24 = --c-border). Distinct from the
+     --c-* tokens (byte-identical — var(--c-parchment) = --c-parchment, var(--c-border) = --c-border). Distinct from the
      sized content-dialog surface .modal-card below (vellum, border, rounded, shadow-lg). */
   .modal-panel { width: 60vw; max-width: 60vw; margin: 1rem auto; background: var(--c-parchment);
     border: 2px solid var(--c-border); border-radius: 6px;
@@ -409,7 +409,7 @@ document.addEventListener('alpine:init', () => {
     gap: 0.5rem; flex-wrap: wrap; padding: 0.35rem 0.5rem; background: rgba(231,196,108,0.12);
     border: 1px solid rgba(231,196,108,0.5); border-radius: 4px; }
   .wizard-forecast-row.wizard-no-chance { background: rgba(122,31,31,0.08);
-    border-color: rgba(122,31,31,0.4); color: #7a1f1f; font-weight: 600; }
+    border-color: rgba(122,31,31,0.4); color: var(--c-danger); font-weight: 600; }
   .wizard-eligibility-list { display: flex; flex-direction: column; gap: 0.4rem; }
   .wizard-eligibility-list .wizard-eligibility-item { padding: 0.5rem 0.7rem;
     border: 1px solid rgba(42,31,18,0.3); border-radius: 4px; background: rgba(247,241,226,0.6); }
@@ -424,8 +424,8 @@ document.addEventListener('alpine:init', () => {
   .wizard-deep-link::after { content: "\\2192"; opacity: 0.6; margin-left: 0.25rem;
     font-weight: 600; }
   /* Skip-state visuals (explicit CSS so they aren't filtered out by Tailwind CDN's JIT scanner) */
-  .skip-banner { border-top: 3px dashed #7a1f1f; margin-top: 6px; padding-top: 4px;
-    color: #7a1f1f; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+  .skip-banner { border-top: 3px dashed var(--c-danger); margin-top: 6px; padding-top: 4px;
+    color: var(--c-danger); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
   .skipped { opacity: 0.5; text-decoration: line-through; pointer-events: none; }
   .skipped input, .skipped textarea, .skipped select, .skipped button { text-decoration: line-through; }
   /* ═══════════ Semantic design system (graphic-designer audit C1/O3, 2026-06-14) ═══════════
@@ -521,10 +521,10 @@ document.addEventListener('alpine:init', () => {
      Row 2: campaign state (name, turn, pending events, advance month)
      Tab bar (further below, in its own <nav>)
      Each section is separated by a solid horizontal rule and ample vertical padding. -->
-<header class="no-print px-4 vellum" style="border-bottom: 2px solid #2a1f12;">
+<header class="no-print px-4 vellum" style="border-bottom: 2px solid var(--c-ink);">
   <!-- Row 1 — generous padding above (py-5) so the title doesn't kiss the top edge,
        padding-below + a solid divider before Row 2. -->
-  <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
+  <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid var(--c-ink);">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
     <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
@@ -1873,7 +1873,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- The launcher: two sides (army / garrison / monster band) × stances × awareness →
          the derived strategic situation (RR pp.461–462). -->
-    <div x-show="battleWizard" class="border-2 rounded p-3 mb-3" style="background:#f3ead8; border-color:#7a1f1f" x-cloak>
+    <div x-show="battleWizard" class="border-2 rounded p-3 mb-3" style="background:#f3ead8; border-color:var(--c-danger)" x-cloak>
       <template x-if="battleWizard">
         <div>
           <p class="font-bold text-sm mb-2">⚔ Set up a battle</p>
@@ -1965,7 +1965,7 @@ document.addEventListener('alpine:init', () => {
             <span x-show="battleWizardSituation() && !battleWizardSituation().battle" class="italic opacity-70"> — no battle occurs; the armies pass.</span>
           </div>
           <div class="mt-2 text-right">
-            <button @click="battleWizardCreate()" class="btn font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f" :disabled="!battleWizardSituation() || !battleWizardSituation().battle">⚔ Create the battle</button>
+            <button @click="battleWizardCreate()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)" :disabled="!battleWizardSituation() || !battleWizardSituation().battle">⚔ Create the battle</button>
           </div>
         </div>
       </template>
@@ -2158,7 +2158,7 @@ document.addEventListener('alpine:init', () => {
               <button @click="battleDiscard()" class="text-xs underline opacity-70">🗑 discard this setup</button>
               <div class="flex gap-2">
                 <button @click="battleAutoDeploy()" class="btn text-sm">↻ auto-deploy</button>
-                <button @click="battleBegin()" class="btn font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f">⚔ Begin the battle</button>
+                <button @click="battleBegin()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)">⚔ Begin the battle</button>
               </div>
             </div>
           </div>
@@ -2243,7 +2243,7 @@ document.addEventListener('alpine:init', () => {
             <div class="flex justify-between items-center mb-3">
               <button @click="battleRevertTurn()" class="text-xs underline opacity-70" x-show="battleLatestTurn() && battleLatestTurn()._pre">⟲ revert turn <span x-text="battleLatestTurn() ? battleLatestTurn().turnNumber : ''"></span></button>
               <span x-show="!(battleLatestTurn() && battleLatestTurn()._pre)"></span>
-              <button @click="battleRunTurn()" class="btn font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f" x-text="'▶ Fight battle turn ' + (battlePanel().turnNumber + 1)"></button>
+              <button @click="battleRunTurn()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)" x-text="'▶ Fight battle turn ' + (battlePanel().turnNumber + 1)"></button>
             </div>
           </div>
         </template>
@@ -2251,13 +2251,13 @@ document.addEventListener('alpine:init', () => {
         <!-- ENDED / RESOLVED: result + aftermath -->
         <template x-if="battlePanel().status === 'ended' || battlePanel().status === 'resolved'">
           <div class="mb-3">
-            <div class="border-2 rounded p-2 text-sm font-semibold" style="border-color:#7a1f1f; background:#f6e8e0">
+            <div class="border-2 rounded p-2 text-sm font-semibold" style="border-color:var(--c-danger); background:#f6e8e0">
               🏳 <span x-text="battlePanel().result && battlePanel().result.winner ? battlePanel().sides[battlePanel().result.winner].label + ' holds the field' : 'No victor'"></span>
               — ended by <span class="capitalize" x-text="battlePanel().result ? String(battlePanel().result.endedBy || '').replace(/-/g, ' ') : ''"></span>
               after <span x-text="battlePanel().result ? battlePanel().result.endedAtTurn : ''"></span> turn(s).
             </div>
             <div class="mt-2" x-show="battlePanel().status === 'ended' && !battlePanel().aftermath">
-              <button @click="battleResolveAftermath()" class="btn font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f">⚖ Resolve the aftermath</button>
+              <button @click="battleResolveAftermath()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)">⚖ Resolve the aftermath</button>
               <button @click="battleRevertTurn()" class="text-xs underline opacity-70 ml-2" x-show="battleLatestTurn() && battleLatestTurn()._pre">⟲ revert the final turn instead</button>
             </div>
             <template x-if="battlePanel().aftermath">
@@ -5253,7 +5253,7 @@ document.addEventListener('alpine:init', () => {
             <!-- Morale block (formerly "State of <name>") — now sits between Name and the
                  Overview/Ruler grid so it reads as a top-of-tab status banner. -->
             <div class="border-2 rounded p-3"
-              :style="(selectedDomain.demographics.morale >= 1) ? 'background:#e8f3df; border-color:#2f5a2f' : (selectedDomain.demographics.morale <= -1 ? 'background:#f5e2e2; border-color:#7a1f1f' : 'background:#f4ecd2; border-color:#6b4f24')">
+              :style="(selectedDomain.demographics.morale >= 1) ? 'background:#e8f3df; border-color:#2f5a2f' : (selectedDomain.demographics.morale <= -1 ? 'background:#f5e2e2; border-color:var(--c-danger)' : 'background:#f4ecd2; border-color:var(--c-border)')">
               <h2 class="font-bold text-lg mb-2">
                 Morale
                 <span class="text-base font-semibold ml-2" x-text="(selectedDomain.demographics.morale>=0?'+':'') + selectedDomain.demographics.morale"></span>
@@ -5617,7 +5617,7 @@ document.addEventListener('alpine:init', () => {
               <span class="opacity-80" x-text="moraleEffectSummary(selectedDomain.demographics.morale)"></span>
             </div>
 
-            <div x-show="banditCount(selectedDomain) > 0 || banditryBands(selectedDomain).length > 0" class="mt-3 p-2 rounded border-2" style="background:#f5e2e2; border-color:#7a1f1f">
+            <div x-show="banditCount(selectedDomain) > 0 || banditryBands(selectedDomain).length > 0" class="mt-3 p-2 rounded border-2" style="background:#f5e2e2; border-color:var(--c-danger)">
               <p class="text-sm font-bold accent-red">⚔ Bandits in the domain: <span x-text="banditCount(selectedDomain).toLocaleString()"></span></p>
               <p class="text-sm mt-1">Per ACKS RR p.350: at morale -4, one able-bodied man per family becomes a bandit; at -3, one per two families; at -2, one per five. Bandits count as an enemy army and reduce income (already factored into the morale-driven income adjustment). Raise morale to disperse them, or hunt them down with the garrison — defeating bandits raises morale by 1 (the population falls by the bandits killed, RR p.351).</p>
               <!-- #476 E10 — the materialized banditry bands (RR pp.350–351, core RAW — always on) -->
@@ -7917,7 +7917,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="text-center">
                   <div class="text-sm font-semibold uppercase tracking-wide opacity-70">Treasury</div>
                   <svg width="180" height="40" viewBox="0 0 180 40" class="mx-auto" style="display:block">
-                    <polyline :points="sparklinePoints(historySeries(selectedDomain,'treasury'), 180, 40)" fill="none" stroke="#6b4f24" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                    <polyline :points="sparklinePoints(historySeries(selectedDomain,'treasury'), 180, 40)" fill="none" stroke="var(--c-border)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
                   </svg>
                   <div class="text-sm font-mono opacity-80 mt-1" x-text="sparklineRange(selectedDomain,'treasury') + ' gp'"></div>
                 </div>
@@ -7931,7 +7931,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="text-center">
                   <div class="text-sm font-semibold uppercase tracking-wide opacity-70">Population</div>
                   <svg width="180" height="40" viewBox="0 0 180 40" class="mx-auto" style="display:block">
-                    <polyline :points="sparklinePoints(historySeries(selectedDomain,'population'), 180, 40)" fill="none" stroke="#7a1f1f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                    <polyline :points="sparklinePoints(historySeries(selectedDomain,'population'), 180, 40)" fill="none" stroke="var(--c-danger)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
                   </svg>
                   <div class="text-sm font-mono opacity-80 mt-1" x-text="sparklineRange(selectedDomain,'population') + ' families'"></div>
                 </div>
@@ -8439,7 +8439,7 @@ document.addEventListener('alpine:init', () => {
                 <td style="text-align:left">
                   <span class="inline-block px-1.5 py-0.5 rounded text-xs"
                         :class="row.activity.cost === 'ancillary' ? 'border border-ink' : (row.activity.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
-                        :style="row.activity.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
+                        :style="row.activity.cost === 'dedicated' ? 'background:var(--c-ink);color:#f4ecd8' : ''"
                         x-text="row.activity.cost"></span>
                 </td>
                 <td class="text-right whitespace-nowrap">
@@ -10770,7 +10770,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="text-xs opacity-60 w-20 shrink-0 whitespace-nowrap">Dedicated</span>
                 <span class="flex flex-wrap gap-1">
                   <template x-for="(a, i) in (row.budget.dedicated || [])" :key="'d:' + (a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
-                    <span class="inline-block px-1.5 py-0.5 rounded text-xs" style="background:#2a1f12;color:#f4ecd8" :title="'dedicated' + (a.strenuous ? ' · strenuous' : '')">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs" style="background:var(--c-ink);color:#f4ecd8" :title="'dedicated' + (a.strenuous ? ' · strenuous' : '')">
                       <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
                     </span>
                   </template>
@@ -10811,7 +10811,7 @@ document.addEventListener('alpine:init', () => {
                 <button @click="(act.active || act.enabled) && runCharacterAction(act, row.c)"
                         :disabled="!act.active && !act.enabled"
                         :class="act.active ? 'cursor-pointer' : (act.enabled ? 'hover-tint cursor-pointer' : 'opacity-40 cursor-not-allowed')"
-                        :style="act.active ? 'background:#2a1f12;color:#f4ecd8;border-color:var(--c-ink)' : ''"
+                        :style="act.active ? 'background:var(--c-ink);color:#f4ecd8;border-color:var(--c-ink)' : ''"
                         class="btn text-sm"
                         :title="act.title">
                   <span x-text="act.icon + ' ' + act.label"></span>
@@ -10916,7 +10916,7 @@ document.addEventListener('alpine:init', () => {
                   <span x-text="c.level || '—'"></span>
                   <template x-if="characterRecentLevelUp(c)">
                     <span class="ml-1 inline-block px-1 rounded font-semibold"
-                          style="background:#fff7d6;border:1px solid #2a1f12"
+                          style="background:#fff7d6;border:1px solid var(--c-ink)"
                           :title="'Leveled up last turn (Turn ' + characterRecentLevelUp(c).prevTurn + '): L' + characterRecentLevelUp(c).oldLevel + ' → L' + characterRecentLevelUp(c).newLevel + (characterRecentLevelUp(c).steps > 1 ? ' (' + characterRecentLevelUp(c).steps + ' levels in one month)' : '') + ', +' + characterRecentLevelUp(c).hpGain + ' HP'"
                           x-text="characterRecentLevelUp(c).steps > 1 ? '↑↑' : '↑'"></span>
                   </template>
@@ -11644,7 +11644,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
      style="z-index:60; background:var(--c-backdrop)" x-cloak @click.self="closeSettlementSheet()">
   <template x-if="settlementSheetId && settlementSheet()">
-  <div class="modal-card w-full max-w-5xl my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-5xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🏘 <span x-text="settlementSheet().name || '(unnamed settlement)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· ' + settlementType(settlementSheet())"></span></h2>
       <button @click="closeSettlementSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
@@ -12562,7 +12562,7 @@ document.addEventListener('alpine:init', () => {
                             <div class="flex items-center gap-2 flex-wrap">
                               <span class="font-mono text-sm" x-text="'nat ' + recruitState.negotiations[cid].rollResult.natRoll + ' + mod ' + ((recruitState.negotiations[cid].rollResult.modifier >= 0) ? '+' : '') + recruitState.negotiations[cid].rollResult.modifier + ' = ' + recruitState.negotiations[cid].rollResult.adjusted"></span>
                               <span class="px-3 py-1 border-2 rounded-full text-sm font-bold whitespace-nowrap"
-                                    :style="recruitState.negotiations[cid].rollResult.accent === 'green' ? 'background:#e8f3df; color:#2f5a2f; border-color:#2f5a2f' : recruitState.negotiations[cid].rollResult.accent === 'amber' ? 'background:#f4ecd2; color:#6b4f24; border-color:#6b4f24' : 'background:#f5e2e2; color:#7a1f1f; border-color:#7a1f1f'"
+                                    :style="recruitState.negotiations[cid].rollResult.accent === 'green' ? 'background:#e8f3df; color:#2f5a2f; border-color:#2f5a2f' : recruitState.negotiations[cid].rollResult.accent === 'amber' ? 'background:#f4ecd2; color:var(--c-border); border-color:var(--c-border)' : 'background:#f5e2e2; color:var(--c-danger); border-color:var(--c-danger)'"
                                     x-text="recruitState.negotiations[cid].rollResult.bandLabel"></span>
                               <span class="opacity-70 italic text-sm" x-text="recruitState.negotiations[cid].rollResult.note"></span>
                             </div>
@@ -14392,9 +14392,9 @@ document.addEventListener('alpine:init', () => {
               <template x-for="(h,hi) in [...(characterEditing.history||[])].reverse()" :key="hi">
                 <div class="border-l-2 pl-2 py-1 mb-1" :style="
                   h.type==='level-up' ? 'border-color:#2f5a2f; background:#e8f3df' :
-                  h.type==='death'    ? 'border-color:#7a1f1f; background:#f5e2e2' :
+                  h.type==='death'    ? 'border-color:var(--c-danger); background:#f5e2e2' :
                   h.type==='restore'  ? 'border-color:#2f5a2f' :
-                  h.type==='xp'       ? 'border-color:#6b4f24' :
+                  h.type==='xp'       ? 'border-color:var(--c-border)' :
                   h.type==='venture'  ? 'border-color:#4a5a8a' :
                   'border-color:#888'">
                   <div class="flex justify-between items-baseline gap-2 mb-0.5" style="font-weight:700; text-transform:uppercase; font-size:0.8rem; letter-spacing:0.02em">
@@ -14437,7 +14437,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="border-l-2 pl-2 py-1 mb-1" :style="
                   t.arrived                   ? 'border-color:#2f5a2f; background:#e8f3df' :
                   t.lost                      ? 'border-color:#7a5a1f; background:#f3ecd9' :
-                  t.kind==='journey-aborted'  ? 'border-color:#7a1f1f' :
+                  t.kind==='journey-aborted'  ? 'border-color:var(--c-danger)' :
                   t.kind==='journey-start'    ? 'border-color:#4a5a8a' :
                   t.kind==='journey-rerouted' ? 'border-color:#4a5a8a' :
                   'border-color:#888'">
@@ -14575,7 +14575,7 @@ document.addEventListener('alpine:init', () => {
       </div>
       <!-- CoL-2 — apparent-level penalty pre-fill (RR p.170): a henchman outranking his employer's
            apparent level rolls at −1/level. Shown when it applies (the penalty may exceed ±2). -->
-      <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:#7a1f1f"
+      <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:var(--c-danger)"
          x-text="'⚠ ' + loyaltyRollState.apparentNote"></p>
       <p x-show="loyaltyRollState.officeNote" class="text-sm -mt-1 accent-green"
          x-text="'📜 ' + loyaltyRollState.officeNote"></p>
@@ -14598,7 +14598,7 @@ document.addEventListener('alpine:init', () => {
             <!-- Band badge -->
             <div>
               <span class="px-3 py-1 border-2 rounded-full text-base font-bold whitespace-nowrap"
-                    :style="loyaltyRollState.rollResult.accent === 'green' ? 'background:#e8f3df; color:#2f5a2f; border-color:#2f5a2f' : loyaltyRollState.rollResult.accent === 'amber' ? 'background:#f4ecd2; color:#6b4f24; border-color:#6b4f24' : 'background:#f5e2e2; color:#7a1f1f; border-color:#7a1f1f'"
+                    :style="loyaltyRollState.rollResult.accent === 'green' ? 'background:#e8f3df; color:#2f5a2f; border-color:#2f5a2f' : loyaltyRollState.rollResult.accent === 'amber' ? 'background:#f4ecd2; color:var(--c-border); border-color:var(--c-border)' : 'background:#f5e2e2; color:var(--c-danger); border-color:var(--c-danger)'"
                     x-text="loyaltyRollState.rollResult.bandLabel"></span>
               <span x-show="loyaltyRollState.rollResult.loyaltyDelta !== 0"
                     class="ml-2 font-semibold"
@@ -15632,7 +15632,7 @@ document.addEventListener('alpine:init', () => {
      interrupt; polite otherwise. -->
 <div x-show="toast" x-cloak class="no-print toast-bar" :class="toastType ? ('toast-' + toastType) : ''"
      role="status" aria-atomic="true" :aria-live="toastType === 'error' ? 'assertive' : 'polite'"
-     style="position:fixed; top:0; left:0; right:0; padding:0.75rem 1.5rem; z-index:9999; background:#2a1f12; color:#fff; font-weight:500; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+     style="position:fixed; top:0; left:0; right:0; padding:0.75rem 1.5rem; z-index:9999; background:var(--c-ink); color:#fff; font-weight:500; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span x-text="toast" style="color:#fff"></span>
 </div>
 
@@ -15994,7 +15994,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="profThrow.open" @keydown.escape.window="if(profThrow.open && !$event.defaultPrevented){ closeProficiencyThrowModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeProficiencyThrowModal()">
   <template x-if="profThrow.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🎲 Proficiency Throw <span class="text-sm font-normal opacity-70">· RR pp.9–10</span></h2>
       <button @click="closeProficiencyThrowModal()" class="text-xl px-2">×</button>
@@ -16124,7 +16124,7 @@ document.addEventListener('alpine:init', () => {
             <div class="text-xs italic opacity-70" x-show="profThrow.result.autoResolved" x-text="'Auto-resolved — ' + (profThrow.result.autoReason||'trivial') + ' (no die rolled)'"></div>
             <div>
               <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
-                    :style="profThrow.result.success ? 'background:#e8f3df;color:#2f5a2f;border-color:#2f5a2f' : 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f'"
+                    :style="profThrow.result.success ? 'background:#e8f3df;color:#2f5a2f;border-color:#2f5a2f' : 'background:#f5e2e2;color:var(--c-danger);border-color:var(--c-danger)'"
                     x-text="profThrow.result.success ? '✓ Success' : '✗ Failure'"></span>
               <span class="ml-2 text-sm opacity-70" x-show="!profThrow.secret && profThrow.result.margin!=null" x-text="'(margin ' + (profThrow.result.margin>=0?'+':'') + profThrow.result.margin + ')'"></span>
               <span class="ml-2 text-sm font-semibold accent-red" x-show="profThrow.result.botch" x-text="profThrow.result.fumbleEffect ? ('✗ botch — ' + profThrow.result.fumbleEffect) : '✗ botch (natural ' + profThrow.result.natural + ')'"></span>
@@ -16296,7 +16296,7 @@ document.addEventListener('alpine:init', () => {
           <div>
             <!-- capture-ready banner -->
             <template x-if="siegePanelProgress().captureReady && currentSiege().status!=='resolved'">
-              <div class="mb-3 p-2 rounded border-2 text-sm font-semibold" style="border-color:#7a1f1f; background:#f6e3e3; color:#7a1f1f">🚩 The stronghold's defenses are spent — the besieger may take it. Resolve the siege below (or storm it with an assault).</div>
+              <div class="mb-3 p-2 rounded border-2 text-sm font-semibold" style="border-color:var(--c-danger); background:#f6e3e3; color:var(--c-danger)">🚩 The stronghold's defenses are spent — the besieger may take it. Resolve the siege below (or storm it with an assault).</div>
             </template>
 
             <!-- profile grid -->
@@ -16366,7 +16366,7 @@ document.addEventListener('alpine:init', () => {
                     <button @click="siegeResolve(currentSiege(),'captured')" class="btn text-xs font-semibold" style="border-color:#2f5a2f;color:#2f5a2f">🏯 Capture</button>
                     <button @click="siegeResolve(currentSiege(),'destroyed')" class="btn text-xs">💥 Destroy (rubble)</button>
                     <button @click="siegeResolve(currentSiege(),'surrendered')" class="btn text-xs">🏳 Surrender</button>
-                    <button @click="siegeResolve(currentSiege(),'lifted')" class="btn text-xs" style="border-color:#7a1f1f;color:#7a1f1f">↩ Lift (withdraw)</button>
+                    <button @click="siegeResolve(currentSiege(),'lifted')" class="btn text-xs" style="border-color:var(--c-danger);color:var(--c-danger)">↩ Lift (withdraw)</button>
                   </div>
                 </div>
                 <!-- === @b14-construction (team) — 🧱 Siege works: build-over-time circumvallation + war-machine
@@ -16415,7 +16415,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="recordWound.open" @keydown.escape.window="if(recordWound.open && !$event.defaultPrevented){ closeRecordWoundModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeRecordWoundModal()">
   <template x-if="recordWound.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">⚔ Record a Mortal Wound <span class="text-sm font-normal opacity-70">· RR pp.300–301</span></h2>
       <button @click="closeRecordWoundModal()" class="text-xl px-2">×</button>
@@ -16473,7 +16473,7 @@ document.addEventListener('alpine:init', () => {
                x-text="'1d20 ' + recordWound.result.d20 + (recordWound.result.modifierTotal ? (' ' + (recordWound.result.modifierTotal>=0?'+':'') + recordWound.result.modifierTotal) : '') + ' = ' + recordWound.result.modified"></div>
           <div>
             <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
-                  :style="recordWound.result.killed ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                  :style="recordWound.result.killed ? 'background:#f5e2e2;color:var(--c-danger);border-color:var(--c-danger)' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
                   x-text="recordWound.result.conditionLabel"></span>
             <span class="ml-2 text-xs opacity-70" x-text="recordWound.result.cite"></span>
           </div>
@@ -16527,7 +16527,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="treasureWizard.open" @keydown.escape.window="if(treasureWizard.open && !$event.defaultPrevented){ closeTreasureWizard(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeTreasureWizard()">
   <template x-if="treasureWizard.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
       <button @click="closeTreasureWizard()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
@@ -16641,7 +16641,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="sageConsult.open" @keydown.escape.window="if(sageConsult.open && !$event.defaultPrevented){ closeSageConsultModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeSageConsultModal()">
   <template x-if="sageConsult.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
       <button @click="closeSageConsultModal()" class="text-xl px-2">×</button>
@@ -16876,7 +16876,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="foray.open" @keydown.escape.window="if(foray.open && !$event.defaultPrevented){ closeForayWizard(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeForayWizard()">
   <template x-if="foray.open">
-  <div class="modal-card w-full max-w-2xl my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">⚔ Abstract Dungeon Foray <span class="text-sm font-normal opacity-70">· JJ ch.12</span></h2>
       <button @click="closeForayWizard()" class="text-xl px-2">×</button>
@@ -17013,7 +17013,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="exposeDisease.open" @keydown.escape.window="if(exposeDisease.open && !$event.defaultPrevented){ closeExposeDiseaseModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeExposeDiseaseModal()">
   <template x-if="exposeDisease.open">
-  <div class="modal-card w-full max-w-md my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🤒 Expose to a disease <span class="text-sm font-normal opacity-70">· JJ p.84</span></h2>
       <button @click="closeExposeDiseaseModal()" class="text-xl px-2">×</button>
@@ -17048,7 +17048,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="exposeDisease.result.infected !== false">
             <div>
               <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
-                    :style="exposeDisease.result.willDie ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                    :style="exposeDisease.result.willDie ? 'background:#f5e2e2;color:var(--c-danger);border-color:var(--c-danger)' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
                     x-text="exposeDisease.result.diseaseLabel"></span>
               <span class="ml-2 text-xs opacity-70">JJ p.84</span>
               <p class="text-sm mt-1" x-text="'Death save ' + exposeDisease.result.saveTotal + ' vs ' + exposeDisease.result.saveTarget + '+ failed → infected. Symptoms in ' + exposeDisease.result.onsetDays + ' day' + (exposeDisease.result.onsetDays===1?'':'s') + ', then ' + exposeDisease.result.symptomDays + ' day' + (exposeDisease.result.symptomDays===1?'':'s') + ' symptomatic.'"></p>
@@ -17599,7 +17599,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="applyConditionModal.open" @keydown.escape.window="if(applyConditionModal.open && !$event.defaultPrevented){ closeApplyConditionModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeApplyConditionModal()">
   <template x-if="applyConditionModal.open">
-  <div class="modal-card w-full max-w-md my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🥶 Apply a condition <span class="text-sm font-normal opacity-70">· RR pp.507–516</span></h2>
       <button @click="closeApplyConditionModal()" class="text-xl px-2">×</button>
@@ -17633,7 +17633,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="wildForay.open" @keydown.escape.window="if(wildForay.open && !$event.defaultPrevented){ closeWildForay(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeWildForay()">
   <template x-if="wildForay.open">
-  <div class="modal-card w-full max-w-2xl my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🗺 Abstract Wilderness Foray <span class="text-sm font-normal opacity-70">· JJ ch.13</span></h2>
       <button @click="closeWildForay()" class="text-xl px-2">×</button>
@@ -17959,7 +17959,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="senateInfluence.open" @keydown.escape.window="if(senateInfluence.open && !$event.defaultPrevented){ closeSenateInfluence(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeSenateInfluence()">
   <template x-if="senateInfluence.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🎯 Influence a senator <span class="text-sm font-normal opacity-70" x-text="'· ' + senateInfluenceSenator()"></span></h2>
       <button @click="closeSenateInfluence()" class="text-xl px-2">×</button>
@@ -18085,7 +18085,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="sageCommission.open" @keydown.escape.window="if(sageCommission.open && !$event.defaultPrevented){ closeSageCommissionModal(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeSageCommissionModal()">
   <template x-if="sageCommission.open">
-  <div class="modal-card w-full max-w-lg my-8" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
       <button @click="closeSageCommissionModal()" class="text-xl px-2">×</button>
@@ -18218,7 +18218,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="newMotion.open" @keydown.escape.window="if(newMotion.open && !$event.defaultPrevented){ closeNewMotion(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeNewMotion()">
   <template x-if="newMotion.open && newMotionSenate()">
-  <div class="modal-card w-full max-w-lg my-6" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-lg my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
         <h2 class="font-bold text-lg">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="newMotionSenate().name || 'the senate'"></span></span></h2>
@@ -18273,7 +18273,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="motionDetail.open" @keydown.escape.window="if(motionDetail.open && !$event.defaultPrevented){ closeMotionDetail(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeMotionDetail()">
   <template x-if="motionDetail.open && motionDetailMotion()">
-  <div class="modal-card w-full max-w-2xl my-6" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
         <h2 class="font-bold text-lg">📜 <span x-text="motionDetailMotion().title || motionDetailMatterLabel()"></span></h2>
@@ -18353,7 +18353,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="motionWizard.open" @keydown.escape.window="if(motionWizard.open && !$event.defaultPrevented){ closeMotionWizard(); $event.preventDefault() }"
      role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeMotionWizard()">
   <template x-if="motionWizard.open && motionWizardSenate()">
-  <div class="modal-card w-full max-w-2xl my-6" style="background:#f7f1e2">
+  <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
         <h2 class="font-bold text-lg">🗳 Senate voting<span class="font-normal opacity-80"> — <span x-text="motionWizardSenate().name || 'the senate'"></span></span></h2>

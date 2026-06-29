@@ -175,6 +175,14 @@ ok('.tab-active (the selected segmented control) is token-driven (raw hex gone f
 ok('no raw segmented-control active-underline remains (the border-color:#2a1f12 :style ternary → --c-ink)',
    !/border-color:#2a1f12\b/.test(html));
 
+// Core token colours (H1, 2026-06-26) — the 5 core palette hexes are now used ONLY in their :root
+// definitions; everywhere else (<style> rules + inline styles) routes through var(). The bespoke
+// one-off tints (no token) are a separate, *visible-change* follow-on needing design decisions.
+ok('the 5 core token colours appear only in their :root definitions (not raw in <style>/inline)',
+   (html.match(/#7a1f1f/gi)||[]).length === 1 && (html.match(/#f7f1e2/gi)||[]).length === 1 &&
+   (html.match(/#2a1f12/gi)||[]).length === 2 && (html.match(/#6b4f24/gi)||[]).length === 1 &&
+   (html.match(/#faf6ea/gi)||[]).length === 1);
+
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
