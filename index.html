@@ -550,7 +550,14 @@ document.addEventListener('alpine:init', () => {
   <!-- Row 1 — generous padding above (py-5) so the title doesn't kiss the top edge,
        padding-below + a solid divider before Row 2. -->
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid var(--c-ink);">
-    <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
+    <!-- H1 (2026-06-29) — wordmark lockup: the favicon crown (in brand tokens) beside the serif title (audit O — identity). -->
+    <div class="flex items-center gap-2 mr-2">
+      <svg viewBox="0 0 64 64" width="32" height="32" class="select-none" aria-hidden="true" style="flex:none;">
+        <path d="M12 44h40l3-22-11 8-12-16-12 16-11-8z" fill="var(--c-danger)" stroke="var(--c-ink)" stroke-width="2.5" stroke-linejoin="round"/>
+        <rect x="12" y="46" width="40" height="7" rx="2" fill="var(--c-border)"/>
+      </svg>
+      <h1 class="text-4xl font-black">ACKS God Mode</h1>
+    </div>
     <span class="flex-grow"></span>
     <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
     <button @click="newCampaign()" class="btn">＋ New campaign</button>
