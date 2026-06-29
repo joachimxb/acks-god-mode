@@ -4069,15 +4069,15 @@ const _component = {
     // top-level tab; the located-POI collections (Stashes / Lairs / Dungeons) are absorbed by the
     // combined Points-of-Interest view; Religion is re-homed here from a top-level tab.
     const tabs = [
-      { id:'map',   label:'🗺 Map',   count: null },
-      { id:'hexes', label:'⬡ Hexes',  count: null },
-      { id:'poi',   label:'📍 Points of Interest',
+      { id:'map',   icon:'map', label:'Map',   count: null },
+      { id:'hexes', icon:'hex', label:'Hexes',  count: null },
+      { id:'poi',   icon:'pin', label:'Points of Interest',
         count: ((this.currentCampaign?.lairs?.length||0) + (this.currentCampaign?.dungeons?.length||0) + (this.currentCampaign?.stashes?.length||0)) || null },
     ];
     if(this.isHouseRuleEnabled('rumors-manual')){
-      tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
+      tabs.push({ id:'rumors', icon:'speech', label:'Rumors', count: this.allRumors.length || null });
     }
-    tabs.push({ id:'religion', label:'⛪ Religion', count: (this.currentCampaign?.congregations||[]).length || null });
+    tabs.push({ id:'religion', icon:'church', label:'Religion', count: (this.currentCampaign?.congregations||[]).length || null });
     return tabs;
   },
 

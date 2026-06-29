@@ -281,6 +281,14 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
      /icon:'world'/.test(appJs) && /icon:'gear'/.test(appJs) && !/label:'(?:🌍|👥|🎭|⚙)/.test(appJs));
   ok('the nav template renders each tab icon via <use :href>',
      html.includes("<use :href=\"'#i-' + v.icon\""));
+  // World sub-tab conversion (H1, 2026-06-29) — the worldSubTabs strip renders its icon via the same
+  // DYNAMIC `:href="'#i-' + tab.icon"`; lock the 5 new World glyphs exist + the data-field split landed.
+  for (const id of ['i-map', 'i-hex', 'i-pin', 'i-speech', 'i-church'])
+    ok('World sub-tab symbol ' + id + ' is defined (referenced only dynamically by the World sub-strip)', defined.has(id));
+  ok('the World sub-tab data-field split landed (icon: fields present, no emoji in the worldSubTabs labels)',
+     /icon:'map'/.test(appJs) && /icon:'church'/.test(appJs) && !/label:'(?:🗺|⬡|📍|🗣|⛪)/.test(appJs));
+  ok('the World sub-tab template renders each tab icon via <use :href>',
+     html.includes("<use :href=\"'#i-' + tab.icon\""));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly
