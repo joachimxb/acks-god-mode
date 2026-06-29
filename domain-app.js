@@ -1312,7 +1312,7 @@ const _component = {
     const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-amber-200',
       seduced: 'bg-pink-200', 'intimidated-escaped': 'bg-red-300', 'seduced-ill-treated': 'bg-red-300', bewitched: 'bg-purple-200' };
     return s.influenceModifiers.filter(m => m && m.kind).map(m => ({
-      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-stone-200' }));
+      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-warm-2' }));
   },
   senateSenatorSecret(senatorshipId){
     const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
@@ -1699,7 +1699,7 @@ const _component = {
     if(s === 'enacted' || s === 'dispute-cleared') return 'tint-green accent-green';
     if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'tint-red accent-red';
     if(s === 'open') return 'bg-yellow-200 text-yellow-900';
-    return 'bg-stone-200';
+    return 'bg-warm-2';
   },
   // ── Phase 5 — "Bring a motion" CREATOR (raise the issue only: kind/matter/title → Table it) ──
   newMotion: { open: false, senateId: '', kind: 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '', title: '' },
@@ -9990,8 +9990,8 @@ const _component = {
   },
   _hijinkRow(h){
     const def = (window.ACKS && window.ACKS.hijinkDefinition) ? (window.ACKS.hijinkDefinition(h.type)||{}) : {};
-    const phaseCls = { 'planning':'bg-stone-200', 'performing':'tint-amber', 'laying-low':'bg-sky-200' }[h.status] || 'bg-stone-100';
-    const outCls = { 'complete':'tint-green', 'failed':'bg-stone-300', 'caught':'tint-red accent-red' }[h.status] || 'bg-stone-100';
+    const phaseCls = { 'planning':'bg-warm-2', 'performing':'tint-amber', 'laying-low':'bg-sky-200' }[h.status] || 'bg-warm';
+    const outCls = { 'complete':'tint-green', 'failed':'bg-warm-2', 'caught':'tint-red accent-red' }[h.status] || 'bg-warm';
     const take = (h.status==='complete') ? (h.rewardText || '—') : (h.status==='caught') ? ('charged: ' + (h.charge||'—')) : '—';
     const outText = (h.status==='complete') ? '✓ success' : (h.status==='caught') ? '✗ caught' : '✗ failed';
     return {

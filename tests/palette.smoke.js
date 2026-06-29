@@ -5,14 +5,15 @@
 // drifted across redundant Tailwind palette families for the same semantic role (two greens —
 // green + emerald; warning across yellow/amber/orange; danger across red + rose; cool greys on a
 // warm ground). The H1 sweep unified the drift families in the markup:
-//     emerald → green,   orange → amber,   rose → red,   gray → stone   (+ slate/zinc/neutral stay out)
+//     emerald → green,   orange → amber,   rose → red,   gray/stone → the warm ramp   (+ slate/zinc/neutral stay out)
 // and routed the ~280 universal `hover:bg-yellow-100` hovers + the 182 verbatim legacy buttons onto
 // the .hover-tint / .btn classes. This test keeps the eliminated families from creeping back.
 //
 // FORBIDDEN (this pass eliminated them — a re-introduction is the drift returning):
-//     emerald, orange, rose, gray, slate, zinc, neutral
+//     emerald, orange, rose, gray, slate, zinc, neutral, stone
 // STILL ALLOWED (these raw families still appear and stay allowed — they need per-node judgment):
-//     green, amber, yellow, red   (+ stone is the warm-neutral target; sky/blue/purple/etc. untouched)
+//     green, amber, yellow, red   (sky/blue/purple/etc. untouched; stone was the warm-neutral target but is
+//     now ELIMINATED too — its 32 sites route onto the .bg-warm/.border-hairline/.text-muted ramp, 2026-06-29)
 //
 // Scope = index.html + the domain-app*.js mixins. The 2026-06-25 follow-on swept the mixins' 14
 // straggler utilities (orange→amber, gray→stone) and extended this guard to cover them too.
@@ -62,15 +63,15 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 // and optionally an /opacity suffix). Requiring the prefix + the trailing shade digits is what keeps this
 // from false-positiving on prose ("the emerald-vs-green drift", the word "prose", "…committing grays Pace").
 const COLOR_PREFIX = 'bg|text|border|ring|ring-offset|from|via|to|divide|outline|decoration|fill|stroke|placeholder|caret|accent|shadow';
-const FORBIDDEN = ['emerald', 'orange', 'rose', 'gray', 'slate', 'zinc', 'neutral'];
+const FORBIDDEN = ['emerald', 'orange', 'rose', 'gray', 'slate', 'zinc', 'neutral', 'stone'];
 const re = new RegExp('\\b(?:' + COLOR_PREFIX + ')-(' + FORBIDDEN.join('|') + ')-\\d{2,3}(?:/\\d{1,3})?\\b', 'g');
 
 // Self-test — prove the detector actually works, so a clean pass means "swept", not "regex broke".
 // (A no-op regex would also report 0 hits; this is the guard against that.)
 {
   const probe = new RegExp(re.source);  // stateless clone (no /g)
-  ok('lint DETECTS a forbidden sample (bg-emerald-700)', probe.test('class="hover:bg-emerald-700 foo"'));
-  ok('lint IGNORES allowed families + prose', !probe.test('bg-green-100 bg-amber-200 text-red-700 stone-50') && !probe.test('the emerald-vs-green drift; prose; committing grays Pace'));
+  ok('lint DETECTS forbidden samples (bg-emerald-700, bg-stone-100)', probe.test('class="hover:bg-emerald-700 foo"') && probe.test('class="bg-stone-100"'));
+  ok('lint IGNORES allowed families + prose', !probe.test('bg-green-100 bg-amber-200 text-red-700 bg-sky-100') && !probe.test('the emerald-vs-green drift; prose; committing grays Pace'));
 }
 
 // Scan index.html + every domain-app*.js mixin for an eliminated family.
@@ -241,6 +242,14 @@ ok('no sub-12px text-[10px]/[11px] escape remains (lifted to text-xs)',
    !/text-\[1[01]px\]/.test(html));
 ok('no h2 still renders at text-lg (h2 now >= text-xl, above h3 text-lg)',
    !/<h2\b[^>]*\btext-lg\b/.test(html));
+
+// Warm-neutral retint (H1, 2026-06-29) — the 32 cool stone-* greys route onto a warm, token-derived ramp
+// (.bg-warm/.bg-warm-2 = color-mix on parchment+border, .border-hairline = the tan rule, .text-muted = faded ink).
+// (The FORBIDDEN scan above already guards that no raw stone-* utility returns.)
+ok('the warm-neutral utilities are defined + token-derived (the stone-* replacements)',
+   /\.bg-warm\s*\{[^}]*color-mix\(in srgb, var\(--c-parchment\)/.test(html) &&
+   /\.border-hairline\s*\{[^}]*var\(--c-rule-hairline\)/.test(html) &&
+   /\.text-muted\s*\{[^}]*color-mix\(in srgb, var\(--c-ink\)/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
