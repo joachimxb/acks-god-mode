@@ -272,8 +272,14 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
   ok('every #i-NAME reference resolves to a defined <symbol> (no dangling icon refs)',
      dangling.length === 0, dangling.length ? 'dangling: ' + dangling.join(', ') : '');
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
+  // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
+  // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly
+  // turn is staged…`) still legitimately contain `>GLYPH `, so a bare lock would false-fail.
   const CONVERTED = [
-    { glyph: '✏', pattern: '>✏</button>', note: 'edit-pencil buttons → #i-quill' },
+    { glyph: '✏', pattern: '>✏</button>',          note: 'edit-pencil buttons → #i-quill' },
+    { glyph: '🔍', pattern: '>🔍 Open in Inspector', note: 'search/inspector chrome → #i-glass' },
+    { glyph: '📜', pattern: '>📜 Chronicle',         note: 'chronicle/events chrome → #i-scroll' },
+    { glyph: '🏰', pattern: '>🏰 Create domain',     note: 'domain/stronghold chrome → #i-castle' },
   ];
   for (const c of CONVERTED)
     ok('converted glyph ' + c.glyph + ' stays converted (' + c.note + ')',

@@ -1554,7 +1554,7 @@ document.addEventListener('alpine:init', () => {
 
       <!-- Peasants & dungeons (garrison) -->
       <div class="border border-ink/20 rounded p-2 text-sm" x-show="arcaneDungeon().domainId">
-        <div class="font-semibold mb-1">🏰 Peasants &amp; dungeons <span class="font-normal opacity-70">(RR p.387)</span></div>
+        <div class="font-semibold mb-1"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Peasants &amp; dungeons <span class="font-normal opacity-70">(RR p.387)</span></div>
         <template x-if="arcaneGarrisonInfo()">
           <div>
             <div class="flex flex-wrap gap-x-4 gap-y-0.5">
@@ -1630,7 +1630,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="newDomainModal.open" @keydown.escape.window="if(newDomainModal.open){ newDomainModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="newDomainModal.open=false">
   <div class="modal-card p-4 my-6 w-full max-w-lg">
     <div class="flex justify-between items-start mb-3 gap-2">
-      <h3 class="font-bold text-lg">🏰 New domain <span class="text-sm font-normal opacity-70">(RR pp.353–354)</span></h3>
+      <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> New domain <span class="text-sm font-normal opacity-70">(RR pp.353–354)</span></h3>
       <button @click="newDomainModal.open=false" class="text-2xl leading-none px-2 hover:opacity-60" title="Close">×</button>
     </div>
     <div class="space-y-3 text-sm">
@@ -1657,7 +1657,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="flex justify-end gap-2 mt-4">
       <button @click="newDomainModal.open=false" class="btn text-sm">Cancel</button>
-      <button @click="createDomainFromModal()" class="btn text-sm">🏰 Create domain</button>
+      <button @click="createDomainFromModal()" class="btn text-sm"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Create domain</button>
     </div>
   </div>
 </div>
@@ -2385,7 +2385,7 @@ document.addEventListener('alpine:init', () => {
         <!-- CHRONICLE (C1, audit 2026-06-24) — the battle's narrative history (created / joined / heroes / ended / resolved); distinct from the combat Turn log below -->
         <div class="border-t border-ink/20 pt-2" x-data="{ get _chron(){ return entityChronicleMerged('', battlePanel()?.id, battlePanel()?.history); } }" x-show="_chron.length > 0">
           <div class="flex justify-between items-baseline mb-1">
-            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-sm uppercase tracking-wide opacity-70"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</span>
             <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
           </div>
           <div class="text-sm max-h-72 overflow-y-auto pr-1">
@@ -2832,7 +2832,7 @@ document.addEventListener('alpine:init', () => {
             <button x-show="lairDetailLair().status === 'active' || lairDetailLair().status === 'unknown'" @click="lairMarkCleared()" class="btn" title="Inhabitants slain/driven off; the structure remains (RR — it can repopulate later)">⚔ Mark cleared</button>
             <button x-show="lairDetailLair().status === 'active'" @click="lairMarkAbandoned()" class="btn" title="The inhabitants leave alive of their own accord">🍂 Abandon</button>
             <button x-show="lairDetailLair().status !== 'destroyed'" @click="lairMarkDestroyed()" class="btn accent-red" title="The structure itself is razed">💥 Destroy</button>
-            <button @click="inspectorOpenInspect('lair', lairDetailLair().id); closeLairDetail()" class="btn ml-auto" title="Edit every field via the Inspector">🔍 Open in Inspector</button>
+            <button @click="inspectorOpenInspect('lair', lairDetailLair().id); closeLairDetail()" class="btn ml-auto" title="Edit every field via the Inspector"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Open in Inspector</button>
           </div>
           <!-- Encounters (#476 E2) — this lair's meetings, derived by monsterSide.lairId (D9: prior
                attitude is world memory read from these, never stored on the lair). Close-then-open:
@@ -2851,7 +2851,7 @@ document.addEventListener('alpine:init', () => {
           </div>
           <!-- CHRONICLE (C1, audit 2026-06-24) — the lair's stored .history[] (∪ derived eventLog stream when one exists) -->
           <div x-data="{ get _chron(){ return entityChronicleMerged('', lairDetailLair()?.id, lairDetailLair()?.history); } }" x-show="_chron.length">
-            <h4 class="font-semibold mb-1">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <h4 class="font-semibold mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
             <div class="text-xs max-h-44 overflow-y-auto pr-1">
               <template x-for="(row,ri) in _chron" :key="ri">
                 <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:var(--c-border)">
@@ -3459,7 +3459,7 @@ document.addEventListener('alpine:init', () => {
               <button @click="removeGarrisonUnit(unitSheetDomain(), u); closeUnitSheet()" class="btn accent-red" title="Remove this unit">× Remove</button>
             </span>
           </template>
-          <button @click="inspectorOpenInspect('unit', u.id); closeUnitSheet()" class="btn ml-auto" title="Edit every field (type, loadout, scale, …) via the Inspector">🔍 Open in Inspector</button>
+          <button @click="inspectorOpenInspect('unit', u.id); closeUnitSheet()" class="btn ml-auto" title="Edit every field (type, loadout, scale, …) via the Inspector"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Open in Inspector</button>
         </div>
       </div>
     </template>
@@ -3526,7 +3526,7 @@ document.addEventListener('alpine:init', () => {
                 <p class="text-xs mt-1 opacity-80">
                   <span x-text="encBandLink().text"></span>
                   <button x-show="encBandLink().encounterId" @click="openEncounterModal(encBandLink().encounterId)" class="btn ml-1" title="Open the chase this band is running (switches this panel)">⚔ chase</button>
-                  <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="btn ml-1" title="Inspect the band's Group entity">🔍 band</button>
+                  <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="btn ml-1" title="Inspect the band's Group entity"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> band</button>
                 </p>
               </template>
               <!-- SD-5b — a CIVILIZED encounter near a settlement is the actual person who lives
@@ -3535,7 +3535,7 @@ document.addEventListener('alpine:init', () => {
               <template x-if="encResidentLink()">
                 <p class="text-xs mt-1 opacity-80">
                   <span x-text="encResidentLink().text"></span>
-                  <button @click="openCharacterEditor(encResidentLink().character)" class="btn ml-1" title="Open this resident's character sheet">🔍 sheet</button>
+                  <button @click="openCharacterEditor(encResidentLink().character)" class="btn ml-1" title="Open this resident's character sheet"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> sheet</button>
                 </p>
               </template>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rolls/rerolls on the
@@ -3922,7 +3922,7 @@ document.addEventListener('alpine:init', () => {
           </template>
           <!-- Footer: Inspector + history -->
           <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2">
-            <button @click="inspectorOpenInspect('encounter', encModalEnc().id); closeEncounterModal()" class="btn ml-auto" title="Edit every field via the Inspector (the GM override path)">🔍 Open in Inspector</button>
+            <button @click="inspectorOpenInspect('encounter', encModalEnc().id); closeEncounterModal()" class="btn ml-auto" title="Edit every field via the Inspector (the GM override path)"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Open in Inspector</button>
           </div>
           <div x-show="(encModalEnc().history || []).length">
             <h4 class="font-semibold mb-1">History</h4>
@@ -4089,7 +4089,7 @@ document.addEventListener('alpine:init', () => {
           </template>
           <!-- CHRONICLE (C1, audit 2026-06-24) — the item's stored .history[] ∪ its derived notable-item-tagged eventLog stream -->
           <div x-data="{ get _chron(){ return entityChronicleMerged('notable-item', notableModalItem()?.id, notableModalItem()?.history); } }">
-            <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">📜 Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
+            <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60 font-normal text-xs" x-text="'· ' + _chron.length"></span></h4>
             <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
             <div class="text-sm max-h-56 overflow-y-auto pr-1">
               <template x-for="(row,ri) in _chron" :key="ri">
@@ -4664,7 +4664,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
-        <h3 class="font-bold text-lg">🔍 Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? hexLabelFor(searchHexObj()) : ''"></span></span></h3>
+        <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? hexLabelFor(searchHexObj()) : ''"></span></span></h3>
         <p class="text-sm opacity-70">One search-hour = one ancillary task; each hour also risks an encounter (RR pp.276–277). The Judge rolls secretly — a failure tells the players nothing.</p>
       </div>
       <button @click="closeSearchHex()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -4724,7 +4724,7 @@ document.addEventListener('alpine:init', () => {
       <div class="flex justify-end items-center gap-2 pt-1">
         <span x-show="searchActor() && !searchFits().fits" class="text-xs accent-red mr-auto" x-text="searchFits().reason"></span>
         <button @click="closeSearchHex()" class="btn text-sm">Done</button>
-        <button @click="runSearchHour()" :disabled="!searchActor() || !searchFits().fits" :class="(searchActor() && searchFits().fits) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">🔍 Search 1 hour</button>
+        <button @click="runSearchHour()" :disabled="!searchActor() || !searchFits().fits" :class="(searchActor() && searchFits().fits) ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search 1 hour</button>
       </div>
     </div>
   </div>
@@ -5561,7 +5561,7 @@ document.addEventListener('alpine:init', () => {
               <template x-if="domainTypeInfo(selectedDomain)?.isClanhold">
                 <div class="text-sm border-t border-ink/20 mt-3 pt-2 space-y-2">
                   <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" :checked="domainTypeInfo(selectedDomain)?.chiefRaidedThisMonth" @change="toggleChiefRaided(selectedDomain)"> <span>Chief raided this month <span class="opacity-60">(faster growth, RR p.340)</span></span></label>
-                  <div><button class="text-xs btn" @click="decreeTransitionalUI(selectedDomain)">📜 Decree Transitional…</button> <span class="opacity-60 text-xs">irrevocable (RR p.354)</span></div>
+                  <div><button class="text-xs btn" @click="decreeTransitionalUI(selectedDomain)"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Decree Transitional…</button> <span class="opacity-60 text-xs">irrevocable (RR p.354)</span></div>
                 </div>
               </template>
               <template x-if="domainTypeInfo(selectedDomain)?.isTransitional">
@@ -6641,7 +6641,7 @@ document.addEventListener('alpine:init', () => {
                army is funded by Scutage from vassals + parceled across their domains via the Troops favor. -->
           <template x-if="realmStandingArmy(selectedDomain)">
             <div class="vellum border border-ink p-3 rounded mb-3">
-              <h2 class="font-bold text-xl mb-1">🏰 Realm forces</h2>
+              <h2 class="font-bold text-xl mb-1"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Realm forces</h2>
               <p class="text-sm">
                 <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).title"></span>
                 — <span x-text="realmStandingArmy(selectedDomain).realmFamilies.toLocaleString()"></span> realm families
@@ -7042,7 +7042,7 @@ document.addEventListener('alpine:init', () => {
 
             <!-- Favors & Duties (F&D-2) — the monthly liege↔vassal edicts (RR pp.345–348). -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-xl mb-1">📜 Favors &amp; Duties</h2>
+              <h2 class="font-bold text-xl mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Favors &amp; Duties</h2>
               <p class="text-sm opacity-70 mb-3">The monthly liege↔vassal obligation engine (RR pp.345–348). One edict is auto-rolled per active vassalage each month while the <strong>Favors &amp; Duties — auto-roll</strong> house rule is on; you can also raise edicts by hand here. A lord may safely demand one duty per month, plus one for each favor he grants — over-demanding rolls the vassal's Loyalty.</p>
 
               <!-- As LIEGE: per vassal — balance + active obligations + Grant favor / Demand duty. -->
@@ -7824,7 +7824,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="align-top">
                       <template x-if="s.clickable"><button @click="openCharacterById(s.characterId)" class="font-semibold text-blue-800 hover:underline text-left" title="Open this character's sheet" x-text="s.name"></button></template>
                       <template x-if="!s.clickable"><span class="font-semibold" x-text="s.name"></span></template>
-                      <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded tint-amber" title="Seated by an Office favor (RR p.355)">📜</span>
+                      <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded tint-amber" title="Seated by an Office favor (RR p.355)"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg></span>
                       <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦</span>
                     </td>
                     <td class="align-top" x-text="s.factionName"></td>
@@ -7918,8 +7918,8 @@ document.addEventListener('alpine:init', () => {
            guided author-and-resolve flow (open → vote → enact/reject → record). -->
       <div class="vellum border border-ink rounded p-4">
         <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
-          <h3 class="font-bold text-lg">📜 Motions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateMotionRows().length"></span></h3>
-          <button @click="openNewMotion(senateSelected().id)" class="btn btn-success text-sm">📜 Bring a motion</button>
+          <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Motions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateMotionRows().length"></span></h3>
+          <button @click="openNewMotion(senateSelected().id)" class="btn btn-success text-sm"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Bring a motion</button>
         </div>
         <p class="text-sm opacity-70 mb-2">Bring a motion to table an issue (kind · matter · title). Click a motion to see its voting bloc &amp; modifiers; press <strong>▶ Resolve</strong> to put it to the 2d6 vote (RR p.358). A restricted matter enacted against the senate puts the realm in dispute (RR p.359).</p>
         <template x-if="senateMotionRows().length === 0">
@@ -8077,7 +8077,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="selectedDomain && selectedDomain.id">
             <div class="vellum border border-ink p-3 rounded mt-3" x-data="{ chrKind:'domain' }">
               <div class="flex justify-between items-baseline mb-2">
-                <h2 class="font-bold text-xl">📜 Chronicle</h2>
+                <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</h2>
                 <span class="text-sm opacity-70" x-text="entityChronicleCount(chrKind, selectedDomain.id) + ' events'"></span>
               </div>
               <template x-if="entityChronicleCount(chrKind, selectedDomain.id) === 0">
@@ -8867,7 +8867,7 @@ document.addEventListener('alpine:init', () => {
      x-effect="if(currentView==='domain-turn' && currentCampaign && !turnProposal && !turnProposalError && domains.length>0 && advanceBlockers().length===0){ proposeMonthlyTurn(); }">
   <div class="max-w-screen-lg">
     <div class="vellum border border-ink rounded p-4">
-      <h2 class="font-bold text-xl mb-2">🏰 Monthly Turn — Turn Resolution</h2>
+      <h2 class="font-bold text-xl mb-2"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Monthly Turn — Turn Resolution</h2>
       <!-- No explicit "stage" gate any more (2026-06-22) — the whole preceding month IS the staging
            period, so the turn auto-stages (the x-effect on the container above) the moment you open
            this tab. What's left are the genuine preconditions: no domains, or a clock-holding
@@ -9494,7 +9494,7 @@ document.addEventListener('alpine:init', () => {
           <div class="text-xs px-2 py-1.5 border bdr-red/50 rounded space-y-1" style="background:var(--c-danger-bg)">
             <div>⚠ <span class="font-semibold accent-red">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
             <div class="flex flex-wrap items-center gap-2">
-              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw">🔍 Search for the landmark</button>
+              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search for the landmark</button>
               <button x-show="journeyDetail().lostEncounterId" @click="openEncounterModal(journeyDetail().lostEncounterId)" class="btn" title="The meeting the party fled — the aftermath line carries the failed Navigation throw">⚔ the encounter</button>
               <span class="opacity-70">Re-drawing the route (✎ on the map) also re-orients them.</span>
             </div>
@@ -10308,7 +10308,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- Header + sub-tab bar -->
     <div class="flex items-baseline justify-between flex-wrap gap-2">
-      <h2 class="font-bold text-xl">🔍 Inspector <span class="text-sm opacity-70 font-normal">· Browse, inspect, edit any entity in your campaign</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Inspector <span class="text-sm opacity-70 font-normal">· Browse, inspect, edit any entity in your campaign</span></h2>
       <div class="flex gap-1">
         <button @click="inspectorSubView='browse'" :class="inspectorSubView==='browse' ? 'tab-active' : 'hover-tint'" class="px-3 py-1 text-sm border border-ink rounded">📋 Browse</button>
         <button @click="inspectorSubView='inspect'" :disabled="!inspectorSelectedId" :class="inspectorSubView==='inspect' ? 'tab-active' : (!inspectorSelectedId ? 'opacity-40' : 'hover-tint')" class="px-3 py-1 text-sm border border-ink rounded">🔎 Inspect</button>
@@ -10642,7 +10642,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="entityChronicleCount(inspectorSelectedKind, inspectorSelectedId) > 0">
             <div class="border border-ink/40 rounded p-3">
               <div class="flex justify-between items-baseline mb-1">
-                <div class="wizard-step-header">📜 Chronicle</div>
+                <div class="wizard-step-header"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</div>
                 <span class="text-xs opacity-70" x-text="entityChronicleCount(inspectorSelectedKind, inspectorSelectedId) + ' events'"></span>
               </div>
               <div class="text-sm max-h-80 overflow-y-auto pr-1">
@@ -11320,7 +11320,7 @@ document.addEventListener('alpine:init', () => {
                      party in its context envelope (travel days, survival, camp, anything party-tagged). -->
                 <div class="border-t border-ink/30 pt-2 mt-1">
                   <div class="flex justify-between items-baseline mb-1">
-                    <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+                    <span class="text-sm uppercase tracking-wide opacity-70"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</span>
                     <span class="text-xs opacity-70" x-text="entityChronicleCount('party', pt.id) + ' events'"></span>
                   </div>
                   <template x-if="entityChronicleCount('party', pt.id) === 0">
@@ -11435,7 +11435,7 @@ document.addEventListener('alpine:init', () => {
           <div class="mt-1">
             <div class="flex items-center gap-3 flex-wrap">
               <button @click="supplyBasesOpen = !supplyBasesOpen" class="text-xs underline" x-text="supplyBasesOpen ? 'close bases' : ('＋ Supply bases (' + (armySelected().supplyBaseIds || []).length + ')')"></button>
-              <button @click="armyBuildSupplyFort()" class="text-xs btn" title="Spend 10,000gp to raise a border fort where the army stands — a forward supply base + a Class VI market (RR p.451)">🏰 Build border fort (10,000gp)</button>
+              <button @click="armyBuildSupplyFort()" class="text-xs btn" title="Spend 10,000gp to raise a border fort where the army stands — a forward supply base + a Class VI market (RR p.451)"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Build border fort (10,000gp)</button>
             </div>
             <div x-show="supplyBasesOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
               <template x-if="armySupplyBaseRows().length === 0"><p class="text-xs italic opacity-60 p-2">No domains, forts, or strongholds to designate yet — build a border fort above.</p></template>
@@ -11604,7 +11604,7 @@ document.addEventListener('alpine:init', () => {
         <!-- CHRONICLE (C1, audit 2026-06-24) — the army's stored .history[] ∪ its derived group-tagged eventLog stream -->
         <div class="border-t border-ink/30 pt-2 mt-2" x-data="{ get _chron(){ return entityChronicleMerged('group', armySelected()?.id, armySelected()?.history); } }">
           <div class="flex justify-between items-baseline mb-1">
-            <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+            <span class="text-sm uppercase tracking-wide opacity-70"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</span>
             <span class="text-xs opacity-70" x-text="_chron.length + ' event' + (_chron.length===1?'':'s')"></span>
           </div>
           <template x-if="_chron.length === 0"><p class="text-xs italic opacity-60">Nothing recorded yet.</p></template>
@@ -12222,7 +12222,7 @@ document.addEventListener('alpine:init', () => {
               <td x-text="row.statusText"></td>
               <td class="text-right whitespace-nowrap">
                 <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="btn text-xs accent-red font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
-                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs btn" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
+                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs btn" title="Open this band in the 🔍 Inspector"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> inspect</button></template>
               </td>
             </tr>
           </template>
@@ -12880,7 +12880,7 @@ document.addEventListener('alpine:init', () => {
         <!-- Roles & Domains ruled (Phase 2.6 followup) -->
         <template x-if="characterRulesDomains(characterEditing).length > 0">
           <div class="p-2 border border-ink/30 rounded vellum">
-            <h4 class="font-semibold text-sm mb-1">🏰 Domains ruled</h4>
+            <h4 class="font-semibold text-sm mb-1"><svg class="ico" aria-hidden="true"><use href="#i-castle"></use></svg> Domains ruled</h4>
             <table class="bookkeeping text-sm w-full">
               <thead><tr>
                 <th class="text-left">Domain</th>
@@ -13539,7 +13539,7 @@ document.addEventListener('alpine:init', () => {
               <button @click="openProficiencyThrowModal(characterEditing)" class="btn btn-primary text-sm" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
               <button @click="openSageConsultModal(characterEditing)" class="btn btn-primary text-sm" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
               <!-- @b8-sages (team) — SG-2 commission opener -->
-              <button @click="openSageCommissionModal(characterEditing)" class="btn btn-primary text-sm" title="Commission a sage for multi-week research (Phase 4 Sages §3.3) — set them to research a deep question over N days; the Day Clock advances it and delivers the answer on completion.">📜 Commission</button>
+              <button @click="openSageCommissionModal(characterEditing)" class="btn btn-primary text-sm" title="Commission a sage for multi-week research (Phase 4 Sages §3.3) — set them to research a deep question over N days; the Day Clock advances it and delivers the answer on completion."><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Commission</button>
             </span>
           </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
@@ -13811,7 +13811,7 @@ document.addEventListener('alpine:init', () => {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button @click="mountToggleJourney(m, characterEditing)" :class="mountOnActiveJourney(m, characterEditing) ? 'tint-green bdr-green/50' : 'hover-tint'" class="text-xs px-1.5 py-0.5 border border-ink rounded" :title="mountActiveJourney(characterEditing) ? 'Toggle this mount on the active journey (sets pace + feeding)' : 'Start a journey first to assign a mount'" x-text="mountOnActiveJourney(m, characterEditing) ? '✓ on journey' : '+ journey'"></button>
-                  <button @click="inspectorOpenInspect('mount', m.id)" class="text-xs btn" title="Edit every field (barding, cargo, rider, role) via the Inspector">🔍</button>
+                  <button @click="inspectorOpenInspect('mount', m.id)" class="text-xs btn" title="Edit every field (barding, cargo, rider, role) via the Inspector"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg></button>
                   <button @click="mountRemove(m)" class="btn text-xs accent-red" title="Remove">×</button>
                 </div>
               </div>
@@ -14554,7 +14554,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="characterEditing && characterEditing.id">
           <div class="vellum border border-ink p-3 rounded" x-data="{ chrKind:'character' }">
             <div class="flex justify-between items-baseline mb-2">
-              <h4 class="font-semibold">📜 Chronicle</h4>
+              <h4 class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</h4>
               <span class="text-sm opacity-70" x-text="entityChronicleCount(chrKind, characterEditing.id) + ' events'"></span>
             </div>
             <template x-if="entityChronicleCount(chrKind, characterEditing.id) === 0">
@@ -14588,7 +14588,7 @@ document.addEventListener('alpine:init', () => {
               </button>
               <button @click="openCalamityModal(characterEditing)"
                       class="btn text-sm" title="Record a calamity (RR p.166): wages missed, hp-zero, curse, etc. Auto-emits a follow-on Loyalty Roll.">
-                📜 Record calamity
+                <svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Record calamity
               </button>
             </div>
           </template>
@@ -14708,7 +14708,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="calamityModalState">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">📜 Record Calamity <span class="text-sm font-normal opacity-70">· RR p.166</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Record Calamity <span class="text-sm font-normal opacity-70">· RR p.166</span></h2>
       <button @click="closeCalamityModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -15148,7 +15148,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <h4 class="font-semibold text-sm">🏚 Lairs <span class="text-sm opacity-60 font-normal" x-text="'(' + lairsAtHexId(worldHexEditingHex().id).length + ')'"></span></h4>
           <div class="flex gap-1">
-            <button @click="openSearchHex({ hexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm btn" title="Search this hex for lairs &amp; points of interest (RR pp.276–277) — one ancillary hour per throw">🔍 Search hex</button>
+            <button @click="openSearchHex({ hexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm btn" title="Search this hex for lairs &amp; points of interest (RR pp.276–277) — one ancillary hour per throw"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search hex</button>
             <button @click="openLairWizardAtHex(worldHexEditingHex().id)" class="text-sm btn" title="Author a lair on this hex (Lair Wizard)">+ lair here</button>
           </div>
         </div>
@@ -15434,7 +15434,7 @@ document.addEventListener('alpine:init', () => {
       <template x-if="worldHexEditingHex() && worldHexEditingHex().id">
         <div class="vellum border border-ink/40 rounded p-2" x-data="{ chrKind:'hex' }">
           <div class="flex justify-between items-baseline mb-1">
-            <h4 class="font-semibold text-sm">📜 Chronicle</h4>
+            <h4 class="font-semibold text-sm"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</h4>
             <span class="text-xs opacity-70" x-text="entityChronicleCount(chrKind, worldHexEditingHex().id) + ' events'"></span>
           </div>
           <template x-if="entityChronicleCount(chrKind, worldHexEditingHex().id) === 0">
@@ -16461,7 +16461,7 @@ document.addEventListener('alpine:init', () => {
 
             <!-- CHRONICLE (C1, audit 2026-06-24) — the siege's stored .history[] (∪ derived eventLog stream when one exists) -->
             <div class="mt-3" x-data="{ get _chron(){ return entityChronicleMerged('', currentSiege()?.id, currentSiege()?.history); } }" x-show="_chron.length">
-              <p class="font-semibold text-xs uppercase opacity-60 mb-1">📜 Chronicle <span class="opacity-60 font-normal normal-case" x-text="'· ' + _chron.length"></span></p>
+              <p class="font-semibold text-xs uppercase opacity-60 mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60 font-normal normal-case" x-text="'· ' + _chron.length"></span></p>
               <div class="text-xs max-h-44 overflow-y-auto pr-1">
                 <template x-for="(row,ri) in _chron" :key="ri">
                   <div class="border-l-2 pl-2 py-0.5 mb-0.5" :class="row.hidden ? 'opacity-60' : ''" style="border-color:var(--c-border)">
@@ -17256,7 +17256,7 @@ document.addEventListener('alpine:init', () => {
               <td class="whitespace-nowrap">
                 <button x-show="acc.status === 'open'" @click="bankOpenModal('deposit', acc.id)" class="btn btn-success text-xs">Deposit</button>
                 <button x-show="acc.status === 'open'" @click="bankOpenModal('withdraw', acc.id)" class="btn text-xs">Withdraw</button>
-                <button x-show="acc.status === 'open' && (acc.balanceGp||0) > 0" @click="bankOpenModal('issue-loc', acc.id)" class="btn bg-purple-100 hover:bg-purple-200 text-xs" title="Draw a letter of credit against this account, redeemable at another market (RR p.42)">📜 Issue letter</button>
+                <button x-show="acc.status === 'open' && (acc.balanceGp||0) > 0" @click="bankOpenModal('issue-loc', acc.id)" class="btn bg-purple-100 hover:bg-purple-200 text-xs" title="Draw a letter of credit against this account, redeemable at another market (RR p.42)"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Issue letter</button>
               </td>
             </tr>
           </template>
@@ -17267,7 +17267,7 @@ document.addEventListener('alpine:init', () => {
 
   <!-- Letters of credit (team burst9 — B5; RR p.42, the merchant bill of exchange) -->
   <div class="vellum border border-ink rounded p-4">
-    <h3 class="font-bold text-lg mb-1">📜 Letters of Credit <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLetters().length"></span></h3>
+    <h3 class="font-bold text-lg mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Letters of Credit <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLetters().length"></span></h3>
     <p class="text-sm opacity-70 mb-2">Draw a note against a bank account (the <strong>📜 Issue letter</strong> button on an account above), drawable at a <em>different</em> market — the gold never travels (RR p.42). Redeeming pays the bearer at the destination market, capped by that market's monthly capital pool. A reasoned tooling extension.</p>
     <p class="text-sm opacity-70 mb-2" x-show="bankingLetters().length > 0" x-text="bankLettersLedgerText()"></p>
     <template x-if="bankingLetters().length === 0">
@@ -18158,7 +18158,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="sageCommission.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
       <button @click="closeSageCommissionModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -18247,7 +18247,7 @@ document.addEventListener('alpine:init', () => {
       <div class="vellum border border-ink p-3 rounded" style="background:var(--c-parchment)">
         <button @click="sageCommissionSubmit()" :disabled="!(sageCommissionForecastUI() && sageCommissionForecastUI().available)"
                 :class="(sageCommissionForecastUI() && sageCommissionForecastUI().available) ? '' : 'opacity-50 cursor-not-allowed'"
-                class="btn btn-primary">📜 Commission research</button>
+                class="btn btn-primary"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Commission research</button>
         <template x-if="sageCommission.result && sageCommission.result.ok">
           <div class="mt-2 text-sm accent-green" x-text="'Commissioned — the sage will research for ' + sageCommission.result.daysRequired + ' days. Advance the Day Clock to deliver the answer.'"></div>
         </template>
@@ -18292,7 +18292,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-lg my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
-        <h2 class="font-bold text-xl">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="newMotionSenate().name || 'the senate'"></span></span></h2>
+        <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Bring a motion<span class="font-normal opacity-80"> — <span x-text="newMotionSenate().name || 'the senate'"></span></span></h2>
         <p class="text-sm opacity-70">Raise an issue before the senate. Table it to add it to the list; the vote happens later via Resolve.</p>
       </div>
       <button @click="closeNewMotion()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -18347,7 +18347,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
-        <h2 class="font-bold text-xl">📜 <span x-text="motionDetailMotion().title || motionDetailMatterLabel()"></span></h2>
+        <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> <span x-text="motionDetailMotion().title || motionDetailMatterLabel()"></span></h2>
         <p class="text-sm opacity-70"><span x-text="motionDetailMotion().kind"></span> · <span x-text="motionDetailMatterLabel()"></span> · <span class="px-1 rounded" :class="motionStatusClass(motionDetailMotion().status)" x-text="motionDetailMotion().status"></span></p>
       </div>
       <button @click="closeMotionDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -19340,7 +19340,7 @@ document.addEventListener('alpine:init', () => {
       </label>
       <!-- mode tabs -->
       <div class="flex gap-1 border-b border-ink/30 pb-1">
-        <button @click="magicMarket.mode='appraise'; magicMarket.result=null" :class="magicMarket.mode==='appraise' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t">🔍 Appraise</button>
+        <button @click="magicMarket.mode='appraise'; magicMarket.result=null" :class="magicMarket.mode==='appraise' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Appraise</button>
         <button @click="magicMarket.mode='sell'; magicMarket.result=null" :class="magicMarket.mode==='sell' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t">💰 Sell</button>
         <button @click="magicMarket.mode='buy'; magicMarket.result=null" :class="magicMarket.mode==='buy' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t">🛒 Buy</button>
       </div>
@@ -19423,7 +19423,7 @@ document.addEventListener('alpine:init', () => {
       <!-- submit -->
       <div class="flex gap-2 items-center pt-1">
         <template x-if="magicMarket.mode==='appraise'">
-          <button @click="magicMarketSubmitAppraise()" :disabled="!magicMarketForecast() || !magicMarketForecast().available" class="btn btn-warn disabled:opacity-40 disabled:cursor-not-allowed">🔍 Record appraisal</button>
+          <button @click="magicMarketSubmitAppraise()" :disabled="!magicMarketForecast() || !magicMarketForecast().available" class="btn btn-warn disabled:opacity-40 disabled:cursor-not-allowed"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Record appraisal</button>
         </template>
         <template x-if="magicMarket.mode==='sell'">
           <button @click="magicMarketSubmitSell()" :disabled="!magicMarketCanSubmit()" class="btn btn-warn disabled:opacity-40 disabled:cursor-not-allowed" x-text="magicMarketForecast() && magicMarketForecast().available ? ('💰 Sell for ~' + magicMarketForecast().spread.sell.toLocaleString() + ' gp') : '💰 Sell'"></button>
