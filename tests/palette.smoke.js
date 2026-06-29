@@ -289,6 +289,13 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
      /icon:'map'/.test(appJs) && /icon:'church'/.test(appJs) && !/label:'(?:🗺|⬡|📍|🗣|⛪)/.test(appJs));
   ok('the World sub-tab template renders each tab icon via <use :href>',
      html.includes("<use :href=\"'#i-' + tab.icon\""));
+  // Events sub-tab conversion (H1, 2026-06-29) — reviewSubTabs split the same way; 5 new dynamic glyphs
+  // + i-book for the static 📖 Annals button (covered by the dangling scan too). scroll/quill/sword reused.
+  for (const id of ['i-inbox', 'i-calendar', 'i-envelope', 'i-banner', 'i-siege', 'i-book'])
+    ok('Events sub-tab symbol ' + id + ' is defined', defined.has(id));
+  ok('the Events sub-tab data-field split landed (icon: fields present, no emoji in the reviewSubTabs labels)',
+     /icon:'inbox'/.test(appJs) && /icon:'siege'/.test(appJs) && !/label:'(?:📥|📅|📨|📝|🎌|🏯)/.test(appJs));
+  ok('the 📖 Annals button renders #i-book (static use)', html.includes('<use href="#i-book">'));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly

@@ -579,6 +579,13 @@ document.addEventListener('alpine:init', () => {
   <symbol id="i-pin" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2 C8.1 2 5 5.1 5 9 C5 14.2 12 22 12 22 C12 22 19 14.2 19 9 C19 5.1 15.9 2 12 2 Z M12 6.4 A2.6 2.6 0 1 0 12 11.6 A2.6 2.6 0 1 0 12 6.4 Z"/></symbol>
   <symbol id="i-speech" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M4 4 L20 4 A1.8 1.8 0 0 1 21.8 5.8 L21.8 14.2 A1.8 1.8 0 0 1 20 16 L10 16 L6 20 L6 16 A1.8 1.8 0 0 1 4.2 14.2 L4.2 5.8 A1.8 1.8 0 0 1 6 4 Z M6.6 7.6 L17.4 7.6 L17.4 9.2 L6.6 9.2 Z M6.6 11 L13.4 11 L13.4 12.6 L6.6 12.6 Z"/></symbol>
   <symbol id="i-church" viewBox="0 0 24 24"><rect x="11.2" y="2" width="1.6" height="4"/><rect x="9.6" y="3.2" width="4.8" height="1.6"/><path d="M12 5.5 L19 11 L19 12.5 L5 12.5 L5 11 Z"/><path fill-rule="evenodd" d="M6.5 12.5 L17.5 12.5 L17.5 21 L14 21 L14 16.5 A2 2 0 0 0 10 16.5 L10 21 L6.5 21 Z"/></symbol>
+  <!-- Events sub-tab glyphs (H1 path b, 2026-06-29) — 📥 daily · 📅 monthly · 📨 emit · 🎌 battles · 🏯 sieges · 📖 annals -->
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3.5 L12 10 M8.9 7 L12 10.3 L15.1 7"/><path d="M3.2 12.5 L7.6 12.5 L9.1 15 L14.9 15 L16.4 12.5 L20.8 12.5 L20.8 18.8 A1.3 1.3 0 0 1 19.5 20.1 L4.5 20.1 A1.3 1.3 0 0 1 3.2 18.8 Z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 9.2 L20 9.2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="7.4" y="2.6" width="2" height="4" rx="1"/><rect x="14.6" y="2.6" width="2" height="4" rx="1"/><rect x="7" y="12" width="2.4" height="2.4" rx="0.4"/><rect x="10.8" y="12" width="2.4" height="2.4" rx="0.4"/><rect x="14.6" y="12" width="2.4" height="2.4" rx="0.4"/><rect x="7" y="15.4" width="2.4" height="2.4" rx="0.4"/><rect x="10.8" y="15.4" width="2.4" height="2.4" rx="0.4"/></symbol>
+  <symbol id="i-envelope" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="1.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.8 7 L12 12.8 L20.2 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-banner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20 L15 4"/><path d="M18 20 L9 4"/><path fill="currentColor" stroke="none" d="M15 4.5 L20.5 6 L15.5 8.5 Z"/><path fill="currentColor" stroke="none" d="M9 4.5 L3.5 6 L8.5 8.5 Z"/></symbol>
+  <symbol id="i-siege" viewBox="0 0 24 24"><rect x="2.5" y="17.6" width="13" height="2.2" rx="0.7"/><path d="M5 18 L8.5 11 L12 18 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 11 L20 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="20.2" cy="4.6" r="2"/><path d="M8.5 11 L5.7 14.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="3.7" y="13.6" width="3" height="3" rx="0.5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6 C10 4.5 6.5 4 3.5 5 L3.5 18.5 C6.5 17.5 10 18 12 19.5 C14 18 17.5 17.5 20.5 18.5 L20.5 5 C17.5 4 14 4.5 12 6 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6 L12 19.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
 </defs></svg>
 <script>
   // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
@@ -686,13 +693,13 @@ document.addEventListener('alpine:init', () => {
               :class="reviewSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
               class="px-3 py-1 text-sm border-b-2"
               :style="reviewSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
-              x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
+      ><svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span><span x-show="tab.count != null" class="opacity-70" x-text="' · ' + tab.count"></span></button>
     </template>
     <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
     <button @click="reviewSubView='annals'" role="tab" :aria-selected="reviewSubView==='annals' ? 'true' : 'false'"
             :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover-tint'"
             class="px-3 py-1 text-sm border-b-2"
-            :style="reviewSubView==='annals' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">📖 Annals</button>
+            :style="reviewSubView==='annals' ? 'border-color:var(--c-ink)' : 'border-color:transparent'"><svg class="ico" aria-hidden="true"><use href="#i-book"></use></svg> Annals</button>
   </div>
 </div>
 

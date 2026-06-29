@@ -4098,14 +4098,14 @@ const _component = {
     try { sie = (window.ACKS.activeSieges(c) || []).length; } catch(e){}   // Military W6 (burst3)
     // Construction moved to the 🏰 Monthly Turn tab (2026-06-22) — no longer an Events sub-tab.
     return [
-      { id:'pending-events', label:'📥 Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
-      { id:'monthly-events', label:'📅 Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
-      { id:'event-log',      label:'📜 Event Log',      count: loggedEv || null },
-      { id:'emit-wizard',    label:'📨 Emit Event',     count: null },
-      { id:'chronicle',      label:'📝 Chronicle',      count: null },
-      { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
-      { id:'battles',        label:'🎌 Battles',        count: btl || null },
-      { id:'sieges',         label:'🏯 Sieges',         count: sie || null }
+      { id:'pending-events', icon:'inbox',    label:'Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
+      { id:'monthly-events', icon:'calendar', label:'Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
+      { id:'event-log',      icon:'scroll',   label:'Event Log',      count: loggedEv || null },
+      { id:'emit-wizard',    icon:'envelope', label:'Emit Event',     count: null },
+      { id:'chronicle',      icon:'quill',    label:'Chronicle',      count: null },
+      { id:'encounters',     icon:'sword',    label:'Encounters',     count: enc || null },
+      { id:'battles',        icon:'banner',   label:'Battles',        count: btl || null },
+      { id:'sieges',         icon:'siege',    label:'Sieges',         count: sie || null }
     ];
   },
 
