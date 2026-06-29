@@ -877,7 +877,7 @@ const _component = {
   knowledgeCharName(id){ if(!id) return '—'; const cs=(this.currentCampaign && this.currentCampaign.characters)||[]; const c=cs.find(x=>x&&x.id===id); return (c&&c.name)||id; },
   knowledgeActiveCharacters(){ return ((this.currentCampaign && this.currentCampaign.characters)||[]).filter(c=>c && c.alive !== false); },
   knowledgeKnowersOf(loreId){ return loreId ? window.ACKS.loreKnowers(this.currentCampaign, loreId) : []; },
-  knowledgeCertaintyClass(c){ return ({ certain:'text-green-800 border-green-700 bg-green-50', probable:'text-sky-800 border-sky-700 bg-sky-50', suspected:'text-amber-800 border-amber-700 bg-amber-50', rumored:'opacity-70 border-ink/40' })[c] || 'opacity-70 border-ink/40'; },
+  knowledgeCertaintyClass(c){ return ({ certain:'accent-green bdr-green tint-green', probable:'text-sky-800 border-sky-700 bg-sky-50', suspected:'accent-amber bdr-amber tint-amber', rumored:'opacity-70 border-ink/40' })[c] || 'opacity-70 border-ink/40'; },
   knowledgeKnownByView(){ return this.knowledgeViewCharId ? window.ACKS.loreKnownBy(this.currentCampaign, 'character', this.knowledgeViewCharId) : []; },
   knowledgeRowLoreText(row){ const l = row && (row.lore || (row.loreId ? window.ACKS.findLore(this.currentCampaign, row.loreId) : null)); if(l) return l.topic || l.text || l.id; return (row && row.text) || (row && row.kind) || '(event)'; },
   knowledgeRecordFact(){
@@ -1224,14 +1224,14 @@ const _component = {
     // "📜 Events" (the old standalone 'events' chronicle/log view folds in as its Event-Log
     // sub-tab). Domain Turn is the promoted old review/domain-review.
     return [
-      { id:'world',        label:'🌍 World',        count: hexCount || null },
-      { id:'domains',      label:'🏰 Domains',      count: (this.domains||[]).length || null },
-      { id:'roster',       label:'👥 Roster',       count: aliveChars || null },
-      { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
-      { id:'inspector',    label:'🔍 Inspector' },
-      { id:'review',       label:'📜 Events',       count: blockerCount || null, alignRight: true },
-      { id:'domain-turn',  label:'🏰 Monthly Turn', count: this.turnProposal ? 1 : null },
-      { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
+      { id:'world',        icon:'world',  label:'World',        count: hexCount || null },
+      { id:'domains',      icon:'castle', label:'Domains',      count: (this.domains||[]).length || null },
+      { id:'roster',       icon:'people', label:'Roster',       count: aliveChars || null },
+      { id:'activities',   icon:'masks',  label:'Activities',   count: (this.currentCampaign?.ventures||[]).length },
+      { id:'inspector',    icon:'glass',  label:'Inspector' },
+      { id:'review',       icon:'scroll', label:'Events',       count: blockerCount || null, alignRight: true },
+      { id:'domain-turn',  icon:'castle', label:'Monthly Turn', count: this.turnProposal ? 1 : null },
+      { id:'house-rules',  icon:'gear',   label:'House Rules',  count: enabledRules || null }
     ];
   },
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
@@ -1309,10 +1309,10 @@ const _component = {
   senateSenatorChips(senatorshipId){
     const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
     if(!s || !Array.isArray(s.influenceModifiers)) return [];
-    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-orange-200',
+    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-amber-200',
       seduced: 'bg-pink-200', 'intimidated-escaped': 'bg-red-300', 'seduced-ill-treated': 'bg-red-300', bewitched: 'bg-purple-200' };
     return s.influenceModifiers.filter(m => m && m.kind).map(m => ({
-      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-gray-200' }));
+      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-warm-2' }));
   },
   senateSenatorSecret(senatorshipId){
     const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
@@ -1696,10 +1696,10 @@ const _component = {
       isOpen: m.status === 'open' }));
   },
   motionStatusClass(s){
-    if(s === 'enacted' || s === 'dispute-cleared') return 'bg-green-200 text-green-900';
-    if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'bg-red-200 text-red-900';
+    if(s === 'enacted' || s === 'dispute-cleared') return 'tint-green accent-green';
+    if(s === 'defied' || s === 'dispute-escalated' || s === 'rejected') return 'tint-red accent-red';
     if(s === 'open') return 'bg-yellow-200 text-yellow-900';
-    return 'bg-gray-200';
+    return 'bg-warm-2';
   },
   // ── Phase 5 — "Bring a motion" CREATOR (raise the issue only: kind/matter/title → Table it) ──
   newMotion: { open: false, senateId: '', kind: 'edict', matter: 'change-taxes', customMatter: '', policyObjective: '', title: '' },
@@ -4069,15 +4069,15 @@ const _component = {
     // top-level tab; the located-POI collections (Stashes / Lairs / Dungeons) are absorbed by the
     // combined Points-of-Interest view; Religion is re-homed here from a top-level tab.
     const tabs = [
-      { id:'map',   label:'🗺 Map',   count: null },
-      { id:'hexes', label:'⬡ Hexes',  count: null },
-      { id:'poi',   label:'📍 Points of Interest',
+      { id:'map',   icon:'map', label:'Map',   count: null },
+      { id:'hexes', icon:'hex', label:'Hexes',  count: null },
+      { id:'poi',   icon:'pin', label:'Points of Interest',
         count: ((this.currentCampaign?.lairs?.length||0) + (this.currentCampaign?.dungeons?.length||0) + (this.currentCampaign?.stashes?.length||0)) || null },
     ];
     if(this.isHouseRuleEnabled('rumors-manual')){
-      tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
+      tabs.push({ id:'rumors', icon:'speech', label:'Rumors', count: this.allRumors.length || null });
     }
-    tabs.push({ id:'religion', label:'⛪ Religion', count: (this.currentCampaign?.congregations||[]).length || null });
+    tabs.push({ id:'religion', icon:'church', label:'Religion', count: (this.currentCampaign?.congregations||[]).length || null });
     return tabs;
   },
 
@@ -4098,14 +4098,14 @@ const _component = {
     try { sie = (window.ACKS.activeSieges(c) || []).length; } catch(e){}   // Military W6 (burst3)
     // Construction moved to the 🏰 Monthly Turn tab (2026-06-22) — no longer an Events sub-tab.
     return [
-      { id:'pending-events', label:'📥 Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
-      { id:'monthly-events', label:'📅 Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
-      { id:'event-log',      label:'📜 Event Log',      count: loggedEv || null },
-      { id:'emit-wizard',    label:'📨 Emit Event',     count: null },
-      { id:'chronicle',      label:'📝 Chronicle',      count: null },
-      { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
-      { id:'battles',        label:'🎌 Battles',        count: btl || null },
-      { id:'sieges',         label:'🏯 Sieges',         count: sie || null }
+      { id:'pending-events', icon:'inbox',    label:'Daily Events',   count: (blk + (this.dayTickProposal ? 1 : 0)) || null },
+      { id:'monthly-events', icon:'calendar', label:'Monthly Events', count: (dueM + (this.turnProposal ? 1 : 0)) || null },
+      { id:'event-log',      icon:'scroll',   label:'Event Log',      count: loggedEv || null },
+      { id:'emit-wizard',    icon:'envelope', label:'Emit Event',     count: null },
+      { id:'chronicle',      icon:'quill',    label:'Chronicle',      count: null },
+      { id:'encounters',     icon:'sword',    label:'Encounters',     count: enc || null },
+      { id:'battles',        icon:'banner',   label:'Battles',        count: btl || null },
+      { id:'sieges',         icon:'siege',    label:'Sieges',         count: sie || null }
     ];
   },
 
@@ -4119,11 +4119,11 @@ const _component = {
     try { ventx = (this.turnVentureProposals||[]).length; } catch(e){}
     try { syndx = (this.turnSyndicateTributeProposal && this.turnSyndicateTributeProposal.ruleOn) ? (this.turnSyndicateTributeProposal.collections||[]).length : 0; } catch(e){}
     return [
-      { id:'domains',      label:'🏰 Domains',      count: (this.turnProposal||[]).length || null },
-      { id:'construction', label:'🏗 Construction', count: cons || null },
-      { id:'investments',  label:'🌊 Investments',  count: ventx || null },
-      { id:'syndicates',   label:'🗡 Syndicates',   count: syndx || null },
-      { id:'lifestyle',    label:'🏠 Lifestyle',    count: lifx || null }
+      { id:'domains',      icon:'castle', label:'Domains',      count: (this.turnProposal||[]).length || null },
+      { id:'construction', icon:'crane',  label:'Construction', count: cons || null },
+      { id:'investments',  icon:'wave',   label:'Investments',  count: ventx || null },
+      { id:'syndicates',   icon:'dagger', label:'Syndicates',   count: syndx || null },
+      { id:'lifestyle',    icon:'house',  label:'Lifestyle',    count: lifx || null }
     ];
   },
 
@@ -4311,38 +4311,38 @@ const _component = {
   get activitiesSubTabs(){
     // UI overhaul 2026-06-22 — Market / Banking / Magic Items added; Gladiators re-homed here (conditional).
     const tabs = [
-      { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
-      { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
-      { id:'banking',        label:'🏦 Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
-      { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
-      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
-      { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
-      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' }
+      { id:'activities',     icon:'clipboard', label:'Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
+      { id:'journeys',       icon:'tent', label:'Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'banking',        icon:'bank', label:'Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
+      { id:'magic-items',    icon:'wand', label:'Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
+      { id:'ventures',       icon:'scales', label:'Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
+      { id:'recruit',        icon:'sword', label:'Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
+      { id:'hijinks',        icon:'dagger', label:'Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' }
     ];
     if(this.gladiatorsTabVisible())
-      tabs.push({ id:'gladiators', label:'🏟 Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
+      tabs.push({ id:'gladiators', icon:'arena', label:'Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
     return tabs;
   },
   // UI overhaul 2026-06-22 — Roster sub-tabs: Characters · Monsters · Groups · Settlements · Ships ·
   // NPC Generators (+ Knowledge when the knowledge-tracking rule is on).
   get rosterSubTabs(){
     const tabs = [
-      { id:'characters',     label:'👤 Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
-      { id:'monsters',       label:'🐉 Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
-      { id:'groups',         label:'🧭 Groups',         count: (this.currentCampaign?.parties?.length) || null },
-      { id:'settlements',    label:'🏘 Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
-      { id:'ships',          label:'⛵ Ships',          count: (this.currentCampaign?.vessels?.length) || null },
-      { id:'npc-generators', label:'🧙 NPC Generators', count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
+      { id:'characters',     icon:'portrait', label:'Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
+      { id:'monsters',       icon:'beast', label:'Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
+      { id:'groups',         icon:'people', label:'Groups',         count: (this.currentCampaign?.parties?.length) || null },
+      { id:'settlements',    icon:'village', label:'Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
+      { id:'ships',          icon:'ship', label:'Ships',          count: (this.currentCampaign?.vessels?.length) || null },
+      { id:'npc-generators', icon:'wizard', label:'NPC Generators', count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
     ];
     if(this.isHouseRuleEnabled('knowledge-tracking'))
-      tabs.push({ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore?.length) || null });
+      tabs.push({ id:'knowledge', icon:'book', label:'Knowledge', count: (this.currentCampaign?.lore?.length) || null });
     return tabs;
   },
   // UI overhaul 2026-06-22 — Domains sub-tabs: Domains (+ Governance/Senate, dormant-until-used).
   get domainsSubTabs(){
     // Phase 5 (2026-06-24): the Governance/Senate sub-tab moved to a per-domain tab; only Domains remains
     // (the strip auto-hides at length 1).
-    return [ { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null } ];
+    return [ { id:'domains', icon:'castle', label:'Domains', count: (this.domains||[]).length || null } ];
   },
   // ════════ UI overhaul 2026-06-22 — helpers for the new Roster/World/Activities/Events surfaces ════════
   // B1 — World ▸ Points of Interest scope filter (claimed vs unclaimed hexes).
@@ -5140,7 +5140,7 @@ const _component = {
     if(h>0){
       const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
       const cl=(src&&src.conLossHunger)||0;
-      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'tint-amber accent-amber' });
     }
     // RAW dehydration (RR p.278): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor; loses
     // 1d6 CON/day (Provisioning V2).
@@ -5150,7 +5150,7 @@ const _component = {
       out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-sky-200 text-sky-900' });
     }
     const f=(ch&&ch.personalFatigue)||0;
-    if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
+    if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'tint-amber accent-amber' });
     return out;
   },
   // Provisioning V5 — Food/Water column data + the ignore-rations gate (mirrors encumbranceShown).
@@ -9335,7 +9335,7 @@ const _component = {
       const ch = (camp.characters||[]).find(x => x && x.id === id);
       const conds = [];
       const h = m.foodDeficitDays || 0;
-      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'tint-amber accent-amber' });
       const d = m.waterDeficitDays || 0;
       if(d > 0) conds.push({ label:'Dehydrated', detail:'day '+d+((m.conLossThirst||0)>0?(' · −'+m.conLossThirst+' CON'):''), cls:'bg-sky-200 text-sky-900' });
       const inv = upd[id] || (ch && ch.inventory) || [];
@@ -9990,8 +9990,8 @@ const _component = {
   },
   _hijinkRow(h){
     const def = (window.ACKS && window.ACKS.hijinkDefinition) ? (window.ACKS.hijinkDefinition(h.type)||{}) : {};
-    const phaseCls = { 'planning':'bg-gray-200', 'performing':'bg-amber-200', 'laying-low':'bg-sky-200' }[h.status] || 'bg-gray-100';
-    const outCls = { 'complete':'bg-green-200', 'failed':'bg-gray-300', 'caught':'bg-red-200 text-red-900' }[h.status] || 'bg-gray-100';
+    const phaseCls = { 'planning':'bg-warm-2', 'performing':'tint-amber', 'laying-low':'bg-sky-200' }[h.status] || 'bg-warm';
+    const outCls = { 'complete':'tint-green', 'failed':'bg-warm-2', 'caught':'tint-red accent-red' }[h.status] || 'bg-warm';
     const take = (h.status==='complete') ? (h.rewardText || '—') : (h.status==='caught') ? ('charged: ' + (h.charge||'—')) : '—';
     const outText = (h.status==='complete') ? '✓ success' : (h.status==='caught') ? '✗ caught' : '✗ failed';
     return {
