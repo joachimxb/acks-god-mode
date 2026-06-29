@@ -1155,7 +1155,7 @@ document.addEventListener('alpine:init', () => {
                   <span :title="'Lairs' + (hexLairCapText(entry.hex.id) ? ' — ' + hexLairCapText(entry.hex.id) : '')">⚔ <span x-text="lairsAtHexId(entry.hex.id).length"></span></span>
                 </template>
                 <template x-if="(entry.hex.dungeons||[]).length>0">
-                  <span title="Dungeons" class="ml-2">🏛 <span x-text="entry.hex.dungeons.length"></span></span>
+                  <span title="Dungeons" class="ml-2"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> <span x-text="entry.hex.dungeons.length"></span></span>
                 </template>
                 <template x-if="(entry.hex.pointsOfInterest||[]).length>0">
                   <span title="Points of interest" class="ml-2">⛯ <span x-text="entry.hex.pointsOfInterest.length"></span></span>
@@ -1581,7 +1581,7 @@ document.addEventListener('alpine:init', () => {
            the Religion subsystem — this only FLAGS it (record-only). Settlement-scoped, surfaced in the
            arcane hub. -->
       <div class="border bdr-red rounded p-2 mt-2 text-sm" style="background:rgba(254,226,226,.35)">
-        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — extract arcane power; the gods take notice)</span></div>
+        <div class="font-semibold mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — extract arcane power; the gods take notice)</span></div>
         <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power — 2%/day of their families' XP, the same rate as a dungeon (RR p.388). An L9+ arcane caster draws this power to fund magic research (below L9, the act flags the settlement but extracts nothing). The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem.</p>
         <template x-if="arcaneUsurpedSettlements().length">
           <div class="mb-1 text-xs flex flex-col gap-1">
@@ -2328,7 +2328,7 @@ document.addEventListener('alpine:init', () => {
               after <span x-text="battlePanel().result ? battlePanel().result.endedAtTurn : ''"></span> turn(s).
             </div>
             <div class="mt-2" x-show="battlePanel().status === 'ended' && !battlePanel().aftermath">
-              <button @click="battleResolveAftermath()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)">⚖ Resolve the aftermath</button>
+              <button @click="battleResolveAftermath()" class="btn font-bold text-sm" style="border-color:var(--c-danger); color:var(--c-danger)"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Resolve the aftermath</button>
               <button @click="battleRevertTurn()" class="text-xs underline opacity-70 ml-2" x-show="battleLatestTurn() && battleLatestTurn()._pre">⟲ revert the final turn instead</button>
             </div>
             <template x-if="battlePanel().aftermath">
@@ -4489,7 +4489,7 @@ document.addEventListener('alpine:init', () => {
       </div>
       <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
         <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
-        <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
+        <span x-show="tradeSettlement()"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
         <span x-show="tradeArmy()">🛒 Campaign market: <span class="font-semibold" x-text="'Class '+(tradeMarketClassRoman()||'—')"></span> <span class="opacity-60">— the baggage train (RR p.452)</span></span>
         <label x-show="tradeActorIsVenturer() && !tradeArmy()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
         <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
@@ -5471,7 +5471,7 @@ document.addEventListener('alpine:init', () => {
                 <tr x-show="isSenatorialRealm(selectedDomain)"><td>Government
                   <span class="opacity-50 cursor-help" title="RR pp.355–360 — this realm is governed by a senate. Materialize and manage its senators &amp; factions on the Governance ▸ Senate tab.">ⓘ</span>
                 </td>
-                  <td class="text-right"><span class="font-semibold">🏛 Senatorial Republic</span></td></tr>
+                  <td class="text-right"><span class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Senatorial Republic</span></td></tr>
                 <tr><td>Classification
                   <span class="opacity-50 cursor-help" title="RR p.340">ⓘ</span>
                 </td>
@@ -6071,7 +6071,7 @@ document.addEventListener('alpine:init', () => {
                'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
                x-data="{ amounts:{}, showOrderModal:false, showFoundModal:false, foundHexId:'', foundName:'', foundCount:100, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
-            <h2 class="font-bold text-xl mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
+            <h2 class="font-bold text-xl mb-1"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
               Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
             </p>
@@ -6149,7 +6149,7 @@ document.addEventListener('alpine:init', () => {
               <div class="modal-overlay p-4" style="z-index:75" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
                 <div class="modal-card w-full max-w-2xl my-10">
                   <div class="flex justify-between items-start p-4 border-b border-ink/30">
-                    <h3 class="font-bold text-lg">🏛 Order urban investment</h3>
+                    <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Order urban investment</h3>
                     <button @click="showOrderModal=false" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
                   </div>
                   <div class="p-4 space-y-3 text-sm">
@@ -7604,7 +7604,7 @@ document.addEventListener('alpine:init', () => {
                holders (ruler + magistrates + homeDomainId entourage). -->
           <template x-if="realmCensusOn() && realmCensus()">
             <div class="vellum border border-ink p-3 rounded mt-4">
-              <h3 class="font-bold text-lg">🏛 Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
+              <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
               <p class="text-sm opacity-70 mb-2">
                 <span x-text="realmCensus().titleLabel"></span>-tier realm (JJ Ch.9 + RR domain rules) — the leveled offices a realm of this title staffs, reconciled against its actual holders.
                 <span class="font-semibold" x-text="realmCensus().filledCount"></span> of <span x-text="realmCensus().officeCount"></span> filled.
@@ -7643,7 +7643,7 @@ document.addEventListener('alpine:init', () => {
                     <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
                   </template>
                 </select>
-                <button class="btn text-sm" :class="!realmAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!realmAssignPick" @click="realmAssignEntourage()">🏛 Home to realm</button>
+                <button class="btn text-sm" :class="!realmAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!realmAssignPick" @click="realmAssignEntourage()"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Home to realm</button>
                 <!-- SD-2b — mint the open court entourage offices (magister / guildmaster / annalist). -->
                 <template x-if="demoAutoGenOn() && realmCensus().offices.some(o=>!o.filled && o.mapsTo==='entourage')">
                   <button class="btn text-sm" @click="realmAutoFill()">✨ Generate the court entourage</button>
@@ -7724,7 +7724,7 @@ document.addEventListener('alpine:init', () => {
         <p class="text-sm">Current shape: a realm of <strong x-text="senateProspectiveShape().families.toLocaleString()"></strong> families would seat a
           <strong x-text="senateProspectiveShape().minSeats === senateProspectiveShape().maxSeats ? (senateProspectiveShape().minSeats + '-seat') : (senateProspectiveShape().minSeats + '–' + senateProspectiveShape().maxSeats + '-seat')"></strong> senate <span class="opacity-60">(RR p.357)</span>.</p>
       </template>
-      <button @click="openSenateGen(selectedDomain && selectedDomain.id)" class="btn btn-success text-sm">🏛 Generate a senate</button>
+      <button @click="openSenateGen(selectedDomain && selectedDomain.id)" class="btn btn-success text-sm"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Generate a senate</button>
       <p class="text-xs opacity-60">Draws its leading senators from the realm's notables and rolls factions + influence (RR pp.355–360). Or author it by hand via 🔍 Inspector ▸ Create ▸ Senate.</p>
     </div>
   </template>
@@ -7737,7 +7737,7 @@ document.addEventListener('alpine:init', () => {
       <template x-for="d in senateDissolvedRows()" :key="d.id">
         <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1">
           <span><strong x-text="d.name"></strong> — senatorial government abandoned. <span class="opacity-70" x-show="!d.canReestablish" x-text="'A survivor may re-establish it on/after turn ' + d.readyAtTurn + '.'"></span></span>
-          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm">🏛 Re-establish</button>
+          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Re-establish</button>
         </div>
       </template>
     </div>
@@ -7750,8 +7750,8 @@ document.addEventListener('alpine:init', () => {
   <template x-if="ruleOfFewOn()">
     <div class="vellum border border-ink rounded p-4">
       <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
-        <h3 class="font-bold text-lg">⚖ Governance <span class="text-sm opacity-70 font-normal">· Rule of the Few (oligarchies)</span></h3>
-        <button @click="openOligModal(null)" class="btn btn-success text-sm">⚖ Manage governance</button>
+        <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Governance <span class="text-sm opacity-70 font-normal">· Rule of the Few (oligarchies)</span></h3>
+        <button @click="openOligModal(null)" class="btn btn-success text-sm"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Manage governance</button>
       </div>
       <p class="text-sm opacity-70 mb-2">An <strong>oligarchy</strong> is a collective of oligarchs who <em>are</em> the ruler — its Charisma, level (→ Personal Authority), and alignment derive from them (JJ p.402), and it decides by <strong>majority</strong> rather than the senate's 2d6 vote (a deadlock keeps last period's policy). Establish or dissolve one, run its decisions, and let an oligarch secede.</p>
       <table class="bookkeeping text-sm w-full">
@@ -7782,7 +7782,7 @@ document.addEventListener('alpine:init', () => {
         <!-- header + tally -->
         <div>
           <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
-            <h3 class="font-bold text-lg">🏛 <span x-text="senateSelected().name"></span>
+            <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> <span x-text="senateSelected().name"></span>
               <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateKindLabel(senateSelected()) + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
             <div class="flex items-center gap-2">
               <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
@@ -8543,7 +8543,7 @@ document.addEventListener('alpine:init', () => {
     <!-- Header + sub-tab bar -->
     <div class="vellum border border-ink rounded p-3">
       <div class="flex justify-between items-baseline flex-wrap gap-3 mb-2">
-        <h2 class="font-bold text-xl">⚖ Mercantile Ventures</h2>
+        <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Mercantile Ventures</h2>
         <span class="text-sm opacity-70" x-text="pluralize((currentCampaign?.ventures||[]).length, 'total venture') + ' · ' + pluralize(venturerCharacters().length, 'venturer-active character')"></span>
       </div>
       <div class="flex flex-wrap gap-1 mt-2 border-b border-ink/40">
@@ -9035,7 +9035,7 @@ document.addEventListener('alpine:init', () => {
       <div x-show="monthlyTurnSubView==='syndicates'">
       <template x-if="turnSyndicateTributeProposal && turnSyndicateTributeProposal.ruleOn && (turnSyndicateTributeProposal.collections||[]).length">
         <div class="mb-4 border-2 bdr-amber/50 rounded p-3" style="background:var(--c-parchment)">
-          <h3 class="font-bold text-base mb-1">🏛 Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
+          <h3 class="font-bold text-base mb-1"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Syndicate tribute <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnSyndicateTributeProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.362)'"></span></h3>
           <p class="text-sm opacity-70 mb-2 italic">Each active syndicate's monthly tribute is collected into its boss's purse — a boss "sits back and collects his ill-gotten gains." Turn off "Syndicates — auto-collect the monthly tribute" in the 🗡 Hijinks house rules to drive the take by hand.</p>
           <table class="w-full text-sm">
             <thead><tr class="text-left border-b border-ink/30">
@@ -9093,12 +9093,12 @@ document.addEventListener('alpine:init', () => {
             </table>
           </template>
         </div>
-        <h3 class="font-bold text-base mb-1">🏛 Investments in flight <span class="text-sm opacity-70 font-normal">(across all domains)</span></h3>
+        <h3 class="font-bold text-base mb-1"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Investments in flight <span class="text-sm opacity-70 font-normal">(across all domains)</span></h3>
         <p class="text-sm opacity-70 mb-3">Urban (RR p.351) and agricultural (RR p.341) investments build over time on the Day Clock, and are run from each domain's <strong>Investment</strong> tab. This is a read-only overview — use → tweak to go adjust them.</p>
 
         <!-- 🏛 Urban investment in flight (cross-domain) -->
         <div class="border border-ink rounded p-3 mb-4" style="background:var(--c-parchment)">
-          <h4 class="font-semibold text-sm mb-2">🏛 Urban investment <span class="opacity-60 font-normal" x-text="'· ' + allUrbanInvestmentsInFlight().length + ' settlement(s) building'"></span></h4>
+          <h4 class="font-semibold text-sm mb-2"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Urban investment <span class="opacity-60 font-normal" x-text="'· ' + allUrbanInvestmentsInFlight().length + ' settlement(s) building'"></span></h4>
           <template x-if="allUrbanInvestmentsInFlight().length === 0">
             <p class="text-sm italic opacity-60">None under way. Order some from a domain ▸ Investment ▸ 🏛 Urban investment.</p>
           </template>
@@ -10040,7 +10040,7 @@ document.addEventListener('alpine:init', () => {
              collects monthly tribute, and stands its caught members to trial. -->
         <div class="vellum border border-ink rounded p-4 space-y-3">
           <div class="flex items-baseline justify-between flex-wrap gap-2">
-            <h3 class="font-semibold">🏛 Syndicates <span class="opacity-60 font-normal text-sm" x-text="'(' + syndicateRows().length + ')'"></span></h3>
+            <h3 class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Syndicates <span class="opacity-60 font-normal text-sm" x-text="'(' + syndicateRows().length + ')'"></span></h3>
             <span class="text-xs opacity-60">A boss runs hijinks + collects tribute out of a hideout (RR pp.358–362).</span>
           </div>
 
@@ -10090,7 +10090,7 @@ document.addEventListener('alpine:init', () => {
             <div class="flex items-center gap-3 mt-2">
               <button @click="synFormSubmit()" :disabled="!synCanForm()"
                       class="btn btn-success text-sm"
-                      :class="synCanForm() ? '' : 'opacity-40 cursor-not-allowed'">🏛 Found syndicate</button>
+                      :class="synCanForm() ? '' : 'opacity-40 cursor-not-allowed'"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Found syndicate</button>
               <span x-show="!synCanForm() && synFormDisabledReason()" class="text-xs italic opacity-70" x-text="synFormDisabledReason()"></span>
             </div>
           </details>
@@ -10225,7 +10225,7 @@ document.addEventListener('alpine:init', () => {
         <!-- ════ Hijinks HJ-2 (team 2026-06-13) — Trials & sentencing (RR pp.367–368) ════ -->
         <template x-if="synCaughtTrials().length">
           <div class="vellum border border-ink rounded p-4 space-y-2">
-            <h3 class="font-semibold mb-1">⚖ Awaiting trial <span class="opacity-60 font-normal text-sm" x-text="'(' + synCaughtTrials().length + ')'"></span></h3>
+            <h3 class="font-semibold mb-1"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Awaiting trial <span class="opacity-60 font-normal text-sm" x-text="'(' + synCaughtTrials().length + ')'"></span></h3>
             <p class="text-xs opacity-60">A caught perpetrator languishes, then faces the 2d6 Crime &amp; Punishment roll — the boss pays the fine (RR pp.367–368).</p>
             <template x-for="t in synCaughtTrials()" :key="t.id">
               <div class="border border-ink/40 rounded p-2 flex flex-wrap items-end gap-2 text-sm">
@@ -10245,7 +10245,7 @@ document.addEventListener('alpine:init', () => {
                 <label class="block text-xs" x-show="_synTrialDraft(t.id).plea === 'trial'">GM mod
                   <input type="number" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synTrialDraft(t.id).gmModifier" @input="_synTrialDraft(t.id).gmModifier = $event.target.value" title="Evidence / attorney / interpleader / bribes (RR p.368)">
                 </label>
-                <button @click="synResolveTrial(t.id)" class="btn btn-danger text-xs">⚖ Resolve trial</button>
+                <button @click="synResolveTrial(t.id)" class="btn btn-danger text-xs"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Resolve trial</button>
               </div>
             </template>
           </div>
@@ -11742,7 +11742,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="settlementSheetHex()">
           <div class="border border-ink/30 rounded p-3">
             <div class="flex items-center justify-between gap-2 flex-wrap">
-              <h4 class="font-semibold text-sm">🏛 Settlement buildings <span class="opacity-60 font-normal text-xs" x-text="'(' + settlementBuildingRows(settlementSheetHex()).length + ')'"></span></h4>
+              <h4 class="font-semibold text-sm"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Settlement buildings <span class="opacity-60 font-normal text-xs" x-text="'(' + settlementBuildingRows(settlementSheetHex()).length + ')'"></span></h4>
               <button @click="openConstructionWizard({ kind:'settlement-building', siteHexId: settlementSheetHex().id }); closeSettlementSheet();" class="btn text-sm" title="Found a new building here (JJ pp.217–221 + RR p.133) — built over time via the Construction Wizard">+ Found building</button>
             </div>
             <template x-if="settlementBuildingRows(settlementSheetHex()).length === 0 && settlementBuildingProjectsAtHex(settlementSheetHex()).length === 0">
@@ -15205,7 +15205,7 @@ document.addEventListener('alpine:init', () => {
         }
       }">
         <div class="flex justify-between items-baseline mb-1">
-          <h4 class="font-semibold text-sm">🏛 Dungeons <span class="text-sm opacity-60 font-normal" x-text="'(' + (worldHexEditingHex().dungeons||[]).length + ')'"></span></h4>
+          <h4 class="font-semibold text-sm"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Dungeons <span class="text-sm opacity-60 font-normal" x-text="'(' + (worldHexEditingHex().dungeons||[]).length + ')'"></span></h4>
           <button x-show="!showAdd" @click="startAdd()" class="text-sm underline">+ add dungeon</button>
         </div>
         <template x-if="showAdd">
@@ -15550,7 +15550,7 @@ document.addEventListener('alpine:init', () => {
 <div class="modal-backdrop" x-show="showVentureCreateModal" x-cloak @keydown.escape.window="cancelVentureCreate()" @click.self="cancelVentureCreate()">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">⚖ Launch new venture</h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Launch new venture</h2>
       <button @click="cancelVentureCreate()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -15897,7 +15897,7 @@ document.addEventListener('alpine:init', () => {
               <button @click="religionConsecrateRuler(row.ch.id)" class="btn" :disabled="!religionRulerDomain[row.ch.id]" title="Once per year: spend DP = the ruler's monthly revenue + a throw → 12 months of +1 base morale, +1 vassal loyalty, vagary advantage (RR p.422)">Consecrate ruler</button>
             </div>
             <div class="flex items-end gap-1">
-              <button @click="religionRollTransgression(row.ch.id)" class="btn btn-danger" title="Roll on the Divine Transgression table (JJ p.400) — the caster has offended his deity (the manual GM trigger)">⚖ Transgression</button>
+              <button @click="religionRollTransgression(row.ch.id)" class="btn btn-danger" title="Roll on the Divine Transgression table (JJ p.400) — the caster has offended his deity (the manual GM trigger)"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Transgression</button>
               <button x-show="row.favor && row.favor.standing && row.favor.standing !== 'good-standing'" @click="religionAtone(row.ch.id)" class="btn btn-info" title="Atonement restores good standing — re-enables divine-power accrual (RR p.422)">🕊 Atone</button>
             </div>
           </div>
@@ -18669,7 +18669,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex flex-wrap gap-2">
           <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Recruit gladiator</button>
           <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">⚔ Schedule bout</button>
-          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
+          <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm" title="Resolve every scheduled bout as one Munus"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Hold the games</button>
           <!-- === @b10-gladiators (team) — G3/G4 actions === -->
           <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Run business month</button>
           <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-danger text-sm" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
@@ -18910,7 +18910,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeSenateGen()">
   <div class="modal-card max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-xl">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
       <button @click="closeSenateGen()" class="text-xl px-2">×</button>
     </div>
     <p class="text-sm opacity-70">Convene a senate over a realm's apex domain. Its size derives from the realm's families; its leading senators are drawn from the realm's actual notables (vassal lords, magistrates, court, residents), each with rolled influence, 1d3 policy objectives, and a faction. Re-roll, seat extra notables, then materialize it.</p>
@@ -19037,7 +19037,7 @@ document.addEventListener('alpine:init', () => {
             <input type="checkbox" x-model="senGen.replace"> Replace the realm's existing senate
           </label>
           <span class="text-xs opacity-60" x-show="senGenAlreadyHasSenate() && !senGen.replace">A senate already governs this realm — tick Replace to convene a new one.</span>
-          <button @click="senGenMaterialize()" :disabled="senGenAlreadyHasSenate() && !senGen.replace" class="btn btn-success text-sm disabled:opacity-40 ml-auto">🏛 Materialize senate</button>
+          <button @click="senGenMaterialize()" :disabled="senGenAlreadyHasSenate() && !senGen.replace" class="btn btn-success text-sm disabled:opacity-40 ml-auto"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Materialize senate</button>
         </div>
       </div>
     </template>
@@ -19506,7 +19506,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeOligModal()">
   <div class="modal-card max-w-2xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-xl">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
       <button @click="closeOligModal()" class="text-xl px-2">×</button>
     </div>
 
@@ -19543,7 +19543,7 @@ document.addEventListener('alpine:init', () => {
             </select>
           </label>
         </div>
-        <button @click="oligEstablish()" :disabled="oligModal.draftMembers.length===0" class="btn btn-success text-sm disabled:opacity-40">⚖ Establish oligarchy</button>
+        <button @click="oligEstablish()" :disabled="oligModal.draftMembers.length===0" class="btn btn-success text-sm disabled:opacity-40"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Establish oligarchy</button>
       </div>
     </template>
 
@@ -19593,7 +19593,7 @@ document.addEventListener('alpine:init', () => {
               </template>
             </tbody>
           </table>
-          <button @click="oligDecide()" class="btn btn-primary text-sm">⚖ Resolve decision</button>
+          <button @click="oligDecide()" class="btn btn-primary text-sm"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Resolve decision</button>
           <template x-if="oligModal.lastDecision">
             <div class="text-sm p-2 rounded" :class="oligModal.lastDecision.outcome==='passed'?'tint-green border bdr-green':(oligModal.lastDecision.outcome==='rejected'?'tint-red border bdr-red':'bg-warm border border-hairline')">
               <strong x-text="oligModal.lastDecision.outcome.toUpperCase()"></strong>
@@ -19604,7 +19604,7 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <div class="flex justify-end">
-          <button @click="oligDissolve()" class="btn text-xs" title="Revert the realm to feudal; clear the oligarchy">⚖ Dissolve the oligarchy</button>
+          <button @click="oligDissolve()" class="btn text-xs" title="Revert the realm to feudal; clear the oligarchy"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Dissolve the oligarchy</button>
         </div>
       </div>
     </template>
@@ -19963,7 +19963,7 @@ document.addEventListener('alpine:init', () => {
 
           <!-- change succession law -->
           <div class="vellum border border-ink/30 rounded p-2 space-y-1">
-            <p class="font-semibold">⚖ Change the succession law</p>
+            <p class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-scales"></use></svg> Change the succession law</p>
             <div class="flex items-center gap-2">
               <select x-model="dynModal.changeLaw" class="flex-1 text-sm"><option value="">— pick a law —</option><template x-for="l in dynSuccessionLaws()" :key="'c'+l.id"><option :value="l.id" x-text="l.label + (l.vassalLoyaltyBonus ? (' (vassals +' + l.vassalLoyaltyBonus + ')') : '')"></option></template></select>
               <label class="flex items-center gap-1.5 text-xs whitespace-nowrap"><input type="checkbox" x-model="dynModal.changeImmediate"> Immediate</label>
@@ -20013,12 +20013,12 @@ document.addEventListener('alpine:init', () => {
               </div>
               <!-- delegation -->
               <div class="vellum border border-ink/30 rounded p-2 space-y-1">
-                <p class="font-semibold">🏛 Delegation</p>
+                <p class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Delegation</p>
                 <p class="opacity-80" x-text="famDelegationText(dynModalChar())"></p>
                 <div class="flex flex-wrap items-end gap-2">
                   <label class="text-xs">Mode<select x-model="famUi.delMode" class="block text-sm"><template x-for="m in famDelegationModes()" :key="m.id"><option :value="m.id" x-text="m.label"></option></template></select></label>
                   <label class="text-xs" x-show="famUi.delMode!=='hands-on'">Regent / steward<select x-model="famUi.delDelegateId" class="block text-sm"><option value="">— pick —</option><template x-for="o in famCharOptions()" :key="'dl'+o.id"><option :value="o.id" x-text="o.name"></option></template></select></label>
-                  <button @click="famDelegate()" class="btn text-xs font-semibold">🏛 Set</button>
+                  <button @click="famDelegate()" class="btn text-xs font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-temple"></use></svg> Set</button>
                 </div>
                 <p class="text-xs opacity-50">Delegation frees a titled ruler to adventure while a steward runs the realm (the activity-budget / Politics consumer — the freed activity, the realm running itself — is a forward seam).</p>
               </div>

@@ -283,6 +283,8 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
     { glyph: '💰', pattern: '>💰 Generate treasure',  note: 'treasury/money chrome → #i-bag' },
     { glyph: '🔮', pattern: '>🔮 Arcane</button>',    note: 'magic/arcane chrome → #i-orb' },
     { glyph: '🪖', pattern: '>🪖 Units on the march',  note: 'military/unit chrome → #i-helm' },
+    { glyph: '⚖', pattern: '>⚖ Establish oligarchy',  note: 'law/governance chrome → #i-scales' },
+    { glyph: '🏛', pattern: '>🏛 Generate a senate',   note: 'building/senate chrome → #i-temple' },
   ];
   for (const c of CONVERTED)
     ok('converted glyph ' + c.glyph + ' stays converted (' + c.note + ')',
