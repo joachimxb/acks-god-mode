@@ -167,6 +167,23 @@ ok('no raw modal backdrop dim remains (inline rgba(0,0,0,.4|.45) + the Tailwind 
 ok('the faint surface tints are untouched (bg-black/5 + rgba(0,0,0,.03|.04) survive — not over-swept)',
    /\bbg-black\/5\b/.test(html) && /rgba\(0,0,0,\.0[34]\)/.test(html));
 
+// Overlay shell (H1, 2026-06-29) — the 50 scrolling dialogs each repeated the same 6-class Tailwind
+// shell + an inline backdrop dim; extracted to ONE .modal-overlay class (the dim rides along via
+// var(--c-backdrop)). z-index + padding stay inline (per-modal/functional); the items-center centered
+// dialogs (.modal-dim) are a separate archetype, untouched. Lock the class + that the shell isn't
+// re-inlined and no Family-A inline backdrop pairing returns.
+ok('.modal-overlay is defined and token-driven (fixed/flex top-aligned scroll + the --c-backdrop dim)',
+   /\.modal-overlay\s*\{[^}]*position:\s*fixed/.test(html) &&
+   /\.modal-overlay\s*\{[^}]*align-items:\s*flex-start/.test(html) &&
+   /\.modal-overlay\s*\{[^}]*overflow-y:\s*auto/.test(html) &&
+   /\.modal-overlay\s*\{[^}]*background:\s*var\(--c-backdrop\)/.test(html));
+ok('the scrolling dialogs use .modal-overlay (>= 50 — guards a mass-revert)',
+   (html.match(/class="modal-overlay\b/g) || []).length >= 50);
+ok('the raw scrolling-overlay shell is not re-inlined (the 6-class Tailwind shell is routed)',
+   !/fixed inset-0 flex items-start justify-center overflow-y-auto/.test(html));
+ok('no Family-A inline backdrop pairing remains (z-index + background:var(--c-backdrop) folded into the class)',
+   !/z-index:\d+; background:var\(--c-backdrop\)/.test(html));
+
 // Segmented controls (H1, 2026-06-26) — the selected tab/segmented pill + its inline active-underline
 // route through the --c-border / --c-parchment / --c-ink tokens (were raw hex).
 ok('.tab-active (the selected segmented control) is token-driven (raw hex gone from the rule)',

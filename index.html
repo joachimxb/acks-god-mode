@@ -494,6 +494,14 @@ document.addEventListener('alpine:init', () => {
      wider Action-Wizard keeps its heavier dim via --c-backdrop-strong (.modal-backdrop). z-index /
      alignment / scroll stay per-modal (functional). */
   .modal-dim { background-color: var(--c-backdrop); }
+  /* H1 (2026-06-29) — the scrolling-dialog overlay shell. The ~50 tall dialogs each repeated the same
+     6-class Tailwind shell (fixed/full-inset, top-aligned centered flex, vertical scroll) plus an
+     inline backdrop dim; routed to ONE class so the shell is a single edit and the dim rides along.
+     Only the genuinely per-modal bits stay inline: z-index (the stacking
+     hierarchy) and the padding utility (p-4 / py-8). The items-center centered dialogs are a distinct
+     archetype (.modal-dim + Tailwind centering), left as-is. */
+  .modal-overlay { position: fixed; inset: 0; display: flex; align-items: flex-start;
+    justify-content: center; overflow-y: auto; background: var(--c-backdrop); }
   /* Toast semantic variants (graphic-designer O3 + a11y). The bar carries errors, warnings, and
      confirmations as one identical brown bar today; a left accent stripe + tint give the message
      a visual meaning. Driven by .toast-success / .toast-warn / .toast-error via showToast(msg,ms,type). */
@@ -1358,7 +1366,7 @@ document.addEventListener('alpine:init', () => {
 <!-- === Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E; RR pp.386–388). Opened from
      World ▸ 🕳️ Dungeons (🔮 Arcane). Attune → establish sovereignty → extract arcane power → harvest;
      the peasants-and-dungeons garrison cost. z-77 (a peek, like the lair detail). === -->
-<div x-show="arcaneDungeonId" @keydown.escape.window="if(arcaneDungeonId){ closeArcaneModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:var(--c-backdrop)" x-cloak @click.self="closeArcaneModal()">
+<div x-show="arcaneDungeonId" @keydown.escape.window="if(arcaneDungeonId){ closeArcaneModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="closeArcaneModal()">
   <template x-if="arcaneDungeon()">
     <div class="modal-card p-4 my-6 w-full max-w-2xl">
       <div class="flex justify-between items-start mb-3 gap-2">
@@ -1556,7 +1564,7 @@ document.addEventListener('alpine:init', () => {
 <!-- === AD-C — Build a dungeon (the construction Admin verb; RR p.386). Creates a kind:'dungeon'
      Construction Project + mints the Dungeon entity, auto-attuning an arcane L9+ owner. z-77. === -->
 <!-- New-domain creation modal (Phase 5; 2026-06-24) — domain type + optional special type + senatorial republic. -->
-<div x-show="newDomainModal.open" @keydown.escape.window="if(newDomainModal.open){ newDomainModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:var(--c-backdrop)" x-cloak @click.self="newDomainModal.open=false">
+<div x-show="newDomainModal.open" @keydown.escape.window="if(newDomainModal.open){ newDomainModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="newDomainModal.open=false">
   <div class="modal-card p-4 my-6 w-full max-w-lg">
     <div class="flex justify-between items-start mb-3 gap-2">
       <h3 class="font-bold text-lg">🏰 New domain <span class="text-sm font-normal opacity-70">(RR pp.353–354)</span></h3>
@@ -1592,7 +1600,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- 📤 Export-for-player picker (B1-UI, audit 2026-06-24) — the GM hands a player a redacted save -->
-<div x-show="playerExport.pickerOpen" @keydown.escape.window="if(playerExport.pickerOpen){ playerExport.pickerOpen=false; $event.preventDefault() }" role="dialog" aria-modal="true" aria-labelledby="playerExportTitle" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="playerExport.pickerOpen=false">
+<div x-show="playerExport.pickerOpen" @keydown.escape.window="if(playerExport.pickerOpen){ playerExport.pickerOpen=false; $event.preventDefault() }" role="dialog" aria-modal="true" aria-labelledby="playerExportTitle" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="playerExport.pickerOpen=false">
   <div class="modal-card p-4 my-6 w-full max-w-md">
     <div class="flex justify-between items-start mb-3 gap-2">
       <h3 id="playerExportTitle" class="font-bold text-lg">📤 Export for player</h3>
@@ -1627,7 +1635,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="dungeonBuild.open" @keydown.escape.window="if(dungeonBuild.open){ dungeonBuild.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:var(--c-backdrop)" x-cloak @click.self="dungeonBuild.open=false">
+<div x-show="dungeonBuild.open" @keydown.escape.window="if(dungeonBuild.open){ dungeonBuild.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="dungeonBuild.open=false">
   <div class="modal-card p-4 my-6 w-full max-w-lg">
     <div class="flex justify-between items-start mb-3 gap-2">
       <h3 class="font-bold text-lg">🏗 Build a dungeon <span class="text-sm font-normal opacity-70">(RR p.386)</span></h3>
@@ -2028,7 +2036,7 @@ document.addEventListener('alpine:init', () => {
      convention — battlePanelId stays set so the subtree never tears down against null).
      Setup-stage roster edits (zones, M/L ticks, officers) are DIRECT working-state writes:
      the battle isn't live until ⚔ Begin emits battle-started. ═══ -->
-<div x-show="battlePanelOpen" @keydown.escape.window="if(battlePanelOpen && !$event.defaultPrevented){ closeBattlePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:var(--c-backdrop)" x-cloak @click.self="closeBattlePanel()">
+<div x-show="battlePanelOpen" @keydown.escape.window="if(battlePanelOpen && !$event.defaultPrevented){ closeBattlePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:76" x-cloak @click.self="closeBattlePanel()">
   <div class="modal-card w-full max-w-5xl my-6">
     <template x-if="battlePanel()">
       <div class="p-4">
@@ -2352,7 +2360,7 @@ document.addEventListener('alpine:init', () => {
      character sheet's ⚗ Research panel. Pick a kind → configure → cost preview → assign assistants →
      commit (ACKS.startResearchProject). z-77 (above the character editor at z-50). The component
      payment + the throw happen later on the awaiting-throw project card (after the research accrues). -->
-<div x-show="researchModalOpen" @keydown.escape.window="if(researchModalOpen){ closeResearchModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:var(--c-backdrop)" x-cloak @click.self="closeResearchModal()">
+<div x-show="researchModalOpen" @keydown.escape.window="if(researchModalOpen){ closeResearchModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="closeResearchModal()">
   <div class="modal-card w-full max-w-lg my-6">
     <div class="flex items-center justify-between border-b border-ink/40 px-4 py-2">
       <h3 class="font-semibold">⚗ New research project</h3>
@@ -2553,7 +2561,7 @@ document.addEventListener('alpine:init', () => {
      Opened from the 🚢 Vessels card or a journey's voyage block. z-55 (above the character sheet 50,
      BELOW the stash modal 60 so the hold opens on top). Tactical sea combat is the GM's table (RR p.323);
      the result is recorded here. -->
-<div x-show="vesselDetailId" @keydown.escape.window="if(vesselDetailId && !stashDetailId && !notableModalId && !$event.defaultPrevented){ closeVesselDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:55; background:var(--c-backdrop)" x-cloak @click.self="closeVesselDetail()">
+<div x-show="vesselDetailId" @keydown.escape.window="if(vesselDetailId && !stashDetailId && !notableModalId && !$event.defaultPrevented){ closeVesselDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:55" x-cloak @click.self="closeVesselDetail()">
   <template x-if="vesselDetail()">
     <div class="modal-card max-w-2xl w-full my-8 p-4 space-y-3">
       <!-- header -->
@@ -2674,7 +2682,7 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
-<div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeLairDetail()">
+<div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeLairDetail()">
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
       <div>
@@ -2802,7 +2810,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Levy modal (Domain ▸ Military, RR pp.430–433) — count + home hex for a conscript/militia levy. -->
 <!-- 🎖 Add-to-army chooser (2026-06-17) — when ≥2 field armies stand at a garrison unit's hex,
      pick which one it joins (a single co-located army joins without this dialog). -->
-<div x-show="addToArmyModal.open" @keydown.escape.window="if(addToArmyModal.open){ addToArmyModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:var(--c-backdrop)" x-cloak @click.self="addToArmyModal.open=false">
+<div x-show="addToArmyModal.open" @keydown.escape.window="if(addToArmyModal.open){ addToArmyModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:76" x-cloak @click.self="addToArmyModal.open=false">
   <div class="modal-card p-4 mt-16 w-full max-w-md" @click.stop>
     <h3 class="font-bold text-lg mb-1">🎖 Add to which army?</h3>
     <p class="text-xs opacity-70 mb-3" x-text="(addToArmyUnit() ? (addToArmyUnit().displayName || 'The unit') : 'The unit') + ' will join a field army standing here.'"></p>
@@ -2820,7 +2828,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- 🚶 March a garrison unit (2026-06-17) — a Journey at unit scale (destination + 🗺 map-pick + pace), no supply -->
-<div x-show="marchModal.open" @keydown.escape.window="if(marchModal.open){ marchModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:var(--c-backdrop)" x-cloak @click.self="marchModal.open=false">
+<div x-show="marchModal.open" @keydown.escape.window="if(marchModal.open){ marchModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:76" x-cloak @click.self="marchModal.open=false">
   <div class="modal-card p-4 mt-16 w-full max-w-md" @click.stop>
     <h3 class="font-bold text-lg mb-1">🚶 Muster a unit</h3>
     <p class="text-xs opacity-70 mb-3" x-text="(marchModalUnit() ? (marchModalUnit().displayName || 'The unit') : 'The unit') + ' musters to a destination hex — an abstract mobilization over ~1 week (RR p.434). No coordinate in transit; it takes up its post when the muster completes.'"></p>
@@ -2841,7 +2849,7 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<div x-show="levyModal.open" @keydown.escape.window="if(levyModal.open){ closeLevyModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:var(--c-backdrop)" x-cloak @click.self="closeLevyModal()">
+<div x-show="levyModal.open" @keydown.escape.window="if(levyModal.open){ closeLevyModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:72" x-cloak @click.self="closeLevyModal()">
   <div class="modal-card w-full max-w-md my-12">
     <template x-if="levyModalDomain()">
       <div>
@@ -2878,7 +2886,7 @@ document.addEventListener('alpine:init', () => {
      from the treasury; the troops arrive ½/¼/remainder over the tier's time period (the slot-46 muster
      consumer tops them up — advance the Day Clock). Distinct from the "+ Recruit unit" settlement-scale
      Recruiting Wizard (RR pp.164–167). -->
-<div x-show="recruitModal.open" @keydown.escape.window="if(recruitModal.open){ closeRecruitModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:73; background:var(--c-backdrop)" x-cloak @click.self="closeRecruitModal()">
+<div x-show="recruitModal.open" @keydown.escape.window="if(recruitModal.open){ closeRecruitModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:73" x-cloak @click.self="closeRecruitModal()">
   <div class="modal-card w-full max-w-md my-12">
     <template x-if="recruitModalDomain()">
       <div>
@@ -2917,7 +2925,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- 🎖 Recruit officer / specialist (realm scale, RR p.428) — the other half of realm recruitment. Each is an
      INDIVIDUAL → the lightweight↔full NPC doctrine: a stub (flesh out later) or a full-rolled character now. -->
-<div x-show="recruitSpecialistModal.open" @keydown.escape.window="if(recruitSpecialistModal.open){ closeRecruitSpecialistModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:74; background:var(--c-backdrop)" x-cloak @click.self="closeRecruitSpecialistModal()">
+<div x-show="recruitSpecialistModal.open" @keydown.escape.window="if(recruitSpecialistModal.open){ closeRecruitSpecialistModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:74" x-cloak @click.self="closeRecruitSpecialistModal()">
   <div class="modal-card w-full max-w-md my-12">
     <template x-if="recruitSpecialistDomain()">
       <div>
@@ -2960,7 +2968,7 @@ document.addEventListener('alpine:init', () => {
      Constructible (and, for a domain-owned stronghold-component, adds a real stronghold component so the
      realm's value grows). Launched from Inspector Create→Project (Admin verb) + the Domain Stronghold tab
      (deep-link prefill). z-75 — above the recruit/train modals (z-73/74). -->
-<div x-show="constructionWizard.open" @keydown.escape.window="if(constructionWizard.open){ closeConstructionWizard(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeConstructionWizard()">
+<div x-show="constructionWizard.open" @keydown.escape.window="if(constructionWizard.open){ closeConstructionWizard(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak @click.self="closeConstructionWizard()">
   <div class="modal-card w-full max-w-lg my-10">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <h3 class="font-bold text-lg" x-text="constructionWizard.repairTargetId ? '🔧 Repair a structure' : '🏗 Build a structure'"></h3>
@@ -3158,7 +3166,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Follower Arrival modal (Construction Wave C — RR p.334) — opened from the Stronghold-tab Followers
      card. Rolls the arrival, lets the GM ⟳ re-roll, and Accept materializes the followers (companions →
      follower Characters; troops/novices → count-Groups). z-76: a review over the domain view. -->
-<div x-show="followerArrival.open" @keydown.escape.window="if(followerArrival.open){ closeFollowerArrival(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:var(--c-backdrop)" x-cloak @click.self="closeFollowerArrival()">
+<div x-show="followerArrival.open" @keydown.escape.window="if(followerArrival.open){ closeFollowerArrival(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:76" x-cloak @click.self="closeFollowerArrival()">
   <div class="modal-card w-full max-w-lg my-10">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <h3 class="font-bold text-lg">🎺 Followers arrive <span class="text-sm font-normal opacity-70">· RR p.334</span></h3>
@@ -3216,7 +3224,7 @@ document.addEventListener('alpine:init', () => {
      troop type. Shows the RR p.431 procedure: the Qualifying-Number cap per type, training time + cost,
      and the trained stats for the chosen type. ENFORCE — the count is capped to the qualifying max and
      the unqualified remainder splits off as an untrained levy. z-74: over the unit sheet (z-72). -->
-<div x-show="trainModal.open" @keydown.escape.window="if(trainModal.open){ closeTrainModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:74; background:var(--c-backdrop)" x-cloak @click.self="closeTrainModal()">
+<div x-show="trainModal.open" @keydown.escape.window="if(trainModal.open){ closeTrainModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:74" x-cloak @click.self="closeTrainModal()">
   <div class="modal-card w-full max-w-lg my-10">
     <template x-if="trainModalUnit()">
       <div>
@@ -3283,7 +3291,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Unit Sheet modal (Domain ▸ Military / Characters ▸ Parties) — the clickable per-unit detail +
      edit surface (RR pp.427–433). Field edits live here (Type is read-only — set by recruiting /
      training; the 🔍 Inspector is the raw/admin path). z-72: a peek over the domain/parties view. -->
-<div x-show="unitSheetUnitId" @keydown.escape.window="if(unitSheetUnitId && !$event.defaultPrevented){ closeUnitSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:var(--c-backdrop)" x-cloak @click.self="closeUnitSheet()">
+<div x-show="unitSheetUnitId" @keydown.escape.window="if(unitSheetUnitId && !$event.defaultPrevented){ closeUnitSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:72" x-cloak @click.self="closeUnitSheet()">
   <div class="modal-card w-full max-w-xl my-6">
     <template x-for="u in unitSheetList()" :key="'usheet-'+u.id">
       <div>
@@ -3401,7 +3409,7 @@ document.addEventListener('alpine:init', () => {
      detail (78) — "→ lair" from here opens the lair as the top peek; the lair detail's own Encounters
      list closes itself before opening this. DOM order (after lair, before search) gives the
      deterministic stacked-Escape order. The Inspector stays the no-frills field editor underneath. -->
-<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !trackHome.open && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:var(--c-backdrop)" x-cloak @click.self="closeEncounterModal()">
+<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !trackHome.open && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:77" x-cloak @click.self="closeEncounterModal()">
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="encModalEnc()">
       <div>
@@ -3868,7 +3876,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Stash detail modal (Stash B.4) -->
-<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:var(--c-backdrop)" x-cloak>
+<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:60" x-cloak>
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="stashDetailStash()">
       <div>
@@ -3960,7 +3968,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Notable Item modal (Items I1 Step 3) — view/edit a promoted item in place, layered over the
      stash modal (z-80, above the stash's z-60 and the character editor's z-50) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
      Plain/fungible lines never reach here — only promoted lines (which point at a notableItems[] entity). -->
-<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:80; background:var(--c-backdrop)" x-cloak>
+<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:80" x-cloak>
   <div class="modal-card w-full max-w-xl my-6">
     <template x-if="notableModalItem()">
       <div>
@@ -4045,7 +4053,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Escape stacking: every stacked modal's escape handler acts only while ITS layer is open and marks
      the event consumed (preventDefault); lower layers skip a consumed event — so one Escape closes one
      layer, top-down, regardless of listener registration order. -->
-<div x-show="lairWizardOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:var(--c-backdrop)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
+<div x-show="lairWizardOpen" role="dialog" aria-modal="true" class="modal-overlay py-8" style="z-index:55" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
   <div class="modal-card max-w-lg w-full mx-4 p-5 space-y-4">
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">🏚 Lair Wizard</h2>
@@ -4136,7 +4144,7 @@ document.addEventListener('alpine:init', () => {
      (Retainers), a domain's Military tab, and the Armies view header. The Inspector
      Create ▸ Army is the free-form ADMIN-verb counterpart. Engine: ACKS.createArmy
      (stations the roster + a Main Body division led by the commander, RR p.435). -->
-<div x-show="musterArmyOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:60; background:var(--c-backdrop)" x-cloak @click.self="musterArmyOpen = false" @keydown.escape.window="if(musterArmyOpen){ musterArmyOpen = false; $event.preventDefault() }">
+<div x-show="musterArmyOpen" role="dialog" aria-modal="true" class="modal-overlay py-8" style="z-index:60" x-cloak @click.self="musterArmyOpen = false" @keydown.escape.window="if(musterArmyOpen){ musterArmyOpen = false; $event.preventDefault() }">
   <div class="modal-card w-full max-w-2xl my-2 p-4 space-y-3">
     <div class="flex justify-between items-start border-b border-ink/20 pb-2">
       <div>
@@ -4207,7 +4215,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Garrison reaction (2026-06-14) — ⚔ Deploy a force to meet a domain threat (an incursion
      band). Reuses the muster machinery; the slot-88 military day consumer resolves the meeting
      on arrival (JJ pp.104–106). Engine: ACKS.deployGarrisonReaction / garrisonReactionPreview. -->
-<div x-show="garrisonDeployOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:62; background:var(--c-backdrop)" x-cloak @click.self="garrisonDeployOpen = false" @keydown.escape.window="if(garrisonDeployOpen){ garrisonDeployOpen = false; $event.preventDefault() }">
+<div x-show="garrisonDeployOpen" role="dialog" aria-modal="true" class="modal-overlay py-8" style="z-index:62" x-cloak @click.self="garrisonDeployOpen = false" @keydown.escape.window="if(garrisonDeployOpen){ garrisonDeployOpen = false; $event.preventDefault() }">
   <template x-if="garrisonDeployOpen && garrisonDeployBand()">
   <div class="modal-card w-full max-w-2xl my-2 p-4 space-y-3">
     <div class="flex justify-between items-start border-b border-ink/20 pb-2">
@@ -4295,7 +4303,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Carry ⇄ stash transfer modal (Items I1 Step 3) — the character's actor verb: cache carry
      items/coins into a co-located stash, or draw them back. Layered above the character editor
      (z-50) at z-70. Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes). -->
-<div x-show="stashTransferOpen" @keydown.escape.window="closeStashTransfer()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:70; background:var(--c-backdrop)" x-cloak>
+<div x-show="stashTransferOpen" @keydown.escape.window="closeStashTransfer()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:70" x-cloak>
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="characterEditing">
       <div>
@@ -4382,7 +4390,7 @@ document.addEventListener('alpine:init', () => {
      Availability + funds; runs THROUGH the real coin purse + carry inventory (no phantom state). The
      #346 proof is the forecast's Activity line: a purchase = ⌈stone ÷ normal-load⌉ ancillary errands
      (M&M p.15). Layered at z-75 (above the character sheet z-50 + the hex card). -->
-<div x-show="trade.open" @keydown.escape.window="closeTrade()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak>
+<div x-show="trade.open" @keydown.escape.window="closeTrade()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak>
   <div class="modal-card w-full max-w-3xl my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -4519,7 +4527,7 @@ document.addEventListener('alpine:init', () => {
      counterpart to 🛒 Trade, over ACKS.forageActivity / huntActivity. Opens from the character sheet
      (🌿 Forage / 🏹 Hunt) or a hex card. Forage = ancillary, Hunt = dedicated (#346); +4 with Survival;
      terrain/territory modifiers on food + hunt (RR p.278). Layered at z-75 (above the character sheet). -->
-<div x-show="forage.open" @keydown.escape.window="if(forage.open && !$event.defaultPrevented) closeForage()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak>
+<div x-show="forage.open" @keydown.escape.window="if(forage.open && !$event.defaultPrevented) closeForage()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak>
   <div class="modal-card w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -4589,7 +4597,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Search the hex (#476 M4 — RR pp.276–277 "Searching the Wild"). The Judge's secret search-hour:
      one Wilderness Search throw vs the hex's undiscovered lairs + the RAW per-hour encounter check.
      GM-facing — players never see the target or "0 of N found"; results stack like Forage. -->
-<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !trackHome.open && !$event.defaultPrevented) closeSearchHex()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak>
+<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !trackHome.open && !$event.defaultPrevented) closeSearchHex()" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak>
   <div class="modal-card w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -4665,7 +4673,7 @@ document.addEventListener('alpine:init', () => {
      A quarry already gone to ground in this hex is caught at once. Peek-level z-78 (above
      the resolution modal 77 + the search modal 75 — both offer 🐾); their escape handlers
      skip while it's open, and it preventDefaults its own close. -->
-<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak>
+<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak>
   <div class="modal-card w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -5944,7 +5952,7 @@ document.addEventListener('alpine:init', () => {
 
               <!-- ⚒ Fund agricultural improvements dialog — the per-hex budget amounts, moved out of the panel. -->
               <template x-if="showAgriModal">
-                <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" @click.self="showAgriModal=false" @keydown.escape.window="showAgriModal=false">
+                <div class="modal-overlay p-4" style="z-index:75" @click.self="showAgriModal=false" @keydown.escape.window="showAgriModal=false">
                   <div class="modal-card w-full max-w-2xl my-10">
                     <div class="flex justify-between items-start p-4 border-b border-ink/30">
                       <h3 class="font-bold text-lg">⚒ Fund agricultural improvements</h3>
@@ -6075,7 +6083,7 @@ document.addEventListener('alpine:init', () => {
             </div>
             <!-- 🏗 Order urban investment dialog — the per-settlement amounts, moved out of the status table. -->
             <template x-if="showOrderModal">
-              <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
+              <div class="modal-overlay p-4" style="z-index:75" @click.self="showOrderModal=false" @keydown.escape.window="showOrderModal=false">
                 <div class="modal-card w-full max-w-2xl my-10">
                   <div class="flex justify-between items-start p-4 border-b border-ink/30">
                     <h3 class="font-bold text-lg">🏛 Order urban investment</h3>
@@ -6118,7 +6126,7 @@ document.addEventListener('alpine:init', () => {
             <!-- 🏘 Found settlement dialog — pick an unsettled hex, name it, set initial peasants. The
                  commit defers to foundSettlementById (a thin wrapper adjacent to foundSettlementOnHex). -->
             <template x-if="showFoundModal">
-              <div class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" @click.self="showFoundModal=false" @keydown.escape.window="showFoundModal=false">
+              <div class="modal-overlay p-4" style="z-index:75" @click.self="showFoundModal=false" @keydown.escape.window="showFoundModal=false">
                 <div class="modal-card w-full max-w-lg my-10">
                   <div class="flex justify-between items-start p-4 border-b border-ink/30">
                     <h3 class="font-bold text-lg">🏘 Found a settlement</h3>
@@ -11641,8 +11649,8 @@ document.addEventListener('alpine:init', () => {
 <!-- Settlement sheet modal — opened from Roster ▸ Settlements + the Demographics settlement rows. Reuses
      demographicRoster() (JJ Step 3) via demoSettlementId (set by openSettlementSheet). -->
 <div x-show="settlementSheetId" @keydown.escape.window="if(settlementSheetId){ closeSettlementSheet(); }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4"
-     style="z-index:60; background:var(--c-backdrop)" x-cloak @click.self="closeSettlementSheet()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4"
+     style="z-index:60" x-cloak @click.self="closeSettlementSheet()">
   <template x-if="settlementSheetId && settlementSheet()">
   <div class="modal-card w-full max-w-5xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -15992,7 +16000,7 @@ document.addEventListener('alpine:init', () => {
      success chance), adds a situational modifier, then rolls (re-rollable). A class-derived
      task (Lockpicking/Climbing) takes a GM-set target. Secret mode + an optional record. -->
 <div x-show="profThrow.open" @keydown.escape.window="if(profThrow.open && !$event.defaultPrevented){ closeProficiencyThrowModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeProficiencyThrowModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeProficiencyThrowModal()">
   <template x-if="profThrow.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -16271,7 +16279,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Siege detail / resolution modal (the "panel"). The body is x-if-guarded so it fully
      unmounts on close — no expression evaluates against a null siege (the W3 modal-teardown
      lesson). z-76 (the battle-panel layer; the two flows never stack). -->
-<div x-show="siegePanelOpen" @keydown.escape.window="if(siegePanelOpen && !$event.defaultPrevented){ closeSiegePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:var(--c-backdrop)" x-cloak @click.self="closeSiegePanel()">
+<div x-show="siegePanelOpen" @keydown.escape.window="if(siegePanelOpen && !$event.defaultPrevented){ closeSiegePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:76" x-cloak @click.self="closeSiegePanel()">
   <div class="modal-card w-full max-w-3xl my-6" style="background:var(--c-parchment)">
     <template x-if="currentSiege()">
       <div class="p-4">
@@ -16413,7 +16421,7 @@ document.addEventListener('alpine:init', () => {
      pp.517–523). Opened from the character-sheet Wounds readout (stats tab). z-index:79 (above
      the character editor, like the proficiency-throw modal opened from the same sheet). -->
 <div x-show="recordWound.open" @keydown.escape.window="if(recordWound.open && !$event.defaultPrevented){ closeRecordWoundModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeRecordWoundModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeRecordWoundModal()">
   <template x-if="recordWound.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -16525,7 +16533,7 @@ document.addEventListener('alpine:init', () => {
      World ▸ Points of Interest ▸ Stashes (the "💰 Generate treasure" button in the stash header),
      since a generated hoard lands as a cache stash. The modal itself is unchanged below. -->
 <div x-show="treasureWizard.open" @keydown.escape.window="if(treasureWizard.open && !$event.defaultPrevented){ closeTreasureWizard(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeTreasureWizard()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeTreasureWizard()">
   <template x-if="treasureWizard.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -16639,7 +16647,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- b5-sages (#147): Sage-consultation modal here -->
 <div x-show="sageConsult.open" @keydown.escape.window="if(sageConsult.open && !$event.defaultPrevented){ closeSageConsultModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeSageConsultModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeSageConsultModal()">
   <template x-if="sageConsult.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -16874,7 +16882,7 @@ document.addEventListener('alpine:init', () => {
      Dungeons (⚔ Foray / ⚔ Continue). Propose-compute-commit: resolveDungeonForay (PURE) → review
      / ⟳ reroll → commitDungeonForay → realizeDelve. z-index:79 (the recordWound sibling). -->
 <div x-show="foray.open" @keydown.escape.window="if(foray.open && !$event.defaultPrevented){ closeForayWizard(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeForayWizard()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeForayWizard()">
   <template x-if="foray.open">
   <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -17011,7 +17019,7 @@ document.addEventListener('alpine:init', () => {
      Record-a-wound modal). Contraction is a single combined roll: 1d100 → Disease Type, then a
      Death save → infected or shrugged off (CL-2, b5-cl2 burst5). -->
 <div x-show="exposeDisease.open" @keydown.escape.window="if(exposeDisease.open && !$event.defaultPrevented){ closeExposeDiseaseModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeExposeDiseaseModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeExposeDiseaseModal()">
   <template x-if="exposeDisease.open">
   <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -17597,7 +17605,7 @@ document.addEventListener('alpine:init', () => {
      like the Expose-to-disease + Record-a-wound modals). The day advances it on the Day Clock — the
      slot-59 conditions consumer (CL-3, b7-cl3 burst7). -->
 <div x-show="applyConditionModal.open" @keydown.escape.window="if(applyConditionModal.open && !$event.defaultPrevented){ closeApplyConditionModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeApplyConditionModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeApplyConditionModal()">
   <template x-if="applyConditionModal.open">
   <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -17631,7 +17639,7 @@ document.addEventListener('alpine:init', () => {
      (🗺 Wilderness foray). Propose-compute-commit: resolveWildernessForay (PURE) → review /
      ⟳ reroll → commitWildernessForay (Mortal Wounds + adventure-result + clearLair). z-index:79. -->
 <div x-show="wildForay.open" @keydown.escape.window="if(wildForay.open && !$event.defaultPrevented){ closeWildForay(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeWildForay()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeWildForay()">
   <template x-if="wildForay.open">
   <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -17957,7 +17965,7 @@ document.addEventListener('alpine:init', () => {
      (the Bribery prof shifts the rate); intimidation + seduction resolve via the shipped Layer-1
      proficiency throw. Opened from the Leading-Senators roster's 🎯 button. -->
 <div x-show="senateInfluence.open" @keydown.escape.window="if(senateInfluence.open && !$event.defaultPrevented){ closeSenateInfluence(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeSenateInfluence()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeSenateInfluence()">
   <template x-if="senateInfluence.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -18083,7 +18091,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- === @b8-sages      (team) — sage-commission modal === -->
 <div x-show="sageCommission.open" @keydown.escape.window="if(sageCommission.open && !$event.defaultPrevented){ closeSageCommissionModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeSageCommissionModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeSageCommissionModal()">
   <template x-if="sageCommission.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -18216,7 +18224,7 @@ document.addEventListener('alpine:init', () => {
      influence / dispute actions (P-3) are unchanged — this is the higher-level guided flow. z-index:75. -->
 <!-- Phase 5 — "Bring a motion" CREATOR (raise the issue: kind / matter / title only → Table it). z-index:75. -->
 <div x-show="newMotion.open" @keydown.escape.window="if(newMotion.open && !$event.defaultPrevented){ closeNewMotion(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeNewMotion()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak @click.self="closeNewMotion()">
   <template x-if="newMotion.open && newMotionSenate()">
   <div class="modal-card w-full max-w-lg my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -18271,7 +18279,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- Phase 5 — read-only motion DETAIL (active: the voting bloc + modifiers; resolved: the recorded vote). z-index:75. -->
 <div x-show="motionDetail.open" @keydown.escape.window="if(motionDetail.open && !$event.defaultPrevented){ closeMotionDetail(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeMotionDetail()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak @click.self="closeMotionDetail()">
   <template x-if="motionDetail.open && motionDetailMotion()">
   <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -18351,7 +18359,7 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 <div x-show="motionWizard.open" @keydown.escape.window="if(motionWizard.open && !$event.defaultPrevented){ closeMotionWizard(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:var(--c-backdrop)" x-cloak @click.self="closeMotionWizard()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:75" x-cloak @click.self="closeMotionWizard()">
   <template x-if="motionWizard.open && motionWizardSenate()">
   <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -18836,7 +18844,7 @@ document.addEventListener('alpine:init', () => {
      can reach it). State + methods at the @b11-politics domainApp marker. -->
 <!-- Phase 5 (2026-06-24): the floating Generate-a-Senate pill was folded into the per-domain 🏛 Senate tab (empty-state + ⟳ Regenerate). The wizard modal below is unchanged. -->
 <div x-show="senGen.open" @keydown.escape.window="if(senGen.open && !$event.defaultPrevented){ closeSenateGen(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeSenateGen()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeSenateGen()">
   <div class="modal-card max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
@@ -18981,7 +18989,7 @@ document.addEventListener('alpine:init', () => {
      rename factions, add independent minor senators, and DRAG-AND-DROP a client/independent between patrons
      and the independent pool. All over the canonical engine verbs (votes mirrors stay in sync). -->
 <div x-show="senateEdit.open" @keydown.escape.window="if(senateEdit.open && !$event.defaultPrevented){ closeSenateEdit(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:var(--c-backdrop)" x-cloak @click.self="closeSenateEdit()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeSenateEdit()">
   <div class="modal-card max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">✎ Edit <span x-text="senateEditName()"></span> <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
@@ -19432,7 +19440,7 @@ document.addEventListener('alpine:init', () => {
      secede. Gated on rule-of-the-few (the launcher is hidden when OFF; the engine verbs refuse rule-off
      too). State + methods at the @b10-politics domainApp marker. -->
 <div x-show="oligModal.open" @keydown.escape.window="if(oligModal.open && !$event.defaultPrevented){ closeOligModal(); $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="closeOligModal()">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeOligModal()">
   <div class="modal-card max-w-2xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
@@ -19966,7 +19974,7 @@ document.addEventListener('alpine:init', () => {
         style="z-index:40" title="Prisoners held — ransom, release, or track escapes (confinement relation)">
   🔒 Prisoners <span x-show="heldConfinements().length" x-text="'· ' + heldConfinements().length" class="opacity-70"></span></button>
 <div x-show="confinePanel.open" @keydown.escape.window="if(confinePanel.open && !$event.defaultPrevented){ confinePanel.open=false; $event.preventDefault() }"
-     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:var(--c-backdrop)" x-cloak @click.self="confinePanel.open=false">
+     role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="confinePanel.open=false">
   <template x-if="confinePanel.open">
     <div class="modal-card max-w-2xl w-full mt-12 p-5 space-y-4">
       <div class="flex items-center justify-between">
