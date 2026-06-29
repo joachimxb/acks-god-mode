@@ -503,6 +503,13 @@ document.addEventListener('alpine:init', () => {
   .bg-warm-2       { background-color: color-mix(in srgb, var(--c-parchment) 80%, var(--c-border)); }
   .border-hairline { border-color: var(--c-rule-hairline); }
   .text-muted      { color: color-mix(in srgb, var(--c-ink) 55%, var(--c-parchment)); }
+  /* H1 (2026-06-29) — SVG icon system (audit path b: emoji -> inline-SVG). Identity glyphs are <symbol> defs
+     in the hidden sprite right after <body>; each renders via <svg class="ico"><use href="#i-NAME"></use></svg>
+     (static) or window.acksIcon('NAME') (dynamic x-html). Icons inherit the surrounding text colour through
+     currentColor (so they tint with .accent-* / cream button text alike) and size to 1em. Decorative one-off
+     emoji (port, marriage, honeymoon, weather) stay as emoji -- only the recurring identity set is converted. */
+  .ico { width: 1em; height: 1em; display: inline-block; vertical-align: -0.125em; fill: currentColor; flex: none; }
+  .ico-lg { width: 1.25em; height: 1.25em; }
   /* H1 (2026-06-26) — the sized content-dialog surface. 66 dialogs hand-styled the same skeleton
      (vellum bg + ink border + rounded + shadow) inline, drifted over two eras: border vs border-2,
      rounded vs rounded-lg, shadow-lg vs shadow-xl. Routed to ONE token-driven class so the chrome is
@@ -544,6 +551,31 @@ document.addEventListener('alpine:init', () => {
 </style>
 </head>
 <body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
+
+<!-- ═══ SVG icon sprite (H1 path b, 2026-06-29) — identity glyphs as <symbol> defs; rendered via
+     <svg class="ico"><use href="#i-NAME"></use></svg> or window.acksIcon('NAME'). currentColor + 1em.
+     Hidden (0×0, aria-hidden) — not focusable, so the skip-link below stays the first tab stop. ═══ -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden"><defs>
+  <symbol id="i-sword" viewBox="0 0 24 24"><path d="M12 2 L13.5 6 L13.5 14 L10.5 14 L10.5 6 Z"/><rect x="7" y="14" width="10" height="2" rx="1"/><rect x="11" y="16" width="2" height="4.5"/><circle cx="12" cy="21" r="1.6"/></symbol>
+  <symbol id="i-temple" viewBox="0 0 24 24"><path d="M12 2 L21 7 L21 8.5 L3 8.5 L3 7 Z"/><rect x="4.5" y="9.5" width="2" height="8"/><rect x="9" y="9.5" width="2" height="8"/><rect x="13" y="9.5" width="2" height="8"/><rect x="17.5" y="9.5" width="2" height="8"/><rect x="3" y="18.5" width="18" height="2.5" rx="0.5"/></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M8.2 7 C8.2 5.5 9.6 4.5 12 4.5 C14.4 4.5 15.8 5.5 15.8 7 L17.4 9.2 C19.4 11.2 20.4 13.6 20.4 15.6 C20.4 18.9 16.6 20.5 12 20.5 C7.4 20.5 3.6 18.9 3.6 15.6 C3.6 13.6 4.6 11.2 6.6 9.2 L8.2 7 Z M9.5 7.4 L14.5 7.4 L13.6 8.7 L10.4 8.7 Z"/></symbol>
+  <symbol id="i-orb" viewBox="0 0 24 24"><circle cx="12" cy="10" r="6.5"/><path d="M6 16.5 L18 16.5 L20 21 L4 21 Z"/></symbol>
+  <symbol id="i-helm" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M6 9 C6 5 8.5 3 12 3 C15.5 3 18 5 18 9 L18 16 C18 18 16 19.5 14 19.5 L10 19.5 C8 19.5 6 18 6 16 Z M6.6 10.6 L17.4 10.6 L17.4 12.4 L6.6 12.4 Z"/></symbol>
+  <symbol id="i-glass" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><rect x="13.8" y="14" width="7" height="2.8" rx="1.4" transform="rotate(45 15 15)"/></symbol>
+  <symbol id="i-castle" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M3 21 L3 10 L5 10 L5 8 L7 8 L7 10 L9 10 L9 8 L11 8 L11 10 L13 10 L13 8 L15 8 L15 10 L17 10 L17 8 L19 8 L19 10 L21 10 L21 21 Z M10.4 21 L10.4 16.8 C10.4 15.9 11.1 15.2 12 15.2 C12.9 15.2 13.6 15.9 13.6 16.8 L13.6 21 Z"/></symbol>
+  <symbol id="i-scales" viewBox="0 0 24 24"><rect x="11.2" y="5" width="1.6" height="13.5"/><rect x="6" y="18.5" width="12" height="2.2" rx="0.6"/><circle cx="12" cy="5.5" r="1.4"/><rect x="5" y="6.6" width="14" height="1.6" rx="0.8"/><path d="M5.8 7.4 L3 12.5 L8.6 12.5 Z"/><path d="M18.2 7.4 L15.4 12.5 L21 12.5 Z"/></symbol>
+  <symbol id="i-quill" viewBox="0 0 24 24"><path d="M3 21 L4 16.8 L15 5.8 L18.2 9 L7.2 20 Z"/><path d="M15.6 5.2 L17.6 3.2 A1.5 1.5 0 0 1 19.7 3.2 L20.8 4.3 A1.5 1.5 0 0 1 20.8 6.4 L18.8 8.4 Z"/></symbol>
+  <symbol id="i-die" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="15" cy="15" r="1.5"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="2.8" rx="1.4"/><rect x="4" y="16.7" width="16" height="2.8" rx="1.4"/><path fill-rule="evenodd" d="M5.5 7 L18.5 7 L18.5 17 L5.5 17 Z M8 9.5 L16 9.5 L16 10.8 L8 10.8 Z M8 12 L16 12 L16 13.3 L8 13.3 Z M8 14.5 L13.5 14.5 L13.5 15.8 L8 15.8 Z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 L20 6 L20 12 C20 17 16.2 20 12 21.6 C7.8 20 4 17 4 12 L4 6 Z"/></symbol>
+</defs></svg>
+<script>
+  // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
+  // referencing the sprite above. Caller is responsible for escaping any user text concatenated alongside.
+  window.acksIcon = function (name, extra) {
+    return '<svg class="ico' + (extra ? ' ' + extra : '') + '" aria-hidden="true"><use href="#i-' + name + '"></use></svg>';
+  };
+</script>
 
 <!-- Skip-link (H2-e a11y, audit 2026-06-24) — keyboard/SR users tab here first to jump past the header to the main view tabs. Hidden until focused. -->
 <a href="#main-nav" class="sr-only focus:not-sr-only focus:fixed focus:top-1 focus:left-1 focus:z-[200] focus:px-3 focus:py-1 focus:bg-yellow-100 focus:border focus:border-ink focus:rounded focus:text-sm">Skip to navigation</a>
