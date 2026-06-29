@@ -11762,10 +11762,10 @@ document.addEventListener('alpine:init', () => {
     </div>
     <!-- Settlement-sheet tab strip (2026-06-22 — Demographics + Demand moved here from Domain ▸ Demographics) -->
     <div class="flex flex-wrap gap-1 px-3 pt-2 text-sm border-b border-ink/30">
-      <button @click="settlementSheetTab='overview'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='overview' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📋 Overview</button>
-      <button @click="settlementSheetTab='demographics'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demographics' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">👥 Demographics</button>
-      <button @click="settlementSheetTab='demand'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='demand' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">📊 Demand</button>
-      <button @click="settlementSheetTab='market'" class="px-3 py-1 rounded-t border border-ink/40 border-b-0 -mb-px" :class="settlementSheetTab==='market' ? 'bg-yellow-100 font-semibold' : 'opacity-70 hover:opacity-100'">🛒 Market</button>
+      <button @click="settlementSheetTab='overview'" class="px-3 py-1 text-sm border-b-2 tab-pill" :class="settlementSheetTab==='overview' ? 'tab-active font-semibold' : 'hover-tint'">📋 Overview</button>
+      <button @click="settlementSheetTab='demographics'" class="px-3 py-1 text-sm border-b-2 tab-pill" :class="settlementSheetTab==='demographics' ? 'tab-active font-semibold' : 'hover-tint'">👥 Demographics</button>
+      <button @click="settlementSheetTab='demand'" class="px-3 py-1 text-sm border-b-2 tab-pill" :class="settlementSheetTab==='demand' ? 'tab-active font-semibold' : 'hover-tint'">📊 Demand</button>
+      <button @click="settlementSheetTab='market'" class="px-3 py-1 text-sm border-b-2 tab-pill" :class="settlementSheetTab==='market' ? 'tab-active font-semibold' : 'hover-tint'">🛒 Market</button>
     </div>
     <div class="p-4">
       <!-- OVERVIEW -->

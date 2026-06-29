@@ -208,6 +208,11 @@ ok('.tab-pill renders the underline tab strips as a full pill (radius + no under
    /\.tab-pill\s*\{[^}]*border-radius:\s*9999px[^}]*border-bottom-width:\s*0/.test(html));
 ok('every underline tab strip (sub-tabs + modal-sheet tabs) carries tab-pill (>=12)',
    (html.match(/border-b-2[^"]*tab-pill/g) || []).length >= 12);
+// The Settlement sheet tabs were on a separate bg-yellow-100 folder-tab pattern — converted 2026-06-29
+// to the same ink pill as the other sheet tabs. Lock it so they can't drift back to the yellow fill.
+ok('the Settlement sheet tabs use the ink pill (no bg-yellow active state)',
+   /settlementSheetTab==='overview' \? 'tab-active/.test(html) &&
+   !/settlementSheetTab===[^"]*bg-yellow/.test(html));
 
 // Core token colours (H1, 2026-06-26) — the 5 core palette hexes are now used ONLY in their :root
 // definitions; everywhere else (<style> rules + inline styles) routes through var(). The bespoke
