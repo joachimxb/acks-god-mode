@@ -214,6 +214,17 @@ ok('the Settlement sheet tabs use the ink pill (no bg-yellow active state)',
    /settlementSheetTab==='overview' \? 'tab-active/.test(html) &&
    !/settlementSheetTab===[^"]*bg-yellow/.test(html));
 
+// Type-scale lift (H1 🟠 audit finding, 2026-06-29) — the prominent CENTERED panel empty states (the
+// "this whole panel is empty — here's how to populate it" first-run guidance: text-center + py-N +
+// italic opacity-60) are LEAD copy and were lifted text-sm → text-base. This is distinct from the
+// text-xs captions and the general muted text-sm notes (footnotes/instructions stay text-sm body). Lock
+// the lift so the centered guidance can't slip back to the cramped text-sm.
+ok('the centered panel empty states are text-base lead copy (>=30)',
+   (html.match(/text-base italic opacity-60 py-\d text-center/g) || []).length >= 30);
+ok('no opacity-60 centered panel empty state remains at text-sm (all lifted to text-base)',
+   !/text-sm italic opacity-60 py-\d text-center/.test(html) &&
+   !/text-sm italic opacity-60 text-center py-\d/.test(html));
+
 // Core token colours (H1, 2026-06-26) — the 5 core palette hexes are now used ONLY in their :root
 // definitions; everywhere else (<style> rules + inline styles) routes through var(). The bespoke
 // one-off tints (no token) are a separate, *visible-change* follow-on needing design decisions.

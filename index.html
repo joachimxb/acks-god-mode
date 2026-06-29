@@ -1154,7 +1154,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="allHexes().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the World → Domains → Hexes section.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the World → Domains → Hexes section.</p>
     </template>
 
     <template x-if="allHexes().length > 0">
@@ -1268,7 +1268,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="filteredRumors().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No rumors match the filter. Add one using the picker above, or wait for the engine to auto-emit (if <code>rumors-auto-emit</code> is on).</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No rumors match the filter. Add one using the picker above, or wait for the engine to auto-emit (if <code>rumors-auto-emit</code> is on).</p>
     </template>
 
     <template x-if="filteredRumors().length > 0">
@@ -1411,7 +1411,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
     <template x-if="worldDungeons().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No dungeons recorded. Author one here, or via the 🔍 Inspector (Create ▸ Dungeon). A dungeon is a multi-encounter delve target (and, later, an arcane source a mage can own + attune — Phase 4 Sanctums).</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No dungeons recorded. Author one here, or via the 🔍 Inspector (Create ▸ Dungeon). A dungeon is a multi-encounter delve target (and, later, an arcane source a mage can own + attune — Phase 4 Sanctums).</p>
     </template>
     <template x-if="worldDungeons().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -1797,7 +1797,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
     <template x-if="allLairs().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
     </template>
     <template x-if="allLairs().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -1849,7 +1849,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
     <template x-if="allStashes().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
     </template>
     <template x-if="allStashes().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -1891,13 +1891,13 @@ document.addEventListener('alpine:init', () => {
       <input type="text" x-model="encountersSearch" placeholder="Search monster, hex, trigger…" class="w-56 text-sm">
     </div>
     <template x-if="allEncounters().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No encounters yet. They arise from travel (each hex entered), searching a hex, and camping in the wild — or author one via 🔍 Inspector ▸ Create ▸ Encounter.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No encounters yet. They arise from travel (each hex entered), searching a hex, and camping in the wild — or author one via 🔍 Inspector ▸ Create ▸ Encounter.</p>
     </template>
     <!-- The work queue — active encounters, each awaiting the resolution panel. -->
     <template x-if="allEncounters().length > 0">
       <div>
         <template x-if="activeEncountersFiltered().length === 0">
-          <p class="text-sm italic opacity-60 py-3 text-center" x-text="(encountersSearch || '').trim() ? 'No active encounter matches the search.' : 'Nothing awaits resolution.'"></p>
+          <p class="text-base italic opacity-60 py-3 text-center" x-text="(encountersSearch || '').trim() ? 'No active encounter matches the search.' : 'Nothing awaits resolution.'"></p>
         </template>
         <template x-if="activeEncountersFiltered().length > 0">
           <table class="bookkeeping text-sm w-full">
@@ -2085,7 +2085,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="allBattles().length === 0 && !battleWizard">
-      <p class="text-sm italic opacity-60 py-6 text-center">No battles yet. When two forces stand in the same hex — an incursion band against the garrison, two armies on the march — set one up with ⚔ New battle.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No battles yet. When two forces stand in the same hex — an incursion band against the garrison, two armies on the march — set one up with ⚔ New battle.</p>
     </template>
     <template x-if="activeBattlesFiltered().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -7851,7 +7851,7 @@ document.addEventListener('alpine:init', () => {
         <div class="border-t border-ink/20 pt-3">
           <h4 class="font-semibold mb-2">Leading senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateLeadingSenatorRows().length"></span></h4>
           <template x-if="senateLeadingSenatorRows().length === 0">
-            <p class="text-sm italic opacity-60 py-2 text-center">No leading senators seated. Use ✎ Edit Senate ▸ + Leading senator, author one via 🔍 Inspector, or grant an Office favor on this realm.</p>
+            <p class="text-base italic opacity-60 py-2 text-center">No leading senators seated. Use ✎ Edit Senate ▸ + Leading senator, author one via 🔍 Inspector, or grant an Office favor on this realm.</p>
           </template>
           <!-- Phase 5 — leading senators as a TABLE: faction, votes, attitude, objectives, clients, influence
                as columns (one row per senator). A senator / client backed by a full-fledged character is a
@@ -7964,7 +7964,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <p class="text-sm opacity-70 mb-2">Bring a motion to table an issue (kind · matter · title). Click a motion to see its voting bloc &amp; modifiers; press <strong>▶ Resolve</strong> to put it to the 2d6 vote (RR p.358). A restricted matter enacted against the senate puts the realm in dispute (RR p.359).</p>
         <template x-if="senateMotionRows().length === 0">
-          <p class="text-sm italic opacity-60 py-2 text-center">No motions yet. Bring one to put a policy, an edict, or a retroactive approval to the vote.</p>
+          <p class="text-base italic opacity-60 py-2 text-center">No motions yet. Bring one to put a policy, an edict, or a retroactive approval to the vote.</p>
         </template>
         <template x-if="senateMotionRows().length > 0">
           <table class="bookkeeping text-sm w-full">
@@ -8293,7 +8293,7 @@ document.addEventListener('alpine:init', () => {
          x-text="(() => { const t = annalsMatchTotal(); const shown = Math.min(t, annalsState.limit); return 'Showing ' + shown + (t > shown ? (' of ' + t + ' (latest)') : '') + ' event' + (t===1?'':'s'); })()"></p>
       <div x-data="{ get _rows(){ return annalsRows(); } }">
         <template x-if="_rows.length === 0">
-          <p class="text-sm italic opacity-60 py-6 text-center">No events match this filter yet.</p>
+          <p class="text-base italic opacity-60 py-6 text-center">No events match this filter yet.</p>
         </template>
         <div class="text-sm">
           <template x-for="(row,ri) in _rows" :key="ri">
@@ -8744,7 +8744,7 @@ document.addEventListener('alpine:init', () => {
       <p class="text-sm opacity-80 mb-2">Per ACKS II RR p.383: monthly return = capital × risk-tier rate. Three RAW investment types: <strong>commercial expedition</strong> (mercantile ventures someone else runs, Balanced/Risky only), <strong>business establishment</strong> (inn, store, smithy, guild — all 5 tiers), <strong>money lending</strong> (loans, all 5 tiers). A commercial-expedition investment owned by a venturer competes with that venturer's active arbitrage for capital — the UI prompts to pause one when the other starts. Vagaries-on-passive-income and graceful liquidation queued as task #97.</p>
 
       <template x-if="(currentCampaign?.passiveInvestments||[]).length === 0">
-        <p class="text-sm italic opacity-60 py-6 text-center">No passive investments yet. Click <strong>+ New investment</strong> to add one. Investments don't require a venturer — any character (PC, NPC, ruler) can own a business establishment or money-lending investment.</p>
+        <p class="text-base italic opacity-60 py-6 text-center">No passive investments yet. Click <strong>+ New investment</strong> to add one. Investments don't require a venturer — any character (PC, NPC, ruler) can own a business establishment or money-lending investment.</p>
       </template>
 
       <template x-if="(currentCampaign?.passiveInvestments||[]).length > 0">
@@ -9110,7 +9110,7 @@ document.addEventListener('alpine:init', () => {
             <button @click="openConstructionWizard({})" class="btn btn-primary text-sm">🏗 Build over time</button>
           </div>
           <template x-if="allConstructionProjects().length === 0">
-            <p class="text-sm italic opacity-60 py-4 text-center">No construction under way. Start a project from a domain's Stronghold tab or the “Build over time” wizard.</p>
+            <p class="text-base italic opacity-60 py-4 text-center">No construction under way. Start a project from a domain's Stronghold tab or the “Build over time” wizard.</p>
           </template>
           <template x-if="allConstructionProjects().length > 0">
             <table class="bookkeeping text-sm w-full">
@@ -10744,7 +10744,7 @@ document.addEventListener('alpine:init', () => {
       <div class="space-y-3">
         <p class="text-sm opacity-80 italic px-1" x-text="cat.description"></p>
         <template x-if="HOUSERULES.filter(r => r.category === cat.id).length === 0">
-          <p class="text-sm italic opacity-60 text-center py-8">No rules registered in this category yet.</p>
+          <p class="text-base italic opacity-60 text-center py-8">No rules registered in this category yet.</p>
         </template>
         <template x-for="rule in HOUSERULES.filter(r => r.category === cat.id)" :key="rule.id">
           <div class="border border-ink/40 rounded p-3 vellum">
@@ -10991,7 +10991,7 @@ document.addEventListener('alpine:init', () => {
       </div>
 
       <template x-if="filteredCharacters().length === 0">
-        <p class="text-sm italic opacity-60 py-6 text-center">No characters yet. Click <strong>+ New character</strong> to add one. Domain rulers, venturers, and passive investment owners auto-create entries here when you set them up elsewhere.</p>
+        <p class="text-base italic opacity-60 py-6 text-center">No characters yet. Click <strong>+ New character</strong> to add one. Domain rulers, venturers, and passive investment owners auto-create entries here when you set them up elsewhere.</p>
       </template>
 
       <template x-if="filteredCharacters().length > 0">
@@ -11107,7 +11107,7 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
         <template x-if="(currentCampaign?.parties?.length || 0) === 0">
-          <p class="text-sm italic opacity-60 py-4 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex.</p>
+          <p class="text-base italic opacity-60 py-4 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex.</p>
         </template>
         <template x-if="(currentCampaign?.parties?.length || 0) > 0">
           <table class="bookkeeping text-sm w-full">
@@ -11136,7 +11136,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="openMusterArmy()" class="btn btn-primary text-sm" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
         </div>
         <template x-if="armiesRows().length === 0">
-          <p class="text-sm italic opacity-60 py-4 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — or turn a party into an army with the 🎖 Muster button on its detail. (A character can also raise one from his sheet, a ruler from his domain's Military tab.)</p>
+          <p class="text-base italic opacity-60 py-4 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — or turn a party into an army with the 🎖 Muster button on its detail. (A character can also raise one from his sheet, a ruler from his domain's Military tab.)</p>
         </template>
         <template x-if="armiesRows().length > 0">
           <table class="bookkeeping text-sm w-full">
@@ -11728,7 +11728,7 @@ document.addEventListener('alpine:init', () => {
       <h3 class="font-bold text-lg">🏘 Settlements <span class="text-sm opacity-70 font-normal" x-text="'· ' + allSettlements().length + ' across the campaign'"></span></h3>
     </div>
     <template x-if="allSettlements().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No settlements yet. Settlements are created per-domain on a hex (Domain ▸ Demographics) or via the Inspector.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No settlements yet. Settlements are created per-domain on a hex (Domain ▸ Demographics) or via the Inspector.</p>
     </template>
     <template x-if="allSettlements().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -12198,7 +12198,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
     <template x-if="allLairs().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
     </template>
     <template x-if="allLairs().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -12241,7 +12241,7 @@ document.addEventListener('alpine:init', () => {
       <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
     </div>
     <template x-if="monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
+      <p class="text-base italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
     </template>
     <template x-if="monsterLooseBandRows().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -12280,7 +12280,7 @@ document.addEventListener('alpine:init', () => {
       <h3 class="font-bold text-lg">⛵ Ships <span class="text-sm opacity-70 font-normal" x-text="'· ' + voyagesVessels().length + ' vessel(s)'"></span></h3>
     </div>
     <template x-if="voyagesVessels().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No vessels yet. Build one in <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">Activities ▸ Travel</button>.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No vessels yet. Build one in <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">Activities ▸ Travel</button>.</p>
     </template>
     <template x-if="voyagesVessels().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -14103,7 +14103,7 @@ document.addEventListener('alpine:init', () => {
             </div>
 
             <template x-if="characterResearchProjects(characterEditing).length === 0">
-              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying or crafting a magic item (potions/scrolls at L5, others at L9), and — at L11 — designing &amp; building constructs, crossbreeding, necromancy (a Chaotic caster), and learning &amp; casting ritual spells are available. Click <strong>＋ New research</strong>.</p>
+              <p class="text-base italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying or crafting a magic item (potions/scrolls at L5, others at L9), and — at L11 — designing &amp; building constructs, crossbreeding, necromancy (a Chaotic caster), and learning &amp; casting ritual spells are available. Click <strong>＋ New research</strong>.</p>
             </template>
 
             <!-- project cards -->
@@ -15771,7 +15771,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="religionAddDeity()" class="btn btn-success" :disabled="!religionDeityForm.name.trim()">+ New deity</button>
     </div>
     <template x-if="religionDeities().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No deities yet. Add one above (or via 🔍 Inspector ▸ Create ▸ Deity). Deities are system-agnostic — author your own pantheon.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No deities yet. Add one above (or via 🔍 Inspector ▸ Create ▸ Deity). Deities are system-agnostic — author your own pantheon.</p>
     </template>
     <template x-if="religionDeities().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -15828,7 +15828,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="religionFoundCongregation()" class="btn btn-success" :disabled="!religionCongForm.highPriestCharacterId">+ Found congregation</button>
     </div>
     <template x-if="religionCongregations().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No congregations yet. A divine caster founds one above — its faithful generate divine power for him each monthly turn.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No congregations yet. A divine caster founds one above — its faithful generate divine power for him each monthly turn.</p>
     </template>
     <template x-if="religionCongregations().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -15868,7 +15868,7 @@ document.addEventListener('alpine:init', () => {
       <h3 class="font-bold text-lg">📿 Divine power <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionDivineCasterRows().length + ' caster(s)'"></span></h3>
     </div>
     <template x-if="religionDivineCasterRows().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No divine casters yet. A character of a divine class (Crusader, Bladedancer, Craftpriest, Priestess, Shaman, Witch…) or any high priest above appears here with their divine-power ledger.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No divine casters yet. A character of a divine class (Crusader, Bladedancer, Craftpriest, Priestess, Shaman, Witch…) or any high priest above appears here with their divine-power ledger.</p>
     </template>
     <div class="space-y-3">
       <template x-for="row in religionDivineCasterRows()" :key="row.ch.id">
@@ -15969,7 +15969,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- Incarnations + their daily upkeep -->
     <template x-if="religionIncarnations().length === 0">
-      <p class="text-sm italic opacity-60 py-2 text-center">No incarnations yet. Ascend a character above to begin the divine endgame.</p>
+      <p class="text-base italic opacity-60 py-2 text-center">No incarnations yet. Ascend a character above to begin the divine endgame.</p>
     </template>
     <template x-if="religionIncarnations().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -16030,7 +16030,7 @@ document.addEventListener('alpine:init', () => {
     <h3 class="font-bold text-lg">🩸 Blood Sacrifice <span class="text-sm opacity-70 font-normal">· the Chaotic path · RR pp.421–422</span></h3>
     <p class="text-sm opacity-70 mt-1 mb-3">A divine caster spills a victim's life to earn divine power. The <em>base</em> (= the victim's component value, usually its XP value) is always earned; the victim-characteristic <em>multipliers</em> are added only on a successful magic-research throw. Lawful/Neutral casters can only sacrifice <em>helpless animals</em> — never sapient creatures (RR p.422); a Chaotic caster takes a willing victim. Warlock/demonologist <em>Power of Sacrifice</em> casters store arcane power ×2 instead.</p>
     <template x-if="religionSacCasterOptions().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No divine or arcane casters in this campaign yet.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No divine or arcane casters in this campaign yet.</p>
     </template>
     <template x-if="religionSacCasterOptions().length > 0">
       <div class="space-y-3">
@@ -16336,7 +16336,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="allSieges().length === 0 && !siegeWizard">
-      <p class="text-sm italic opacity-60 py-6 text-center">No sieges yet. Send an army against a garrisoned stronghold and lay siege with 🏯 New siege.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No sieges yet. Send an army against a garrisoned stronghold and lay siege with 🏯 New siege.</p>
     </template>
 
     <template x-if="activeSiegesFiltered().length > 0">
@@ -17221,7 +17221,7 @@ document.addEventListener('alpine:init', () => {
       <span class="opacity-60 self-center" x-text="bankingCapText()"></span>
     </div>
     <template x-if="bankingLoans().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No loans. Extend credit above (or via 🔍 Inspector ▸ Create ▸ Loan).</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No loans. Extend credit above (or via 🔍 Inspector ▸ Create ▸ Loan).</p>
     </template>
     <template x-if="bankingLoans().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -17281,7 +17281,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="bankingOpenAccount()" class="btn btn-success">+ Open account</button>
     </div>
     <template x-if="bankingAccounts().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No bank accounts. Open one above (or via 🔍 Inspector ▸ Create ▸ Bank Account).</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No bank accounts. Open one above (or via 🔍 Inspector ▸ Create ▸ Bank Account).</p>
     </template>
     <template x-if="bankingAccounts().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -17311,7 +17311,7 @@ document.addEventListener('alpine:init', () => {
     <p class="text-sm opacity-70 mb-2">Draw a note against a bank account (the <strong>📜 Issue letter</strong> button on an account above), drawable at a <em>different</em> market — the gold never travels (RR p.42). Redeeming pays the bearer at the destination market, capped by that market's monthly capital pool. A reasoned tooling extension.</p>
     <p class="text-sm opacity-70 mb-2" x-show="bankingLetters().length > 0" x-text="bankLettersLedgerText()"></p>
     <template x-if="bankingLetters().length === 0">
-      <p class="text-sm italic opacity-60 py-3 text-center">No letters of credit. Issue one from a bank account above.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">No letters of credit. Issue one from a bank account above.</p>
     </template>
     <template x-if="bankingLetters().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -17362,7 +17362,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </div>
     <template x-if="magicItemList().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No magic items yet. Add one from the catalog above (GM authoring), or promote a carried item from a character's inventory. A magic item is a <code>notableItem</code> carrying the catalog's mechanical fields + a book page-ref.</p>
+      <p class="text-base italic opacity-60 py-6 text-center">No magic items yet. Add one from the catalog above (GM authoring), or promote a carried item from a character's inventory. A magic item is a <code>notableItem</code> carrying the catalog's mechanical fields + a book page-ref.</p>
     </template>
     <template x-if="magicItemList().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -18451,7 +18451,7 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
       <template x-if="!motionDetailIsOpen() && !motionDetailMotion().voteResult">
-        <p class="text-sm italic opacity-60 py-2 text-center">This motion was <span x-text="motionDetailMotion().status"></span> without a recorded vote.</p>
+        <p class="text-base italic opacity-60 py-2 text-center">This motion was <span x-text="motionDetailMotion().status"></span> without a recorded vote.</p>
       </template>
     </div>
     <div class="border-t border-ink p-3 flex justify-end gap-2">
@@ -19082,7 +19082,7 @@ document.addEventListener('alpine:init', () => {
       </div>
     </template>
     <template x-if="!senGen.plan">
-      <p class="text-sm italic opacity-60 py-3 text-center">Pick a realm to convene a senate over.</p>
+      <p class="text-base italic opacity-60 py-3 text-center">Pick a realm to convene a senate over.</p>
     </template>
   </div>
 </div>
