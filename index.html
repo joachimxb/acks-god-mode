@@ -586,6 +586,11 @@ document.addEventListener('alpine:init', () => {
   <symbol id="i-banner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20 L15 4"/><path d="M18 20 L9 4"/><path fill="currentColor" stroke="none" d="M15 4.5 L20.5 6 L15.5 8.5 Z"/><path fill="currentColor" stroke="none" d="M9 4.5 L3.5 6 L8.5 8.5 Z"/></symbol>
   <symbol id="i-siege" viewBox="0 0 24 24"><rect x="2.5" y="17.6" width="13" height="2.2" rx="0.7"/><path d="M5 18 L8.5 11 L12 18 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 11 L20 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="20.2" cy="4.6" r="2"/><path d="M8.5 11 L5.7 14.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="3.7" y="13.6" width="3" height="3" rx="0.5"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6 C10 4.5 6.5 4 3.5 5 L3.5 18.5 C6.5 17.5 10 18 12 19.5 C14 18 17.5 17.5 20.5 18.5 L20.5 5 C17.5 4 14 4.5 12 6 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6 L12 19.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <!-- Monthly-Turn sub-tab glyphs (H1 path b, 2026-06-29) — 🏗 construction · 🌊 investments · 🗡 syndicates · 🏠 lifestyle (🏰 Domains reuses i-castle) -->
+  <symbol id="i-crane" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4.5 21 L11.5 21 M8 21 L8 3.5 L19.5 3.5 M8 3.5 L4.3 7.8 L8 7.8"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M18 3.5 L18 6.6"/><rect x="16.7" y="6.6" width="2.6" height="2.3" rx="0.3"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8 C4 5.5 6 5.5 8 8 C10 10.5 12 10.5 14 8 C16 5.5 18 5.5 20 8 C21 9.2 21.6 9.5 22 9.5"/><path d="M2 13 C4 10.5 6 10.5 8 13 C10 15.5 12 15.5 14 13 C16 10.5 18 10.5 20 13 C21 14.2 21.6 14.5 22 14.5"/><path d="M2 18 C4 15.5 6 15.5 8 18 C10 20.5 12 20.5 14 18 C16 15.5 18 15.5 20 18 C21 19.2 21.6 19.5 22 19.5"/></symbol>
+  <symbol id="i-dagger" viewBox="0 0 24 24"><path d="M12 22 L10.5 10 L13.5 10 Z"/><rect x="7" y="8" width="10" height="2" rx="1"/><rect x="11" y="3.5" width="2" height="4.5"/><circle cx="12" cy="3" r="1.5"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 3 L21.5 11.2 L19.4 11.2 L19.4 20.5 L4.6 20.5 L4.6 11.2 L2.5 11.2 Z M10.2 20.5 L10.2 14.5 L13.8 14.5 L13.8 20.5 Z"/></symbol>
 </defs></svg>
 <script>
   // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
@@ -8912,7 +8917,7 @@ document.addEventListener('alpine:init', () => {
                       :class="monthlyTurnSubView===t.id ? 'tab-active font-semibold' : 'hover-tint'"
                       class="px-3 py-1 text-sm border-b-2 rounded-t"
                       :style="monthlyTurnSubView===t.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
-                      x-text="t.label + (t.count != null ? ' · ' + t.count : '')"></button>
+              ><svg class="ico" aria-hidden="true"><use :href="'#i-' + t.icon"></use></svg> <span x-text="t.label"></span><span x-show="t.count != null" class="opacity-70" x-text="' · ' + t.count"></span></button>
             </template>
           </div>
           <div class="flex items-center gap-2">

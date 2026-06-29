@@ -4119,11 +4119,11 @@ const _component = {
     try { ventx = (this.turnVentureProposals||[]).length; } catch(e){}
     try { syndx = (this.turnSyndicateTributeProposal && this.turnSyndicateTributeProposal.ruleOn) ? (this.turnSyndicateTributeProposal.collections||[]).length : 0; } catch(e){}
     return [
-      { id:'domains',      label:'🏰 Domains',      count: (this.turnProposal||[]).length || null },
-      { id:'construction', label:'🏗 Construction', count: cons || null },
-      { id:'investments',  label:'🌊 Investments',  count: ventx || null },
-      { id:'syndicates',   label:'🗡 Syndicates',   count: syndx || null },
-      { id:'lifestyle',    label:'🏠 Lifestyle',    count: lifx || null }
+      { id:'domains',      icon:'castle', label:'Domains',      count: (this.turnProposal||[]).length || null },
+      { id:'construction', icon:'crane',  label:'Construction', count: cons || null },
+      { id:'investments',  icon:'wave',   label:'Investments',  count: ventx || null },
+      { id:'syndicates',   icon:'dagger', label:'Syndicates',   count: syndx || null },
+      { id:'lifestyle',    icon:'house',  label:'Lifestyle',    count: lifx || null }
     ];
   },
 

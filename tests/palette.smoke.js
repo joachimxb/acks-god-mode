@@ -296,6 +296,16 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
   ok('the Events sub-tab data-field split landed (icon: fields present, no emoji in the reviewSubTabs labels)',
      /icon:'inbox'/.test(appJs) && /icon:'siege'/.test(appJs) && !/label:'(?:📥|📅|📨|📝|🎌|🏯)/.test(appJs));
   ok('the 📖 Annals button renders #i-book (static use)', html.includes('<use href="#i-book">'));
+  // Monthly-Turn sub-tab conversion (H1, 2026-06-29) — monthlyTurnSubTabs split (loop var `t`); 4 new
+  // dynamic glyphs + i-castle reused for Domains. (🗡 is still in the unconverted Hijinks tab, so lock the
+  // SPECIFIC old labels here, not a glyph-class regex.)
+  for (const id of ['i-crane', 'i-wave', 'i-dagger', 'i-house'])
+    ok('Monthly-Turn sub-tab symbol ' + id + ' is defined', defined.has(id));
+  ok('the Monthly-Turn sub-tab data-field split landed (icon: fields present, the old emoji labels gone)',
+     /icon:'crane'/.test(appJs) && /icon:'house'/.test(appJs) &&
+     !/label:'🏗 Construction'/.test(appJs) && !/label:'🗡 Syndicates'/.test(appJs));
+  ok('the Monthly-Turn sub-tab template renders each tab icon via <use :href> (loop var t)',
+     html.includes("<use :href=\"'#i-' + t.icon\""));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly
