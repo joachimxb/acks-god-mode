@@ -359,6 +359,13 @@ document.addEventListener('alpine:init', () => {
      tokens (byte-identical — var(--c-border) = --c-border, var(--c-parchment) = --c-parchment). The active-underline that
      some sub-tab strips add is the --c-ink token too (routed in the inline :style ternaries). */
   .tab-active { background: var(--c-border); color: var(--c-parchment); }
+  /* H1 follow-on (2026-06-29): the nav + sub-tab strips show the SELECTED tab as a dark INK fill, not
+     the brown .tab-active block — which stays the highlight for selected TABLE ROWS (Domains/Characters)
+     and the inline editor underline tabs. .tab-ink = ink fill, keep shape (top nav folder tabs);
+     .tab-pill = ink fill + full rounding + no underline (the sub-tab strips). */
+  .tab-ink.tab-active { background: var(--c-ink); }
+  .tab-pill { border-radius: 9999px !important; border-bottom-width: 0 !important; }
+  .tab-pill.tab-active { background: var(--c-ink); }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--c-rule-hairline); border-radius: 3px; }
   @media print {
@@ -691,7 +698,7 @@ document.addEventListener('alpine:init', () => {
     <!-- H3-b, audit 2026-06-24: an empty (count 0) world tab is softened so the eye goes to where the content is. -->
     <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
             :class="(currentView === v.id ? 'tab-active' : 'hover-tint') + (v.alignRight ? ' ml-auto' : '') + (v.count === 0 ? ' opacity-60' : '')"
-            class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
+            class="px-3 py-1 rounded-t border border-ink border-b-0 text-base tab-ink">
       <svg class="ico" aria-hidden="true"><use :href="'#i-' + v.icon"></use></svg> <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
     </button>
@@ -710,14 +717,14 @@ document.addEventListener('alpine:init', () => {
     <template x-for="tab in reviewSubTabs" :key="tab.id">
       <button @click="reviewSubView=tab.id" role="tab" :aria-selected="reviewSubView===tab.id ? 'true' : 'false'"
               :class="reviewSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
-              class="px-3 py-1 text-sm border-b-2"
+              class="px-3 py-1 text-sm border-b-2 tab-pill"
               :style="reviewSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
       ><svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span><span x-show="tab.count != null" class="opacity-70" x-text="' · ' + tab.count"></span></button>
     </template>
     <!-- 📖 Annals (C2, audit 2026-06-24) — standalone button: reviewSubTabs is a core getter -->
     <button @click="reviewSubView='annals'" role="tab" :aria-selected="reviewSubView==='annals' ? 'true' : 'false'"
             :class="reviewSubView==='annals' ? 'tab-active font-semibold' : 'hover-tint'"
-            class="px-3 py-1 text-sm border-b-2"
+            class="px-3 py-1 text-sm border-b-2 tab-pill"
             :style="reviewSubView==='annals' ? 'border-color:var(--c-ink)' : 'border-color:transparent'"><svg class="ico" aria-hidden="true"><use href="#i-book"></use></svg> Annals</button>
   </div>
 </div>
@@ -1107,7 +1114,7 @@ document.addEventListener('alpine:init', () => {
     <template x-for="tab in worldSubTabs" :key="tab.id">
       <button @click="worldSubView=tab.id" role="tab" :aria-selected="worldSubView===tab.id ? 'true' : 'false'"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
-              class="px-3 py-1 text-sm border-b-2"
+              class="px-3 py-1 text-sm border-b-2 tab-pill"
               :style="worldSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
       ><svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span><span x-show="tab.count != null" class="opacity-70" x-text="' · ' + tab.count"></span></button>
     </template>
@@ -5161,7 +5168,7 @@ document.addEventListener('alpine:init', () => {
     <template x-for="tab in domainsSubTabs" :key="tab.id">
       <button @click="domainsSubView=tab.id" role="tab" :aria-selected="domainsSubView===tab.id ? 'true' : 'false'"
               :class="domainsSubView===tab.id ? 'tab-active font-semibold' : 'hover-tint'"
-              class="px-3 py-1 text-sm border-b-2"
+              class="px-3 py-1 text-sm border-b-2 tab-pill"
               :style="domainsSubView===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"><svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span><span x-show="tab.count != null" class="opacity-70" x-text="' · ' + tab.count"></span></button>
     </template>
   </div>
@@ -8470,7 +8477,7 @@ document.addEventListener('alpine:init', () => {
   <template x-for="tab in activitiesSubTabs" :key="tab.id">
     <button @click="activitiesSubView = tab.id"
             :class="activitiesSubView === tab.id ? 'tab-active font-semibold' : 'hover-tint'"
-            class="px-3 py-1 text-sm border-b-2 whitespace-nowrap"
+            class="px-3 py-1 text-sm border-b-2 whitespace-nowrap tab-pill"
             :style="activitiesSubView === tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
             :disabled="!tab.ready" :title="tab.ready ? '' : tab.placeholderNote">
       <svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span>
@@ -8928,7 +8935,7 @@ document.addEventListener('alpine:init', () => {
             <template x-for="t in monthlyTurnSubTabs" :key="t.id">
               <button @click="monthlyTurnSubView=t.id"
                       :class="monthlyTurnSubView===t.id ? 'tab-active font-semibold' : 'hover-tint'"
-                      class="px-3 py-1 text-sm border-b-2 rounded-t"
+                      class="px-3 py-1 text-sm border-b-2 rounded-t tab-pill"
                       :style="monthlyTurnSubView===t.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'"
               ><svg class="ico" aria-hidden="true"><use :href="'#i-' + t.icon"></use></svg> <span x-text="t.label"></span><span x-show="t.count != null" class="opacity-70" x-text="' · ' + t.count"></span></button>
             </template>
@@ -10725,7 +10732,7 @@ document.addEventListener('alpine:init', () => {
         <template x-for="cat in HOUSERULE_CATEGORIES" :key="cat.id">
           <button @click="houseRulesSubView=cat.id"
             :class="houseRulesSubView===cat.id ? 'tab-active' : 'hover-tint'"
-            class="px-3 py-1 text-sm border-b-2"
+            class="px-3 py-1 text-sm border-b-2 tab-pill"
             :style="houseRulesSubView===cat.id ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'">
             <span x-text="cat.label"></span>
             <span class="opacity-60 text-sm" x-text="'(' + HOUSERULES.filter(r=>r.category===cat.id&&isHouseRuleEnabled(r.id)).length + '/' + HOUSERULES.filter(r=>r.category===cat.id).length + ')'"></span>
@@ -10787,7 +10794,7 @@ document.addEventListener('alpine:init', () => {
         <template x-for="tab in rosterSubTabs" :key="tab.id">
           <button @click="rosterSubView=tab.id"
                   :class="rosterSubView===tab.id ? 'tab-active' : 'hover-tint'"
-                  class="px-3 py-1 text-sm border-b-2"
+                  class="px-3 py-1 text-sm border-b-2 tab-pill"
                   :style="rosterSubView===tab.id ? 'border-color:var(--c-ink);font-weight:600' : 'border-color:transparent'"><svg class="ico" aria-hidden="true"><use :href="'#i-' + tab.icon"></use></svg> <span x-text="tab.label"></span><span x-show="tab.count != null" class="opacity-70" x-text="' · ' + tab.count"></span></button>
         </template>
       </div>
