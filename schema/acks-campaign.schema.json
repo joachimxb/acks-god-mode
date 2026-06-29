@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://joachimxb.github.io/acks-god-mode/schema/acks-campaign.schema.json",
   "title": "ACKS God Mode — campaign (.acks.json)",
-  "description": "Structural schema for an ACKS God Mode campaign file, GENERATED from the engine metadata (scripts/build-schema.js). Lenient by design (objects allow extra properties; only id-class discriminators are required) so it accepts any valid save the engine writes. See INTEGRATION.md for the consumer contract, the canonical-home rule, and the eventLog wrapper trap. schemaVersion 2 · generated against engine 0.51.0.",
+  "description": "Structural schema for an ACKS God Mode campaign file, GENERATED from the engine metadata (scripts/build-schema.js). Lenient by design (objects allow extra properties; only id-class discriminators are required) so it accepts any valid save the engine writes. See INTEGRATION.md for the consumer contract, the canonical-home rule, and the eventLog wrapper trap. schemaVersion 2 · generated against engine 0.52.0.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -8291,7 +8291,7 @@
   },
   "x-acks-meta": {
     "generatedBy": "scripts/build-schema.js",
-    "engineVersionAtGeneration": "0.51.0",
+    "engineVersionAtGeneration": "0.52.0",
     "schemaVersion": 2,
     "entityKinds": 59,
     "typedKinds": 49,
