@@ -568,6 +568,11 @@ document.addEventListener('alpine:init', () => {
   <symbol id="i-die" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="9" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="15" cy="15" r="1.5"/></symbol>
   <symbol id="i-scroll" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="2.8" rx="1.4"/><rect x="4" y="16.7" width="16" height="2.8" rx="1.4"/><path fill-rule="evenodd" d="M5.5 7 L18.5 7 L18.5 17 L5.5 17 Z M8 9.5 L16 9.5 L16 10.8 L8 10.8 Z M8 12 L16 12 L16 13.3 L8 13.3 Z M8 14.5 L13.5 14.5 L13.5 15.8 L8 15.8 Z"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 L20 6 L20 12 C20 17 16.2 20 12 21.6 C7.8 20 4 17 4 12 L4 6 Z"/></symbol>
+  <!-- nav/data-field glyphs (H1 path b, 2026-06-29) — 🌍 world · 👥 roster · 🎭 activities · ⚙ house-rules -->
+  <symbol id="i-world" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M3 12 L21 12 M12 3 C7.5 6 7.5 18 12 21 C16.5 18 16.5 6 12 3"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="16.5" cy="8.5" r="2.9"/><path d="M14.8 13 C18.4 12.9 21.5 15.4 21.5 20 L13 20 C13 16 13.6 13.8 14.8 13 Z"/><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20 C2.5 15.4 5.4 12.8 9 12.8 C12.6 12.8 15.5 15.4 15.5 20 Z"/></symbol>
+  <symbol id="i-masks" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M5 3.5 L19 3.5 C18.6 13 16 18 12 21.2 C8 18 5.4 13 5 3.5 Z M9 9.5 A1.5 1.5 0 1 0 9.01 9.5 Z M15 9.5 A1.5 1.5 0 1 0 15.01 9.5 Z M8.6 14 C10.2 16.2 13.8 16.2 15.4 14 L13.7 13.2 C12.6 14.4 11.4 14.4 10.3 13.2 Z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.3" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="12" cy="12" r="2.1"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(45 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(90 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(135 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(180 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(225 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(270 12 12)"/><rect x="10.9" y="1.6" width="2.2" height="3.6" rx="0.4" transform="rotate(315 12 12)"/></symbol>
 </defs></svg>
 <script>
   // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
@@ -655,7 +660,7 @@ document.addEventListener('alpine:init', () => {
     <button @click="currentView = v.id" role="tab" :aria-selected="currentView === v.id ? 'true' : 'false'" :aria-current="currentView === v.id ? 'page' : false"
             :class="(currentView === v.id ? 'tab-active' : 'hover-tint') + (v.alignRight ? ' ml-auto' : '') + (v.count === 0 ? ' opacity-60' : '')"
             class="px-3 py-1 rounded-t border border-ink border-b-0 text-base">
-      <span x-text="v.label"></span>
+      <svg class="ico" aria-hidden="true"><use :href="'#i-' + v.icon"></use></svg> <span x-text="v.label"></span>
       <span x-show="v.count != null" class="opacity-70 text-sm" x-text="'· ' + v.count"></span>
     </button>
   </template>

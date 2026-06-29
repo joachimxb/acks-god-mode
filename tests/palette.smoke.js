@@ -271,6 +271,16 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
   const dangling = [...referenced].filter(id => !defined.has(id));
   ok('every #i-NAME reference resolves to a defined <symbol> (no dangling icon refs)',
      dangling.length === 0, dangling.length ? 'dangling: ' + dangling.join(', ') : '');
+  // Top-nav data-field conversion (H1, 2026-06-29) — the 8 topViews tabs render their icon via a DYNAMIC
+  // `:href="'#i-' + v.icon"`, which the static dangling scan above cannot verify; lock the 4 new nav
+  // symbols exist + that the data-field split landed (icon: fields present, no leading emoji in labels).
+  for (const id of ['i-world', 'i-people', 'i-masks', 'i-gear'])
+    ok('nav symbol ' + id + ' is defined (referenced only dynamically by the top tab strip)', defined.has(id));
+  const appJs = fs.readFileSync(path.join(dir, 'domain-app.js'), 'utf8');
+  ok('the top-nav data-field split landed (icon: fields present, no emoji baked into the tab labels)',
+     /icon:'world'/.test(appJs) && /icon:'gear'/.test(appJs) && !/label:'(?:🌍|👥|🎭|⚙)/.test(appJs));
+  ok('the nav template renders each tab icon via <use :href>',
+     html.includes("<use :href=\"'#i-' + v.icon\""));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly

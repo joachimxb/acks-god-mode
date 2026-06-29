@@ -1224,14 +1224,14 @@ const _component = {
     // "📜 Events" (the old standalone 'events' chronicle/log view folds in as its Event-Log
     // sub-tab). Domain Turn is the promoted old review/domain-review.
     return [
-      { id:'world',        label:'🌍 World',        count: hexCount || null },
-      { id:'domains',      label:'🏰 Domains',      count: (this.domains||[]).length || null },
-      { id:'roster',       label:'👥 Roster',       count: aliveChars || null },
-      { id:'activities',   label:'🎭 Activities',   count: (this.currentCampaign?.ventures||[]).length },
-      { id:'inspector',    label:'🔍 Inspector' },
-      { id:'review',       label:'📜 Events',       count: blockerCount || null, alignRight: true },
-      { id:'domain-turn',  label:'🏰 Monthly Turn', count: this.turnProposal ? 1 : null },
-      { id:'house-rules',  label:'⚙ House Rules',   count: enabledRules || null }
+      { id:'world',        icon:'world',  label:'World',        count: hexCount || null },
+      { id:'domains',      icon:'castle', label:'Domains',      count: (this.domains||[]).length || null },
+      { id:'roster',       icon:'people', label:'Roster',       count: aliveChars || null },
+      { id:'activities',   icon:'masks',  label:'Activities',   count: (this.currentCampaign?.ventures||[]).length },
+      { id:'inspector',    icon:'glass',  label:'Inspector' },
+      { id:'review',       icon:'scroll', label:'Events',       count: blockerCount || null, alignRight: true },
+      { id:'domain-turn',  icon:'castle', label:'Monthly Turn', count: this.turnProposal ? 1 : null },
+      { id:'house-rules',  icon:'gear',   label:'House Rules',  count: enabledRules || null }
     ];
   },
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
