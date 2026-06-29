@@ -33,6 +33,13 @@
 // This guard locks the vocabulary + that no routable opacity/hover raw utility returns (the strong
 // hover:bg-red-400 is the one intentional keep). Remaining raw colour = 69 yellow (highlight, not a role)
 // + ~16 intentional gradients/categorical/ring — all correctly out of scope.
+//
+// MODAL BACKDROP (2026-06-26): the modal overlays dimmed the page three ways (inline rgba .45/.4, the
+// Tailwind black-opacity class, the wizard .modal-backdrop .55) at three alphas. Routed onto two tokens —
+// --c-backdrop (.45 standard, converging the .40 drift) + --c-backdrop-strong (.55, the wider Action-
+// Wizard, kept heavier like its .modal-panel). z-index/alignment/scroll stay per-modal (functional).
+// This guard locks the tokens + that no raw dim returns AND the faint bg-black/5 + rgba(0,0,0,.03|.04)
+// surface tints survive (they are NOT backdrops and must not be swept).
 // =============================================================================
 const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0; const failures = [];
@@ -135,6 +142,25 @@ ok('no routable opacity colour utility remains (border/bg green|amber|red with /
 ok('no routable hover colour utility remains (hover:text-red|amber, light hover:bg-red|green; the strong hover:bg-red-400 is intentionally kept)',
    !/\bhover:text-(?:red|amber)-\d{2,3}\b/.test(html) &&
    !/\bhover:bg-(?:red|green)-(?:50|100|200)\b/.test(html));
+
+// Modal backdrop dim (H1, 2026-06-26) — the three overlay-dim conventions (inline rgba .45/.4, the
+// Tailwind black-opacity class, the wizard .modal-backdrop .55) route onto two tokens: --c-backdrop
+// (the .45 standard, converging the .40 drift) + --c-backdrop-strong (.55, the wider Action-Wizard).
+ok('the backdrop dim tokens are defined in :root',
+   /--c-backdrop:\s*rgba\(0,0,0,0?\.45\)/.test(html) &&
+   /--c-backdrop-strong:\s*rgba\(0,0,0,0?\.55\)/.test(html));
+ok('.modal-dim carries the standard dim from the token',
+   /\.modal-dim\s*\{\s*background-color:\s*var\(--c-backdrop\)/.test(html));
+ok('the centered overlays use .modal-dim (>= 16 — guards a mass-revert)',
+   (html.match(/\bmodal-dim\b/g) || []).length >= 16);
+ok('the Action-Wizard .modal-backdrop dims from --c-backdrop-strong (raw rgba gone from the rule)',
+   /\.modal-backdrop\s*\{[^}]*background:\s*var\(--c-backdrop-strong\)/.test(html) &&
+   !/\.modal-backdrop\s*\{[^}]*rgba\(/.test(html));
+ok('no raw modal backdrop dim remains (inline rgba(0,0,0,.4|.45) + the Tailwind bg-black/40 class)',
+   !/background:rgba\(0,0,0,\.45?\)/.test(html) &&
+   !/\bbg-black\/40\b/.test(html));
+ok('the faint surface tints are untouched (bg-black/5 + rgba(0,0,0,.03|.04) survive — not over-swept)',
+   /\bbg-black\/5\b/.test(html) && /rgba\(0,0,0,\.0[34]\)/.test(html));
 
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
