@@ -251,6 +251,35 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
    /\.border-hairline\s*\{[^}]*var\(--c-rule-hairline\)/.test(html) &&
    /\.text-muted\s*\{[^}]*color-mix\(in srgb, var\(--c-ink\)/.test(html));
 
+// SVG icon system (H1 path b, 2026-06-29) — emoji → inline-SVG. Identity glyphs are <symbol> defs in the
+// sprite after <body>; rendered via <svg class="ico"><use href="#i-NAME"></use></svg> (static) or
+// window.acksIcon('NAME') (dynamic x-html). Lock: the class + sprite exist, EVERY #i-NAME reference (static
+// <use> + acksIcon() calls, across index.html + the mixins) resolves to a defined <symbol> — a typo'd or
+// missing icon fails CI — and each CONVERTED glyph's chrome pattern stays gone (a revert is a regression).
+{
+  ok('.ico class is defined (1em square, currentColor)',
+     /\.ico\s*\{[^}]*fill:\s*currentColor/.test(html));
+  const defined = new Set([...html.matchAll(/<symbol\s+id="(i-[a-z0-9-]+)"/g)].map(m => m[1]));
+  ok('the icon sprite defines >= 12 identity symbols', defined.size >= 12, defined.size + ' defined');
+  // gather every referenced icon id across index.html + the mixins: <use href="#i-X"> and acksIcon('X')
+  const referenced = new Set();
+  for (const f of files) {                                   // `files` = index.html + the domain-app*.js mixins
+    const s = (f === 'index.html') ? html : fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const m of s.matchAll(/href="#(i-[a-z0-9-]+)"/g)) referenced.add(m[1]);
+    for (const m of s.matchAll(/acksIcon\(\s*['"]([a-z0-9-]+)/g)) referenced.add('i-' + m[1]);
+  }
+  const dangling = [...referenced].filter(id => !defined.has(id));
+  ok('every #i-NAME reference resolves to a defined <symbol> (no dangling icon refs)',
+     dangling.length === 0, dangling.length ? 'dangling: ' + dangling.join(', ') : '');
+  // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
+  const CONVERTED = [
+    { glyph: '✏', pattern: '>✏</button>', note: 'edit-pencil buttons → #i-quill' },
+  ];
+  for (const c of CONVERTED)
+    ok('converted glyph ' + c.glyph + ' stays converted (' + c.note + ')',
+       !html.includes(c.pattern), 'chrome pattern "' + c.pattern + '" reappeared');
+}
+
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
