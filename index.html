@@ -2466,7 +2466,7 @@ document.addEventListener('alpine:init', () => {
             <label class="block text-xs">Minor abilities <input type="number" min="0" class="ed-input w-full mt-0.5" x-model.number="researchNew.minorAbilities"></label>
             <label class="block text-xs">Major abilities <input type="number" min="0" class="ed-input w-full mt-0.5" x-model.number="researchNew.majorAbilities"></label>
           </div>
-          <p class="text-[11px] opacity-60">Cost = 2,000gp/HD + 625gp/minor + 5,000gp/major; throw +1 per 5,000gp (RR pp.394–398).</p>
+          <p class="text-xs opacity-60">Cost = 2,000gp/HD + 625gp/minor + 5,000gp/major; throw +1 per 5,000gp (RR pp.394–398).</p>
           <label class="flex items-center justify-between" x-show="researchNew.kind!=='construct-design'">Quantity <input type="number" min="1" class="ed-input w-16" x-model.number="researchNew.quantity"></label>
           <template x-if="researchNew.kind==='construct-manufacture'">
             <div class="space-y-1">
@@ -2480,8 +2480,8 @@ document.addEventListener('alpine:init', () => {
           <template x-if="researchNew.kind==='necromancy'">
             <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.willing"> Willing subject (throw +1/5,000gp vs +2/5,000gp; auto-loyal)</label>
           </template>
-          <p class="text-[11px] opacity-60" x-show="researchNew.kind==='construct-design'">Design produces a construct formula — manufacture it from the formula afterward (RR p.395).</p>
-          <p class="text-[11px] opacity-60" x-show="['construct-manufacture','crossbreed','necromancy'].includes(researchNew.kind)">On success, a creature is created (a Group). A poor reaction roll means it slips your control.</p>
+          <p class="text-xs opacity-60" x-show="researchNew.kind==='construct-design'">Design produces a construct formula — manufacture it from the formula afterward (RR p.395).</p>
+          <p class="text-xs opacity-60" x-show="['construct-manufacture','crossbreed','necromancy'].includes(researchNew.kind)">On success, a creature is created (a Group). A poor reaction roll means it slips your control.</p>
         </div>
       </template>
 
@@ -2498,12 +2498,12 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center justify-between" x-show="researchNew.ritualKey==='custom' || !researchNew.ritualKey">Name <input type="text" class="ed-input w-44" x-model="researchNew.targetName" placeholder="e.g. World-Ender"></label>
           <label class="flex items-center justify-between" x-show="researchNew.ritualKey==='custom' || !researchNew.ritualKey">Ritual level <input type="number" min="7" max="9" class="ed-input w-16" x-model.number="researchNew.ritualLevel"></label>
           <template x-if="researchRitualInfo()">
-            <p class="text-[11px] opacity-70" x-text="'L' + researchRitualLevel() + ' · ' + researchRitualInfo().gloss + (researchRitualInfo().powerOnly ? ' · component: arcane/divine power only' : '') + (researchRitualInfo().divinePowerOnly ? ' (requires DIVINE power — Religion)' : '') + (researchRitualInfo().deferredTo ? ' · effect resolved by the GM (' + researchRitualInfo().deferredTo + ')' : '')"></p>
+            <p class="text-xs opacity-70" x-text="'L' + researchRitualLevel() + ' · ' + researchRitualInfo().gloss + (researchRitualInfo().powerOnly ? ' · component: arcane/divine power only' : '') + (researchRitualInfo().divinePowerOnly ? ' (requires DIVINE power — Religion)' : '') + (researchRitualInfo().deferredTo ? ' · effect resolved by the GM (' + researchRitualInfo().deferredTo + ')' : '')"></p>
           </template>
           <template x-if="researchNew.kind==='ritual-learn'">
             <div class="space-y-1">
               <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromFormula"> Have the formula (no throw — still pay material + research)</label>
-              <p class="text-[11px] opacity-70" x-show="characterEditing" x-text="'Repertoire at L' + researchRitualLevel() + ': ' + researchRitualRepertoire().known + ' / ' + researchRitualRepertoire().cap + ' known (RR p.398).'"></p>
+              <p class="text-xs opacity-70" x-show="characterEditing" x-text="'Repertoire at L' + researchRitualLevel() + ': ' + researchRitualRepertoire().known + ' / ' + researchRitualRepertoire().cap + ' known (RR p.398).'"></p>
             </div>
           </template>
           <template x-if="researchNew.kind==='ritual-cast'">
@@ -2514,7 +2514,7 @@ document.addEventListener('alpine:init', () => {
               <label class="block" x-show="researchNew.mode==='stored'">Stored as
                 <select class="ed-input w-full mt-0.5" x-model="researchNew.storedForm"><option value="scroll">Scroll</option><option value="ring">Ring</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="wand">Wand</option></select>
               </label>
-              <p class="text-[11px] opacity-60">Casting needs the ritual in your repertoire; component = monster parts (never miscellaneous). Storing = one charge (RR p.398).</p>
+              <p class="text-xs opacity-60">Casting needs the ritual in your repertoire; component = monster parts (never miscellaneous). Storing = one charge (RR p.398).</p>
             </div>
           </template>
         </div>
@@ -2523,7 +2523,7 @@ document.addEventListener('alpine:init', () => {
       <!-- experiment config (AD-M4): risk a mishap for advantages + a chance at a breakthrough (RR pp.408–411) -->
       <template x-if="researchExperimentAvailable()">
         <div class="space-y-1.5 border rounded p-2" style="border-color:color-mix(in srgb, var(--c-arcane) 20%, transparent); background:var(--c-arcane-bg)">
-          <label class="flex items-center gap-2 font-semibold text-sm"><input type="checkbox" x-model="researchNew.experimentOn"> 🧪 Experiment <span class="opacity-60 font-normal text-[11px]">(RR pp.408–411 — risk a mishap for an advantage + a chance at a breakthrough)</span></label>
+          <label class="flex items-center gap-2 font-semibold text-sm"><input type="checkbox" x-model="researchNew.experimentOn"> 🧪 Experiment <span class="opacity-60 font-normal text-xs">(RR pp.408–411 — risk a mishap for an advantage + a chance at a breakthrough)</span></label>
           <template x-if="researchNew.experimentOn">
             <div class="space-y-1.5">
               <label class="block">Method
@@ -2531,14 +2531,14 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="me in researchExperimentMethods()" :key="me.key"><option :value="me.key" :disabled="me.disabled" x-text="me.label + (me.disabled ? (' — needs L' + me.minLevel) : '')"></option></template>
                 </select>
               </label>
-              <div class="text-[11px] opacity-70" x-text="'Grants ' + researchExperimentAllowed() + ' advantage' + (researchExperimentAllowed()===1?'':'s') + '; a failed experiment → a ' + researchExperimentMishapTier() + ' mishap.'"></div>
+              <div class="text-xs opacity-70" x-text="'Grants ' + researchExperimentAllowed() + ' advantage' + (researchExperimentAllowed()===1?'':'s') + '; a failed experiment → a ' + researchExperimentMishapTier() + ' mishap.'"></div>
               <div class="grid grid-cols-2 gap-x-3 gap-y-1">
                 <template x-for="adv in ['haste','efficiency','insight','lore']" :key="adv">
-                  <label class="flex items-center justify-between gap-1 text-[11px]"><span x-text="researchAdvLabel(adv)" :title="researchAdvEffect(adv)"></span><input type="number" min="0" :max="researchExperimentAllowed()" class="ed-input w-12" x-model.number="researchNew.experimentAdv[adv]"></label>
+                  <label class="flex items-center justify-between gap-1 text-xs"><span x-text="researchAdvLabel(adv)" :title="researchAdvEffect(adv)"></span><input type="number" min="0" :max="researchExperimentAllowed()" class="ed-input w-12" x-model.number="researchNew.experimentAdv[adv]"></label>
                 </template>
               </div>
-              <label class="flex items-center gap-2 text-[11px]"><input type="checkbox" x-model="researchNew.experimentArtCraft"> Relates to my Art/Craft (grandmaster → +1 advantage; ranks aid the breakthrough — RR p.408)</label>
-              <p class="text-[11px]" :class="researchExperimentUsed() > researchExperimentAllowed() ? 'accent-red' : 'opacity-70'" x-text="researchExperimentUsed() + ' / ' + researchExperimentAllowed() + ' advantages chosen' + researchExperimentPreview() + (researchExperimentUsed() > researchExperimentAllowed() ? ' — too many for this method' : '')"></p>
+              <label class="flex items-center gap-2 text-xs"><input type="checkbox" x-model="researchNew.experimentArtCraft"> Relates to my Art/Craft (grandmaster → +1 advantage; ranks aid the breakthrough — RR p.408)</label>
+              <p class="text-xs" :class="researchExperimentUsed() > researchExperimentAllowed() ? 'accent-red' : 'opacity-70'" x-text="researchExperimentUsed() + ' / ' + researchExperimentAllowed() + ' advantages chosen' + researchExperimentPreview() + (researchExperimentUsed() > researchExperimentAllowed() ? ' — too many for this method' : '')"></p>
             </div>
           </template>
         </div>
@@ -2680,7 +2680,7 @@ document.addEventListener('alpine:init', () => {
         </span>
         <button @click="vesselFishUI()" class="btn text-xs" title="Fish for the crew (Survival 14+, +4 with a Survival/Fishing officer) — +1 day of stores on a success (RR p.321)">🎣 Fish</button>
         <span class="text-xs opacity-70" x-show="vesselDetailScurvyLine()" x-text="vesselDetailScurvyLine()"></span>
-        <span class="text-[11px] opacity-50">Set a number to track provisioning (deprivation slows the voyage; scurvy at 30 days at sea).</span>
+        <span class="text-xs opacity-50">Set a number to track provisioning (deprivation slows the voyage; scurvy at 30 days at sea).</span>
       </div>
 
       <!-- hold -->
@@ -2688,7 +2688,7 @@ document.addEventListener('alpine:init', () => {
         <span class="text-xs font-semibold">📦 Hold</span>
         <template x-if="vesselDetailHold()"><button @click="openStashDetail(vesselDetailHold().id)" class="underline text-sky-800 text-xs" x-text="(vesselDetailHold().name||'cargo hold')"></button></template>
         <template x-if="!vesselDetailHold()"><button @click="vesselDetailEnsureHold()" class="text-xs btn">+ Create cargo hold</button></template>
-        <span class="text-[11px] opacity-50" x-show="vesselDetailClass()" x-text="'Cargo capacity ' + (vesselDetailClass() ? vesselDetailClass().cargoSt.toLocaleString() : '') + ' st'"></span>
+        <span class="text-xs opacity-50" x-show="vesselDetailClass()" x-text="'Cargo capacity ' + (vesselDetailClass() ? vesselDetailClass().cargoSt.toLocaleString() : '') + ' st'"></span>
       </div>
 
       <!-- history -->
@@ -2701,7 +2701,7 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
-      <p class="text-[11px] opacity-50">Edits log as GM-fiat (the post-combat write-back). The fight itself happens at the table (RR p.323) — record SHP / crew losses here, then sail on.</p>
+      <p class="text-xs opacity-50">Edits log as GM-fiat (the post-combat write-back). The fight itself happens at the table (RR p.323) — record SHP / crew losses here, then sail on.</p>
     </div>
   </template>
 </div>
@@ -2972,7 +2972,7 @@ document.addEventListener('alpine:init', () => {
                 <label class="flex items-center gap-1"><input type="radio" value="lightweight" x-model="recruitSpecialistModal.detailLevel"> Lightweight stub</label>
                 <label class="flex items-center gap-1"><input type="radio" value="full" x-model="recruitSpecialistModal.detailLevel"> Full chargen (roll stats)</label>
               </div>
-              <p class="text-[11px] opacity-60" x-text="recruitSpecialistModal.detailLevel === 'full' ? 'Rolls the six abilities now (3d6 down the line); the GM fleshes out class/hp/saves.' : 'Creates a named stub (type · level · wage). Expand it to a full character on its sheet anytime — never a dead end.'"></p>
+              <p class="text-xs opacity-60" x-text="recruitSpecialistModal.detailLevel === 'full' ? 'Rolls the six abilities now (3d6 down the line); the GM fleshes out class/hp/saves.' : 'Creates a named stub (type · level · wage). Expand it to a full character on its sheet anytime — never a dead end.'"></p>
             </div>
           </template>
           <p class="text-xs opacity-60 italic" x-show="recruitSpecialistTypeRows().every(r => r.available < 1)">No officers or specialists available to recruit at this realm tier this period.</p>
@@ -3045,7 +3045,7 @@ document.addEventListener('alpine:init', () => {
           </select>
           <!-- vessel/war-machine show their note here (fixed cost); the editable-cost catalog kinds show
                their note by the cost field below (so it isn't doubled). -->
-          <p class="text-[11px] opacity-60 mt-0.5" x-show="constructionWizardFixedCost()" x-text="constructionWizardKindNote()"></p>
+          <p class="text-xs opacity-60 mt-0.5" x-show="constructionWizardFixedCost()" x-text="constructionWizardKindNote()"></p>
         </label>
       </template>
       <!-- Editable cost: every kind except the fixed-cost catalogs (stronghold / vessel / war-machine).
@@ -3056,7 +3056,7 @@ document.addEventListener('alpine:init', () => {
           <label class="block"><span x-text="constructionWizard.repairTargetId ? 'Repair cost (gp):' : 'Cost (gp):'"></span>
             <input type="number" min="0" x-model.number="constructionWizard.totalCost" class="w-full border border-ink rounded px-1 py-0.5 text-sm">
           </label>
-          <p class="text-[11px] opacity-60" x-show="!constructionWizard.repairTargetId" x-text="constructionWizardKindNote()"></p>
+          <p class="text-xs opacity-60" x-show="!constructionWizard.repairTargetId" x-text="constructionWizardKindNote()"></p>
         </div>
       </template>
       <!-- === @b14-construction (team) — siege-support works: target siege + work + the per-work parameter
@@ -3089,11 +3089,11 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="o in siegeWizardMachineOptions()" :key="o.id"><option :value="o.id" x-text="o.label + ' — assemble ' + o.cost.toLocaleString() + 'gp'"></option></template>
                 </select>
               </label>
-              <p class="text-[11px] accent-amber mt-0.5" x-show="siegeWizardMachineOptions().length === 0">No built war machines available — build one (kind: War machine) first, then field-assemble it here.</p>
+              <p class="text-xs accent-amber mt-0.5" x-show="siegeWizardMachineOptions().length === 0">No built war machines available — build one (kind: War machine) first, then field-assemble it here.</p>
             </div>
           </template>
-          <p class="text-[11px] opacity-70" x-text="constructionWizardKindNote()"></p>
-          <p class="text-[11px]">Derived cost: <span class="font-semibold" x-text="(Number(constructionWizard.totalCost)||0).toLocaleString()"></span> gp · labor-timed on the Day Clock.</p>
+          <p class="text-xs opacity-70" x-text="constructionWizardKindNote()"></p>
+          <p class="text-xs">Derived cost: <span class="font-semibold" x-text="(Number(constructionWizard.totalCost)||0).toLocaleString()"></span> gp · labor-timed on the Day Clock.</p>
         </div>
       </template>
 
@@ -3150,7 +3150,7 @@ document.addEventListener('alpine:init', () => {
       <div class="border border-ink/30 rounded p-2 space-y-1">
         <p class="font-semibold text-xs">Supervisor(s) <span class="opacity-60 font-normal">— engineer ≤100,000gp / siege engineer ≤25,000gp (RR p.174)</span></p>
         <template x-if="constructionWizardSupervisorCandidates().length === 0">
-          <p class="text-[11px] italic opacity-60">No character with Engineering or Siege Engineering. Add the proficiency on a character, or enable the <span class="font-semibold">abstract construction</span> house rule to build without a supervisor.</p>
+          <p class="text-xs italic opacity-60">No character with Engineering or Siege Engineering. Add the proficiency on a character, or enable the <span class="font-semibold">abstract construction</span> house rule to build without a supervisor.</p>
         </template>
         <template x-for="c in constructionWizardSupervisorCandidates()" :key="c.id">
           <label class="flex items-center gap-2 text-xs">
@@ -3227,8 +3227,8 @@ document.addEventListener('alpine:init', () => {
             <div class="opacity-70 text-xs">→ a cloister band (become priestesses over ~2 years — a Religion layer).</div>
           </div>
         </template>
-        <p class="text-[11px] opacity-70" x-show="followerArrival.proposal.divine">✦ Fanatical followers — loyalty + morale start at +4 (RR p.335).</p>
-        <p class="text-[11px] opacity-60">The arrival is rolled. Re-roll for a different draw, or welcome them to bring them in. Followers come once.</p>
+        <p class="text-xs opacity-70" x-show="followerArrival.proposal.divine">✦ Fanatical followers — loyalty + morale start at +4 (RR p.335).</p>
+        <p class="text-xs opacity-60">The arrival is rolled. Re-roll for a different draw, or welcome them to bring them in. Followers come once.</p>
       </div>
     </template>
     <template x-if="!followerArrival.proposal || !followerArrival.proposal.ok">
@@ -4080,7 +4080,7 @@ document.addEventListener('alpine:init', () => {
 <div x-show="lairWizardOpen" role="dialog" aria-modal="true" class="modal-overlay py-8" style="z-index:55" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
   <div class="modal-card max-w-lg w-full mx-4 p-5 space-y-4">
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-lg">🏚 Lair Wizard</h2>
+      <h2 class="font-bold text-xl">🏚 Lair Wizard</h2>
       <button @click="lairWizardOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
     <div class="flex gap-2 text-sm">
@@ -4760,7 +4760,7 @@ document.addEventListener('alpine:init', () => {
      mode-aware dispatcher so a later Journey planner / wizard can reuse the map as a hex picker. -->
 <div x-show="currentView === 'world' && worldSubView === 'map'" class="p-4" x-cloak>
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
-    <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
+    <h2 class="text-xl font-semibold">🗺 Campaign Map</h2>
     <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
     <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
     <!-- Keyboard-accessible alternative (H2-d a11y, audit 2026-06-24) — the map is a visual mouse surface; the Hexes list reaches every hex by keyboard / screen reader. -->
@@ -4778,7 +4778,7 @@ document.addEventListener('alpine:init', () => {
   <div x-show="mapGridModalOpen" class="fixed inset-0 z-50 flex items-center justify-center modal-dim" x-cloak @click.self="mapGridModalOpen = false" @keydown.escape.window="mapGridModalOpen = false">
     <div class="modal-card max-w-md w-full mx-4 p-5 space-y-4">
       <div class="flex justify-between items-center">
-        <h2 class="font-bold text-lg">➕ Create Map</h2>
+        <h2 class="font-bold text-xl">➕ Create Map</h2>
         <button @click="mapGridModalOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
       </div>
       <p class="text-sm opacity-70">Lay out a rectangular grid of blank hexes — no terrain, unexplored, unclaimed — a clean canvas to build a world on. Hexes you already have are kept (never overwritten); the grid fills in around them.</p>
@@ -5286,7 +5286,7 @@ document.addEventListener('alpine:init', () => {
                  Overview/Ruler grid so it reads as a top-of-tab status banner. -->
             <div class="border-2 rounded p-3"
               :style="(selectedDomain.demographics.morale >= 1) ? 'background:var(--c-success-bg); border-color:var(--c-success)' : (selectedDomain.demographics.morale <= -1 ? 'background:var(--c-danger-bg); border-color:var(--c-danger)' : 'background:var(--c-parchment); border-color:var(--c-border)')">
-              <h2 class="font-bold text-lg mb-2">
+              <h2 class="font-bold text-xl mb-2">
                 Morale
                 <span class="text-base font-semibold ml-2" x-text="(selectedDomain.demographics.morale>=0?'+':'') + selectedDomain.demographics.morale"></span>
                 <span class="text-sm font-normal opacity-80 ml-1" x-text="'· ' + moraleLevel(selectedDomain.demographics.morale) + ' ' + moraleEmoji(selectedDomain.demographics.morale)"></span>
@@ -5399,7 +5399,7 @@ document.addEventListener('alpine:init', () => {
             <!-- Overview + Ruler grid (50/50 on md+, stacks below md). -->
             <div class="grid md:grid-cols-2 gap-4">
             <div class="vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Overview</h2>
+              <h2 class="font-bold text-xl mb-2">Overview</h2>
               <table class="bookkeeping text-sm">
                 <!-- Phase 5 Tribal Domains (RR pp.353–354): the domain TYPE axis + dominant race — moved
                      here from the Economy tab's old 🏷 box (2026-06-24). Editable; the clanhold/transitional
@@ -5471,7 +5471,7 @@ document.addEventListener('alpine:init', () => {
             </div>
             <!-- Ruler card sits beside Overview in the 50/50 grid. -->
             <div class="vellum border border-ink p-3 rounded" x-data="{showReplaceRuler:false}">
-              <h2 class="font-bold text-lg mb-2">Ruler</h2>
+              <h2 class="font-bold text-xl mb-2">Ruler</h2>
 
               <!-- When NO ruler set: show picker + create button -->
               <template x-if="!rulerCharacter(selectedDomain)">
@@ -5576,7 +5576,7 @@ document.addEventListener('alpine:init', () => {
             <div class="vellum border border-ink p-3 rounded">
               <div x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'notes', label:'Notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
                 <div class="flex items-center gap-2 mb-2">
-                  <h2 class="font-bold text-lg">Notes</h2>
+                  <h2 class="font-bold text-xl">Notes</h2>
                   <template x-if="!editing">
                     <button @click="start()" class="ed-edit" title="Edit notes (logged)">✏ Edit</button>
                   </template>
@@ -5607,7 +5607,7 @@ document.addEventListener('alpine:init', () => {
         <div x-show="activeTab==='demographics'">
           <div class="grid md:grid-cols-2 gap-4">
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-3">Population & Morale</h2>
+            <h2 class="font-bold text-xl mb-3">Population & Morale</h2>
 
             <!-- Each editable stat uses the reusable Alpine editableStat component (registered at head).
                  Display read-only; click ✏ to unlock; Enter or ✓ saves via gm-fiat event; Esc or × cancels. -->
@@ -5677,7 +5677,7 @@ document.addEventListener('alpine:init', () => {
           </div>
 
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
+            <h2 class="font-bold text-xl mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
             <template x-if="hexSettlements(selectedDomain).length === 0">
               <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Investment</strong> tab — <em>🏛 Urban investment ▸ 🏘 Found settlement</em>.</p>
             </template>
@@ -5717,7 +5717,7 @@ document.addEventListener('alpine:init', () => {
           <div class="grid md:grid-cols-2 gap-4">
             <div class="md:col-span-2 vellum border border-ink p-3 rounded" style="background:var(--c-parchment)">
               <div class="flex items-center justify-between flex-wrap gap-3">
-                <h2 class="font-bold text-lg">Treasury (accumulated gp)</h2>
+                <h2 class="font-bold text-xl">Treasury (accumulated gp)</h2>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'treasury.gp', label:'Treasury', kind:'number'})">
                   <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-right font-bold text-lg" x-text="displayValue"></span><span class="text-sm">gp</span><button @click="start()" class="ed-edit" title="Edit (logged via gm-fiat)">✏</button></span></template>
                   <template x-if="editing"><span class="ed-stat"><input type="number" class="ed-input text-right font-bold" style="width:10rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-sm">gp</span><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
@@ -5726,7 +5726,7 @@ document.addEventListener('alpine:init', () => {
             </div>
 
             <div class="vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Income</h2>
+              <h2 class="font-bold text-xl mb-2">Income</h2>
               <div class="text-sm flex items-center gap-2 mt-1">
                 <span class="w-44">Land revenue / family</span>
                 <span class="font-mono" x-text="Math.round(selectedDomain.income.landRevenuePerFamily||0) + ' gp'"></span>
@@ -5760,7 +5760,7 @@ document.addEventListener('alpine:init', () => {
               </div>
             </div>
             <div class="vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Expenses & Policy</h2>
+              <h2 class="font-bold text-xl mb-2">Expenses & Policy</h2>
               <div class="text-sm flex items-center gap-2 mt-1">
                 <span class="w-32">Tax policy</span>
                 <!-- Permanent dropdown, commits on @change via gm-fiat. -->
@@ -5866,7 +5866,7 @@ document.addEventListener('alpine:init', () => {
             <!-- Tribal Domains (Phase 5; RR pp.353–354): the 🏷 domain-type picker + clanhold/transitional
                  controls moved to the Overview tab (the Overview table + the Ruler card) on 2026-06-24. -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Monthly Bookkeeping</h2>
+              <h2 class="font-bold text-xl mb-2">Monthly Bookkeeping</h2>
               <table class="bookkeeping text-sm"><tbody>
                 <tr class="subtotal"><td>Treasury at start of month</td><td class="text-right" x-text="(selectedDomain.treasury.gp || 0).toLocaleString() + ' gp'"></td></tr>
                 <template x-for="row in incomeBreakdown(selectedDomain)" :key="row.label">
@@ -5904,7 +5904,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="true">
             <div class="vellum border border-ink p-3 rounded mt-3"
                  x-data="{ agAmounts:{}, showAgriModal:false, agTotal(){ const app=window.acksApp; return (app.agriculturalInvestableHexes(app.selectedDomain)||[]).reduce((t,h)=>t+((this.agAmounts[h.id])||0),0); } }">
-              <h2 class="font-bold text-lg mb-1">⚒ Agricultural improvements <span class="text-sm opacity-60 font-normal">(RR p.341)</span></h2>
+              <h2 class="font-bold text-xl mb-1">⚒ Agricultural improvements <span class="text-sm opacity-60 font-normal">(RR p.341)</span></h2>
               <p class="text-sm opacity-70 mb-3">
                 25,000gp per +1 land value, max +3 per hex, cap at 9gp/family. Built over time at ~500gp/day (RR p.174) — each +1 step takes ~50 days.
               </p>
@@ -6032,7 +6032,7 @@ document.addEventListener('alpine:init', () => {
                'Complete now' to resolve a settlement's whole budget at once (ACKS.flushUrbanInvestment). -->
           <div class="vellum border border-ink p-3 rounded mt-3"
                x-data="{ amounts:{}, showOrderModal:false, showFoundModal:false, foundHexId:'', foundName:'', foundCount:100, total(){ const app=window.acksApp; return (app.hexSettlements(app.selectedDomain)||[]).reduce((t,e)=>t+((this.amounts[e.settlement.id])||0),0); } }">
-            <h2 class="font-bold text-lg mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
+            <h2 class="font-bold text-xl mb-1">🏛 Urban investment <span class="text-sm opacity-60 font-normal">(RR p.353 — built at 500gp/day)</span></h2>
             <p class="text-sm opacity-70 mb-3">
               Order gp toward a settlement's roads, aqueducts, sewers, marketplaces, and walls. The cost is paid out of the treasury at <strong>500gp/day</strong> on the Day Clock (RR p.353); as it is paid, the settlement's total investment rises — lifting its maximum-population cap (RR p.350) — and <strong>1d10</strong> new urban families move in for every <strong>1,000gp</strong> built (RR p.351), arriving gradually as the infrastructure goes up. A ruler cannot spend more than the domain's monthly revenue on urban investment in a month.
             </p>
@@ -6198,7 +6198,7 @@ document.addEventListener('alpine:init', () => {
                conditions toward Outlands→Borderlands→Civilized advancement (RR p.340). Derived from
                the hex map (roads + settlement sizes); the GM override + the full eligibility check are DC-2. -->
           <div class="vellum border border-ink p-3 rounded mt-3" x-data="{ sc:null, adv:null }" x-effect="sc = domainAdvancementSpatial(selectedDomain); adv = domainAdvancementReadout(selectedDomain)">
-            <h2 class="font-bold text-lg mb-2">Domain Advancement
+            <h2 class="font-bold text-xl mb-2">Domain Advancement
               <span class="opacity-50 cursor-help text-sm" title="RR p.340 — a domain advances Outlands→Borderlands→Civilized at the end of any month when it meets ANY one of the per-tier conditions (population + a road to a town within 24mi + morale ≥+1; or settled territory; or an established urban settlement near a friendly city). Advancement is permanent. Two conditions are spatial (road / friendly-city distance), derived from the hex map with a GM override.">ⓘ</span>
             </h2>
             <div class="text-xs opacity-70 font-semibold mb-1">Spatial conditions <span class="opacity-60 font-normal">(RR p.340 — derived from the hex map)</span></div>
@@ -6292,7 +6292,7 @@ document.addEventListener('alpine:init', () => {
              source order after the Pop&Morale + Settlements 50/50 grid. -->
         <div x-show="activeTab==='demographics'" class="mt-4">
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="domainHexesFor(selectedDomain) && domainHexesFor(selectedDomain).length > 0" x-text="'· ' + domainHexesFor(selectedDomain).length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + domainHexesFor(selectedDomain).reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
+            <h2 class="font-bold text-xl mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="domainHexesFor(selectedDomain) && domainHexesFor(selectedDomain).length > 0" x-text="'· ' + domainHexesFor(selectedDomain).length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + domainHexesFor(selectedDomain).reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
             <table class="bookkeeping text-sm">
               <thead><tr>
                 <th>Hex</th>
@@ -6365,7 +6365,7 @@ document.addEventListener('alpine:init', () => {
           <!-- Terrain Transformation — relocated here from the Economy tab to sit directly under the Hexes box (2026-06-23). -->
             <!-- === @b14-domvariants (team) — Terrain Transformation panel (Phase 5 §4; JJ p.412) === -->
             <div class="vellum border border-ink p-3 rounded mt-3">
-              <h2 class="font-bold text-lg mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
+              <h2 class="font-bold text-xl mb-1">🏔 Terrain transformation <span class="text-xs font-normal opacity-60">(JJ p.412 — optional)</span></h2>
               <p class="text-sm opacity-70 mb-2">As a hex's human/halfling/beastman population grows past <span class="font-mono">186</span> then <span class="font-mono">326</span> families, the land itself changes — deserts irrigated to grassland, forests cleared, swamps dredged, hills and mountains terraced (bidirectional: depopulation reverts). Dwarven/gnomish/elven hexes do not transform land. Enable <em>Terrain Transformation</em> in ⚙ House Rules to let the world evolve on the monthly turn.</p>
               <template x-if="!terrainTransformRuleOn()">
                 <p class="text-sm italic opacity-60 mb-2">The <span class="font-mono">terrain-transformation</span> house rule is off — terrain is static (RAW default). The lineage below previews what would happen if it were enabled.</p>
@@ -6602,7 +6602,7 @@ document.addEventListener('alpine:init', () => {
                army is funded by Scutage from vassals + parceled across their domains via the Troops favor. -->
           <template x-if="realmStandingArmy(selectedDomain)">
             <div class="vellum border border-ink p-3 rounded mb-3">
-              <h2 class="font-bold text-lg mb-1">🏰 Realm forces</h2>
+              <h2 class="font-bold text-xl mb-1">🏰 Realm forces</h2>
               <p class="text-sm">
                 <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).title"></span>
                 — <span x-text="realmStandingArmy(selectedDomain).realmFamilies.toLocaleString()"></span> realm families
@@ -6626,7 +6626,7 @@ document.addEventListener('alpine:init', () => {
                training — change it via the 🔍 Inspector). Click a unit's NAME for its sheet (where
                field-editing lives); Home stays inline. Levies arrive via the ⚒/🛡 Levy modal. ───── -->
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Garrison</h2>
+            <h2 class="font-bold text-xl mb-2">Garrison</h2>
             <table class="bookkeeping text-sm">
               <thead><tr>
                 <th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th>
@@ -6821,7 +6821,7 @@ document.addEventListener('alpine:init', () => {
                it. The read complement to the Garrison table; rows open the army (Characters ▸ Parties). -->
           <div class="vellum border border-ink p-3 rounded mt-4">
             <div class="flex justify-between items-baseline gap-2 mb-2">
-              <h2 class="font-bold text-lg">🎖 Active Field Armies</h2>
+              <h2 class="font-bold text-xl">🎖 Active Field Armies</h2>
               <button @click="openMusterArmy({ commanderId: rulerCharacter(selectedDomain)?.id, domainId: selectedDomain.id })"
                       :title="'Muster a field army — ' + (rulerCharacter(selectedDomain) ? (rulerCharacter(selectedDomain).name + ' leads, this garrison is pre-selected') : 'pick a commander') + ' (RR pp.435–437)'"
                       class="btn text-sm font-semibold">🎖 Muster field army</button>
@@ -6852,7 +6852,7 @@ document.addEventListener('alpine:init', () => {
                D4 (2026-06-25): the box is ALWAYS shown (even with no threats) so the garrison
                auto-defense checkbox has a home. -->
           <div class="vellum border border-ink p-3 rounded mt-4">
-            <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
+            <h2 class="font-bold text-xl mb-2">⚔ Active Threats</h2>
             <!-- D4 — opt-in garrison auto-defense. Ticked, the garrison auto-deploys a real reaction
                  force against decisively-outmatched (BR ≥ 2×) incursion bands each day (the slot-89
                  consumer); the band stays here marked 🛡 responding until the force arrives, drives it
@@ -6929,7 +6929,7 @@ document.addEventListener('alpine:init', () => {
           <div class="grid md:grid-cols-2 gap-4">
             <!-- This domain's place in the hierarchy -->
             <div class="vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">This domain's liege</h2>
+              <h2 class="font-bold text-xl mb-2">This domain's liege</h2>
               <template x-if="selectedDomain.liegeId">
                 <div>
                   <p class="text-sm">Vassal of: <span class="font-semibold" x-text="liegeOf(selectedDomain)?.name || '(missing liege)'"></span></p>
@@ -6977,7 +6977,7 @@ document.addEventListener('alpine:init', () => {
 
             <!-- Vassals owed by this domain -->
             <div class="vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Vassals of this domain</h2>
+              <h2 class="font-bold text-xl mb-2">Vassals of this domain</h2>
               <template x-if="vassalsOf(selectedDomain.id).length === 0">
                 <p class="text-sm italic opacity-70">No direct vassals.</p>
               </template>
@@ -7003,7 +7003,7 @@ document.addEventListener('alpine:init', () => {
 
             <!-- Favors & Duties (F&D-2) — the monthly liege↔vassal edicts (RR pp.345–348). -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-1">📜 Favors &amp; Duties</h2>
+              <h2 class="font-bold text-xl mb-1">📜 Favors &amp; Duties</h2>
               <p class="text-sm opacity-70 mb-3">The monthly liege↔vassal obligation engine (RR pp.345–348). One edict is auto-rolled per active vassalage each month while the <strong>Favors &amp; Duties — auto-roll</strong> house rule is on; you can also raise edicts by hand here. A lord may safely demand one duty per month, plus one for each favor he grants — over-demanding rolls the vassal's Loyalty.</p>
 
               <!-- As LIEGE: per vassal — balance + active obligations + Grant favor / Demand duty. -->
@@ -7160,7 +7160,7 @@ document.addEventListener('alpine:init', () => {
 
             <!-- Full hierarchy view including indirect (sub-vassals) -->
             <div class="md:col-span-2 vellum border border-ink p-3 rounded">
-              <h2 class="font-bold text-lg mb-2">Hierarchy under this domain</h2>
+              <h2 class="font-bold text-xl mb-2">Hierarchy under this domain</h2>
               <template x-if="vassalChainUnder(selectedDomain.id).length === 0">
                 <p class="text-sm italic opacity-70">No vassals or sub-vassals.</p>
               </template>
@@ -7178,7 +7178,7 @@ document.addEventListener('alpine:init', () => {
 
         <div x-show="activeTab==='stronghold'">
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Stronghold</h2>
+            <h2 class="font-bold text-xl mb-2">Stronghold</h2>
 
             <!-- Top-level summary: total value, garrison capacity, adequacy. -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl mb-3">
@@ -7235,7 +7235,7 @@ document.addEventListener('alpine:init', () => {
                     </template>
                   </div>
                 </template>
-                <p class="text-[11px] opacity-60 mt-1">Advance the Day Clock / Advance Month to build toward completion. On completion the structure becomes a component above (its value joins the stronghold).</p>
+                <p class="text-xs opacity-60 mt-1">Advance the Day Clock / Advance Month to build toward completion. On completion the structure becomes a component above (its value joins the stronghold).</p>
               </div>
             </template>
 
@@ -7394,7 +7394,7 @@ document.addEventListener('alpine:init', () => {
                category. Vacant = abstract NPC, no PC salary. Picker is filtered strictly
                to qualified characters per Joachim's call (block unqualified). -->
           <div class="vellum border border-ink p-3 rounded mb-4">
-            <h2 class="font-bold text-lg mb-1">Magistrates <span class="text-sm font-normal opacity-70">· RR p.344</span></h2>
+            <h2 class="font-bold text-xl mb-1">Magistrates <span class="text-sm font-normal opacity-70">· RR p.344</span></h2>
             <p class="text-sm opacity-70 mb-3">Each magistrate keeps 12.5% of the expense they oversee as monthly salary (paid out of the existing expense pool — totals unchanged). Salary counts as the magistrate's domain income for XP (RR p.425).</p>
             <div class="grid md:grid-cols-2 gap-3">
               <template x-for="roleKey in ['captainOfGuard','chaplain','munerator','steward']" :key="roleKey">
@@ -7467,7 +7467,7 @@ document.addEventListener('alpine:init', () => {
           </div>
           <div class="vellum border border-ink p-3 rounded">
             <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
-              <h2 class="font-bold text-lg">Specialists</h2>
+              <h2 class="font-bold text-xl">Specialists</h2>
               <button @click="recruitDeepLink({ patronId: rulerCharacter(selectedDomain)?.id, category: 'specialist' })"
                       :disabled="!rulerCharacter(selectedDomain)"
                       :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open Recruit workflow for specialist hires'"
@@ -7488,7 +7488,7 @@ document.addEventListener('alpine:init', () => {
                column shows which (if any) of this domain's vassal chain they rule. -->
           <div class="vellum border border-ink p-3 rounded mt-4">
             <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
-              <h2 class="font-bold text-lg">Henchmen
+              <h2 class="font-bold text-xl">Henchmen
                 <span class="text-sm font-normal opacity-70" x-show="rulerCharacter(selectedDomain)" x-text="'· of ' + (rulerCharacter(selectedDomain)?.name || '')"></span>
                 <span class="text-sm font-normal ml-2" x-show="rulerCharacter(selectedDomain)"
                       :class="(currentCampaign?.characters||[]).filter(c => c.liegeCharacterId === rulerCharacter(selectedDomain)?.id && ACKS.isHenchman(c) && ACKS.isActive(c)).length > (rulerCharacter(selectedDomain)?.henchmanCap || 4) ? 'accent-red' : 'opacity-70'"
@@ -7942,7 +7942,7 @@ document.addEventListener('alpine:init', () => {
 <!-- ═══════════ end VIEW: SENATE ═══════════ -->
         <div x-show="activeTab==='history'">
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">History (<span x-text="selectedDomain.history.length"></span>)</h2>
+            <h2 class="font-bold text-xl mb-2">History (<span x-text="selectedDomain.history.length"></span>)</h2>
 
             <template x-if="selectedDomain.history.length >= 2">
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded" style="background:var(--c-parchment)">
@@ -8038,7 +8038,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="selectedDomain && selectedDomain.id">
             <div class="vellum border border-ink p-3 rounded mt-3" x-data="{ chrKind:'domain' }">
               <div class="flex justify-between items-baseline mb-2">
-                <h2 class="font-bold text-lg">📜 Chronicle</h2>
+                <h2 class="font-bold text-xl">📜 Chronicle</h2>
                 <span class="text-sm opacity-70" x-text="entityChronicleCount(chrKind, selectedDomain.id) + ' events'"></span>
               </div>
               <template x-if="entityChronicleCount(chrKind, selectedDomain.id) === 0">
@@ -8828,7 +8828,7 @@ document.addEventListener('alpine:init', () => {
      x-effect="if(currentView==='domain-turn' && currentCampaign && !turnProposal && !turnProposalError && domains.length>0 && advanceBlockers().length===0){ proposeMonthlyTurn(); }">
   <div class="max-w-screen-lg">
     <div class="vellum border border-ink rounded p-4">
-      <h2 class="font-bold text-lg mb-2">🏰 Monthly Turn — Turn Resolution</h2>
+      <h2 class="font-bold text-xl mb-2">🏰 Monthly Turn — Turn Resolution</h2>
       <!-- No explicit "stage" gate any more (2026-06-22) — the whole preceding month IS the staging
            period, so the turn auto-stages (the x-effect on the container above) the moment you open
            this tab. What's left are the genuine preconditions: no domains, or a clock-holding
@@ -8903,9 +8903,9 @@ document.addEventListener('alpine:init', () => {
                                   rows="2"
                                   style="font-size:0.75rem"
                                   placeholder="Rumor text"></textarea>
-                        <div class="flex items-center gap-2 text-[10px] opacity-80">
+                        <div class="flex items-center gap-2 text-xs opacity-80">
                           <label class="flex items-center gap-1">Level:
-                            <select x-model="ep.event.payload.apparentLevel" class="text-[10px]">
+                            <select x-model="ep.event.payload.apparentLevel" class="text-xs">
                               <option value="common">common</option>
                               <option value="uncommon">uncommon</option>
                               <option value="rare">rare</option>
@@ -8913,7 +8913,7 @@ document.addEventListener('alpine:init', () => {
                             </select>
                           </label>
                           <label class="flex items-center gap-1">Topic:
-                            <select x-model="ep.event.payload.topic" class="text-[10px]">
+                            <select x-model="ep.event.payload.topic" class="text-xs">
                               <option value="other">other</option>
                               <option value="treason">treason</option>
                               <option value="wealth">wealth</option>
@@ -8926,7 +8926,7 @@ document.addEventListener('alpine:init', () => {
                             </select>
                           </label>
                           <label class="flex items-center gap-1">Truth:
-                            <select x-model="ep.event.payload.truthLevel" class="text-[10px]">
+                            <select x-model="ep.event.payload.truthLevel" class="text-xs">
                               <option value="true">true</option>
                               <option value="false">false</option>
                               <option value="mixed">mixed</option>
@@ -9736,7 +9736,7 @@ document.addEventListener('alpine:init', () => {
                      earlier day) it locks into history. Same gate as the reroll buttons below. -->
                 <div class="flex flex-wrap gap-x-3 items-baseline">
                   <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
-                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-xs uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
                   <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
                   <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                   <span class="capitalize" x-text="d.pace"></span>
@@ -9777,7 +9777,7 @@ document.addEventListener('alpine:init', () => {
                   <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="btn text-xs text-sky-800 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
                 </div>
                 <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
-                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-[11px] opacity-80">
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-xs opacity-80">
                   <span class="opacity-50">via </span>
                   <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold accent-green' : ''" x-text="journeyStepLabel(st)"></span></span></template>
                   <span x-show="di===(journeyDetail().days.length-1)" class="accent-green" title="The party is here now"> 📍 here now</span>
@@ -11678,7 +11678,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="settlementSheetId && settlementSheet()">
   <div class="modal-card w-full max-w-5xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🏘 <span x-text="settlementSheet().name || '(unnamed settlement)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· ' + settlementType(settlementSheet())"></span></h2>
+      <h2 class="font-bold text-xl">🏘 <span x-text="settlementSheet().name || '(unnamed settlement)'"></span> <span class="text-sm font-normal opacity-70" x-text="'· ' + settlementType(settlementSheet())"></span></h2>
       <button @click="closeSettlementSheet()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
     <!-- Settlement-sheet tab strip (2026-06-22 — Demographics + Demand moved here from Domain ▸ Demographics) -->
@@ -12652,7 +12652,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3">
       <div class="flex justify-between items-center">
-        <h2 class="font-bold text-lg" x-text="(characterEditingIsNew ? '+ New character — ' : '👤 ') + (characterEditing?.name || '(unnamed)')"></h2>
+        <h2 class="font-bold text-xl" x-text="(characterEditingIsNew ? '+ New character — ' : '👤 ') + (characterEditing?.name || '(unnamed)')"></h2>
         <button @click="closeCharacterEditor()" class="text-xl px-2">×</button>
       </div>
       <!-- Activity strip (Architecture.md §3.11): what this character is doing right now. -->
@@ -13783,7 +13783,7 @@ document.addEventListener('alpine:init', () => {
               </div>
             </div>
           </template>
-          <p class="text-[11px] opacity-50 mt-1">A ridden mount carries the rider’s 15 st + gear (RR p.161): full speed up to its normal load, half above it, none past its max. On a journey it sets the party pace and needs food (load÷10 st) + water (load÷5 st) per day (RR p.276) — drawn from the journey’s animal-feed store; grazers and camels fend for themselves.</p>
+          <p class="text-xs opacity-50 mt-1">A ridden mount carries the rider’s 15 st + gear (RR p.161): full speed up to its normal load, half above it, none past its max. On a journey it sets the party pace and needs food (load÷10 st) + water (load÷5 st) per day (RR p.276) — drawn from the journey’s animal-feed store; grazers and camels fend for themselves.</p>
         </div>
       </div>
 
@@ -14062,7 +14062,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="p.status==='awaiting-throw'">
                   <div class="space-y-2 border-t border-ink/20 pt-2">
                     <template x-if="p.experiment">
-                      <div class="text-[11px]" style="color:var(--c-arcane)" x-text="'🧪 Experiment: ' + p.experiment.method + ' — ' + (p.experiment.advantages||[]).length + ' advantage' + ((p.experiment.advantages||[]).length===1?'':'s') + ' · a failed throw → a ' + researchMethodMishap(p.experiment.method) + ' mishap, but a big margin is a breakthrough.'"></div>
+                      <div class="text-xs" style="color:var(--c-arcane)" x-text="'🧪 Experiment: ' + p.experiment.method + ' — ' + (p.experiment.advantages||[]).length + ' advantage' + ((p.experiment.advantages||[]).length===1?'':'s') + ' · a failed throw → a ' + researchMethodMishap(p.experiment.method) + ' mishap, but a big margin is a breakthrough.'"></div>
                     </template>
                     <!-- component payment (only when there's a component cost) -->
                     <template x-if="(p.componentCostGp||0) > 0">
@@ -14071,7 +14071,7 @@ document.addEventListener('alpine:init', () => {
                         <label class="flex items-center gap-1">🔮 Arcane power <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).arcanePowerGp"> <span class="opacity-50">(no penalty; vicinity-gated)</span></label>
                         <label class="flex items-center gap-1">🦴 Special components (gp value) <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).specialItemValueGp"> <span class="opacity-50">(appropriate parts; no penalty)</span></label>
                         <label class="flex items-center gap-1" x-show="!['ritual-learn','ritual-cast'].includes(p.kind)">🏪 Market / inappropriate <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).inappropriateGp"> <span class="opacity-50">(penalty applies)</span></label>
-                        <p class="text-[11px] opacity-50" x-show="['ritual-learn','ritual-cast'].includes(p.kind)">Rituals pay components with special components or arcane power only — never miscellaneous (RR p.398).</p>
+                        <p class="text-xs opacity-50" x-show="['ritual-learn','ritual-cast'].includes(p.kind)">Rituals pay components with special components or arcane power only — never miscellaneous (RR p.398).</p>
                       </div>
                     </template>
                     <!-- the throw preview -->
@@ -14108,7 +14108,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </div>
             </template>
-            <p class="text-[11px] opacity-50 italic">Research advances day-by-day on the Day Clock (and across an Advance Month) — the researcher (and any assistants) dedicate their days to it, so it shows on the 📋 Activities dashboard. A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
+            <p class="text-xs opacity-50 italic">Research advances day-by-day on the Day Clock (and across an Advance Month) — the researcher (and any assistants) dedicate their days to it, so it shows on the 📋 Activities dashboard. A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
           </div>
         </template>
       </div>
@@ -14180,7 +14180,7 @@ document.addEventListener('alpine:init', () => {
               </template>
             </div>
 
-            <p class="text-[11px] opacity-50 italic">Each completed year of study (12 monthly turns) an apprentice rolls 18+ ± INT — success advances them to a companion; an unmodified 1–3 discourages them. The sanctum draws +1d6 fresh apprentices each year. Companions + apprentices are the research-assistant pool the ⚗ Research panel offers (RR p.386).</p>
+            <p class="text-xs opacity-50 italic">Each completed year of study (12 monthly turns) an apprentice rolls 18+ ± INT — success advances them to a companion; an unmodified 1–3 discourages them. The sanctum draws +1d6 fresh apprentices each year. Companions + apprentices are the research-assistant pool the ⚗ Research panel offers (RR p.386).</p>
           </div>
         </template>
       </div>
@@ -14568,7 +14568,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="loyaltyRollState">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🎲 Roll Loyalty <span class="text-sm font-normal opacity-70">· RR p.168</span></h2>
+      <h2 class="font-bold text-xl">🎲 Roll Loyalty <span class="text-sm font-normal opacity-70">· RR p.168</span></h2>
       <button @click="closeLoyaltyRollModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -14669,7 +14669,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="calamityModalState">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">📜 Record Calamity <span class="text-sm font-normal opacity-70">· RR p.166</span></h2>
+      <h2 class="font-bold text-xl">📜 Record Calamity <span class="text-sm font-normal opacity-70">· RR p.166</span></h2>
       <button @click="closeCalamityModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -14752,7 +14752,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="worldHexEditingHex()">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">
+      <h2 class="font-bold text-xl">
         🗺 <span x-text="worldHexEditingHex() ? hexLabelFor(worldHexEditingHex()) : 'Hex'"></span>
         <span class="text-sm opacity-70 font-normal" x-show="worldHexEditingDomain()"> · <span x-text="worldHexEditingDomain()?.name||''"></span></span>
       </h2>
@@ -14946,7 +14946,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" :class="(currentValue==null)?'opacity-50 italic':''" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
                 <template x-if="editing"><span class="ed-stat"><input type="number" :min="0" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><span class="text-xs opacity-60">ft</span><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
               </span>
-              <span class="text-[11px] opacity-50">a hull drafting deeper than this runs aground (RR p.331)</span>
+              <span class="text-xs opacity-50">a hull drafting deeper than this runs aground (RR p.331)</span>
             </div>
             <label class="block text-sm flex items-center gap-2 cursor-pointer" title="A port / landfall with fresh food — a voyaging crew eats ashore (clears the ration deficit + cures scurvy, RR p.321). A hex with a settlement counts automatically.">
               <span class="w-24 opacity-70 text-xs">Fresh food</span>
@@ -15428,7 +15428,7 @@ document.addEventListener('alpine:init', () => {
 <div class="modal-backdrop" x-show="showPassiveInvestmentCreateModal" x-cloak @keydown.escape.window="cancelPassiveInvestmentCreate()" @click.self="cancelPassiveInvestmentCreate()">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">💰 New passive investment</h2>
+      <h2 class="font-bold text-xl">💰 New passive investment</h2>
       <button @click="cancelPassiveInvestmentCreate()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -15511,7 +15511,7 @@ document.addEventListener('alpine:init', () => {
 <div class="modal-backdrop" x-show="showVentureCreateModal" x-cloak @keydown.escape.window="cancelVentureCreate()" @click.self="cancelVentureCreate()">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">⚖ Launch new venture</h2>
+      <h2 class="font-bold text-xl">⚖ Launch new venture</h2>
       <button @click="cancelVentureCreate()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -15625,7 +15625,7 @@ document.addEventListener('alpine:init', () => {
 <div class="modal-backdrop" x-show="showVentureCompleteModal" x-cloak @keydown.escape.window="showVentureCompleteModal=false" @click.self="showVentureCompleteModal=false">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🛒 Settle venture</h2>
+      <h2 class="font-bold text-xl">🛒 Settle venture</h2>
       <button @click="showVentureCompleteModal=false" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -16028,7 +16028,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="profThrow.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🎲 Proficiency Throw <span class="text-sm font-normal opacity-70">· RR pp.9–10</span></h2>
+      <h2 class="font-bold text-xl">🎲 Proficiency Throw <span class="text-sm font-normal opacity-70">· RR pp.9–10</span></h2>
       <button @click="closeProficiencyThrowModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -16449,7 +16449,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="recordWound.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">⚔ Record a Mortal Wound <span class="text-sm font-normal opacity-70">· RR pp.300–301</span></h2>
+      <h2 class="font-bold text-xl">⚔ Record a Mortal Wound <span class="text-sm font-normal opacity-70">· RR pp.300–301</span></h2>
       <button @click="closeRecordWoundModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -16561,7 +16561,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="treasureWizard.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
+      <h2 class="font-bold text-xl">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
       <button @click="closeTreasureWizard()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
@@ -16675,7 +16675,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="sageConsult.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
+      <h2 class="font-bold text-xl">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
       <button @click="closeSageConsultModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -16910,7 +16910,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="foray.open">
   <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">⚔ Abstract Dungeon Foray <span class="text-sm font-normal opacity-70">· JJ ch.12</span></h2>
+      <h2 class="font-bold text-xl">⚔ Abstract Dungeon Foray <span class="text-sm font-normal opacity-70">· JJ ch.12</span></h2>
       <button @click="closeForayWizard()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -17047,7 +17047,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="exposeDisease.open">
   <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🤒 Expose to a disease <span class="text-sm font-normal opacity-70">· JJ p.84</span></h2>
+      <h2 class="font-bold text-xl">🤒 Expose to a disease <span class="text-sm font-normal opacity-70">· JJ p.84</span></h2>
       <button @click="closeExposeDiseaseModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -17633,7 +17633,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="applyConditionModal.open">
   <div class="modal-card w-full max-w-md my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🥶 Apply a condition <span class="text-sm font-normal opacity-70">· RR pp.507–516</span></h2>
+      <h2 class="font-bold text-xl">🥶 Apply a condition <span class="text-sm font-normal opacity-70">· RR pp.507–516</span></h2>
       <button @click="closeApplyConditionModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -17667,7 +17667,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="wildForay.open">
   <div class="modal-card w-full max-w-2xl my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🗺 Abstract Wilderness Foray <span class="text-sm font-normal opacity-70">· JJ ch.13</span></h2>
+      <h2 class="font-bold text-xl">🗺 Abstract Wilderness Foray <span class="text-sm font-normal opacity-70">· JJ ch.13</span></h2>
       <button @click="closeWildForay()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -17993,7 +17993,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="senateInfluence.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">🎯 Influence a senator <span class="text-sm font-normal opacity-70" x-text="'· ' + senateInfluenceSenator()"></span></h2>
+      <h2 class="font-bold text-xl">🎯 Influence a senator <span class="text-sm font-normal opacity-70" x-text="'· ' + senateInfluenceSenator()"></span></h2>
       <button @click="closeSenateInfluence()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
@@ -18119,7 +18119,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="sageCommission.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-lg">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
+      <h2 class="font-bold text-xl">📜 Commission a Sage <span class="text-sm font-normal opacity-70">· multi-week research · Phase 4 Sages §3.3</span></h2>
       <button @click="closeSageCommissionModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -18253,7 +18253,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-lg my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
-        <h2 class="font-bold text-lg">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="newMotionSenate().name || 'the senate'"></span></span></h2>
+        <h2 class="font-bold text-xl">📜 Bring a motion<span class="font-normal opacity-80"> — <span x-text="newMotionSenate().name || 'the senate'"></span></span></h2>
         <p class="text-sm opacity-70">Raise an issue before the senate. Table it to add it to the list; the vote happens later via Resolve.</p>
       </div>
       <button @click="closeNewMotion()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -18308,7 +18308,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
-        <h2 class="font-bold text-lg">📜 <span x-text="motionDetailMotion().title || motionDetailMatterLabel()"></span></h2>
+        <h2 class="font-bold text-xl">📜 <span x-text="motionDetailMotion().title || motionDetailMatterLabel()"></span></h2>
         <p class="text-sm opacity-70"><span x-text="motionDetailMotion().kind"></span> · <span x-text="motionDetailMatterLabel()"></span> · <span class="px-1 rounded" :class="motionStatusClass(motionDetailMotion().status)" x-text="motionDetailMotion().status"></span></p>
       </div>
       <button @click="closeMotionDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -18388,7 +18388,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-card w-full max-w-2xl my-6" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <div>
-        <h2 class="font-bold text-lg">🗳 Senate voting<span class="font-normal opacity-80"> — <span x-text="motionWizardSenate().name || 'the senate'"></span></span></h2>
+        <h2 class="font-bold text-xl">🗳 Senate voting<span class="font-normal opacity-80"> — <span x-text="motionWizardSenate().name || 'the senate'"></span></span></h2>
         <p class="text-sm opacity-70">Roll the vote on the tabled motion — 2d6 per senator (RR p.358) — then enact, reject, or defy.</p>
       </div>
       <button @click="closeMotionWizard()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
@@ -18871,7 +18871,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeSenateGen()">
   <div class="modal-card max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-lg">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <h2 class="font-bold text-xl">🏛 Generate a senate <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
       <button @click="closeSenateGen()" class="text-xl px-2">×</button>
     </div>
     <p class="text-sm opacity-70">Convene a senate over a realm's apex domain. Its size derives from the realm's families; its leading senators are drawn from the realm's actual notables (vassal lords, magistrates, court, residents), each with rolled influence, 1d3 policy objectives, and a faction. Re-roll, seat extra notables, then materialize it.</p>
@@ -18930,7 +18930,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="s.generated">
                       <span class="inline-flex items-center gap-1">
                         <input type="text" x-model="s.name" class="w-32 border border-ink rounded px-1 py-0.5 text-sm" placeholder="senator name">
-                        <span class="text-[10px] px-1 rounded tint-green border bdr-green" title="a freshly generated senator NPC (minted on materialize)">✦ new</span>
+                        <span class="text-xs px-1 rounded tint-green border bdr-green" title="a freshly generated senator NPC (minted on materialize)">✦ new</span>
                       </span>
                     </template>
                     <template x-if="!s.generated">
@@ -19016,7 +19016,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeSenateEdit()">
   <div class="modal-card max-w-3xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-lg">✎ Edit <span x-text="senateEditName()"></span> <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
+      <h2 class="font-bold text-xl">✎ Edit <span x-text="senateEditName()"></span> <span class="font-normal opacity-70 text-sm">· RR pp.355–360</span></h2>
       <button @click="closeSenateEdit()" class="text-xl px-2">×</button>
     </div>
     <p class="text-sm opacity-70">Each vote is a named senator. A leading senator's bloc is the patron plus their <strong>clients</strong>; the rest are <strong>independent minor senators</strong>. Drag a client or independent between leading senators (or to/from the independent pool) to re-align them; the vote tallies follow.</p>
@@ -19467,7 +19467,7 @@ document.addEventListener('alpine:init', () => {
      role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeOligModal()">
   <div class="modal-card max-w-2xl w-full my-6 p-5 space-y-3" @click.stop>
     <div class="flex justify-between items-center">
-      <h2 class="font-bold text-lg">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
+      <h2 class="font-bold text-xl">⚖ Governance — <span x-text="oligApexName()"></span><span class="font-normal opacity-70 text-sm" x-text="' · '+oligMode()"></span></h2>
       <button @click="closeOligModal()" class="text-xl px-2">×</button>
     </div>
 
@@ -20002,7 +20002,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="confinePanel.open">
     <div class="modal-card max-w-2xl w-full mt-12 p-5 space-y-4">
       <div class="flex items-center justify-between">
-        <h2 class="font-bold text-lg">🔒 Prisoners & Captives <span class="text-sm font-normal opacity-70">· confinement relation (TT p.23)</span></h2>
+        <h2 class="font-bold text-xl">🔒 Prisoners & Captives <span class="text-sm font-normal opacity-70">· confinement relation (TT p.23)</span></h2>
         <button @click="confinePanel.open=false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
       </div>
       <p class="text-xs opacity-70">Captives taken from generated hoards. Ransom routes the gp to the captor (a character/domain holder, else off-campaign); the ransom value is editable — that is the negotiation. <span class="opacity-60">Escapes also roll automatically each monthly turn (per-prisoner chance below; 0 disables).</span></p>

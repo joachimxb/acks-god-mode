@@ -235,6 +235,13 @@ ok('the hairline + arcane hexes appear only in their :root definitions (not raw 
      rawTints === 0, rawTints + ' raw tint(s) still inline');
 }
 
+// Typography scale (H1, 2026-06-29) — h2 (was colliding with h3 at text-lg) bumped to >= text-xl so a
+// section heading outranks a sub-section; the 37 sub-12px text-[10px]/[11px] escapes lifted to text-xs.
+ok('no sub-12px text-[10px]/[11px] escape remains (lifted to text-xs)',
+   !/text-\[1[01]px\]/.test(html));
+ok('no h2 still renders at text-lg (h2 now >= text-xl, above h3 text-lg)',
+   !/<h2\b[^>]*\btext-lg\b/.test(html));
+
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
