@@ -183,6 +183,21 @@ ok('the 5 core token colours appear only in their :root definitions (not raw in 
    (html.match(/#2a1f12/gi)||[]).length === 2 && (html.match(/#6b4f24/gi)||[]).length === 1 &&
    (html.match(/#faf6ea/gi)||[]).length === 1);
 
+// Bespoke-tint convergence (H1, 2026-06-26) — the ~45 hand-picked inline tints route onto role tokens
+// (danger/success/info/warning + the neutral creams → parchment/vellum + structural browns → border).
+// The 2 off-palette purples + the decorative scrollbar/border tan stay raw. Lock: no convergeable raw
+// hex remains in ANY inline style/:style value (the only raw inline hexes left are the 3 keeps + tokens).
+{
+  const TOKVAL = new Set(['#2f7d32','#d8ead9','#9a6a14','#f4e3bd','#7a1f1f','#f0d6d6','#1f4e6b','#d6e6f0','#2a1f12','#6b4f24','#f7f1e2','#faf6ea','#e7c46c','#3a1414','#c08a3e']);
+  const KEEP = new Set(['#6b21a8','#f4eefb','#c4b88f']);
+  let rawTints = 0;
+  for (const a of html.matchAll(/(?::style|x-bind:style|style)\s*=\s*("|')([\s\S]*?)\1/g))
+    for (const hx of (a[2].match(/#[0-9a-fA-F]{6}/g) || []))
+      if (!TOKVAL.has(hx.toLowerCase()) && !KEEP.has(hx.toLowerCase())) rawTints++;
+  ok('no bespoke raw tint remains in inline styles (all 7 families converged to tokens; 3 keeps allowed)',
+     rawTints === 0, rawTints + ' raw tint(s) still inline');
+}
+
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
