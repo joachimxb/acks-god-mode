@@ -280,6 +280,9 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
     { glyph: '🔍', pattern: '>🔍 Open in Inspector', note: 'search/inspector chrome → #i-glass' },
     { glyph: '📜', pattern: '>📜 Chronicle',         note: 'chronicle/events chrome → #i-scroll' },
     { glyph: '🏰', pattern: '>🏰 Create domain',     note: 'domain/stronghold chrome → #i-castle' },
+    { glyph: '💰', pattern: '>💰 Generate treasure',  note: 'treasury/money chrome → #i-bag' },
+    { glyph: '🔮', pattern: '>🔮 Arcane</button>',    note: 'magic/arcane chrome → #i-orb' },
+    { glyph: '🪖', pattern: '>🪖 Units on the march',  note: 'military/unit chrome → #i-helm' },
   ];
   for (const c of CONVERTED)
     ok('converted glyph ' + c.glyph + ' stays converted (' + c.note + ')',

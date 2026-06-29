@@ -1391,7 +1391,7 @@ document.addEventListener('alpine:init', () => {
               <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
               <td class="text-right whitespace-nowrap">
                 <template x-if="dungeonForayable(d)"><button @click="openForayWizard(d.id)" class="btn mr-1" title="Run an abstract foray (JJ ch.12)">⚔ Foray</button></template>
-                <button @click="openArcaneModal(d.id)" class="btn bg-purple-100 hover:bg-purple-200 mr-1" title="The arcane domain — attune, establish sovereignty, extract arcane power, harvest (Phase 4 Sanctums)">🔮 Arcane</button>
+                <button @click="openArcaneModal(d.id)" class="btn bg-purple-100 hover:bg-purple-200 mr-1" title="The arcane domain — attune, establish sovereignty, extract arcane power, harvest (Phase 4 Sanctums)"><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> Arcane</button>
                 <button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button>
               </td>
             </tr>
@@ -1434,7 +1434,7 @@ document.addEventListener('alpine:init', () => {
     <div class="modal-card p-4 my-6 w-full max-w-2xl">
       <div class="flex justify-between items-start mb-3 gap-2">
         <div>
-          <h3 class="font-bold text-lg">🔮 <span x-text="arcaneDungeon().name || '(unnamed dungeon)'"></span></h3>
+          <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> <span x-text="arcaneDungeon().name || '(unnamed dungeon)'"></span></h3>
           <p class="text-xs opacity-70" x-text="dungeonLifecycle(arcaneDungeon()) + (arcaneDungeon().hexId ? (' · ' + dungeonHexLabel(arcaneDungeon())) : ' · unplaced') + (arcaneDungeon().domainId ? (' · ' + arcaneDomainLabel()) : '')"></p>
         </div>
         <button @click="closeArcaneModal()" class="text-2xl leading-none px-2 hover:opacity-60" title="Close">×</button>
@@ -1449,7 +1449,7 @@ document.addEventListener('alpine:init', () => {
           <span x-show="dungeonIsFullV(arcaneDungeon())" class="accent-red font-semibold">FULL</span>
         </div>
         <div class="flex flex-wrap items-center gap-2 mt-1">
-          <label class="flex items-center gap-1">💰 Treasure seeded (gp):
+          <label class="flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Treasure seeded (gp):
             <input type="number" min="0" :value="arcaneDungeon().treasureSeededGp || 0" @change="arcaneSetTreasureSeeded($event.target.value)" class="text-sm w-28">
           </label>
           <span class="text-xs opacity-60">lures monsters; ≥ the Treasure-Type avg doubles the Lair % (RR p.386)</span>
@@ -1723,7 +1723,7 @@ document.addEventListener('alpine:init', () => {
         <label class="block">Area (sq ft) <input type="number" min="0" x-model.number="dungeonBuild.areaSqFt" class="w-28 block"></label>
         <label class="block">Areas (rooms) <input type="number" min="1" x-model.number="dungeonBuild.areaCount" class="w-24 block"></label>
       </div>
-      <label class="block">💰 Treasure seeded (gp) <span class="opacity-60">— lures monsters; ≥ the Treasure-Type avg doubles the Lair %</span>
+      <label class="block"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Treasure seeded (gp) <span class="opacity-60">— lures monsters; ≥ the Treasure-Type avg doubles the Lair %</span>
         <input type="number" min="0" x-model.number="dungeonBuild.treasureSeededGp" class="w-32 block"></label>
       <p class="text-xs opacity-60 italic">Mints a first-class Dungeon — the construction completes now (the RAW-timed Construction Wizard lands later). Monsters then auto-arrive + lair within it via <strong>Vagaries of Incursion</strong> (when that rule is on). An arcane L9+ owner is auto-attuned.</p>
     </div>
@@ -1803,7 +1803,7 @@ document.addEventListener('alpine:init', () => {
           <option value="hidden">Hidden only</option>
         </select>
         <span class="text-sm opacity-70" x-text="poiStashes().length + ' shown'"></span>
-        <button @click="openTreasureWizard()" class="btn btn-primary text-sm" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache stash">💰 Generate treasure</button>
+        <button @click="openTreasureWizard()" class="btn btn-primary text-sm" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache stash"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Generate treasure</button>
       </div>
     </div>
     <template x-if="allStashes().length === 0">
@@ -3360,7 +3360,7 @@ document.addEventListener('alpine:init', () => {
       <div>
         <div class="flex justify-between items-start p-4 border-b border-ink/30 gap-2">
           <div>
-            <h3 class="font-bold text-lg flex items-center gap-2">🪖
+            <h3 class="font-bold text-lg flex items-center gap-2"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg>
               <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'displayName', label:'Unit name', kind:'text', placeholder:'(unnamed)'})">
                 <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue || '(unnamed)'" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
                 <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
@@ -6678,7 +6678,7 @@ document.addEventListener('alpine:init', () => {
               <!-- 🪖 Mercenaries — recruited units; Type via Recruit, not editable here -->
               <tbody>
                 <tr style="background:var(--c-parchment)"><td colspan="11" class="py-1">
-                  <span class="font-semibold">🪖 Mercenaries</span>
+                  <span class="font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Mercenaries</span>
                   <button @click="addGarrisonUnit(selectedDomain)" class="text-xs underline ml-3">+ add unit</button>
                   <button @click="recruitDeepLink({ patronId: rulerCharacter(selectedDomain)?.id, category: 'mercenary' })"
                           :disabled="!rulerCharacter(selectedDomain)"
@@ -6687,7 +6687,7 @@ document.addEventListener('alpine:init', () => {
                           class="btn text-xs ml-2">+ Recruit unit</button>
                   <button @click="openRecruitModal(selectedDomain)"
                           title="Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier — they arrive over the tier's time period"
-                          class="btn text-xs ml-2">🪖 Recruit (realm)</button>
+                          class="btn text-xs ml-2"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Recruit (realm)</button>
                   <button @click="openRecruitSpecialistModal(selectedDomain)"
                           title="Realm-scale recruitment (RR p.428): hire an officer or military specialist (artillerist, armorer, creature handler, marshal…) at your realm's tier — as a lightweight stub or a full character"
                           class="btn text-xs ml-2">🎖 Recruit (officer/specialist)</button>
@@ -7179,8 +7179,8 @@ document.addEventListener('alpine:init', () => {
                           <span class="block text-xs accent-green" x-show="fdIsOffice(o)" x-text="'📜 ' + (o.officeTitle || 'ceremonial office') + ' — +1 to your own vassals’ loyalty rolls'"></span>
                         </div>
                         <div class="flex flex-col items-end gap-1 shrink-0">
-                          <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="btn text-xs whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
-                          <button x-show="fdIsScutage(o) && !fdScutageAutoPay(o)" @click="fdPayScutage(o.id)" class="btn text-xs whitespace-nowrap" title="Start paying scutage — it will settle automatically each monthly turn (counts as your garrison expense, RR p.347) until you stop">💰 Pay Scutage</button>
+                          <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="btn text-xs whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Give loan</button>
+                          <button x-show="fdIsScutage(o) && !fdScutageAutoPay(o)" @click="fdPayScutage(o.id)" class="btn text-xs whitespace-nowrap" title="Start paying scutage — it will settle automatically each monthly turn (counts as your garrison expense, RR p.347) until you stop"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Pay Scutage</button>
                           <button x-show="fdIsScutage(o) && fdScutageAutoPay(o)" @click="fdStopScutage(o.id)" class="btn text-xs whitespace-nowrap" title="Stop paying scutage — it will be withheld from your liege going forward">🛑 Stop Paying</button>
                           <button x-show="fdIsCallToCouncil(o) && fdCouncilStatus(o).status==='away'" @click="fdGoToCouncil(o.id)" class="btn text-xs whitespace-nowrap" title="Send the vassal (or his party) to the lord's council — plots or re-routes a journey (RR p.346)">🧭 Go to Council</button>
                           <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
@@ -8697,7 +8697,7 @@ document.addEventListener('alpine:init', () => {
     <!-- ───── Sub-tab: PASSIVE INVESTMENT ───── -->
     <div x-show="venturesSubView==='passive'" class="vellum border border-ink rounded p-4">
       <div class="flex justify-between items-baseline mb-2">
-        <h3 class="font-bold text-lg">💰 Passive Investment</h3>
+        <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Passive Investment</h3>
         <button @click="openPassiveInvestmentCreateModal()" class="btn btn-primary text-sm">+ New investment</button>
       </div>
       <p class="text-sm opacity-80 mb-2">Per ACKS II RR p.383: monthly return = capital × risk-tier rate. Three RAW investment types: <strong>commercial expedition</strong> (mercantile ventures someone else runs, Balanced/Risky only), <strong>business establishment</strong> (inn, store, smithy, guild — all 5 tiers), <strong>money lending</strong> (loans, all 5 tiers). A commercial-expedition investment owned by a venturer competes with that venturer's active arbitrage for capital — the UI prompts to pause one when the other starts. Vagaries-on-passive-income and graceful liquidation queued as task #97.</p>
@@ -9573,7 +9573,7 @@ document.addEventListener('alpine:init', () => {
             <template x-if="army && groupMembersOf(army).length > 0">
               <div class="text-sm mb-1"><span class="uppercase tracking-wide opacity-70">Officers</span><template x-for="ch in groupMembersOf(army)" :key="'jao-'+ch.id"><span class="ml-2"><button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" x-text="ch.name||'(unnamed)'"></button><span class="text-xs opacity-60" x-text="' · '+(ch.class||'?')+' L'+(ch.level||1)"></span><span x-show="army.leaderCharacterId===ch.id" title="Commander"> ★</span></span></template></div>
             </template>
-            <div class="text-sm uppercase tracking-wide opacity-70 mb-1">🪖 Units on the march</div>
+            <div class="text-sm uppercase tracking-wide opacity-70 mb-1"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Units on the march</div>
             <table class="text-sm w-full max-w-2xl" x-show="army && armyUnitRows(army).length">
               <thead><tr class="text-left text-xs opacity-60 border-b border-ink/30"><th class="font-normal py-0.5 pr-4">Unit</th><th class="font-normal py-0.5 pr-4">Soldiers</th><th class="font-normal py-0.5 pr-4">BR</th><th class="font-normal py-0.5 pr-4" title="The unit's load class + its daily march pace; the slowest unit sets the army's speed">Pace</th><th class="font-normal py-0.5">Supply</th></tr></thead>
               <tbody>
@@ -10111,7 +10111,7 @@ document.addEventListener('alpine:init', () => {
                   <button @click="synCollect(syn.id)" :disabled="!syn.hasBoss || syn.collectedThisTurn || syn.tributeTotal <= 0"
                           class="btn btn-primary text-xs"
                           :class="(syn.hasBoss && !syn.collectedThisTurn && syn.tributeTotal > 0) ? '' : 'opacity-40 cursor-not-allowed'"
-                          :title="syn.collectedThisTurn ? 'Tribute already collected this turn' : (!syn.hasBoss ? 'No boss set' : '')">💰 Collect tribute<span x-show="syn.tributeTotal > 0" x-text="' (' + syn.tributeTotal.toLocaleString() + 'gp)'"></span></button>
+                          :title="syn.collectedThisTurn ? 'Tribute already collected this turn' : (!syn.hasBoss ? 'No boss set' : '')"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Collect tribute<span x-show="syn.tributeTotal > 0" x-text="' (' + syn.tributeTotal.toLocaleString() + 'gp)'"></span></button>
                 </div>
               </div>
               <!-- members by level + tribute -->
@@ -11382,7 +11382,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- the units travelling with the army (the counted channel) + encumbrance + supply -->
         <div class="border-t border-ink/20 pt-2 mt-2">
-          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Units in the field</div>
+          <div class="text-xs uppercase tracking-wide opacity-70 mb-1"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Units in the field</div>
           <template x-if="armyUnitRows(armySelected()).length === 0"><p class="text-xs italic opacity-60">No units stationed. Call some up below, or muster again.</p></template>
           <table class="text-sm w-full max-w-3xl" x-show="armyUnitRows(armySelected()).length > 0">
             <thead><tr class="text-left text-xs opacity-60 border-b border-ink/30"><th class="font-normal py-0.5 pr-4">Unit</th><th class="font-normal py-0.5 pr-4">Soldiers</th><th class="font-normal py-0.5 pr-4">BR</th><th class="font-normal py-0.5 pr-4">Encumbrance</th><th class="font-normal py-0.5">Supply</th></tr></thead>
@@ -11402,7 +11402,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- === Military W7 (burst4) — army troop-source depth + levy/train the realm's own troops (RR pp.430–433) === -->
         <div class="border-t border-ink/20 pt-2 mt-2">
-          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Troop depth (RR pp.430–433)</div>
+          <div class="text-xs uppercase tracking-wide opacity-70 mb-1"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Troop depth (RR pp.430–433)</div>
           <template x-if="armyTroopDepthRows(armySelected()).length > 0">
             <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-sm">
               <template x-for="r in armyTroopDepthRows(armySelected())" :key="'atd-'+r.source">
@@ -11513,7 +11513,7 @@ document.addEventListener('alpine:init', () => {
               <option value="assembled">hauled assembled (cap 6 mi/day)</option>
             </select></label>
           <span x-show="(armySelected().prisoners || 0) > 0">⛓ <span x-text="armySelected().prisoners"></span> prisoners
-            · <button @click="armyRansomGo()" class="underline">💰 ransom (40gp a head)</button></span>
+            · <button @click="armyRansomGo()" class="underline"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> ransom (40gp a head)</button></span>
         </div>
 
         <!-- reinforcements marching in (call-up) -->
@@ -11628,7 +11628,7 @@ document.addEventListener('alpine:init', () => {
         <template x-for="u in selectedUnitList()" :key="'udet-'+u.id">
           <div class="mt-3 border-2 rounded p-3 text-sm" style="background:var(--c-parchment); border-color:var(--c-border)">
             <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
-              <p class="font-bold"><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet">🪖 <span x-text="u.displayName || u.unitTypeKey || 'Unit'"></span></button>
+              <p class="font-bold"><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> <span x-text="u.displayName || u.unitTypeKey || 'Unit'"></span></button>
                 <span class="font-normal opacity-70" x-text="' · ' + Math.max(0,(u.count||0)-(u.casualties||0)).toLocaleString() + ' soldiers' + (u.unitTypeKey ? (' · ' + u.unitTypeKey) : '') + (u.race && u.race !== 'man' ? (' · ' + u.race) : '') + (u.veteran ? ' · veteran' : '')"></span></p>
               <button x-show="u.commanderCharacterId || u.lieutenantCharacterId" @click="openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="text-xs underline">officer ›</button>
             </div>
@@ -11995,7 +11995,7 @@ document.addEventListener('alpine:init', () => {
                        census. Always-on RAW tooling. -->
                   <template x-if="wealthCensus()">
                     <div class="mt-2 pt-2 border-t border-ink/20">
-                      <h4 class="font-semibold text-sm mb-1">💰 Wealth census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + wealthCensus().marketClass + ' market'"></span></h4>
+                      <h4 class="font-semibold text-sm mb-1"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Wealth census <span class="opacity-60 font-normal text-xs" x-text="'· Class ' + wealthCensus().marketClass + ' market'"></span></h4>
                       <p class="text-xs opacity-70 mb-1">The gold this town's notable (leveled) NPCs are expected to hold (🔧 IP-light Econometrics §7 curve, GM-overridable) vs what its homed residents actually carry (purse + owned caches). The 0th-level commoner masses are the domain economy, not this per-NPC census.</p>
                       <div class="overflow-x-auto">
                         <table class="bookkeeping text-sm">
@@ -13537,7 +13537,7 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold text-sm">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
             <span class="flex gap-2">
               <button @click="openProficiencyThrowModal(characterEditing)" class="btn btn-primary text-sm" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
-              <button @click="openSageConsultModal(characterEditing)" class="btn btn-primary text-sm" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
+              <button @click="openSageConsultModal(characterEditing)" class="btn btn-primary text-sm" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage."><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> Consult a sage</button>
               <!-- @b8-sages (team) — SG-2 commission opener -->
               <button @click="openSageCommissionModal(characterEditing)" class="btn btn-primary text-sm" title="Commission a sage for multi-week research (Phase 4 Sages §3.3) — set them to research a deep question over N days; the Day Clock advances it and delivers the answer on completion."><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Commission</button>
             </span>
@@ -13998,7 +13998,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- Henchmen & specialist wages (RR p.168) — the wages this character pays as a liege -->
         <div class="border border-ink/30 rounded p-3 space-y-2">
-          <h4 class="font-semibold text-sm flex items-center gap-2">💰 Henchmen &amp; specialist wages <span class="text-xs font-normal opacity-60">(RR p.168)</span></h4>
+          <h4 class="font-semibold text-sm flex items-center gap-2"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Henchmen &amp; specialist wages <span class="text-xs font-normal opacity-60">(RR p.168)</span></h4>
           <template x-if="ex.henchmen.length">
             <table class="w-full text-sm">
               <thead>
@@ -14107,7 +14107,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="(p.componentCostGp||0) > 0">
                       <div class="space-y-1 text-xs">
                         <div class="font-semibold">Pay the component cost (<span x-text="(p.componentCostGp).toLocaleString()"></span> gp) — RR p.388:</div>
-                        <label class="flex items-center gap-1">🔮 Arcane power <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).arcanePowerGp"> <span class="opacity-50">(no penalty; vicinity-gated)</span></label>
+                        <label class="flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> Arcane power <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).arcanePowerGp"> <span class="opacity-50">(no penalty; vicinity-gated)</span></label>
                         <label class="flex items-center gap-1">🦴 Special components (gp value) <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).specialItemValueGp"> <span class="opacity-50">(appropriate parts; no penalty)</span></label>
                         <label class="flex items-center gap-1" x-show="!['ritual-learn','ritual-cast'].includes(p.kind)">🏪 Market / inappropriate <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).inappropriateGp"> <span class="opacity-50">(penalty applies)</span></label>
                         <p class="text-xs opacity-50" x-show="['ritual-learn','ritual-cast'].includes(p.kind)">Rituals pay components with special components or arcane power only — never miscellaneous (RR p.398).</p>
@@ -14175,7 +14175,7 @@ document.addEventListener('alpine:init', () => {
 
         <template x-for="s in characterSanctums(characterEditing)" :key="s.id">
           <div class="border border-ink/50 rounded p-3 space-y-3" style="background:var(--c-parchment)">
-            <div class="font-semibold text-sm">🔮 <span x-text="s.name || 'Sanctum'"></span><span class="opacity-60 font-normal text-xs" x-text="s.hexId ? (' · ' + sanctumHexLabel(s)) : ''"></span></div>
+            <div class="font-semibold text-sm"><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> <span x-text="s.name || 'Sanctum'"></span><span class="opacity-60 font-normal text-xs" x-text="s.hexId ? (' · ' + sanctumHexLabel(s)) : ''"></span></div>
 
             <!-- Research facilities (the §5 magic-research seam) -->
             <div class="space-y-1">
@@ -15467,7 +15467,7 @@ document.addEventListener('alpine:init', () => {
 <div class="modal-backdrop" x-show="showPassiveInvestmentCreateModal" x-cloak @keydown.escape.window="cancelPassiveInvestmentCreate()" @click.self="cancelPassiveInvestmentCreate()">
   <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">💰 New passive investment</h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> New passive investment</h2>
       <button @click="cancelPassiveInvestmentCreate()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -16600,7 +16600,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="treasureWizard.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
       <button @click="closeTreasureWizard()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
@@ -16714,7 +16714,7 @@ document.addEventListener('alpine:init', () => {
   <template x-if="sageConsult.open">
   <div class="modal-card w-full max-w-lg my-8" style="background:var(--c-parchment)">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
-      <h2 class="font-bold text-xl">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
+      <h2 class="font-bold text-xl"><svg class="ico" aria-hidden="true"><use href="#i-orb"></use></svg> Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
       <button @click="closeSageConsultModal()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3">
@@ -17152,7 +17152,7 @@ document.addEventListener('alpine:init', () => {
   <!-- Loans -->
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
-      <h3 class="font-bold text-lg">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+      <h3 class="font-bold text-lg"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
       <button @click="bankingReconcileFeudal()" class="btn btn-warn text-sm" title="Promote any given Favors &amp; Duties feudal loan (RR p.348) onto this shared ledger as a kind:'feudal' loan linking back to its obligation. Idempotent — also runs automatically each Advance Month.">🔗 Reconcile F&amp;D feudal loans</button>
     </div>
     <p class="text-sm opacity-70 mb-2" x-show="bankingLoans().length > 0" x-text="bankingLedgerText()"></p>
@@ -17425,7 +17425,7 @@ document.addEventListener('alpine:init', () => {
 
           <div class="border border-ink/30 rounded p-2 mb-2">
             <div class="flex justify-between items-center">
-              <strong class="text-sm">💰 Appraise</strong>
+              <strong class="text-sm"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Appraise</strong>
               <button @click="runMagicItemAppraise()" class="btn text-sm">Appraise</button>
             </div>
             <template x-if="magicItemSpread() && magicItemSpread().available">
@@ -18667,11 +18667,11 @@ document.addEventListener('alpine:init', () => {
           <span class="text-sm opacity-70" x-text="'Roster: ' + gladRoster(gladSelectedSchool()).length + ' gladiator(s)'"></span>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">🪖 Recruit gladiator</button>
+          <button @click="gladOpenRecruit()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Recruit gladiator</button>
           <button @click="gladOpenBout()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">⚔ Schedule bout</button>
           <button @click="gladStageGame()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm" title="Resolve every scheduled bout as one Munus">🏛 Hold the games</button>
           <!-- === @b10-gladiators (team) — G3/G4 actions === -->
-          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)">💰 Run business month</button>
+          <button @click="gladRunBusinessMonth()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-success text-sm" title="Rent gladiators (~3×/year), roll the abstract 1d10 each, pay prizes + upkeep + wages → bank the profit (RAW p.25)"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Run business month</button>
           <button @click="gladOpenUprising()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-danger text-sm" title="A spark triggers the 2d6 uprising cascade (RAW p.26)">🔥 Check uprising</button>
           <button @click="gladOpenSponsor()" :disabled="!gladRuleOn()" :class="gladRuleOn() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-warn text-sm" title="A munerator sponsors a Munus — budget ≥0.5gp/family, ≤12 bouts/day, ≈equal sides (RAW p.22)">🎪 Sponsor a game</button>
         </div>
@@ -18691,7 +18691,7 @@ document.addEventListener('alpine:init', () => {
         <!-- === @b10-gladiators (team) — G3/G4 result cards (business month / uprising) === -->
         <template x-if="gladG3.business.result">
           <div class="vellum border-2 bdr-green tint-green rounded p-3 text-sm space-y-1" x-data="{ get r(){ return gladG3.business.result; } }">
-            <div class="font-bold flex items-center justify-between"><span>💰 Business month</span><button @click="gladG3.business.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
+            <div class="font-bold flex items-center justify-between"><span><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Business month</span><button @click="gladG3.business.result=null" class="text-xs opacity-60 hover:opacity-100">dismiss</button></div>
             <div>Rented <b x-text="r.tally.rentCount"></b> gladiator(s): <span class="accent-green" x-text="r.tally.wins + ' won'"></span> · <span x-text="r.tally.losses + ' lost'"></span> · <span class="accent-red" x-text="r.tally.slain + ' slain'"></span></div>
             <div>Rent <b x-text="r.pl.rentIncome + 'gp'"></b> − prizes <span x-text="r.pl.prizes"></span> − replacements <span x-text="r.pl.replacements"></span> − upkeep <span x-text="r.pl.upkeep"></span> − wages <span x-text="r.pl.staffWages"></span> = <b :class="r.pl.profit >= 0 ? 'accent-green' : 'accent-red'" x-text="(r.pl.profit >= 0 ? 'profit +' : 'loss ') + r.pl.profit + 'gp'"></b></div>
             <div class="text-xs opacity-60" x-show="r.banked && r.banked.banked">Banked to the school treasury.</div>
@@ -18796,7 +18796,7 @@ document.addEventListener('alpine:init', () => {
 <template x-if="gladState.recruit.open">
   <div class="fixed inset-0 z-[70] flex items-center justify-center modal-dim p-4" @click.self="gladState.recruit.open=false" @keydown.escape.window="gladState.recruit.open=false">
     <div class="modal-card max-w-md w-full p-4 space-y-3">
-      <h3 class="text-lg font-bold">🪖 Recruit a gladiator</h3>
+      <h3 class="text-lg font-bold"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Recruit a gladiator</h3>
       <label class="block text-sm">Name <input x-model="gladState.recruit.name" placeholder="(auto from style)" class="w-full border border-ink rounded px-1 py-0.5"></label>
       <label class="block text-sm">Fighting style
         <select x-model="gladState.recruit.gladiatorType" class="w-full border border-ink rounded px-1 py-0.5">
@@ -18816,7 +18816,7 @@ document.addEventListener('alpine:init', () => {
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="gladState.recruit.thrassian"> Thrassian (+20% value, AXIOMS 4 p.29)</label>
       <div class="flex justify-end gap-2">
         <button @click="gladState.recruit.open=false" class="btn text-sm">Cancel</button>
-        <button @click="gladSubmitRecruit()" class="btn btn-success text-sm">🪖 Recruit</button>
+        <button @click="gladSubmitRecruit()" class="btn btn-success text-sm"><svg class="ico" aria-hidden="true"><use href="#i-helm"></use></svg> Recruit</button>
       </div>
     </div>
   </div>
@@ -19341,7 +19341,7 @@ document.addEventListener('alpine:init', () => {
       <!-- mode tabs -->
       <div class="flex gap-1 border-b border-ink/30 pb-1">
         <button @click="magicMarket.mode='appraise'; magicMarket.result=null" :class="magicMarket.mode==='appraise' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Appraise</button>
-        <button @click="magicMarket.mode='sell'; magicMarket.result=null" :class="magicMarket.mode==='sell' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t">💰 Sell</button>
+        <button @click="magicMarket.mode='sell'; magicMarket.result=null" :class="magicMarket.mode==='sell' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Sell</button>
         <button @click="magicMarket.mode='buy'; magicMarket.result=null" :class="magicMarket.mode==='buy' ? 'tint-amber font-semibold' : 'hover-tint'" class="px-3 py-0.5 border border-ink rounded-t">🛒 Buy</button>
       </div>
 
@@ -19399,11 +19399,11 @@ document.addEventListener('alpine:init', () => {
               <template x-if="magicMarket.mode==='appraise'">
                 <div class="mt-1 space-y-0.5">
                   <div>🛒 Buy here: <span class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></span> gp <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span></div>
-                  <div>💰 Sell here: <span class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></span> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+                  <div><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Sell here: <span class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></span> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
                 </div>
               </template>
               <template x-if="magicMarket.mode==='sell'">
-                <div class="mt-1">💰 Offer: <strong class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></strong> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
+                <div class="mt-1"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Offer: <strong class="font-mono" x-text="magicMarketForecast().spread.sell.toLocaleString()"></strong> gp <span class="opacity-70" x-text="'(' + (magicMarketForecast().spread.created ? 'created ×2' : 'found ×1') + ')'"></span> <span x-text="magicMarketTransactNote(magicMarketForecast().sellAv)"></span></div>
               </template>
               <template x-if="magicMarket.mode==='buy'">
                 <div class="mt-1">🛒 Cost: <strong class="font-mono" x-text="magicMarketForecast().spread.buy.toLocaleString()"></strong> gp (×2.25) <span x-text="magicMarketTransactNote(magicMarketForecast().buyAv)"></span>
@@ -20062,12 +20062,12 @@ document.addEventListener('alpine:init', () => {
                 <span class="text-xs opacity-50" x-text="conf.hexId ? ('@ ' + conf.hexId) : ''"></span>
               </div>
               <div class="flex flex-wrap items-center gap-2 mt-2">
-                <label class="flex items-center gap-1 text-xs">💰 value
+                <label class="flex items-center gap-1 text-xs"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> value
                   <input type="number" min="0" x-model.number="conf.ransomValueGp" @change="markDirty(); schedulePersist()" class="w-24 border border-ink rounded px-1 py-0.5 text-right"> gp</label>
                 <label class="flex items-center gap-1 text-xs opacity-70" title="🔧 Monthly escape chance (0–1); 0 disables. No RAW basis.">🏃 escape/mo
                   <input type="number" min="0" max="1" step="0.05" x-model.number="conf.escapeChanceMonthly" @change="markDirty(); schedulePersist()" class="w-16 border border-ink rounded px-1 py-0.5 text-right"></label>
                 <span class="flex-1"></span>
-                <button @click="ransomCaptive(conf)" class="btn text-xs font-semibold">💰 Ransom</button>
+                <button @click="ransomCaptive(conf)" class="btn text-xs font-semibold"><svg class="ico" aria-hidden="true"><use href="#i-bag"></use></svg> Ransom</button>
                 <button @click="releaseCaptive(conf)" class="btn text-xs">🕊 Release</button>
                 <button @click="escapeCaptive(conf)" class="btn text-xs" title="Mark this prisoner as escaped">🏃 Escaped</button>
               </div>
