@@ -603,6 +603,8 @@ document.addEventListener('alpine:init', () => {
   <symbol id="i-village" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M2.5 12.5 L7.5 8 L12.5 12.5 L12.5 20 L2.5 20 Z M6.2 20 L6.2 15.5 L8.8 15.5 L8.8 20 Z"/><path d="M11.5 14.5 L15.7 10.7 L20 14.5 L20 20 L11.5 20 Z"/></symbol>
   <symbol id="i-ship" viewBox="0 0 24 24"><path d="M3 17 L21 17 L18.5 21 L5.5 21 Z"/><path d="M12 2.5 L12 15.5 L4 15.5 Z"/><path d="M13.5 6 L13.5 15.5 L20 15.5 Z"/><rect x="11.3" y="2.5" width="1.4" height="13.5"/></symbol>
   <symbol id="i-wizard" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2 L6.5 16 L17.5 16 Z M12 8.4 L12.85 10.5 L15.1 10.6 L13.35 12 L13.95 14.1 L12 12.85 L10.05 14.1 L10.65 12 L8.9 10.6 L11.15 10.5 Z"/><rect x="4.5" y="16.3" width="15" height="2.7" rx="1.35"/></symbol>
+  <!-- Dynamic-emitter glyphs (H1 path b, 2026-06-29) — 🔒 lock, for the Inspector ✏ Edit / 🔒 Done-editing toggle (emitted via acksIcon in x-html). -->
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M8 10 L8 7.5 A4 4 0 0 1 16 7.5 L16 10" fill="none" stroke="currentColor" stroke-width="2"/><path fill-rule="evenodd" d="M5.5 10 L18.5 10 A1.5 1.5 0 0 1 20 11.5 L20 19.5 A1.5 1.5 0 0 1 18.5 21 L5.5 21 A1.5 1.5 0 0 1 4 19.5 L4 11.5 A1.5 1.5 0 0 1 5.5 10 Z M12 13.5 A1.7 1.7 0 0 0 11 16.6 L10.6 18.5 L13.4 18.5 L13 16.6 A1.7 1.7 0 0 0 12 13.5 Z"/></symbol>
 </defs></svg>
 <script>
   // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
@@ -10408,7 +10410,7 @@ document.addEventListener('alpine:init', () => {
               <span x-text="inspectorDisplayName(inspectorSelectedKind, inspectorSelectedId)"></span>
               <span class="text-sm opacity-50 font-mono ml-2" x-text="inspectorSelectedId"></span>
             </h3>
-            <button @click="inspectorEditMode = !inspectorEditMode" class="px-3 py-1 border border-ink rounded text-sm" :class="inspectorEditMode ? 'bg-yellow-300' : 'hover-tint'" x-text="inspectorEditMode ? '🔒 Done editing' : '✏ Edit'"></button>
+            <button @click="inspectorEditMode = !inspectorEditMode" class="px-3 py-1 border border-ink rounded text-sm" :class="inspectorEditMode ? 'bg-yellow-300' : 'hover-tint'" x-html="inspectorEditMode ? acksIcon('lock') + ' Done editing' : acksIcon('quill') + ' Edit'"></button>
           </div>
 
           <!-- PT-5 — proficiency-throw sheet (character only): the actor's available throws + resolved

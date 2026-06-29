@@ -326,6 +326,11 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
      !/label:'👤 Characters'/.test(appJs) && !/label:'🐉 Monsters'/.test(appJs));
   ok('the Domains sub-tab data-field split landed (no emoji in the lone Domains label)',
      !/label:'🏰 Domains'/.test(appJs));
+  // Inspector ✏/🔒 toggle (H1 dynamic-emitter, 2026-06-29) — the one dynamic edit-chrome button: its
+  // x-text emoji label became x-html acksIcon (i-quill/i-lock; i-lock is referenced only via acksIcon('lock'),
+  // covered by the dangling scan). Lock that the old emoji x-text literal is gone + the acksIcon form landed.
+  ok('the Inspector Edit/Done toggle emits SVG icons via acksIcon (no emoji x-text literal)',
+     !html.includes("? '🔒 Done editing' : '✏ Edit'") && html.includes("acksIcon('quill') + ' Edit'"));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly
