@@ -306,6 +306,26 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
      !/label:'🏗 Construction'/.test(appJs) && !/label:'🗡 Syndicates'/.test(appJs));
   ok('the Monthly-Turn sub-tab template renders each tab icon via <use :href> (loop var t)',
      html.includes("<use :href=\"'#i-' + t.icon\""));
+  // Activities sub-tab conversion (H1, 2026-06-29) — activitiesSubTabs split (loop var `tab`, shared
+  // `<use :href="'#i-' + tab.icon">` template guarded by the World block above); 5 new dynamic glyphs
+  // (clipboard/tent/bank/wand/arena) + scales/sword/dagger reused. ⚖/⚔/🗡 recur elsewhere as data, so
+  // lock the SPECIFIC old labels here rather than a glyph-class regex.
+  for (const id of ['i-clipboard', 'i-tent', 'i-bank', 'i-wand', 'i-arena'])
+    ok('Activities sub-tab symbol ' + id + ' is defined', defined.has(id));
+  ok('the Activities sub-tab data-field split landed (icon: fields present, the old emoji labels gone)',
+     /icon:'clipboard'/.test(appJs) && /icon:'arena'/.test(appJs) &&
+     !/label:'📋 Activities'/.test(appJs) && !/label:'🗡 Hijinks'/.test(appJs));
+  // Roster + Domains sub-tab conversion (H1, 2026-06-29) — rosterSubTabs split (loop var `tab`); 5 new
+  // dynamic glyphs (portrait/dragon/village/ship/wizard) + i-people (Groups) / i-book (Knowledge) reused.
+  // The dragon + wizard are the pictorial pair (clean monochrome silhouettes). Domains is a lone
+  // castle-reuse tab (the strip auto-hides at length 1; converted for data cleanliness/future-proofing).
+  for (const id of ['i-portrait', 'i-dragon', 'i-village', 'i-ship', 'i-wizard'])
+    ok('Roster sub-tab symbol ' + id + ' is defined', defined.has(id));
+  ok('the Roster sub-tab data-field split landed (icon: fields present, the old emoji labels gone)',
+     /icon:'portrait'/.test(appJs) && /icon:'wizard'/.test(appJs) &&
+     !/label:'👤 Characters'/.test(appJs) && !/label:'🐉 Monsters'/.test(appJs));
+  ok('the Domains sub-tab data-field split landed (no emoji in the lone Domains label)',
+     !/label:'🏰 Domains'/.test(appJs));
   // Per-glyph regression locks — each converted glyph's chrome pattern must stay eliminated.
   // NOTE: use a SPECIFIC converted chrome string per glyph, not the bare `>GLYPH ` — for 📜/🏰 the
   // deliberately-kept prose protections (`<strong>📜 Issue letter</strong>`, `<span>🏰 The monthly

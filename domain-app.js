@@ -4311,38 +4311,38 @@ const _component = {
   get activitiesSubTabs(){
     // UI overhaul 2026-06-22 — Market / Banking / Magic Items added; Gladiators re-homed here (conditional).
     const tabs = [
-      { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
-      { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
-      { id:'banking',        label:'🏦 Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
-      { id:'magic-items',    label:'🪄 Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
-      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
-      { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
-      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' }
+      { id:'activities',     icon:'clipboard', label:'Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
+      { id:'journeys',       icon:'tent', label:'Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'banking',        icon:'bank', label:'Banking',       ready: true,  count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null, placeholderNote: '' },
+      { id:'magic-items',    icon:'wand', label:'Magic Items',   ready: true,  count: (this.currentCampaign?.notableItems||[]).length || null, placeholderNote: '' },
+      { id:'ventures',       icon:'scales', label:'Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
+      { id:'recruit',        icon:'sword', label:'Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
+      { id:'hijinks',        icon:'dagger', label:'Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' }
     ];
     if(this.gladiatorsTabVisible())
-      tabs.push({ id:'gladiators', label:'🏟 Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
+      tabs.push({ id:'gladiators', icon:'arena', label:'Gladiators', ready: true, count: (this.currentCampaign?.gladiatorSchools||[]).length || null, placeholderNote: '' });
     return tabs;
   },
   // UI overhaul 2026-06-22 — Roster sub-tabs: Characters · Monsters · Groups · Settlements · Ships ·
   // NPC Generators (+ Knowledge when the knowledge-tracking rule is on).
   get rosterSubTabs(){
     const tabs = [
-      { id:'characters',     label:'👤 Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
-      { id:'monsters',       label:'🐉 Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
-      { id:'groups',         label:'🧭 Groups',         count: (this.currentCampaign?.parties?.length) || null },
-      { id:'settlements',    label:'🏘 Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
-      { id:'ships',          label:'⛵ Ships',          count: (this.currentCampaign?.vessels?.length) || null },
-      { id:'npc-generators', label:'🧙 NPC Generators', count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
+      { id:'characters',     icon:'portrait', label:'Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
+      { id:'monsters',       icon:'dragon', label:'Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
+      { id:'groups',         icon:'people', label:'Groups',         count: (this.currentCampaign?.parties?.length) || null },
+      { id:'settlements',    icon:'village', label:'Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
+      { id:'ships',          icon:'ship', label:'Ships',          count: (this.currentCampaign?.vessels?.length) || null },
+      { id:'npc-generators', icon:'wizard', label:'NPC Generators', count: ((this.currentCampaign?.characters||[]).filter(c=>c&&c.generated).length) || null },
     ];
     if(this.isHouseRuleEnabled('knowledge-tracking'))
-      tabs.push({ id:'knowledge', label:'📚 Knowledge', count: (this.currentCampaign?.lore?.length) || null });
+      tabs.push({ id:'knowledge', icon:'book', label:'Knowledge', count: (this.currentCampaign?.lore?.length) || null });
     return tabs;
   },
   // UI overhaul 2026-06-22 — Domains sub-tabs: Domains (+ Governance/Senate, dormant-until-used).
   get domainsSubTabs(){
     // Phase 5 (2026-06-24): the Governance/Senate sub-tab moved to a per-domain tab; only Domains remains
     // (the strip auto-hides at length 1).
-    return [ { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null } ];
+    return [ { id:'domains', icon:'castle', label:'Domains', count: (this.domains||[]).length || null } ];
   },
   // ════════ UI overhaul 2026-06-22 — helpers for the new Roster/World/Activities/Events surfaces ════════
   // B1 — World ▸ Points of Interest scope filter (claimed vs unclaimed hexes).
