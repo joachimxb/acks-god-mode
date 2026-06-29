@@ -4328,7 +4328,7 @@ const _component = {
   get rosterSubTabs(){
     const tabs = [
       { id:'characters',     icon:'portrait', label:'Characters',     count: (this.currentCampaign?.characters||[]).filter(c=>c && c.alive!==false).length || null },
-      { id:'monsters',       icon:'dragon', label:'Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
+      { id:'monsters',       icon:'beast', label:'Monsters',       count: (window.ACKS?.MONSTER_CATALOG?.length) || null },
       { id:'groups',         icon:'people', label:'Groups',         count: (this.currentCampaign?.parties?.length) || null },
       { id:'settlements',    icon:'village', label:'Settlements',    count: (this.currentCampaign?.settlements?.length) || null },
       { id:'ships',          icon:'ship', label:'Ships',          count: (this.currentCampaign?.vessels?.length) || null },

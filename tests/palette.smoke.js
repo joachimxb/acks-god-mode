@@ -316,10 +316,10 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
      /icon:'clipboard'/.test(appJs) && /icon:'arena'/.test(appJs) &&
      !/label:'📋 Activities'/.test(appJs) && !/label:'🗡 Hijinks'/.test(appJs));
   // Roster + Domains sub-tab conversion (H1, 2026-06-29) — rosterSubTabs split (loop var `tab`); 5 new
-  // dynamic glyphs (portrait/dragon/village/ship/wizard) + i-people (Groups) / i-book (Knowledge) reused.
-  // The dragon + wizard are the pictorial pair (clean monochrome silhouettes). Domains is a lone
-  // castle-reuse tab (the strip auto-hides at length 1; converted for data cleanliness/future-proofing).
-  for (const id of ['i-portrait', 'i-dragon', 'i-village', 'i-ship', 'i-wizard'])
+  // dynamic glyphs (portrait/beast/village/ship/wizard) + i-people (Groups) / i-book (Knowledge) reused.
+  // Monsters (i-beast, a horned face) + wizard are the pictorial pair (clean monochrome silhouettes that
+  // survive 16px). Domains is a lone castle-reuse tab (the strip auto-hides at length 1; converted for hygiene).
+  for (const id of ['i-portrait', 'i-beast', 'i-village', 'i-ship', 'i-wizard'])
     ok('Roster sub-tab symbol ' + id + ' is defined', defined.has(id));
   ok('the Roster sub-tab data-field split landed (icon: fields present, the old emoji labels gone)',
      /icon:'portrait'/.test(appJs) && /icon:'wizard'/.test(appJs) &&
