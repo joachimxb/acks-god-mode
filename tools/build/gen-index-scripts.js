@@ -11,9 +11,13 @@
  *   node tools/build/gen-index-scripts.js           # rewrite the marked regions in index.html
  *   node tools/build/gen-index-scripts.js --check    # exit 1 if the committed regions are stale (CI)
  *
- * Cache-bust = ?v=<first 8 hex of sha256(file bytes)> per project module — it changes iff the file
- * changes, so the per-session hand-bump ritual is gone. Vendor (Tailwind/Alpine) tags are version-
- * pinned in their filenames and are NOT in any region (no ?v=, never rewritten).
+ * Cache-bust = ?v=<first 8 hex of sha256(EOL-normalized file)> per project module — it changes iff the
+ * file's CONTENT changes, so the per-session hand-bump ritual is gone. Vendor (Tailwind/Alpine) tags
+ * are version-pinned in their filenames and are NOT in any region (no ?v=, never rewritten).
+ *
+ * EOL handling: git's autocrlf checks the repo out CRLF on Windows but LF on Linux/CI, so all hashing
+ * AND the --check comparison are EOL-NORMALIZED (a bare-byte hash differs per platform and made --check
+ * fail on CI). Writes preserve the file's existing newline convention so they don't churn the diff.
  *
  * Only the bytes BETWEEN a region's BEGIN/END markers are ever rewritten — the CSP <meta> and every
  * other byte are physically out of reach, so the 2026-06-24 cache-bust-into-<meta> corruption class
@@ -26,11 +30,18 @@ const { REPO, DEMO_TEMPLATE, engineModuleFiles, appModuleFiles } = require('./lo
 
 const INDEX = path.join(REPO, 'index.html');
 const CHECK = process.argv.includes('--check');
-const EOL = '\r\n';   // index.html is CRLF throughout — preserve it.
 
-// content hash: ?v=<sha256(file bytes)[:8]>. Reads raw bytes, so a module's own CRLF/LF is irrelevant.
+const current = fs.readFileSync(INDEX, 'utf8');
+const normEol = s => s.replace(/\r\n/g, '\n');
+// Preserve index.html's existing newline convention on write (CRLF on a Windows working tree, LF on a
+// Linux/CI checkout). Comparison + hashing are EOL-normalized, so the generated `?v=` values and the
+// in-sync verdict are identical on every platform.
+const EOL = /\r\n/.test(current) ? '\r\n' : '\n';
+
+// content hash: ?v=<sha256(EOL-normalized file)[:8]>. Normalized so a module checked out CRLF (Windows)
+// and LF (Linux/CI) yield the SAME hash — a bare-byte hash would differ per platform and break --check.
 function hash(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(path.join(REPO, file))).digest('hex').slice(0, 8);
+  return crypto.createHash('sha256').update(normEol(fs.readFileSync(path.join(REPO, file), 'utf8'))).digest('hex').slice(0, 8);
 }
 function tag(file) { return `<script src="${file}?v=${hash(file)}"></script>`; }
 
@@ -62,14 +73,15 @@ function applyRegions(html) {
   return out;
 }
 
-const current = fs.readFileSync(INDEX, 'utf8');
 const next = applyRegions(current);
+const inSync = normEol(next) === normEol(current);   // EOL-insensitive (see EOL note above)
 
 if (CHECK) {
-  if (next === current) { console.log('gen-index-scripts --check: index.html script regions are in sync.'); process.exit(0); }
+  if (inSync) { console.log('gen-index-scripts --check: index.html script regions are in sync.'); process.exit(0); }
   const drifted = REGIONS.filter(region => {
     const { begin, end } = markers(region.name);
-    return current.slice(current.indexOf(begin) + begin.length, current.indexOf(end)) !== regionBody(region);
+    const cur = current.slice(current.indexOf(begin) + begin.length, current.indexOf(end));
+    return normEol(cur) !== normEol(regionBody(region));
   }).map(r => r.name);
   console.error('gen-index-scripts --check: index.html is STALE — run `npm run build:index` and commit.');
   console.error('  drifted region(s): ' + (drifted.join(', ') || '(whitespace/formatting)'));
@@ -78,7 +90,7 @@ if (CHECK) {
 
 // write mode — atomic (tmp + rename, same dir) + Node readback verify (CLAUDE §3, index.html is the
 // 1.7 MB truncation-sensitive file).
-if (next === current) { console.log('gen-index-scripts: index.html already up to date (no change).'); process.exit(0); }
+if (inSync) { console.log('gen-index-scripts: index.html already up to date (no change).'); process.exit(0); }
 const tmp = INDEX + '.tmp';
 fs.writeFileSync(tmp, next);
 fs.renameSync(tmp, INDEX);
