@@ -39,98 +39,61 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<!-- ⚠ CACHE-BUST RULE (audit A2, 2026-06-24). The `?v=<date-tag>` suffixes below are bumped BY HAND,
-     per module, each session that touches one — there is NO stamping script, and the tags are
-     deliberately heterogeneous (each reflects the session that last changed that file). When you bump
-     them, scope your find-replace to the `src="…"` / `href="…"` attribute ONLY. NEVER run a blind
-     file-wide replace of a bare `v=…` token: on 2026-06-24 exactly that spliced a `?v=` cache-bust
-     into the CSP `http-equiv` attribute above (seven 0x3f bytes), renaming the attribute and SILENTLY
-     VOIDING the entire Content-Security-Policy — it shipped green because nothing visibly broke.
-     Restored + guarded as audit A1/A2/A3: tests/index-parse.smoke.js now fails CI on a malformed
-     CSP, a run of question-mark bytes in the head, or a remote-origin script tag. Bump `src`/`href`,
-     never attribute names. -->
-<script src="acks-engine-catalogs.js?v=2026-06-24-tribal"></script>
-<script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
-<script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
-<script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
-<script src="acks-engine.js?v=2026-06-24-clanwarriors"></script>
-<script src="acks-engine-lairs.js?v=2026-06-23-t5-lairs"></script>
-<script src="acks-engine-stash.js?v=2026-06-23-t5-stash"></script>
-<script src="acks-engine-military.js?v=2026-06-24-clanwarriors"></script>
-<script src="acks-engine-entities.js?v=2026-06-24-tribal"></script>
-<script src="acks-engine-economy.js?v=2026-06-24-tribal"></script>
-<script src="acks-engine-entity-registry.js?v=2026-06-20-burst11"></script>
-<script src="acks-engine-field-schemas.js?v=2026-06-20-burst11"></script>
-<script src="acks-engine-events.js?v=2026-06-20-burst11"></script>
-<script src="acks-engine-battles.js?v=2026-06-19-banditchallenger"></script>
-<script src="acks-engine-maneuvers.js?v=2026-06-19-weatherrecon"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-19-banditchallenger"></script>
-<!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
-<script src="acks-engine-religion.js?v=2026-06-21-b13r6"></script>
-<script src="acks-engine-weather.js?v=2026-06-13-a"></script>
-<script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
-<!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
-<!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
-<script src="acks-engine-proficiencies.js?v=2026-06-14-pt5"></script>
-<script src="acks-engine-hijinks.js?v=2026-06-20-burst10"></script>
-<!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
-<!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
-<script src="acks-engine-sieges.js?v=2026-06-19-siegeprofile"></script>
-<!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
-<script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
-<!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
-<script src="acks-engine-hex-scales.js?v=2026-06-20-burst9"></script>
-<!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
-<!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
-<!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-24-senate-resolve"></script>
-<!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-21-b12-lifecycle"></script>
-<!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
-<script src="acks-engine-voyages.js?v=2026-06-21-burst12-voyages"></script>
-<!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
-<script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
-<!-- Mounts MO-1 (RR p.161 Domesticated Animals): the Mount entity + load/speed/feed accessors; loads after subsystems (journeys) — the journey consumer late-binds A.mount*, this module late-binds carryTotalEncumbrance/itemEncumbranceSt -->
-<script src="acks-engine-mounts.js?v=2026-06-21-mounts-mo1"></script>
-<!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
-<script src="acks-engine-delves.js?v=2026-06-21-burst12-delves"></script>
-<!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
-<script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
-<script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
-<!-- Phase 4 Construction Wave C — Follower Attraction (RR p.334): the stronghold-completion attraction sibling of the sanctum's apprentices. Late-binds strongholdValue / rulerCharacter / blankCharacter / blankGroup. -->
-<script src="acks-engine-followers.js?v=2026-06-20-burst11"></script>
-<!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
-<!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-gladiators.js?v=2026-06-20-burst11"></script>
-<!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-custom-classes.js?v=2026-06-21-b13w2"></script>
-<!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-treasure.js?v=2026-06-21-burst12"></script>
-<!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
-<script src="acks-engine-sages.js?v=2026-06-20-burst10"></script>
-<!-- ===== end TEAM BURST5 script tags ===== -->
-<!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<!-- @b12-census (burst12) — the licensed Treasure-Tome magic-item availability/value reference tables (SD-6 census + MI-3 per-Class market gate). ⚠ IP §13.6/§13.9 — mechanical facts only, catalog posture like the monster catalog. Pure data; consumed at call-time by magic-items.js + demographics.js (load order irrelevant). -->
-<script src="acks-engine-magic-item-availability.js?v=2026-06-21-burst12"></script>
-<script src="acks-engine-magic-items.js?v=2026-06-21-burst12"></script>
-<!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
-<!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
-<script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
-<!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-21-sd7-placement"></script>
-<!-- NPC Generator G1 (#435/Phase 4.8) — loads after demographics + custom-classes (its consume-seam) -->
-<script src="acks-engine-generators.js?v=2026-06-21-b12g2"></script>
-<!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
-<script src="acks-engine-banking.js?v=2026-06-20-burst9"></script>
-<script src="acks-engine-knowledge.js?v=2026-06-20-burst11"></script>
-<!-- @b13-domvariants — Domain Variants: Pastoralist economics (Phase 5 §3, JJ pp.436–438). Loads after acks-engine-economy.js (its incomeBreakdown hook is late-bound) + catalogs (terrainBase) + events (registerEventKind); before player-view. -->
-<script src="acks-engine-domain-variants.js?v=2026-06-24-clanwarriors"></script>
-<!-- @b13-construction (team) — Phase 4 Construction Wave D (vessels / war machines). The WAR_MACHINE_CATALOG + the war-machine materializer + the siege feed; self-registers war-machine-built. Late-binds the construction/voyages/sieges core, so load order is irrelevant (it reads global.ACKS at call time); placed before player-view (which must stay last). -->
-<script src="acks-engine-construction.js?v=2026-06-21-wave-ehi"></script>
-<!-- Garrison Patrols — the garrison-patrols house rule (default OFF; MM p.226 + RR p.341): grounds a "Man, Patroller" civilized encounter to the hex domain's actual garrison + writes slain patrollers back to it. Self-registers the rule; late-binds findHex/domainGarrisonUnits/findTroopType/isHouseRuleEnabled, so load order is irrelevant; placed before player-view (which must stay last). -->
-<script src="acks-engine-patrols.js?v=2026-06-22-garrison-patrols"></script>
-<!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
-<script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
+<!-- GENERATED script tags follow (between the BEGIN/END markers) — do not hand-edit.
+     Run `npm run build:index` after adding/removing/renaming a module; ?v= is a content hash
+     (it changes iff the file changes — the old per-session hand-bump is retired). Edit load order
+     in tools/build/load-order.js. The markers fence the rewrite, so the CSP and the rest of the
+     head are never touched. CI guard: tests/index-scripts-sync.smoke.js. -->
+<!-- BEGIN generated:scripts:engine -->
+<script src="acks-engine-catalogs.js?v=f47795a9"></script>
+<script src="acks-engine-monsters.js?v=03e38080"></script>
+<script src="acks-engine-encounter-tables.js?v=b0339628"></script>
+<script src="acks-engine-troops.js?v=3906af8a"></script>
+<script src="acks-engine.js?v=69fd45af"></script>
+<script src="acks-engine-lairs.js?v=4e91cc7b"></script>
+<script src="acks-engine-stash.js?v=bf0a0a74"></script>
+<script src="acks-engine-military.js?v=333d77ea"></script>
+<script src="acks-engine-entities.js?v=60ef984d"></script>
+<script src="acks-engine-economy.js?v=8c3f363e"></script>
+<script src="acks-engine-entity-registry.js?v=bb654226"></script>
+<script src="acks-engine-field-schemas.js?v=ed486340"></script>
+<script src="acks-engine-events.js?v=2dd98e09"></script>
+<script src="acks-engine-battles.js?v=4c826698"></script>
+<script src="acks-engine-maneuvers.js?v=2bc07b78"></script>
+<script src="acks-engine-subsystems.js?v=13ab597d"></script>
+<script src="acks-engine-banking.js?v=39e1c7b5"></script>
+<script src="acks-engine-construction.js?v=732b6af5"></script>
+<script src="acks-engine-custom-classes.js?v=4bc8b28e"></script>
+<script src="acks-engine-delves.js?v=6ef7633a"></script>
+<script src="acks-engine-demographics.js?v=7baca1f7"></script>
+<script src="acks-engine-domain-completion.js?v=d071c4f2"></script>
+<script src="acks-engine-domain-variants.js?v=de38d3fc"></script>
+<script src="acks-engine-followers.js?v=11b3dcde"></script>
+<script src="acks-engine-generators.js?v=b43873f1"></script>
+<script src="acks-engine-gladiators.js?v=456abc1e"></script>
+<script src="acks-engine-hex-scales.js?v=bc2098cf"></script>
+<script src="acks-engine-hijinks.js?v=94d7a984"></script>
+<script src="acks-engine-knowledge.js?v=6e24e388"></script>
+<script src="acks-engine-lifecycle.js?v=ca58b5a9"></script>
+<script src="acks-engine-magic-item-availability.js?v=dc8bd743"></script>
+<script src="acks-engine-magic-items.js?v=3af90ed3"></script>
+<script src="acks-engine-magic-research.js?v=771361ac"></script>
+<script src="acks-engine-mortal-wounds.js?v=30284dcd"></script>
+<script src="acks-engine-mounts.js?v=e7e8d8b5"></script>
+<script src="acks-engine-patrols.js?v=04bb5e6e"></script>
+<script src="acks-engine-politics.js?v=a5ecff02"></script>
+<script src="acks-engine-proficiencies.js?v=1bb8e2a6"></script>
+<script src="acks-engine-religion.js?v=091db941"></script>
+<script src="acks-engine-sages.js?v=ac1b0a87"></script>
+<script src="acks-engine-sanctums.js?v=3de90de0"></script>
+<script src="acks-engine-sea-encounters.js?v=eca1d763"></script>
+<script src="acks-engine-sieges.js?v=523589f2"></script>
+<script src="acks-engine-treasure.js?v=ab9e26d1"></script>
+<script src="acks-engine-vagaries.js?v=b0e32b5d"></script>
+<script src="acks-engine-voyages.js?v=6f26321b"></script>
+<script src="acks-engine-weather.js?v=b79250ee"></script>
+<script src="acks-engine-player-view.js?v=a2f7f25b"></script>
+<!-- END generated:scripts:engine -->
 <!-- T6 single-home — hexLabelFor(hex): the hex display label resolving the settlement from the
      canonical campaign.settlements[] (the embedded hex.settlement mirror is gone). A plain global so
      Alpine templates AND component methods call it uniformly (no this-vs-bare-scope issue); it reads
@@ -151,7 +114,9 @@ function settlementAtHexG(hx){ try { var c = window.acksApp && window.acksApp.cu
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
-<script src="acks-demo-template.js?v=2026-06-14-audit1"></script>
+<!-- BEGIN generated:scripts:demo -->
+<script src="acks-demo-template.js?v=24278c3d"></script>
+<!-- END generated:scripts:demo -->
 <!-- Alpine — vendored locally + version-pinned (appsec audit, 2026-06-14). Was a FLOATING
      range (alpinejs@3.x.x) off jsDelivr with no integrity check; now a pinned, self-hosted copy
      so a compromised/MITM'd CDN can't run arbitrary script in every session, and the app works
@@ -20282,27 +20247,29 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<script src="domain-app.js?v=2026-06-24-senate-resolve"></script>
-<script src="domain-app-burst5.js?v=2026-06-24-senate-resolve"></script>
-<script src="domain-app-military-w7.js?v=2026-06-23-t5-tail"></script>
-<script src="domain-app-mounts.js?v=2026-06-23-t5-tail"></script>
-<script src="domain-app-voyages.js?v=2026-06-23-t5-tail"></script>
-<script src="domain-app-favors-duties.js?v=2026-06-24-clanwarriors"></script>
-    <script src="domain-app-recruit.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-map.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-encounters.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-warfare.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-journeys.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-inspector.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-trade.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-gladiators.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-magic-research.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-generators.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-construction.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-chronicle.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-syndicates.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-banking.js?v=2026-06-23-t5-features"></script>
-    <script src="domain-app-worldio.js?v=2026-06-24-world-excel"></script>
+<!-- BEGIN generated:scripts:tail -->
+<script src="domain-app.js?v=826f0b19"></script>
+<script src="domain-app-banking.js?v=3f0588af"></script>
+<script src="domain-app-burst5.js?v=198d6f5e"></script>
+<script src="domain-app-chronicle.js?v=f3fbb4e8"></script>
+<script src="domain-app-construction.js?v=369c21e7"></script>
+<script src="domain-app-encounters.js?v=a241e64d"></script>
+<script src="domain-app-favors-duties.js?v=020b6770"></script>
+<script src="domain-app-generators.js?v=ba6320ce"></script>
+<script src="domain-app-gladiators.js?v=166cc517"></script>
+<script src="domain-app-inspector.js?v=2182370b"></script>
+<script src="domain-app-journeys.js?v=8c130017"></script>
+<script src="domain-app-magic-research.js?v=45125793"></script>
+<script src="domain-app-map.js?v=8b76e02c"></script>
+<script src="domain-app-military-w7.js?v=ed8759ff"></script>
+<script src="domain-app-mounts.js?v=36580fb9"></script>
+<script src="domain-app-recruit.js?v=591d6a96"></script>
+<script src="domain-app-syndicates.js?v=0c0ca1af"></script>
+<script src="domain-app-trade.js?v=31f81cdf"></script>
+<script src="domain-app-voyages.js?v=6ffc684d"></script>
+<script src="domain-app-warfare.js?v=b98dd852"></script>
+<script src="domain-app-worldio.js?v=b2e99169"></script>
+<!-- END generated:scripts:tail -->
 
 <style>
   /* Tail style block intentionally minimal — main styles live in <head>. */

@@ -46,8 +46,8 @@ const CANONICAL = [
 // schema description, no load-time call). A pure leaf consumer, documented "loads last" in five
 // places. Its position is empirically free (the Node harness loads it mid-list and the suite is
 // green), but pinning it keeps the browser order legible and honours that long-standing intent.
-// (Empty = pure alphabetical; populated in T1/W3 as the one deliberate, signed-off reorder.)
-const TAIL = [];
+// (Empty = pure alphabetical; this is the one deliberate reorder T1 introduces.)
+const TAIL = ['acks-engine-player-view.js'];
 
 // The engine modules that actually exist, in load order: the canonical core (in CANONICAL order),
 // then every other acks-engine*.js alphabetically (the "add a module, edit nothing" path — a fresh
