@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-06-30
+
 ### Changed
 - **The page's script tags are generated, not hand-maintained (internal / build tooling).** The ~70 `<script>` tags in `index.html` are now emitted from one source (`tools/build/load-order.js`) by `npm run build:index`, with a content-hash cache-bust (`?v=`) that changes only when a file actually changes — retiring the per-session by-hand version bumping. A CI check (`tests/index-scripts-sync.smoke.js`) fails if the committed tags drift from the source. No change to the app itself: the same modules load in the same order; this only makes maintenance safer and removes the manual step that once corrupted the Content-Security-Policy. (T1 — delivery-manifest generator.)
 
