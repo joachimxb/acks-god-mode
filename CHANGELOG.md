@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Download a single-file build of the app (`acks-god-mode-<version>.html`).** Each release now attaches one self-contained HTML file — the whole app inlined into a single page you can download, email, or open straight from disk, with no folder and no server. It is built by `npm run build:single` from the same load-order source as the hosted page; it is **not** a bundler or minifier — the same un-minified modules, just concatenated into one document. (One caveat: the bulk spreadsheet World Import/Export still needs the hosted site or the unpacked folder, because its library loads on demand from a relative path.) (T2 — single-file release artifact.)
+
+### Changed
+- **The README describes the app accurately.** The headline, tagline, and value-prop badge no longer call the app a "single HTML file" — its source is a set of modules served as a static folder from one page (`index.html`), and the badge now reads "client-side · no build." The user-facing promise is unchanged: it still runs entirely in your browser, with no install and no server. (A downloadable single-file build is now offered separately — see Added.)
+
 ## [0.52.1] - 2026-06-30
 
 ### Changed

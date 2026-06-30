@@ -10,6 +10,7 @@
     "lint:engine": "node tools/cross-module-lint.js",
     "build:catalogs": "node tools/build/build_catalog.js && node tools/build/build_encounter_tables.js && node tools/build/build_troop_catalog.js",
     "build:index": "node tools/build/gen-index-scripts.js",
+    "build:single": "node tools/build/bundle-single-file.js",
     "build": "npm run build:catalogs && npm run build:index"
   },
   "devDependencies": {
