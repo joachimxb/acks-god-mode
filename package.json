@@ -1,6 +1,6 @@
 {
   "name": "acks-god-mode",
-  "version": "0.52.1",
+  "version": "0.53.0",
   "private": true,
   "description": "ACKS God Mode — ACKS II campaign engine + world-state data layer. Engine modules load headless in Node; this manifest exists to run the smoke suites (no runtime dependencies).",
   "license": "AGPL-3.0-only",
@@ -10,6 +10,7 @@
     "lint:engine": "node tools/cross-module-lint.js",
     "build:catalogs": "node tools/build/build_catalog.js && node tools/build/build_encounter_tables.js && node tools/build/build_troop_catalog.js",
     "build:index": "node tools/build/gen-index-scripts.js",
+    "build:single": "node tools/build/bundle-single-file.js",
     "build": "npm run build:catalogs && npm run build:index"
   },
   "devDependencies": {

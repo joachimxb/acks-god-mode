@@ -38,5 +38,9 @@ package-lock.json
 outputs/
 *.tmp.js
 
+# Build output — the single-file release artifact (npm run build:single). Attached to GitHub
+# Releases as a download, not committed to the served folder.
+dist/
+
 # DEV-root handoff channel lives outside the repo; a team-builder worktree write must not get tracked
 _handoffs/
