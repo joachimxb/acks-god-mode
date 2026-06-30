@@ -87,7 +87,7 @@ const SCHEMA_VERSION = 2;
 // runtime (package.json isn't reachable from a file:// browser load). tests/schema.smoke.js
 // asserts it equals package.json's "version" — the same release-checklist guard that pins the
 // README version (T1-C); bump both together on release.
-const ENGINE_VERSION = '0.52.0';
+const ENGINE_VERSION = '0.52.1';
 
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
 // When in doubt, look up via ID_PREFIXES rather than hardcoding.
