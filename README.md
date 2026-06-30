@@ -1,10 +1,10 @@
 # ACKS God Mode
 
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6b4f24)](LICENSE) [![Latest release](https://img.shields.io/github/v/release/joachimxb/acks-god-mode?label=release&color=2f7d32)](https://github.com/joachimxb/acks-god-mode/releases) [![Single file · no build](https://img.shields.io/badge/single%20file-no%20build-6b4f24)](https://joachimxb.github.io/acks-god-mode/)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-6b4f24)](LICENSE) [![Latest release](https://img.shields.io/github/v/release/joachimxb/acks-god-mode?label=release&color=2f7d32)](https://github.com/joachimxb/acks-god-mode/releases) [![Client-side · no build](https://img.shields.io/badge/client--side-no%20build-6b4f24)](https://joachimxb.github.io/acks-god-mode/)
 
-**A single-HTML-file campaign engine for the Adventurer Conqueror King System Imperial Imprint (ACKS II).**
+**A browser-based campaign engine for the Adventurer Conqueror King System Imperial Imprint (ACKS II).**
 
-A GM-facing tool for running an ACKS II campaign — domains, characters and retainers, a hex map of the world, overland travel, the economy, mass warfare, encounters, religion, and more — all in your browser, all in one HTML file, all backed by a transparent `.acks.json` save format you own.
+A GM-facing tool for running an ACKS II campaign — domains, characters and retainers, a hex map of the world, overland travel, the economy, mass warfare, encounters, religion, and more — all in your browser, all backed by a transparent `.acks.json` save format you own.
 
 For the current version and the full release history, see [`CHANGELOG.md`](CHANGELOG.md) and the repo's [Releases](https://github.com/joachimxb/acks-god-mode/releases); the feature overview below is kept current with the shipped tool.
 
