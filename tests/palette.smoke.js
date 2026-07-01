@@ -377,6 +377,14 @@ ok('the warm-neutral utilities are defined + token-derived (the stone-* replacem
        !html.includes(c.pattern), 'chrome pattern "' + c.pattern + '" reappeared');
 }
 
+// CE-6 condition strip (Condition Effects, 2026-06-30) — the character-sheet condition readout renders
+// severity via conditionSeverityClass -> the token-backed accent/bdr classes (--c-danger / --c-warning),
+// never raw colour (the FORBIDDEN scan above already bars a raw-family revert). Lock the strip ships + wiring.
+ok('the CE-6 condition strip ships (characterConditionStripRows drives the readout)',
+   /characterConditionStripRows\(/.test(html));
+ok('the strip severity routes through conditionSeverityClass (the token-backed accent/bdr classes)',
+   /conditionSeverityClass\(cond\.severity\)/.test(html));
+
 console.log('\n=============================================');
 console.log('palette.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
