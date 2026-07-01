@@ -348,7 +348,9 @@ ok('registerLoadMigration(name) with no fn does not register', (function(){ cons
 // discovery from travel) ⇒ +1 kind / +1 schema / +1 opt-out.
 // Movement 2.0 Foundation (2026-07-01): +1 `movement` (wizard-opt-out — record-only manual Move,
 // self-registered from acks-engine-movement.js) ⇒ +1 kind / +1 schema / +1 opt-out.
-const EV_KINDS_COUNT = 192, EV_SCHEMAS_COUNT = 192, EV_OPTOUT_COUNT = 166;
+// Movement 2.0 TS1 Lane C (2026-07-01): +2 `journey-split` + `journey-merge` (both wizard-opt-out —
+// record-only party split/merge, self-registered from acks-engine-movement-party.js) ⇒ +2 kind / +2 schema / +2 opt-out.
+const EV_KINDS_COUNT = 194, EV_SCHEMAS_COUNT = 194, EV_OPTOUT_COUNT = 168;
 const EV_REPRESENTATIVES = ['player-plan','gm-fiat','treasury-grant','recruit-hireling','loyalty-check',
   'construction-completed','follower-arrival','journey-day-tick','survival-day','favor-duty',
   'domain-banditry','proficiency-throw','domain-advanced','bout-round',
