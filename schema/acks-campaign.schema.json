@@ -8196,6 +8196,7 @@
                 "heir-delegated",
                 "mount-acquired",
                 "mount-died",
+                "movement",
                 "apotheosis",
                 "captive-ransomed",
                 "captive-released",
@@ -8295,7 +8296,7 @@
     "schemaVersion": 2,
     "entityKinds": 59,
     "typedKinds": 49,
-    "eventKinds": 191,
+    "eventKinds": 192,
     "nestedSubEntityKinds": [
       "mount",
       "bout",

@@ -1223,6 +1223,10 @@ function blankCharacter(opts={}){
     history: opts.history || [],
     // Behavior flag
     autoAdvance: opts.autoAdvance !== false,
+    // Movement 2.0 (F-1) — the per-character daily MOVEMENT budget ledger { worldOrd, milesUsed }.
+    // Lives on the character so it survives a party join (D1). Lazy + read defensively by
+    // acks-engine-movement.js (moverDayBudget); reset when the world day rolls over. null = never moved.
+    dailyMovement: opts.dailyMovement || null,
     // Status
     alive: opts.alive !== false,
     deceasedTurn: opts.deceasedTurn || null,
@@ -1247,6 +1251,17 @@ function blankParty(opts={}){
     // #521 (2026-05-30) Party-as-actor fields:
     activeJourneyId: opts.activeJourneyId || null,        // pointer when journeying (Phase 2.5 #475)
     shareProvisions: opts.shareProvisions || false,       // CoL-1 (Provisioning §16.3) — pool food+water (camp-first, leader-first) for the party whenever it shares, journey or not; journey.shareRations overrides
+    // Movement 2.0 (F-6 / D9) — an EPHEMERAL travel party auto-formed for loose journey travellers
+    // (ensureTravelParty). A people-journey always resolves to a party, so the party is the single
+    // canonical home for the regime / shared camp / membership. Foundation forms it; Lane C dissolves
+    // it on arrival unless the GM names/keeps it. Lazy bool (default false); read defensively.
+    autoFormed: opts.autoFormed === true,
+    // Movement 2.0 (F-7 / D8) — the per-mover REGIME, party-canonical + journey-mirrored:
+    // { skipEncounters, skipProvisioning, skipEncumbrance, shareRations, shareLoad }. Opt-outs default
+    // null = follow the global house rule; sharing toggles default OFF = RAW. Retires the old
+    // "journey.shareRations overrides party" precedence (shareProvisions maps into regime.shareRations).
+    // Lazy (null = the RAW defaults via moverRegime); the two-way sync + share logic is Lane D.
+    regime: opts.regime || null,
     status: opts.status || 'active',                       // 'active' | 'resting' | 'disbanded'
     formedAtTurn: opts.formedAtTurn || null,
     disbandedAtTurn: opts.disbandedAtTurn || null,
@@ -1731,6 +1746,12 @@ function blankJourney(opts={}){
     // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
     // On arrival the unit is stationed to the army. Lazy field.
     unitId: opts.unitId || null,
+    // Movement 2.0 (F-5) — the GENERAL mover pointer: any Group (party/army/unit/band) can own a
+    // journey through this handle, so a monster band autopilots exactly like an army. The typed
+    // pointers above (armyId/unitId + partyId) REMAIN the load-bearing shortcuts (army supply /
+    // call-up / return-march key off them); groupId is the handle NEW movers (bands, TS2) attach
+    // through. groupForJourney honours it after the typed pointers. Lazy field; read defensively.
+    groupId: opts.groupId || null,
     // The unit's march is a RETURN HOME (returnUnitHome — the symmetric counterpart of the
     // call-up rally): on arrival the unit falls back into its home-domain garrison rather than
     // joining an army. Lazy field (default false; old saves read falsy). Set with journey.unitId.
@@ -1820,6 +1841,10 @@ function blankJourney(opts={}){
     // pool food AND water — camp-first, leader-priority (§6). Off = self-only.
     forageWaterEnabled: opts.forageWaterEnabled === true,
     shareRations: opts.shareRations === true,
+    // Movement 2.0 (F-7 / D8) — the per-mover regime MIRROR (canonical on the owning party; an
+    // army/band journey carries its own). Same shape as party.regime; the two-way sync is Lane D.
+    // Lazy (null ⇒ moverRegime reads the party / RAW defaults); read defensively — no migration.
+    regime: opts.regime || null,
     notes: opts.notes || '',
     history: opts.history || []                         // append-only audit (start, day-tick, arrival, …)
   };

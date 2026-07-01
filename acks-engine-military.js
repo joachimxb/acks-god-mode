@@ -2097,6 +2097,9 @@ function groupForJourney(campaign, journeyOrId){
   if(j.armyId) return findArmy(campaign, j.armyId);
   if(j.unitId) return findUnit(campaign, j.unitId);
   if(j.partyId) return (campaign.parties || []).find(p => p && p.id === j.partyId) || null;
+  // Movement 2.0 (F-5) — the general mover pointer: a Group (band/…) owning a journey through
+  // journey.groupId, honoured AFTER the typed shortcuts. findGroup resolves any campaign.groups[] entry.
+  if(j.groupId) return findGroup(campaign, j.groupId) || null;
   return null;
 }
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Groundwork for a unified movement system (Movement 2.0 — Foundation).** The engine now carries one shared way for anything on the map to move: a per-day **movement budget** (in miles, shown as hexes — an unencumbered party covers four grassland hexes a day, fewer through forest or mountains, more on a road), a manual **move-one-hex** action, and a **hex-by-hex journey advance** (step a single hex, run out the day's budget, or run to the destination) that stops when the party meets something, runs out of the day's travel, or arrives. The budget lives on each character, so it travels with them when they join a party — and a party moves at its slowest, most-tired member. A group of travellers who set out together are now automatically organized into a travelling party. This release wires the engine and its rules (RR pp.272–279); the on-screen Move and Journey controls that use it arrive in the next updates. Nothing in the existing turn/day flow changes — the shipped day-by-day journey resolver is untouched.
+
 ## [0.54.0] - 2026-07-01
 
 ### Added
