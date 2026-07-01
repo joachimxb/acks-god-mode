@@ -5569,6 +5569,70 @@ const _component = {
     try { return (fn(this.currentCampaign, id) || []).length; } catch(e){ return 0; }
   },
 
+  // ── Active-encounter strip (2026-07-01) — the entity-scoped twin of the Events "clock is held"
+  // banner. entityActiveEncounters returns the active enc- entities this character / party / group /
+  // lair is involved in (engine encountersInvolvingEntity), as rows for the ONE shared resolve strip
+  // (✕ dismiss / ⚔ resolve reuse dismissEncounter + openEncounterModal). Renders only when non-empty.
+  entityActiveEncounters(kind, id){
+    if(!kind || !id || !this.currentCampaign) return [];
+    const A = window.ACKS;
+    if(!A || typeof A.encountersInvolvingEntity !== 'function') return [];
+    let list; try { list = A.encountersInvolvingEntity(this.currentCampaign, kind, id, { activeOnly: true }) || []; } catch(e){ return []; }
+    return list.map(e => ({
+      id: e.id,
+      label: (typeof A.encounterDisplayName === 'function') ? A.encounterDisplayName(this.currentCampaign, e) : (e.name || e.id),
+      phase: e.phase || null,
+    }));
+  },
+  entityActiveEncounterCount(kind, id){ return this.entityActiveEncounters(kind, id).length; },
+
+  // ── Per-entity DAY LOG (2026-07-01) — "all daily activity", grouped by game-day. The day-grouped
+  // twin of entityChronicle: the same per-entity history (movement / journeys / encounters / forage /
+  // research / hijinks / combat …), bucketed by the day it happened on, newest day first. Derived —
+  // no new save data; an individual Move step lands here because its `movement` event names the mover
+  // + every traveller in relatedEntities. Day-scale only (monthly-turn accounting stays in History).
+  entityDayLog(kind, id, limitDays){
+    if(!kind || !id || !this.currentCampaign) return [];
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return [];
+    let evs; try { evs = fn(this.currentCampaign, id) || []; } catch(e){ return []; }
+    const buckets = new Map();
+    for(const e of evs){
+      const ev = (e && e.event) || e;
+      if(!ev) continue;
+      const gt = ev.gameTimeAt;
+      if(!gt || !gt.day) continue;   // a day log accounts for DAY-scale activity; monthly events stay in History
+      const key = (gt.year || 1) + ':' + (gt.month || 1) + ':' + gt.day;
+      let b = buckets.get(key);
+      if(!b){ b = { key, label: this._dayLogLabel(gt), ordinal: (gt.year || 1) * 1000000 + (gt.month || 1) * 10000 + gt.day, entries: [] }; buckets.set(key, b); }
+      const summary = (e.result && e.result.narrativeSummary) || (ev.payload && ev.payload.narrativeSummary)
+        || (ev.payload && ev.payload.narrative) || (ev.kind + (ev.status && ev.status !== 'applied' ? (' [' + ev.status + ']') : ''));
+      b.entries.push({ icon: this._chronicleIcon(ev.kind), summary, kind: ev.kind, hidden: !!e.campaignLogHidden });
+    }
+    const days = [...buckets.values()].sort((a, b) => b.ordinal - a.ordinal);   // newest day first
+    const n = (typeof limitDays === 'number' && limitDays > 0) ? limitDays : 40;
+    return days.length > n ? days.slice(0, n) : days;
+  },
+  // A day-bucket label that ALWAYS names the day (unlike _travelEventDate, which drops "Day 1" — fine
+  // for a flat chronicle, wrong for a day-grouped log where each bucket needs a distinct heading).
+  _dayLogLabel(gt){
+    let s = 'Year ' + ((gt && gt.year) || 1);
+    try { s += ', ' + window.ACKS.monthName(this.currentCampaign, (gt && gt.month) || 1); }
+    catch(e){ s += ', Month ' + ((gt && gt.month) || 1); }
+    return s + ', Day ' + ((gt && gt.day) || 1);
+  },
+  entityDayLogCount(kind, id){
+    if(!kind || !id || !this.currentCampaign) return 0;
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return 0;
+    let evs; try { evs = fn(this.currentCampaign, id) || []; } catch(e){ return 0; }
+    const seen = new Set();
+    for(const e of evs){ const ev = (e && e.event) || e; const gt = ev && ev.gameTimeAt; if(gt && gt.day) seen.add((gt.year||1)+':'+(gt.month||1)+':'+gt.day); }
+    return seen.size;
+  },
+
   // ── Per-person Travel log (2026-06-04) ───────────────────────────────────────────────
   // Derived view over the eventLog via ACKS.characterHistory: every journey-* event that names
   // THIS character in its context envelope — set out, each travel day (where they went, lost /

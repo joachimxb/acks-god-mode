@@ -50,7 +50,7 @@
 <script src="acks-engine-encounter-tables.js?v=e4e15625"></script>
 <script src="acks-engine-troops.js?v=e2a66d44"></script>
 <script src="acks-engine.js?v=85ba148c"></script>
-<script src="acks-engine-lairs.js?v=eeebe789"></script>
+<script src="acks-engine-lairs.js?v=0aaf9e5e"></script>
 <script src="acks-engine-stash.js?v=4e68b45c"></script>
 <script src="acks-engine-military.js?v=f52fd240"></script>
 <script src="acks-engine-entities.js?v=49023d65"></script>
@@ -12685,11 +12685,30 @@ document.addEventListener('alpine:init', () => {
         <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-people"></use></svg> <span x-text="selectedParty().name || 'Party'"></span></h3>
         <button @click="closePartyModal()" class="btn text-sm" title="Close">✕ Close</button>
       </div>
+      <!-- ═══ Active-encounter resolve strip (standardized 2026-07-01) — the entity-scoped twin of the Events
+           "clock is held" banner. Shows when THIS party is in ≥1 active encounter; same box + ✕ dismiss /
+           ⚔ resolve rows, reusing dismissEncounter + openEncounterModal. The SAME markup lives on the character,
+           party, and monster/group sheets — one accessor (entityActiveEncounters), one look. ═══ -->
+      <template x-if="selectedParty() && entityActiveEncounterCount('party', selectedParty().id) > 0">
+        <div class="mb-3 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+          <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+          <template x-for="e in entityActiveEncounters('party', selectedParty().id)" :key="e.id">
+            <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+              <span x-text="'⚔ ' + e.label"></span>
+              <span class="flex items-center gap-1.5 whitespace-nowrap">
+                <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+              </span>
+            </div>
+          </template>
+        </div>
+      </template>
       <!-- tab strip: Manage · Travel · Camp · Chronicle (4 tabs — Movement 2.0 rework, Joachim 2026-07-01) -->
       <div class="flex items-center gap-1.5 mb-3">
         <button @click="partyModalTab='manage'" class="tab-pill text-sm" :class="partyModalTab==='manage' ? 'tab-active' : ''">Manage</button>
         <button @click="partyModalTab='travel'" class="tab-pill text-sm" :class="partyModalTab==='travel' ? 'tab-active' : ''">🧭 Travel</button>
         <button @click="partyModalTab='camp'" class="tab-pill text-sm" :class="partyModalTab==='camp' ? 'tab-active' : ''">⛺ Camp</button>
+        <button @click="partyModalTab='daylog'" class="tab-pill text-sm" :class="partyModalTab==='daylog' ? 'tab-active' : ''">📅 Day log</button>
         <button @click="partyModalTab='chronicle'" class="tab-pill text-sm inline-flex items-center gap-1" :class="partyModalTab==='chronicle' ? 'tab-active' : ''"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60" x-text="'· ' + entityChronicleCount('party', selectedParty().id)"></span></button>
       </div>
 
@@ -13335,6 +13354,36 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
 
+      <!-- ══════════════ DAY LOG TAB ══════════════ -->
+      <!-- The party's daily journal: all day-scale activity grouped by day, newest first. Derived
+           (entityDayLog) — individual Move steps land here (each Move emits a `movement` event naming
+           the party); the Travel tab keeps the live journey day-by-day resolution with its re-rolls. -->
+      <div x-show="partyModalTab==='daylog'" class="space-y-2">
+        <template x-if="selectedParty()">
+          <div>
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what the party did, day by day</span></span>
+              <span class="text-xs opacity-70" x-text="entityDayLogCount('party', selectedParty().id) + ' day' + (entityDayLogCount('party', selectedParty().id)===1?'':'s') + ' logged'"></span>
+            </div>
+            <template x-if="entityDayLog('party', selectedParty().id).length === 0">
+              <p class="text-base italic opacity-60 py-4 text-center">No day-scale activity yet. Moves, journeys, encounters met, and camp events appear here grouped by the day they happened.</p>
+            </template>
+            <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+              <template x-for="day in entityDayLog('party', selectedParty().id)" :key="day.key">
+                <div class="border border-hairline rounded p-2">
+                  <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                  <div class="space-y-0.5">
+                    <template x-for="(row,ri) in day.entries" :key="ri">
+                      <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- ══════════════ CHRONICLE TAB ══════════════ -->
       <div x-show="partyModalTab==='chronicle'" class="space-y-2">
         <template x-if="selectedParty()">
@@ -13489,9 +13538,27 @@ document.addEventListener('alpine:init', () => {
         <button @click="expandCharacterUi(characterEditing)" class="btn text-xs font-semibold whitespace-nowrap" title="Roll the six abilities and promote this stub to a full character (recorded in History)">⬆ Expand to full</button>
       </div>
     </template>
+    <!-- ═══ Active-encounter resolve strip (standardized 2026-07-01) — the entity-scoped twin of the Events
+         "clock is held" banner. Shows when THIS character is in ≥1 active encounter; same box + ✕ dismiss /
+         ⚔ resolve rows, reusing dismissEncounter + openEncounterModal. The SAME markup lives on the character,
+         party, and monster/group sheets — one accessor (entityActiveEncounters), one look. ═══ -->
+    <template x-if="characterEditing && !characterEditingIsNew && entityActiveEncounterCount('character', characterEditing.id) > 0">
+      <div class="mx-3 mt-2 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+        <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+        <template x-for="e in entityActiveEncounters('character', characterEditing.id)" :key="e.id">
+          <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+            <span x-text="'⚔ ' + e.label"></span>
+            <span class="flex items-center gap-1.5 whitespace-nowrap">
+              <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+              <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+            </span>
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- Sub-tab bar inside the modal -->
     <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
-      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
+      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'daylog',label:'📅 Day log'},{id:'history',label:'History'}]" :key="tab.id">
         <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="characterEditorTab===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
@@ -15162,6 +15229,33 @@ document.addEventListener('alpine:init', () => {
         <p class="text-sm opacity-70 italic mt-2">Map rendering of character positions and party movement mechanics arrive with Phase 2.5 (map mode). For now these fields are tracked but not visualized; the data is captured so the eventual map can reconstruct movement.</p>
       </div>
 
+      <!-- DAY LOG tab (2026-07-01) — the character's daily journal: all day-scale activity (moves, journeys,
+           encounters, forage, research, hijinks, combat…) grouped by the day it happened on, newest day first.
+           Derived from the event log via entityDayLog — no new save data; an individual Move step lands here
+           because its `movement` event names this character in relatedEntities. Twin of the flat History tab. -->
+      <div x-show="characterEditorTab==='daylog'" class="space-y-3">
+        <div class="flex items-baseline justify-between">
+          <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what this character did, day by day</span></span>
+          <span class="text-xs opacity-70" x-text="entityDayLogCount('character', characterEditing.id) + ' day' + (entityDayLogCount('character', characterEditing.id)===1?'':'s') + ' logged'"></span>
+        </div>
+        <template x-if="entityDayLog('character', characterEditing.id).length === 0">
+          <p class="text-base italic opacity-60 py-4 text-center">No day-scale activity yet. Moves, journeys, encounters met, foraging, and research appear here grouped by the day they happened.</p>
+        </template>
+        <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          <template x-for="day in entityDayLog('character', characterEditing.id)" :key="day.key">
+            <div class="border border-hairline rounded p-2">
+              <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+              <div class="space-y-0.5">
+                <template x-for="(row,ri) in day.entries" :key="ri">
+                  <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''">
+                    <span x-text="row.icon"></span><span x-text="row.summary"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
       <!-- HISTORY tab (Phase 2.6 followup 7) — per-character chronological log -->
       <div x-show="characterEditorTab==='history'" class="space-y-3">
         <div class="vellum border border-ink p-3 rounded">
@@ -21027,7 +21121,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- BEGIN generated:scripts:tail -->
-<script src="domain-app.js?v=55ae732e"></script>
+<script src="domain-app.js?v=bffea209"></script>
 <script src="domain-app-banking.js?v=7ae76d7f"></script>
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
@@ -21043,7 +21137,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bd01b93d"></script>
-<script src="domain-app-party.js?v=08828671"></script>
+<script src="domain-app-party.js?v=9ec0c93f"></script>
 <script src="domain-app-provisioning.js?v=59e6cade"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
