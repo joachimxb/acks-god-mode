@@ -85,6 +85,7 @@
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
 <script src="acks-engine-proficiencies.js?v=e3d3d820"></script>
+<script src="acks-engine-provisioning.js?v=b0486844"></script>
 <script src="acks-engine-religion.js?v=3146b13e"></script>
 <script src="acks-engine-sages.js?v=363943c5"></script>
 <script src="acks-engine-sanctums.js?v=b692451c"></script>
@@ -9632,6 +9633,33 @@ document.addEventListener('alpine:init', () => {
         </template>
 
         <!-- MV2:agent-4 (journey-detail members-table zone): regime-toggle strip + group food/water-per-day readout on the members table -->
+        <!-- Movement 2.0 Lane D — the per-mover regime strip + the group food/water-per-day readout. Shown
+             for people-journeys (an army/unit march draws SUPPLIES, RR p.450 — the §12 supply note below). -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit'">
+          <div class="border border-dashed border-hairline rounded p-2 mb-2 space-y-1.5">
+            <div class="text-xs uppercase tracking-wide text-muted">⛺ Provisioning &amp; load</div>
+            <!-- regime toggle strip (party-canonical, journey-mirrored — D8) -->
+            <div class="flex flex-wrap items-center gap-1.5">
+              <template x-for="t in provRegimeToggles()" :key="'jr-'+t.key">
+                <button type="button" class="text-xs px-2 py-0.5 rounded-full border border-ink" :class="provRegimePillActive(journeyDetail(), t) ? 'tab-active' : 'hover-tint'" :title="t.title" @click="provToggleRegime(journeyDetail(), t.key)" x-text="provRegimePillLabel(journeyDetail(), t)"></button>
+              </template>
+            </div>
+            <!-- consumption per day + carry + pace (derived, no storage) -->
+            <div class="text-xs flex flex-wrap gap-x-4 gap-y-1" x-data="{ get cons(){ return provConsumption(journeyDetail()); }, get haul(){ return provHaul(journeyDetail()); }, get load(){ return provLoadReport(journeyDetail()); } }">
+              <span title="Food + water the group consumes per day — one ration + one water per individual (RR p.276); mercenary units on gold supply cost + animals are counted separately">🍖 <span class="font-semibold" x-text="cons.people.rationsPerDay"></span>/day · 💧 <span class="font-semibold" x-text="cons.people.waterPerDay"></span>/day <span class="text-muted" x-text="'· '+cons.people.count+' fed'"></span></span>
+              <template x-if="cons.animals.count">
+                <span title="Animal feed per day (food = load÷10, water = load÷5 st; grazers self-feed, camels need no water; RR p.276)">🐴 feed <span class="font-mono" x-text="cons.animals.foodSt"></span> st · water <span class="font-mono" x-text="cons.animals.waterSt"></span> st</span>
+              </template>
+              <span title="Group carrying capacity: members + hired individuals + pack/draft animals (vehicles added in a later wave)">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+              <template x-if="load.slowestMilesPerDay!==null">
+                <span title="Group travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span>
+              </template>
+              <template x-if="provRegimeState(journeyDetail()).shareLoad.value && load.balanced.improves">
+                <button type="button" class="btn text-xs" @click="provBalanceLoad(journeyDetail())" :title="'Hand gear around to even the load (RR pp.83–84) — the group would then travel at '+load.balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="load.balanced.slowestMilesPerDay"></span> mi/day</button>
+              </template>
+            </div>
+          </div>
+        </template>
         <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
              that travel with them. Room for more per-character columns later. -->
         <div x-show="journeyDetail().participantCharacterIds.length">
@@ -11309,6 +11337,37 @@ document.addEventListener('alpine:init', () => {
       </div>
 
       <!-- MV2:agent-4 (party-view zone): regime-toggle strip + group food/water-per-day readout (party-canonical, journey-mirrored) -->
+      <!-- Movement 2.0 Lane D — the selected party's provisioning regime + daily consumption. The regime
+           is party-canonical (D8) and available even when the party is stationary; toggling it here also
+           drives any journey the party is on (two-way sync). -->
+      <template x-if="groupSelKind==='party' && selectedParty()">
+        <div class="vellum border border-ink rounded p-3 mb-3">
+          <div class="flex items-baseline justify-between gap-2 mb-2">
+            <h3 class="font-bold text-lg">⛺ Provisioning &amp; load <span class="text-sm opacity-70 font-normal" x-text="'· ' + (selectedParty().name || 'party')"></span></h3>
+            <span class="text-xs text-muted">Party-canonical · synced to its journey</span>
+          </div>
+          <!-- regime toggle strip -->
+          <div class="flex flex-wrap items-center gap-1.5 mb-2">
+            <template x-for="t in provRegimeToggles()" :key="'pr-'+t.key">
+              <button type="button" class="text-xs px-2 py-0.5 rounded-full border border-ink" :class="provRegimePillActive(selectedParty(), t) ? 'tab-active' : 'hover-tint'" :title="t.title" @click="provToggleRegime(selectedParty(), t.key)" x-text="provRegimePillLabel(selectedParty(), t)"></button>
+            </template>
+          </div>
+          <!-- daily consumption + carrying capacity + share-load (derived, no storage) -->
+          <div class="text-sm flex flex-wrap gap-x-4 gap-y-1" x-data="{ get cons(){ return provConsumption(selectedParty()); }, get haul(){ return provHaul(selectedParty()); }, get load(){ return provLoadReport(selectedParty()); } }">
+            <span title="Food + water the party consumes per day — one ration + one water per individual (RR p.276)">🍖 <span class="font-semibold" x-text="cons.people.rationsPerDay"></span>/day · 💧 <span class="font-semibold" x-text="cons.people.waterPerDay"></span>/day <span class="text-muted" x-text="'· '+cons.people.count+' fed'"></span></span>
+            <template x-if="cons.animals.count">
+              <span title="Animal feed per day (food = load÷10, water = load÷5 st; grazers self-feed, camels need no water; RR p.276)">🐴 feed <span class="font-mono" x-text="cons.animals.foodSt"></span> st · water <span class="font-mono" x-text="cons.animals.waterSt"></span> st</span>
+            </template>
+            <span title="Party carrying capacity: members + hired individuals + pack/draft animals (vehicles added in a later wave)">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st <span class="text-muted" x-text="'('+haul.memberCount+' member'+(haul.memberCount===1?'':'s')+(haul.animalCount?(' + '+haul.animalCount+' animal'+(haul.animalCount===1?'':'s')):'')+')'"></span></span>
+            <template x-if="load.slowestMilesPerDay!==null">
+              <span title="Party travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span>
+            </template>
+            <template x-if="provRegimeState(selectedParty()).shareLoad.value && load.balanced.improves">
+              <button type="button" class="btn text-xs" @click="provBalanceLoad(selectedParty())" :title="'Hand gear around to even the load (RR pp.83–84) — the party would then travel at '+load.balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="load.balanced.slowestMilesPerDay"></span> mi/day</button>
+            </template>
+          </div>
+        </div>
+      </template>
       <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
            loose units as three clickable-row tables. Clicking a row opens that group's
            detail below (the armies table is the model). A party can be mustered into an
@@ -20636,6 +20695,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=d9d90784"></script>
 <script src="domain-app-party.js?v=f6a9b2d7"></script>
+<script src="domain-app-provisioning.js?v=9d6ef7d7"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
 <script src="domain-app-trade.js?v=0b449ec0"></script>
