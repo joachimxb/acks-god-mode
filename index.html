@@ -5093,6 +5093,7 @@ document.addEventListener('alpine:init', () => {
         <span class="opacity-50 italic" x-text="weatherCurrentDayLabel()"></span>
       </div>
 
+      <!-- MV2:agent-1 (map action zone): map-level Move affordance / overlay; domain-app-map.js hex-to-pixel, shares layer order with graphical 9.8/9.50 -->
       <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
       <div class="border border-ink rounded overflow-hidden" style="height:70vh; background:var(--c-parchment);">
         <!-- Hexes are generated as an SVG markup STRING via x-html (innerHTML on an SVG <g> parses
@@ -9315,6 +9316,7 @@ document.addEventListener('alpine:init', () => {
             <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
           </div>
           <!-- selected travellers (removable chips) -->
+          <!-- MV2:agent-2 (journey wizard zone): graphical 5.1 Available|Traveling traveller DRAG panel (Senate pattern, c-success ring); drops mutate journeyWizard.participantIds then ensureTravelParty -->
           <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
             <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
               <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
@@ -9479,6 +9481,7 @@ document.addEventListener('alpine:init', () => {
           <span class="opacity-50 text-xs ml-1">(🗺 View on map to see it drawn — and change the destination or waypoints there)</span>
         </div>
 
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
         <!-- distance: total + remaining miles (6-mile hexes) -->
         <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
 
@@ -9508,6 +9511,7 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- MV2:agent-4 (journey-detail members-table zone): regime-toggle strip + group food/water-per-day readout on the members table -->
         <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
              that travel with them. Room for more per-character columns later. -->
         <div x-show="journeyDetail().participantCharacterIds.length">
@@ -9852,6 +9856,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-baseline justify-between flex-wrap gap-2">
           <div>
             <h2 class="font-bold text-xl">⛺ Journeys</h2>
+            <!-- MV2:agent-2 (Travel overview zone): Travel stays an OVERVIEW (in-flight journeys + multi-venue launch), not the launcher -->
             <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em>; drive them with the Day Clock (top-right).</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="btn btn-primary text-sm">🧭 Start a journey</button>
@@ -10824,6 +10829,7 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
 
+          <!-- MV2:agent-1 (selected-actor action-box zone): hex-budget chip + Move-from-here button -->
           <!-- Activities: available today + done today (the #346 day-budget read surface) -->
           <div class="grid md:grid-cols-2 gap-3 mb-3">
             <div class="border border-ink/40 rounded p-2">
@@ -11043,6 +11049,8 @@ document.addEventListener('alpine:init', () => {
     <!-- ───── Sub-tab: PARTIES (Phase 2.6.5 placeholder) ───── -->
     <div x-show="rosterSubView==='groups'" class="p-4" x-cloak>
 
+      <!-- MV2:agent-3 (party-view zone): split / merge / tracking-split + D9 ephemeral-party lifecycle; canonical setter addToParty/removeFromParty/moveToParty + graphical 2.1 member DRAG -->
+      <!-- MV2:agent-4 (party-view zone): regime-toggle strip + group food/water-per-day readout (party-canonical, journey-mirrored) -->
       <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
            loose units as three clickable-row tables. Clicking a row opens that group's
            detail below (the armies table is the model). A party can be mustered into an
@@ -12692,6 +12700,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Character editor modal (Phase 2.6.2 — minimal sheet covering identity + stats + skills + inventory + background + location) -->
 <!-- v2: panel wrapped in x-if so its bindings don't evaluate against null characterEditing -->
+<!-- MV2:agent-3 (modal-stack zone): party split/merge modal (modal-overlay/modal-card shell) mounts among the top-level modals here -->
 <div class="modal-backdrop" x-show="showCharacterEditorModal" x-cloak @keydown.escape.window="closeCharacterEditor()" @click.self="closeCharacterEditor()">
   <template x-if="characterEditing">
   <div class="modal-panel" role="dialog" aria-modal="true">
@@ -14804,6 +14813,7 @@ document.addEventListener('alpine:init', () => {
       <button @click="closeHexDetail()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
+    <!-- MV2:agent-1 (hex-card action zone): one-hex Move affordance + hex-budget chip -->
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
            Coord is the GM-facing COLUMN·ROW hex number (the JG/Auran convention the map labels use);
            axial {q,r} stays the internal store (shown in the tooltip). worldHexSetColRow converts.
