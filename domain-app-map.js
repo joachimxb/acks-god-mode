@@ -148,6 +148,28 @@
       });
     }
 
+    // 1.7) MOVE MODE (Movement 2.0 Lane A) — while a Move is in progress, RING the mover's current hex
+    // and OUTLINE each reachable neighbour. pointer-events:none, so the click falls through to the base
+    // hex polygon → mapSvgClick → mapClickHex → the move select cb (_mvMoveSelectCb). Raw-hex data-viz
+    // colours in the map's own idiom (--c-danger #7a1f1f ring, --c-success #2f7d32 reachable fill/stroke).
+    if(this._mapMoveMoverRef && this.mapMode === 'select'){
+      const mref = this._mapMoveMoverRef;
+      const mv = A.resolveMover ? A.resolveMover(this.currentCampaign, mref) : null;
+      if(mv && mv.currentHexId){
+        const cur = entries.find(e => e.hex.id === mv.currentHexId);
+        if(cur) parts.push('<polygon points="' + cur.points + '" fill="none" stroke="#7a1f1f" stroke-width="' + (size*0.11).toFixed(2) + '" stroke-opacity="0.95" style="pointer-events:none;"><title>' + esc(this.mvMoverName(mref) + ' is here') + '</title></polygon>');
+      }
+      const targets = (typeof this.mvAdjacentTargets === 'function') ? (this.mvAdjacentTargets(mref) || []) : [];
+      targets.forEach(t => {
+        const e = entries.find(x => x.hex.id === t.hexId); if(!e) return;
+        if(t.disabled){
+          parts.push('<polygon points="' + e.points + '" fill="#000000" fill-opacity="0.06" stroke="#4b3f2f" stroke-opacity="0.45" stroke-dasharray="' + (size*0.1).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="pointer-events:none;"><title>' + esc(t.reason || 'Blocked') + '</title></polygon>');
+        } else {
+          parts.push('<polygon points="' + e.points + '" fill="#2f7d32" fill-opacity="0.22" stroke="#2f7d32" stroke-width="' + (size*0.08).toFixed(2) + '" stroke-opacity="0.9" style="pointer-events:none;"><title>' + esc('Move here — ' + t.cost + ' mi') + '</title></polygon>');
+        }
+      });
+    }
+
     // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
     if(this.mapEditAddMode){
       this.mapEmptyCells().forEach(c => {
@@ -565,6 +587,18 @@
   },
   mapEnsureView(){ if(!this.mapViewBox) this.mapResetView(); },
   mapViewBoxStr(){ const v = this.mapViewBox; return v ? (v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h) : '0 0 100 100'; },
+  // Center the viewport on a hex (keeping the current zoom) — brings an off-screen mover into view when a
+  // Move begins. Uses the hex's polygon centroid (the render already computes .points per entry).
+  mapFocusHex(hexId){
+    if(!this.mapViewBox) this.mapEnsureView();
+    const e = (this.mapHexEntries() || []).find(x => x.hex && x.hex.id === hexId);
+    if(!e || !e.points || !this.mapViewBox) return;
+    const pts = String(e.points).trim().split(/\s+/).map(p => p.split(',').map(Number)).filter(a => a.length === 2 && !isNaN(a[0]) && !isNaN(a[1]));
+    if(!pts.length) return;
+    const cx = pts.reduce((s, a) => s + a[0], 0) / pts.length, cy = pts.reduce((s, a) => s + a[1], 0) / pts.length;
+    this.mapViewBox.x = cx - this.mapViewBox.w / 2; this.mapViewBox.y = cy - this.mapViewBox.h / 2;
+    this.schedulePersist();
+  },
 
   // Screen point → world (viewBox) coords, accounting for preserveAspectRatio="meet" letterboxing
   // (uniform scale s, content centered). Lets pan + zoom track the cursor exactly regardless of the

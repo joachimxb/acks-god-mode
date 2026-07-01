@@ -182,6 +182,44 @@
       _leftPartyName: pt ? (pt.name || 'the party') : null, _moverName: ch.name || 'The character'
     }));
   },
+
+  // ── MAP MOVE MODE (the "Move" action → the map → click a highlighted hex) ──────
+  // The mover being stepped across the map (a party or lone-character id), or null. While set AND
+  // the map is in select mode, the map render (domain-app-map.js) rings the mover's hex + outlines
+  // its reachable hexes; a click on any hex is routed to _mvMoveSelectCb via the mapBeginSelect seam.
+  _mapMoveMoverRef: null,
+  mvInMoveMode(){ return this.mapMode === 'select' && !!this._mapMoveMoverRef; },
+  // Arm move mode for a mover: navigate to World ▸ Map, put the map in select mode, focus the mover's hex.
+  mvBeginMoveOnMap(moverRef){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !moverRef){ if(this.showToast) this.showToast('No mover to move.'); return; }
+    const m = (typeof A.resolveMover === 'function') ? A.resolveMover(c, moverRef) : null;
+    if(!m || !m.currentHexId){ if(this.showToast) this.showToast('This mover has no position on the map yet — set a location first.'); return; }
+    this._mapMoveMoverRef = moverRef;
+    this.mvMapMoverRef = moverRef;   // keep the shared active-mover in sync (budget chip / hex card)
+    if(typeof this.mapBeginSelect === 'function'){
+      this.mapBeginSelect(this._mvMoveSelectCb.bind(this), 'Click a highlighted hex to move ' + this.mvMoverName(moverRef) + ' there — one hex at a time.');
+      if(typeof this.mapFocusHex === 'function') this.mapFocusHex(m.currentHexId);
+    }
+  },
+  // The map-picker callback — a hex was clicked while moving. Step onto it if it's a legal target,
+  // else guide the GM. Stays in move mode so they can keep stepping hex-by-hex (or press Done).
+  _mvMoveSelectCb(hexId){
+    const ref = this._mapMoveMoverRef; if(!ref) return;
+    const A = window.ACKS, c = this.currentCampaign;
+    const m = (typeof A.resolveMover === 'function') ? A.resolveMover(c, ref) : null;
+    if(m && m.currentHexId === hexId){ if(this.showToast) this.showToast(this.mvMoverName(ref) + ' is here — click an adjacent highlighted hex.'); return; }
+    const t = (this.mvAdjacentTargets(ref) || []).find(x => x.hexId === hexId);
+    if(!t){ if(this.showToast) this.showToast("That hex isn't adjacent — click a highlighted hex."); return; }
+    if(t.disabled){ if(this.showToast) this.showToast(t.reason || 'That hex is blocked.'); return; }
+    const res = this.mvMoveTo(ref, hexId);            // one real one-hex journey step (encounters and all)
+    if(res && res.ok){
+      const chip = this.mvBudgetChip(ref);
+      if(chip && chip.hexes === 0 && !chip.isFirst && this.showToast) this.showToast('No movement left today for ' + this.mvMoverName(ref) + ' — press Done.');
+    }
+  },
+  mvEndMove(){ this._mapMoveMoverRef = null; if(typeof this.mapEndSelect === 'function') this.mapEndSelect(); },
+
   _mvReasonText(reason){
     return ({
       water: 'That hex is water — a vessel is needed (coming with Voyages).',

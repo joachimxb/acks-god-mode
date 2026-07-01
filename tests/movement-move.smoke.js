@@ -39,6 +39,12 @@ function makeApp(campaign){
     showToast(m){ this._toasts.push(m); },
     markDirty(){ this._dirty++; },
     schedulePersist(){ this._persist++; },
+    // map move-mode stubs — the move mixin arms the shipped map picker seam (mapBeginSelect / mapEndSelect);
+    // these mirror its effect headlessly so mvBeginMoveOnMap / _mvMoveSelectCb / mvEndMove can be exercised.
+    mapMode: 'inspect', currentView: null, worldSubView: null, _selectCb: null, _focused: false,
+    mapBeginSelect(cb){ this._selectCb = cb; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; },
+    mapEndSelect(){ this._selectCb = null; this.mapMode = 'inspect'; },
+    mapFocusHex(){ this._focused = true; },
     hexLabelFor(h){ return (h && (h.name || h.id)) || '—'; },
     characterPartyOf(ch){ return (ch && ch.partyId) ? ((campaign.parties || []).find(p => p && p.id === ch.partyId) || null) : null; },
     removeCharacterFromParty(ch){
@@ -219,14 +225,51 @@ section('the party chip surfaces the MIN-remaining member (a joiner with a spent
   check('remaining miles = 12', chip.remainingMiles === 12, chip.remainingMiles);
 }
 
+// ── the map move-mode flow (the "Move" action → the map → click a highlighted hex) ──
+section('mvBeginMoveOnMap / _mvMoveSelectCb / mvEndMove — arm move mode, step on a reachable hex, end');
+{
+  const { c, ch, pt, app } = grid();
+  app.mvBeginMoveOnMap('par-1');
+  check('move mode armed for the party', app.mvInMoveMode() === true && app._mapMoveMoverRef === 'par-1');
+  check('navigated to World ▸ Map + the map is in select mode', app.currentView === 'world' && app.worldSubView === 'map' && app.mapMode === 'select');
+  check('the mover hex was focused', app._focused === true);
+  // spy on mvMoveTo: record the attempted target + inject the deterministic rng (PASS_RNG = nav ok, no encounter)
+  const realMoveTo = app.mvMoveTo.bind(app); const moveCalls = [];
+  app.mvMoveTo = function(ref, hexId, opts){ moveCalls.push(hexId); return realMoveTo(ref, hexId, Object.assign({ rng: PASS_RNG }, opts || {})); };
+  app._mvMoveSelectCb('hex-e');   // a non-adjacent hex
+  check('a non-adjacent click does not move', moveCalls.length === 0 && pt.currentHexId === 'hex-a');
+  app._mvMoveSelectCb('hex-a');   // the current hex
+  check('a current-hex click does not move', moveCalls.length === 0 && pt.currentHexId === 'hex-a');
+  app._mvMoveSelectCb('hex-w');   // adjacent, but water (blocked without a vessel)
+  check('a blocked (water) neighbour does not move', moveCalls.length === 0 && pt.currentHexId === 'hex-a');
+  check('a guidance / blocked toast was shown', app._toasts.some(t => /vessel|water|adjacent|here/i.test(t)));
+  app._mvMoveSelectCb('hex-b');   // a reachable adjacent hex
+  check('a reachable click steps the party one hex to hex-b', moveCalls[moveCalls.length - 1] === 'hex-b' && pt.currentHexId === 'hex-b' && ch.currentHexId === 'hex-b');
+  app.mvEndMove();
+  check('mvEndMove clears the mode + restores inspect', app.mvInMoveMode() === false && app._mapMoveMoverRef === null && app.mapMode === 'inspect');
+}
+
+section('mvBeginMoveOnMap — refuses a mover with no map position (no arming, a toast instead)');
+{
+  const { c, ch, app } = grid();
+  ch.partyId = null; ch.currentHexId = null; ACKS.reconcilePartyMembership(c);
+  app.mvBeginMoveOnMap('chr-1');
+  check('an unplaced mover does NOT arm move mode', app.mvInMoveMode() === false && app._mapMoveMoverRef === null);
+  check('a "no position" toast was shown', app._toasts.some(t => /no position|map/i.test(t)));
+}
+
 // ── H1: the Move glyph ships as a sprite symbol (enforce, don't just document) ─
-section('the #i-move sprite symbol is defined + referenced (H1 chrome, not emoji)');
+section('the #i-move sprite is defined + USED in the map + hex-card Move UI; Move is a first-class action');
 {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   check('the sprite defines <symbol id="i-move">', /<symbol\s+id="i-move"/.test(html));
-  check('the Move UI references it via <use href="#i-move"> (>= 3 zones)', (html.match(/href="#i-move"/g) || []).length >= 3);
+  // real <use> tags (excludes the sprite comment): the map move-mode banner + the hex-card Move-here button.
+  check('the Move UI USES the sprite via <use href="#i-move"> (>= 2 tags)', (html.match(/<use href="#i-move">/g) || []).length >= 2);
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'domain-app.js'), 'utf8');
+  check("the action menu carries a 'move' action rendered with the #i-move sprite (not an emoji)", /key:\s*'move'/.test(appJs) && /sprite:\s*'i-move'/.test(appJs));
+  check("the action-menu template renders act.sprite as a <use> glyph", /:href="'#' \+ act\.sprite"/.test(html));
   const mixin = fs.readFileSync(path.join(__dirname, '..', 'domain-app-move.js'), 'utf8');
-  check('the mixin carries no raw emoji-as-chrome / forbidden colour (uses tokens + the sprite)',
+  check('the mixin carries no forbidden raw colour family (uses tokens + the sprite)',
         !/emerald|orange|rose|gray-|slate|zinc|neutral|stone-/.test(mixin));
 }
 

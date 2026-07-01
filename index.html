@@ -5099,37 +5099,20 @@ document.addEventListener('alpine:init', () => {
         <span class="opacity-50 italic" x-text="weatherCurrentDayLabel()"></span>
       </div>
 
-      <!-- MV2:agent-1 (map action zone): map-level Move affordance / overlay; domain-app-map.js hex-to-pixel, shares layer order with graphical 9.8/9.50 -->
-      <!-- Movement 2.0 (Lane A) — the map Move toolbar: pick a mover, read its hex-budget, step it to an
-           adjacent hex. Distinct from a GM set-location drop (plan §15.3): Move spends the day-budget, one hex. -->
-      <div x-show="mvOnMapMovers().length > 0" x-cloak class="mb-2 border border-ink/40 rounded p-2 flex flex-wrap items-center gap-2" style="background:var(--c-vellum)">
-        <span class="text-xs font-semibold opacity-70 inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span>
-        <select class="text-sm" style="max-width:15rem" x-model="mvMapMoverRef" aria-label="Pick a mover to move on the map">
-          <option value="">— pick a mover —</option>
-          <template x-for="mo in mvOnMapMovers()" :key="mo.ref"><option :value="mo.ref" x-text="mo.label"></option></template>
-        </select>
-        <template x-if="mvActiveMoverRef()">
-          <span class="inline-flex flex-wrap items-center gap-2">
-            <span class="text-xs px-2 py-0.5 rounded border border-ink/40" :class="mvChipClass(mvBudgetChip(mvActiveMoverRef()))" :title="mvBudgetChip(mvActiveMoverRef())?.title || ''" x-text="mvBudgetChip(mvActiveMoverRef())?.text || ''"></span>
-            <template x-if="mvAdjacentTargets(mvActiveMoverRef()).length > 0">
-              <span class="inline-flex flex-wrap items-center gap-1">
-                <span class="text-xs opacity-60">step to:</span>
-                <template x-for="t in mvAdjacentTargets(mvActiveMoverRef())" :key="'m' + t.hexId">
-                  <button @click="!t.disabled && mvMoveGroup(mvActiveMoverRef(), t.hexId)" :disabled="t.disabled"
-                          class="btn text-xs" :class="t.disabled ? 'opacity-40 cursor-not-allowed' : 'hover-tint'"
-                          :title="t.disabled ? t.reason : ('Move to ' + t.label + ' — ' + t.terrain + ', ' + t.cost + ' mi')">
-                    <svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> <span x-text="t.label"></span>
-                  </button>
-                </template>
-              </span>
-            </template>
-            <template x-if="mvAdjacentTargets(mvActiveMoverRef()).length === 0">
-              <span class="text-xs text-muted italic">no adjacent mapped hexes to step into</span>
-            </template>
-          </span>
-        </template>
-        <template x-if="!mvActiveMoverRef()"><span class="text-xs text-muted italic">pick a mover to step it one hex</span></template>
-      </div>
+      <!-- MV2:agent-1 (map action zone): the Movement 2.0 move-mode banner. A "Move" action (the Roster ▸
+           Characters action list, or a party's quick-access box) arms move mode — the mover's hex is ringed
+           and its reachable hexes highlighted on the map below; click one to step there (one real one-hex
+           journey, encounters and all). Distinct from a GM set-location drop (plan §15.3): Move spends the
+           day-budget, one hex. -->
+      <template x-if="mvInMoveMode()">
+        <div x-cloak class="mb-2 border-2 rounded p-2 flex flex-wrap items-center gap-2" style="border-color:var(--c-success); background:var(--c-vellum)">
+          <span class="text-sm font-semibold inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Moving <span class="font-bold" x-text="mvMoverName(_mapMoveMoverRef)"></span></span>
+          <span class="text-xs px-2 py-0.5 rounded border border-ink/40" :class="mvChipClass(mvBudgetChip(_mapMoveMoverRef))" :title="mvBudgetChip(_mapMoveMoverRef)?.title || ''" x-text="mvBudgetChip(_mapMoveMoverRef)?.text || ''"></span>
+          <span class="text-xs opacity-70" x-show="mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">— click a highlighted hex to step there</span>
+          <span class="text-xs text-muted italic" x-show="!mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">no reachable hex — the day's movement is spent</span>
+          <button @click="mvEndMove()" class="btn btn-primary text-xs ml-auto" title="Finish moving and return the map to normal">Done moving</button>
+        </div>
+      </template>
       <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
       <div class="border border-ink rounded overflow-hidden" style="height:70vh; background:var(--c-parchment);">
         <!-- Hexes are generated as an SVG markup STRING via x-html (innerHTML on an SVG <g> parses
@@ -10982,46 +10965,11 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
 
-          <!-- MV2:agent-1 (selected-actor action-box zone): hex-budget chip + Move-from-here button -->
-          <!-- Movement 2.0 (Lane A) — the Move panel: this character's hex-budget + step it (or its party) one hex.
-               Moving a party member "alone" leaves the party first (D1, via the shipped removeCharacterFromParty). -->
-          <div class="border border-ink/40 rounded p-2 mb-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-xs font-semibold opacity-70 inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span>
-              <span class="text-xs px-2 py-0.5 rounded border border-ink/40" :class="mvChipClass(mvBudgetChip(mvMoverForCharacter(row.c).ref))" :title="mvBudgetChip(mvMoverForCharacter(row.c).ref)?.title || ''" x-text="mvBudgetChip(mvMoverForCharacter(row.c).ref)?.text || 'not on the map'"></span>
-              <span class="text-xs opacity-60" x-show="mvMoverForCharacter(row.c).kind === 'party'" x-text="'· travels with ' + mvMoverForCharacter(row.c).name"></span>
-            </div>
-            <!-- group move (a party carries its members; a lone character moves alone) -->
-            <template x-if="mvAdjacentTargets(mvMoverForCharacter(row.c).ref).length > 0">
-              <div class="flex flex-wrap items-center gap-1 mt-1.5">
-                <span class="text-xs opacity-60" x-text="(mvMoverForCharacter(row.c).kind === 'party' ? 'Move the party to:' : 'Move to:')"></span>
-                <template x-for="t in mvAdjacentTargets(mvMoverForCharacter(row.c).ref)" :key="'g' + t.hexId">
-                  <button @click="!t.disabled && mvMoveGroup(mvMoverForCharacter(row.c).ref, t.hexId)" :disabled="t.disabled"
-                          class="btn text-xs" :class="t.disabled ? 'opacity-40 cursor-not-allowed' : 'hover-tint'"
-                          :title="t.disabled ? t.reason : ('Move to ' + t.label + ' — ' + t.terrain + ', ' + t.cost + ' mi')">
-                    <svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> <span x-text="t.label"></span>
-                  </button>
-                </template>
-              </div>
-            </template>
-            <!-- move alone (leaves the party) — only for a party member -->
-            <template x-if="mvMoverForCharacter(row.c).kind === 'party' && mvAdjacentTargets(mvMoverForCharacter(row.c).ref).length > 0">
-              <div class="flex flex-wrap items-center gap-1 mt-1.5 pt-1.5 border-t border-ink/20">
-                <span class="text-xs accent-amber" x-text="'Move ' + (row.c.name || 'this one') + ' alone (leaves ' + mvMoverForCharacter(row.c).name + '):'"></span>
-                <template x-for="t in mvAdjacentTargets(mvMoverForCharacter(row.c).ref)" :key="'a' + t.hexId">
-                  <button @click="!t.disabled && mvMoveAlone(row.c, t.hexId)" :disabled="t.disabled"
-                          class="btn text-xs" :class="t.disabled ? 'opacity-40 cursor-not-allowed' : 'hover-tint'"
-                          :title="t.disabled ? t.reason : ('Leave the party and move to ' + t.label)">
-                    <svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> <span x-text="t.label"></span>
-                  </button>
-                </template>
-              </div>
-            </template>
-            <!-- not placed / no adjacent authored hexes -->
-            <template x-if="mvAdjacentTargets(mvMoverForCharacter(row.c).ref).length === 0">
-              <div class="text-xs text-muted italic mt-1" x-text="(mvBudgetChip(mvMoverForCharacter(row.c).ref) && mvBudgetChip(mvMoverForCharacter(row.c).ref).onMap) ? 'No adjacent mapped hexes to step into.' : 'Not on the map — set a location (World ▸ Hexes / map) to move.'"></div>
-            </template>
-          </div>
+          <!-- MV2:agent-1 (selected-actor action-box zone): Move is now a first-class entry in the Actions
+               list below (characterActionMenu 'move' → mvBeginMoveOnMap → the map move-mode overlay). The old
+               inline Move panel was retired 2026-07-01 (Joachim) — pick "👣 Move" among the actions to move
+               the character (or its party) on the map, one highlighted hex at a time. -->
+          <template x-if="false"></template>
           <!-- Activities: available today + done today (the #346 day-budget read surface) -->
           <div class="grid md:grid-cols-2 gap-3 mb-3">
             <div class="border border-ink/40 rounded p-2">
@@ -11089,7 +11037,9 @@ document.addEventListener('alpine:init', () => {
                         :style="act.active ? 'background:var(--c-ink);color:var(--c-parchment);border-color:var(--c-ink)' : ''"
                         class="btn text-sm"
                         :title="act.title">
-                  <span x-text="act.icon + ' ' + act.label"></span>
+                  <!-- an action may carry an H1 sprite glyph (act.sprite = the symbol id, e.g. i-move); else its emoji icon. -->
+                  <template x-if="act.sprite"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use :href="'#' + act.sprite"></use></svg><span x-text="act.label"></span></span></template>
+                  <template x-if="!act.sprite"><span x-text="act.icon + ' ' + act.label"></span></template>
                 </button>
               </template>
             </div>
@@ -20678,7 +20628,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- BEGIN generated:scripts:tail -->
-<script src="domain-app.js?v=a5263b1b"></script>
+<script src="domain-app.js?v=6e82d02a"></script>
 <script src="domain-app-banking.js?v=7ae76d7f"></script>
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
@@ -20690,10 +20640,10 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-inspector.js?v=9bb9d6c8"></script>
 <script src="domain-app-journeys.js?v=cd4a292b"></script>
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
-<script src="domain-app-map.js?v=b272bc82"></script>
+<script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
-<script src="domain-app-move.js?v=d9d90784"></script>
+<script src="domain-app-move.js?v=bd01b93d"></script>
 <script src="domain-app-party.js?v=f6a9b2d7"></script>
 <script src="domain-app-provisioning.js?v=9d6ef7d7"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>

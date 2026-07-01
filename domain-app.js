@@ -4937,11 +4937,17 @@ const _component = {
       gladiating = !!(tInfo.inTraining || inBout);
     }
     const researching = (camp.researchProjects || []).some(p => p && (p.researcherCharacterId === c.id || (p.assistantCharacterIds||[]).includes(c.id)) && (p.status === 'in-progress' || p.status === 'awaiting-throw'));
+    // Movement 2.0 — is this character's natural mover (its party if in one, else itself) on the map?
+    const moverInfo = this.mvMoverForCharacter(c);
+    let moverOnMap = false;
+    if(moverInfo && A.resolveMover){ const mm = A.resolveMover(camp, moverInfo.ref); moverOnMap = !!(mm && mm.currentHexId); }
+    const moveActive = !!(this.mvInMoveMode && this.mvInMoveMode() && moverInfo && this._mapMoveMoverRef === moverInfo.ref);
     const T = (ok, okText, reason) => ok ? okText : reason;
     return [
       { key:'market',         icon:'🛒', label:'Market',        active:false,     enabled:atSet, title:T(atSet, 'Buy or sell at ' + setName, setReason) },
       { key:'recruit',        icon:'⚔', label:'Recruit',        active:recruiting, enabled:atSet, title: recruiting ? 'Recruiting now — go to the hiring drive →' : T(atSet, 'Recruit hirelings, henchmen or specialists here', setReason) },
       { key:'travel',         icon:'🧭', label:'Travel',         active:onJourney,  enabled:atHex && !onVenture, title: onJourney ? 'On a journey — go to it →' : (onVenture ? "Away on a venture — can't travel until it resolves." : T(atHex, (this.characterPartyOf(c) ? "Start a journey for this character's party" : 'Start a journey'), hexReason)) },
+      { key:'move',           icon:'👣', sprite:'i-move', label:'Move',           active:moveActive, enabled:moverOnMap, title: moverOnMap ? ('Move ' + (moverInfo && moverInfo.kind === 'party' ? 'the party' : 'this character') + ' across the map, one hex at a time — pick a hex on the Map') : 'This mover has no position on the map yet — set its location first.' },
       { key:'forage',         icon:'🌿', label:'Forage / Hunt',  active:false,     enabled:atHex, title:T(atHex, 'Forage or hunt — live off the land (RR p.278)', hexReason) },
       { key:'search',         icon:'🔍', label:'Search hex',     active:false,     enabled:atHex, title:T(atHex, 'Search this hex for lairs & points of interest (RR pp.276–277)', hexReason) },
       { key:'hijinks',        icon:'🗡', label:'Hijinks',        active:hijinking,  enabled:atSet, title: hijinking ? 'A hijink is under way — go to it →' : T(atSet, 'Attempt an urban hijink here (RR pp.358–370)', setReason) },
@@ -4971,6 +4977,7 @@ const _component = {
       case 'market':      this.openTrade({ actorCharacterId: c.id }); break;
       case 'recruit':     this.recruitDeepLink({ patronId: c.id }); break;
       case 'travel':      this.startJourneyForCharacter(c); break;
+      case 'move':        this.mvBeginMoveOnMap((this.mvMoverForCharacter(c) || {}).ref); break;
       case 'forage':      this.openForage({ actorCharacterId: c.id }); break;
       case 'search':      this.openSearchHex({ actorCharacterId: c.id, hexId: c.currentHexId }); break;
       case 'hijinks':     this.openHijinkForCharacter(c); break;
