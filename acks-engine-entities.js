@@ -1735,6 +1735,12 @@ function blankJourney(opts={}){
     // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
     // On arrival the unit is stationed to the army. Lazy field.
     unitId: opts.unitId || null,
+    // Movement 2.0 (F-5) — the GENERAL mover pointer: any Group (party/army/unit/band) can own a
+    // journey through this handle, so a monster band autopilots exactly like an army. The typed
+    // pointers above (armyId/unitId + partyId) REMAIN the load-bearing shortcuts (army supply /
+    // call-up / return-march key off them); groupId is the handle NEW movers (bands, TS2) attach
+    // through. groupForJourney honours it after the typed pointers. Lazy field; read defensively.
+    groupId: opts.groupId || null,
     // The unit's march is a RETURN HOME (returnUnitHome — the symmetric counterpart of the
     // call-up rally): on arrival the unit falls back into its home-domain garrison rather than
     // joining an army. Lazy field (default false; old saves read falsy). Set with journey.unitId.

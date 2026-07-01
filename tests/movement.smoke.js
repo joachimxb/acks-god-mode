@@ -167,6 +167,100 @@ section('F-2 — budget exhaustion (RR p.272: exactly 4 grassland hexes/day) + t
   check('the first step of the day is always granted', firstForest.ok === true);
 }
 
+// ═══════════════════════════════════ SLICE 2 ═══════════════════════════════════
+// A straight authored grassland row hex-0..hex-N + a party journey along it.
+function journeyGrid(n, terrain){
+  const c = ACKS.blankCampaign({ name: 'jgrid' });
+  c.currentTurn = 1; c.currentDayInMonth = 5; c.calendar = { year: 1, month: 1, day: 5 };
+  c.hexes = [];
+  for(let i = 0; i <= n; i++) c.hexes.push(ACKS.blankHex({ id: 'hex-' + i, coord: { q: i, r: 0 }, terrain: terrain || 'grassland' }));
+  const ch = ACKS.blankCharacter({ id: 'chr-1', currentHexId: 'hex-0' });
+  c.characters = [ch];
+  const pt = ACKS.blankParty({ id: 'par-1', memberCharacterIds: ['chr-1'], currentHexId: 'hex-0' });
+  c.parties = [pt];
+  const j = ACKS.blankJourney({ id: 'jrn-1', partyId: 'par-1', participantCharacterIds: ['chr-1'], startHexId: 'hex-0', destinationHexId: 'hex-' + n, status: 'planning', currentHexId: 'hex-0', pace: 'normal' });
+  c.journeys = [j];
+  ACKS.startJourney(c, j);   // the real start flow: status in-transit + startedAt* + daysRemainingEstimate + provisions
+  return { c, j, pt, ch };
+}
+
+section('F-3 — advanceJourneyOneHex steps one hex along the route');
+{
+  const { c, j } = journeyGrid(8);
+  const r = ACKS.advanceJourneyOneHex(c, j, { rng: PASS_RNG });
+  check('one hex stepped', r.ok && r.stepped && r.toHexId === 'hex-1');
+  check('the journey is at the next hex', j.currentHexId === 'hex-1');
+  check('a day record was opened with the hex', j.days.length === 1 && j.days[0].hexesTraveled === 1);
+  check('the day is not yet closed (budget remains)', r.dayClosed === false && j.days[0]._mvOpen === true);
+}
+
+section('F-3 — ⏩ advance-the-day (RR p.272: exactly 4 grassland hexes, then the day closes)');
+{
+  const { c, j } = journeyGrid(11);
+  const r = ACKS.advanceJourneyDay(c, j, { rng: PASS_RNG });
+  check('the day closed', r.dayClosed === true);
+  check('4 hexes stepped (24 mi / 6)', r.steps.filter(s => s.stepped).length === 4, r.steps.filter(s => s.stepped).length);
+  check('the journey advanced to hex-4', j.currentHexId === 'hex-4');
+  check('one day record, 4 hexes / 24 miles', j.days.length === 1 && j.days[0].hexesTraveled === 4 && j.days[0].milesTraveled === 24);
+  check('the nav throw fired ONCE for the day (day-grained, §3.6)', !!j.days[0].navigationThrow);
+  check('fatigue accrued once for the strenuous day (day-grained)', j.fatigueDays === 1 && j.days[0].fatigueAccumulated === 1);
+  check('lastTravelWorldOrd stamped (the slot-30 auto-advance skips this journey today)', j.lastTravelWorldOrd === (1 * 30 + 5));
+  check('the day record is closed', j.days[0]._mvOpen === false && j.days[0].status === 'committed');
+}
+
+section('F-3 — ⏭ advance-to-destination (11 hexes = 3 days: 4 + 4 + 3, then arrival)');
+{
+  const { c, j } = journeyGrid(11);
+  const r = ACKS.advanceJourneyToDestination(c, j, { rng: PASS_RNG });
+  check('the journey arrived', r.arrived === true && j.status === 'arrived');
+  check('it took 3 travel days', r.days === 3, r.days);
+  check('the party is at the destination hex', j.currentHexId === 'hex-11');
+  const totalHexes = j.days.reduce((s, d) => s + d.hexesTraveled, 0);
+  check('11 hexes covered in total', totalHexes === 11, totalHexes);
+}
+
+section('F-8b — a paused journey does not auto-advance');
+{
+  const { c, j } = journeyGrid(8); j.paused = true;
+  check('advanceJourneyOneHex refuses a paused journey', ACKS.advanceJourneyOneHex(c, j, { rng: PASS_RNG }).reason === 'paused');
+  check('the journey did not move', j.currentHexId === 'hex-0');
+  check('⏩ halts on a paused journey', ACKS.advanceJourneyDay(c, j, { rng: PASS_RNG }).reason === 'paused');
+}
+
+section('F-3 — an encounter halts the advance + materializes a real enc- entity (RAW: stop when you meet something)');
+{
+  const { c, j } = journeyGrid(8, 'forest');   // forest, unsettled, no road
+  const r = ACKS.advanceJourneyDay(c, j, { rng: () => 0.5 });   // d20 = 11 → monster in unsettled forest
+  check('the day halted on an encounter', r.halted === true && r.reason === 'encounter');
+  check('a real enc- entity was materialized', r.encounterId && (c.encounters || []).some(e => e.id === r.encounterId));
+  check('the day record captured the encounter', j.days[0] && j.days[0].encounters.length === 1);
+  check('the journey stays in-transit (the GM resolves, then continues)', j.status === 'in-transit');
+}
+
+section('F-5 — journey.groupId resolves any Group (a monster band autopilots via the general pointer)');
+{
+  const { c, j } = journeyGrid(4);
+  check('a party journey still resolves to its party', ACKS.groupKindOf(ACKS.groupForJourney(c, j)) === 'party');
+  if(typeof ACKS.blankGroup === 'function'){
+    const g = ACKS.blankGroup({ id: 'grp-b1', groupTemplate: { monsterCatalogKey: 'goblin' }, count: 6, name: 'Goblins', currentHexId: 'hex-0' });
+    c.groups = [g];
+    const jb = ACKS.blankJourney({ id: 'jrn-b', groupId: 'grp-b1', participantCharacterIds: [], startHexId: 'hex-0', destinationHexId: 'hex-3', status: 'in-transit', currentHexId: 'hex-0' });
+    c.journeys.push(jb);
+    check('groupId resolves a band journey to the band', ACKS.groupKindOf(ACKS.groupForJourney(c, jb)) === 'band');
+  } else { check('blankGroup present (band test)', false, 'no blankGroup'); }
+}
+
+section('F-3 — the journey stays Gantt-renderable through the per-hex refactor (Plan_Graphical_Elements §6.1 / plan §15.4)');
+{
+  const { c, j } = journeyGrid(11);
+  ACKS.advanceJourneyDay(c, j, { rng: PASS_RNG });   // one day
+  // a Gantt bar needs: a knowable start day, a derivable span, and per-day states.
+  check('start day preserved (startedAtTurn + startedAtDayInMonth)', j.startedAtTurn === 1 && j.startedAtDayInMonth === 5);
+  check('currentDayIndex counts travel days into the journey', j.currentDayIndex === 1, j.currentDayIndex);
+  check('the projected end is derivable (daysRemainingEstimate present + computeJourneyDistance.remaining)', (j.daysRemainingEstimate != null) && ACKS.computeJourneyDistance(c, j).remaining === 7);
+  check('per-day span is not opaque — journey.days[] carries a dated per-day record', j.days.length === 1 && j.days[0].dayIndex === 1 && Array.isArray(j.days[0].hexPath) && j.days[0].hexPath.length === 4);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

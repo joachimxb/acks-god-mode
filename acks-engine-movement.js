@@ -339,6 +339,13 @@ function moveActorOneHex(campaign, actor, destHexId, opts){
   if(!m) return { ok: false, reason: 'no-mover' };
   const res = _moveStep(campaign, m, destHexId, opts);
   if(!res.ok) return { ok: false, reason: res.reason, detail: res };
+  // materialize any per-hex encounter into a real enc- entity for the GM to resolve (the same enc-
+  // the journey path produces — it IS the same inner draw). A terrain-category draw has no entity.
+  let encounterId = null;
+  if(res.encounter && res.encounter.encounterRecord){
+    const e = _materializeMoveEncounter(campaign, m, res.encounter, opts.trigger || 'movement');
+    encounterId = e ? e.id : (res.encounter.encounterRecord.id || null);
+  }
   // emit the record-only movement event (opt-out; audit only)
   let emitted = null;
   try {
@@ -359,7 +366,212 @@ function moveActorOneHex(campaign, actor, destHexId, opts){
       emitted = ev;
     }
   } catch(e){ /* event emission never blocks a move */ }
-  return { ok: true, result: res, event: emitted };
+  return { ok: true, result: res, event: emitted, encounterId: encounterId };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// F-3 — the per-hex JOURNEY advance (the interactive autopilot). advanceJourneyOneHex
+// steps ONE hex along the route via _moveStep; advanceJourneyDay (⏩) spends the day's
+// budget; advanceJourneyToDestination (⏭) runs to arrival. All three HALT on an encounter,
+// journey.paused (F-8b), budget exhaustion, or arrival. The day-grained invariants are
+// preserved: the nav throw fires once per travel day (inside _moveStep), and fatigue is
+// applied once per closed day (_closeTravelDay). This is the NEW interactive path — it does
+// NOT touch the shipped slot-30 whole-day resolver (which stays byte-identical). A COMPLEX
+// mover (army / unit / voyage / lost) or a sparse (unauthored) next hex delegates to the
+// proven whole-day path via _advanceViaWholeDay, so every existing march/voyage still works.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// materialize an encounter drawn by _moveStep into a real enc- entity (shared by both verbs)
+function _materializeMoveEncounter(campaign, m, enc, trigger){
+  if(!enc || !enc.encounterRecord || !enc.encounterRecord.draw) return null;
+  if(typeof ACKS.createEncounterFromDraw !== 'function') return null;
+  const er = enc.encounterRecord;
+  try {
+    return ACKS.createEncounterFromDraw(campaign, er.draw, {
+      id: er.id, trigger: trigger || 'movement',
+      partySide: { partyId: (m.kind === 'party' ? m.entity.id : (m.journey && m.journey.partyId)) || null,
+                   journeyId: m.journey ? m.journey.id : null,
+                   characterIds: m.memberIds.slice(), faceCharacterId: null, sizeCount: m.memberIds.length || 1 },
+      distance: er.distance || null,
+      onDayInMonth: campaign.currentDayInMonth || undefined
+    });
+  } catch(e){ return null; }
+}
+
+// A journey the per-hex path handles directly (else the whole-day resolver owns it).
+function _journeyPerHexSteppable(journey){
+  return !!(journey && !journey.armyId && !journey.unitId && !journey.shipId && !journey.isLost);
+}
+
+// Delegate a whole day to the shipped resolver (army/unit/voyage/lost/sparse). Keeps every
+// existing march + voyage working through the proven, oracle-locked path.
+function _advanceViaWholeDay(campaign, journey, ctx){
+  if(typeof ACKS.advanceJourneyOneDay === 'function'){
+    const rec = ACKS.advanceJourneyOneDay(campaign, journey, ctx || {});
+    return { ok: !!rec, delegated: true, dayClosed: true, stepped: !!rec,
+             arrived: journey.status === 'arrived', record: rec || null,
+             halted: !!(rec && rec.newIsLost) };
+  }
+  return { ok: false, reason: 'no-whole-day-resolver' };
+}
+
+// The current open (in-progress) travel-day record on the journey, if it belongs to this world day.
+function _currentTravelDayRecord(journey, worldOrd){
+  const days = journey.days || [];
+  const last = days.length ? days[days.length - 1] : null;
+  return (last && last._mvOpen && last._mvWorldOrd === worldOrd) ? last : null;
+}
+// Open a fresh travel-day record (closing any stale still-open one first, so an abandoned mid-day
+// still applies its fatigue). Advances currentDayIndex. The record shape mirrors the essential
+// fields of the whole-day dayRecord the app + integrators read (Lane B enriches it).
+function _openTravelDay(campaign, journey, worldOrd, startHexId){
+  const days = journey.days || (journey.days = []);
+  const stale = days.length ? days[days.length - 1] : null;
+  if(stale && stale._mvOpen) _closeTravelDay(campaign, journey, stale);
+  const rec = {
+    dayIndex: (journey.currentDayIndex || 0) + 1,
+    hexId: startHexId || journey.currentHexId || journey.startHexId || null,
+    pace: (typeof ACKS.journeyEffectivePace === 'function') ? ACKS.journeyEffectivePace(campaign, journey) : (journey.pace || 'normal'),
+    milesTraveled: 0, hexesTraveled: 0, hexPath: [], arrivedAt: journey.currentHexId || null,
+    navigationThrow: null, fording: null, encounters: [], notableEvents: [], fatigueAccumulated: 0,
+    status: 'pending', perHex: true, _mvOpen: true, _mvWorldOrd: worldOrd
+  };
+  days.push(rec);
+  journey.currentDayIndex = rec.dayIndex;
+  return rec;
+}
+// Finalize an open travel day: apply the day-grained fatigue streak (RR p.279) once, run the
+// F-8a survival day-close hook (Slice 3 / Lane D fills it), and mark the record committed.
+function _closeTravelDay(campaign, journey, rec){
+  if(!rec || !rec._mvOpen) return;
+  const pace = rec.pace || 'normal';
+  const simplifiedFatigue = (typeof ACKS.isHouseRuleEnabled === 'function') && ACKS.isHouseRuleEnabled(campaign, 'simplified-fatigue');
+  const strenuous = (pace === 'normal' || pace === 'forced-march');
+  if(!simplifiedFatigue && strenuous && rec.hexesTraveled > 0){
+    const CYCLE = (ACKS.JOURNEY_FATIGUE_CYCLE_DAYS != null) ? ACKS.JOURNEY_FATIGUE_CYCLE_DAYS : 6;
+    const before = journey.fatigueDays || 0;
+    journey.fatigueDays = (pace === 'forced-march') ? Math.max(before, CYCLE) : before + 1;
+    rec.fatigueAccumulated = journey.fatigueDays - before;
+  }
+  rec._mvOpen = false;
+  rec.status = 'committed';
+  // F-8a — the per-day provisioning/survival day-close seam (Slice 3 registers a default; Lane D
+  // swaps it from acks-engine-provisioning.js). Fires once per closed travel day. Never blocks.
+  if(typeof ACKS._movementDayCloseHook === 'function'){ try { ACKS._movementDayCloseHook(campaign, journey, rec); } catch(e){ /* survival never blocks a close */ } }
+}
+
+function advanceJourneyOneHex(campaign, journey, ctx){
+  ctx = ctx || {};
+  const j = (typeof journey === 'string') ? _findById(campaign.journeys, journey) : journey;
+  if(!j) return { ok: false, reason: 'no-journey' };
+  if(j.status !== 'in-transit') return { ok: false, reason: 'not-in-transit' };
+  if(j.paused && !ctx.ignorePaused) return { ok: false, reason: 'paused' };
+  if(!_journeyPerHexSteppable(j)) return _advanceViaWholeDay(campaign, j, ctx);
+  const worldOrd = movementWorldOrd(campaign);
+  let dist = (typeof ACKS.computeJourneyDistance === 'function') ? ACKS.computeJourneyDistance(campaign, j) : { total: 0, covered: 0, remaining: 0 };
+  if(dist.remaining <= 0){   // already at the destination
+    const openRec = _currentTravelDayRecord(j, worldOrd); if(openRec) _closeTravelDay(campaign, j, openRec);
+    j.status = 'arrived'; j.currentHexId = j.destinationHexId || j.currentHexId;
+    return { ok: true, stepped: false, arrived: true, dayClosed: true };
+  }
+  let route = [];
+  try { route = ACKS.journeyRoute(campaign, j) || []; } catch(e){ route = []; }
+  const nextPos = dist.covered + 1;
+  const nextStep = (nextPos < route.length) ? route[nextPos] : null;
+  const nextHexId = nextStep ? nextStep.hexId : null;
+  if(!nextHexId) return _advanceViaWholeDay(campaign, j, ctx);   // sparse/unauthored route → whole-day path
+  const res = _moveStep(campaign, j, nextHexId, ctx);
+  if(!res.ok){
+    const openRec = _currentTravelDayRecord(j, worldOrd);
+    if(res.reason === 'budget'){ if(openRec) _closeTravelDay(campaign, j, openRec); return { ok: true, stepped: false, dayClosed: true, reason: 'budget' }; }
+    if(res.reason === 'fording'){ if(openRec){ openRec.fording = res.ford || { result: 'failed' }; _closeTravelDay(campaign, j, openRec); } return { ok: false, stepped: false, reason: 'fording', halted: true, dayClosed: true, ford: res.ford || null }; }
+    return { ok: false, stepped: false, reason: res.reason, detail: res };
+  }
+  // record the step into the in-progress day
+  let rec = _currentTravelDayRecord(j, worldOrd) || _openTravelDay(campaign, j, worldOrd, res.fromHexId);
+  const toHex = _findById(campaign.hexes, res.toHexId);
+  rec.hexesTraveled += 1;
+  rec.milesTraveled += res.perHexCost;
+  rec.hexPath.push({ hexId: res.toHexId, q: (toHex && toHex.coord) ? toHex.coord.q : null, r: (toHex && toHex.coord) ? toHex.coord.r : null });
+  rec.arrivedAt = res.toHexId;
+  if(res.nav && !rec.navigationThrow) rec.navigationThrow = { rolled: res.nav.rolled, target: res.nav.target, bonus: res.nav.bonus || 0, success: !!res.nav.success };
+  j.lastTravelWorldOrd = worldOrd;   // one leg per world day — the slot-30 auto-advance skips this journey today
+  // encounter → materialize + halt + close the day (RAW: the party stops when it meets something).
+  let encId = null;
+  if(res.encounter && res.encounter.encounterRecord){
+    const m = resolveMover(campaign, j);
+    const e = _materializeMoveEncounter(campaign, m, res.encounter, 'journey-travel');
+    encId = e ? e.id : (res.encounter.encounterRecord.id || null);
+    rec.encounters.push({ kind: 'wandering-roll', encounterId: encId });
+    if(res.encounter.notableEvent) rec.notableEvents.push({ kind: res.encounter.notableEvent.kind, type: res.encounter.notableEvent.type || null, text: res.encounter.notableEvent.label });
+  }
+  // arrival?
+  dist = ACKS.computeJourneyDistance(campaign, j);
+  const arrived = (dist.remaining <= 0) || (j.currentHexId && j.currentHexId === j.destinationHexId);
+  if(arrived){ j.status = 'arrived'; _closeTravelDay(campaign, j, rec); return { ok: true, stepped: true, toHexId: res.toHexId, arrived: true, dayClosed: true, encounterId: encId }; }
+  if(encId){ _closeTravelDay(campaign, j, rec); return { ok: true, stepped: true, toHexId: res.toHexId, halted: true, dayClosed: true, encounterId: encId }; }
+  if(res.endDay){ _closeTravelDay(campaign, j, rec); return { ok: true, stepped: true, toHexId: res.toHexId, dayClosed: true, reason: 'fording-crossed' }; }
+  return { ok: true, stepped: true, toHexId: res.toHexId, dayClosed: false };
+}
+
+// ⏩ — advance the journey by the REST of today's hex budget (one travel day). Loops the single-hex
+// step until the day closes (budget spent / arrival / encounter / ford) or the journey is paused.
+function advanceJourneyDay(campaign, journey, ctx){
+  ctx = ctx || {};
+  const j = (typeof journey === 'string') ? _findById(campaign.journeys, journey) : journey;
+  if(!j) return { ok: false, reason: 'no-journey' };
+  const steps = []; let guard = 0;
+  while(guard++ < 400){
+    const r = advanceJourneyOneHex(campaign, j, ctx);
+    steps.push(r);
+    if(r.delegated) return { ok: r.ok, days: 1, delegated: true, arrived: r.arrived, halted: r.halted, steps };
+    if(r.reason === 'paused') return { ok: false, reason: 'paused', steps, halted: true };
+    if(r.halted) return { ok: true, halted: true, reason: r.reason || 'encounter', arrived: !!r.arrived, encounterId: r.encounterId || null, steps, dayClosed: true };
+    if(r.arrived) return { ok: true, arrived: true, dayClosed: true, steps };
+    if(r.dayClosed) return { ok: true, dayClosed: true, steps };
+    if(!r.ok) return { ok: false, reason: r.reason, steps };
+  }
+  return { ok: false, reason: 'guard', steps };
+}
+
+// ⏭ — advance the journey to its DESTINATION. Loops whole days (advanceJourneyDay) until arrival,
+// an encounter/ford halt, or a pause. Each day resets the mover's budget (the Day Clock is NOT moved —
+// this is a per-journey fast-forward, mirroring advanceJourneyOneDay's "this journey only" semantics).
+function advanceJourneyToDestination(campaign, journey, ctx){
+  ctx = ctx || {};
+  const j = (typeof journey === 'string') ? _findById(campaign.journeys, journey) : journey;
+  if(!j) return { ok: false, reason: 'no-journey' };
+  const days = []; let guard = 0;
+  while(guard++ < 400 && j.status === 'in-transit'){
+    if(j.paused && !ctx.ignorePaused) return { ok: false, reason: 'paused', days: days.length, halted: true };
+    const r = advanceJourneyDay(campaign, j, ctx);
+    days.push(r);
+    if(r.arrived) return { ok: true, arrived: true, days: days.length };
+    if(r.halted) return { ok: true, halted: true, reason: r.reason, encounterId: r.encounterId || null, days: days.length };
+    if(!r.ok) return { ok: false, reason: r.reason, days: days.length };
+    // a whole day closed with no progress (e.g. halted-pace) would loop forever — bail defensively.
+    if(!r.delegated && r.dayClosed){
+      const anyMoved = (r.steps || []).some(s => s.stepped);
+      if(!anyMoved) return { ok: true, stalled: true, days: days.length };
+    }
+    // ADVANCE the mover's budget to a fresh day (per-journey fast-forward): roll each member's
+    // dailyMovement ledger + the journey's nav marker forward so the next day starts full. The
+    // journey's own world-day clock (lastTravelWorldOrd) already advanced; here we free the budget.
+    _rollMoverToNextDay(campaign, j);
+  }
+  return { ok: j.status === 'arrived', arrived: j.status === 'arrived', days: days.length };
+}
+
+// Free the mover's per-day budget for a fresh travel day WITHIN a ⏭ fast-forward (which does NOT move
+// the global Day Clock). Clearing each member's dailyMovement ledger resets the budget for the current
+// world-ordinal (a null ledger reads as a fresh day); the journey's once-per-day nav marker is re-armed
+// so the next day throws again. (The real Day Clock, when it ticks, keys off lastTravelWorldOrd and
+// skips a journey already fast-forwarded past it — so no double-move.)
+function _rollMoverToNextDay(campaign, journey){
+  const m = resolveMover(campaign, journey);
+  if(!m) return;
+  for(const id of m.memberIds){ const c = _findById(campaign.characters, id); if(c) c.dailyMovement = null; }
+  const host = _moverNavHost(m); if(host) host._mvNavOrd = null;
 }
 
 // ── the self-registered `movement` event kind (record-only, wizard opt-out) ──
@@ -378,6 +590,8 @@ Object.assign(ACKS, {
   moverPerHexCost,
   // F-2 step + Move verb
   _moveStep, moveActorOneHex,
+  // F-3 per-hex journey advance (+ the ⏩ day / ⏭ destination loops)
+  advanceJourneyOneHex, advanceJourneyDay, advanceJourneyToDestination,
   // F-7 regime read (the shape/write lands in Slice 3)
   moverRegime
 });
