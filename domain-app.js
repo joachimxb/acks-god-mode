@@ -922,6 +922,15 @@ const _component = {
     if(!ch || !A || typeof A.characterConditionInfo !== 'function') return [];
     return A.characterConditionInfo(ch).conditions || [];
   },
+  // CE-6 — the condition strip: every PRESENT condition (intrinsic + derived-present like fatigued) + its
+  // resolved effect + a severity hint, for the character-sheet readout. Pure read via the engine accessor.
+  characterConditionStripRows(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterConditionStrip !== 'function') return [];
+    return A.characterConditionStrip(this.currentCampaign, ch);
+  },
+  // severity -> the H1 token-backed classes (never raw colour): danger = --c-danger, warning = --c-warning.
+  conditionSeverityClass(sev){ return sev === 'danger' ? 'bdr-red accent-red' : (sev === 'cleared' ? 'text-muted' : 'bdr-amber accent-amber'); },
   conditionTypeOptions(){ return (window.ACKS && window.ACKS.PERSISTENT_CONDITIONS) || []; },
   applyConditionModal: { open:false, characterId:null, charName:'', conditionId:'hypothermic' },
   applyConditionDef(){

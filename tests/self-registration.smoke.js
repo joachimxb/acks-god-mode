@@ -273,18 +273,19 @@ const EXP_LOAD_MIGRATIONS = [
   [110,'reconcile-stashes'],[120,'reconcile-treasury-scalars'],[130,'lazy-default-v1-reservations'],
   [140,'legacy-hex-lairs'],[150,'garrison-units-to-units'],[155,'strip-unit-mirror'],[160,'agricultural-to-projects'],
   [170,'stronghold-to-constructibles'],[180,'reconcile-party-membership'],[190,'sync-party-camp-stashes'],
-  [200,'domain-variants-retire-pastoralist-economy']   // Phase 5 Tribal Domains PT-0 (2026-06-24)
+  [200,'domain-variants-retire-pastoralist-economy'],  // Phase 5 Tribal Domains PT-0 (2026-06-24)
+  [210,'reconcile-conditions']   // Condition Effects CE-1 (2026-06-30) — materialize derived conditions at load
 ];
 
-section('the seeded load-migration pipeline (T6: + strip-unit-mirror @155)');
+section('the seeded load-migration pipeline (T6: + strip-unit-mirror @155; CE: + reconcile-conditions @210)');
 const lm = ACKS.registeredLoadMigrations();
-ok('exactly 21 passes seeded', lm.length === 21, 'got ' + lm.length);
+ok('exactly 22 passes seeded', lm.length === 22, 'got ' + lm.length);
 ok('passes in the exact order with the exact order numbers',
   JSON.stringify(lm.map(p => [p.order, p.name])) === JSON.stringify(EXP_LOAD_MIGRATIONS),
   'got ' + JSON.stringify(lm.map(p => [p.order, p.name])));
 ok('every pass has a function', lm.every(p => typeof p.fn === 'function'));
 ok('registeredLoadMigrations() returns a fresh array (mutating it cannot corrupt the store)',
-  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 21; })());
+  (function(){ const a = ACKS.registeredLoadMigrations(); a.push({}); return ACKS.registeredLoadMigrations().length === 22; })());
 
 section('registerLoadMigration — the kernel (explicit-order pipeline)');
 ok('registerLoadMigration exported', typeof ACKS.registerLoadMigration === 'function');
