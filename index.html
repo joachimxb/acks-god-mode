@@ -13381,39 +13381,75 @@ document.addEventListener('alpine:init', () => {
                   <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
                 </template>
                 <!-- unified held / consumed rations table -->
+                <!-- rations: pooled (Share rations ON) = one party-aggregate table; own-stores (OFF) = a
+                     per-character table (each dips into their OWN carried stores, RR p.276). The tickbox
+                     decides the shape (Joachim 2026-07-01). Animals feed from the party's stores either way. -->
                 <div x-show="rationsShown()" x-data="{ get cons(){ return provConsumption(pt); } }">
-                  <table class="text-sm w-full max-w-lg">
-                    <thead>
-                      <tr class="text-left text-xs opacity-60 border-b border-ink/30">
-                        <th class="font-normal py-0.5 pr-4"></th>
-                        <th class="font-normal py-0.5 pr-4" title="Consumed per day — one ration + one water per individual (RR p.276)">Per day</th>
-                        <th class="font-normal py-0.5 pr-4" title="Days the party currently holds — members' carried stores + the party camp">Party holds</th>
-                        <th class="font-normal py-0.5" title="Whole days before the first traveller runs short">Days left</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr class="border-b border-dashed border-hairline">
-                        <td class="py-1 pr-4">🍖 Food</td>
-                        <td class="py-1 pr-4 font-mono" x-text="cons.people.rationsPerDay + '/day'"></td>
-                        <td class="py-1 pr-4 font-mono" x-text="partyHeldFoodDays(pt) + ' d'"></td>
-                        <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (partySupplyDaysLeft(pt) < 3 ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + partySupplyDaysLeft(pt))"></td>
-                      </tr>
-                      <tr class="border-b border-dashed border-hairline">
-                        <td class="py-1 pr-4">💧 Water</td>
-                        <td class="py-1 pr-4 font-mono" x-text="cons.people.waterPerDay + '/day'"></td>
-                        <td class="py-1 pr-4 font-mono" x-text="partyHeldWaterDays(pt) + ' d'"></td>
-                        <td class="py-1 font-mono opacity-50" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞' : '—'"></td>
-                      </tr>
-                      <template x-if="cons.animals.count">
-                        <tr class="border-b border-dashed border-hairline">
-                          <td class="py-1 pr-4">🐴 Animals <span class="opacity-60 text-xs" x-text="'×'+cons.animals.count"></span></td>
-                          <td class="py-1 pr-4 font-mono text-xs" x-text="'feed '+cons.animals.foodSt+' st · water '+cons.animals.waterSt+' st'"></td>
-                          <td class="py-1 pr-4"></td>
-                          <td class="py-1"></td>
+                  <!-- POOLED — one party Food/Water table -->
+                  <div x-show="provSharesRations(pt)">
+                    <table class="text-sm w-full max-w-lg">
+                      <thead>
+                        <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                          <th class="font-normal py-0.5 pr-4"></th>
+                          <th class="font-normal py-0.5 pr-4" title="Consumed per day — one ration + one water per individual (RR p.276)">Per day</th>
+                          <th class="font-normal py-0.5 pr-4" title="Days the party currently holds — members' carried stores + the party camp, pooled">Party holds</th>
+                          <th class="font-normal py-0.5" title="Whole days before the first traveller runs short">Days left</th>
                         </tr>
-                      </template>
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        <tr class="border-b border-dashed border-hairline">
+                          <td class="py-1 pr-4">🍖 Food</td>
+                          <td class="py-1 pr-4 font-mono" x-text="cons.people.rationsPerDay + '/day'"></td>
+                          <td class="py-1 pr-4 font-mono" x-text="partyHeldFoodDays(pt) + ' d'"></td>
+                          <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (partySupplyDaysLeft(pt) < 3 ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + partySupplyDaysLeft(pt))"></td>
+                        </tr>
+                        <tr class="border-b border-dashed border-hairline">
+                          <td class="py-1 pr-4">💧 Water</td>
+                          <td class="py-1 pr-4 font-mono" x-text="cons.people.waterPerDay + '/day'"></td>
+                          <td class="py-1 pr-4 font-mono" x-text="partyHeldWaterDays(pt) + ' d'"></td>
+                          <td class="py-1 font-mono opacity-50" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞' : '—'"></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <!-- OWN STORES — a per-character table (each eats from their own carried stores) -->
+                  <div x-show="!provSharesRations(pt)">
+                    <table class="text-sm w-full max-w-lg">
+                      <thead>
+                        <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                          <th class="font-normal py-0.5 pr-4" title="Each traveller eats 1 ration + 1 water/day from their OWN stores (RR p.276)">Each · 1/day</th>
+                          <th class="font-normal py-0.5 pr-4" title="This member's own carried food">🍖 Food</th>
+                          <th class="font-normal py-0.5 pr-4" title="This member's own carried water">💧 Water</th>
+                          <th class="font-normal py-0.5" title="Whole days before THIS member runs short from their own stores">Days left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="mp in partyMemberProvisioning(pt)" :key="mp.id">
+                          <tr class="border-b border-dashed border-hairline">
+                            <td class="py-1 pr-4" x-text="mp.name"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="mp.foodDays + ' d'"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="mp.waterDays + ' d'"></td>
+                            <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (mp.low ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + mp.daysLeft)"></td>
+                          </tr>
+                        </template>
+                        <template x-if="partyCampReserve(pt)">
+                          <tr class="border-b border-dashed border-hairline opacity-70">
+                            <td class="py-1 pr-4">⛺ Party camp <span class="text-xs opacity-60">· reserve</span></td>
+                            <td class="py-1 pr-4 font-mono" x-text="partyCampReserve(pt).foodDays + ' d'"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="partyCampReserve(pt).waterDays + ' d'"></td>
+                            <td class="py-1 font-mono opacity-50" title="Shared camp stores aren't auto-eaten while each dips into their own — tick Share rations to pool them">—</td>
+                          </tr>
+                        </template>
+                        <template x-if="!partyMemberProvisioning(pt).length">
+                          <tr><td class="py-1 pr-4 opacity-60 italic" colspan="4">No individual members to provision.</td></tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <!-- animals feed from the party's stores either way -->
+                  <template x-if="cons.animals.count">
+                    <div class="text-xs opacity-70 mt-1">🐴 Animals ×<span x-text="cons.animals.count"></span> — feed <span class="font-mono" x-text="cons.animals.foodSt"></span> st · water <span class="font-mono" x-text="cons.animals.waterSt"></span> st/day</div>
+                  </template>
                 </div>
                 <!-- fatigue + carry + pace (derived) -->
                 <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2" x-data="{ get haul(){ return provHaul(pt); }, get load(){ return provLoadReport(pt); } }">
@@ -21516,7 +21552,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bc971c24"></script>
 <script src="domain-app-party.js?v=a929c989"></script>
-<script src="domain-app-provisioning.js?v=59e6cade"></script>
+<script src="domain-app-provisioning.js?v=ab1ab694"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
 <script src="domain-app-trade.js?v=0b449ec0"></script>

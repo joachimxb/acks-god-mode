@@ -57,6 +57,34 @@
     const res = A.balanceGroupLoad(this.currentCampaign, mover);
     this.markDirty(); this.schedulePersist();
     this.showToast(res && res.moved ? ('⚖ Load balanced — ' + res.moved + ' item' + (res.moved === 1 ? '' : 's') + ' handed around (max ' + res.maxAfterSt + ' st).') : 'Nothing to rebalance — the load is already even.');
+  },
+
+  // ── Provisioning table shape (Joachim 2026-07-01): the Share-rations tickbox decides it ──
+  // Pooled (Share rations ON) → one party-aggregate Food/Water table; own-stores (OFF) → a per-character
+  // table, since each traveller then dips into their OWN carried stores (RR p.276, RR-literal).
+  provSharesRations(mover){ const rs = this.provRegimeState(mover); return !!(rs && rs.shareRations && rs.shareRations.value); },
+  // Per-member food/water when NOT sharing: each member's own carried rations + water-days, and the whole
+  // days left before THAT member runs short (each eats 1 ration + 1 water/day). [] when not a party.
+  partyMemberProvisioning(pt){
+    const A = window.ACKS;
+    const members = (typeof this.partyMembers === 'function') ? this.partyMembers(pt) : [];
+    return members.map(ch => {
+      const foodDays = (A && A.rationDaysAvailable) ? (A.rationDaysAvailable(ch) || 0) : 0;
+      const waterDays = Number(ch.waterDaysCarried) || 0;
+      const daysLeft = Math.floor(Math.min(foodDays, waterDays));
+      return { id: ch.id, name: ch.name || 'member', foodDays: Math.round(foodDays * 10) / 10, waterDays: Math.round(waterDays * 10) / 10, daysLeft, low: daysLeft < 3 };
+    });
+  },
+  // The party camp's held stores (a shared reserve that isn't auto-eaten while dipping into own stores) —
+  // shown as a reserve row in the per-character table so its numbers reconcile with the pooled total.
+  partyCampReserve(pt){
+    const A = window.ACKS, c = this.currentCampaign;
+    const camp = (A && A.partyCampStash) ? A.partyCampStash(c, pt.id) : null;
+    if(!camp) return null;
+    const foodDays = (A.rationDaysAvailable ? (A.rationDaysAvailable(camp) || 0) : 0);
+    const waterDays = Number(camp.waterDaysCarried) || 0;
+    if(foodDays <= 0 && waterDays <= 0) return null;
+    return { foodDays: Math.round(foodDays * 10) / 10, waterDays: Math.round(waterDays * 10) / 10 };
   }
   });
 })();
