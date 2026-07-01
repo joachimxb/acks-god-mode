@@ -6263,6 +6263,7 @@ const _component = {
     if(!ch || !ch.partyId) return;
     this.closeCharacterEditor();
     this.openPartyView(ch.partyId);
+    this.openPartyModal(ch.partyId);   // Part 2 — the character-sheet party link opens the full party modal
   },
   // Jump to Characters › Parties, select the party, and scroll its detail into view.
   openPartyView(partyId){

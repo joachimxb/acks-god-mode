@@ -24,6 +24,23 @@
   partyEdit: { dragCharId: null },   // §2.1 member-drag — the dragged character id (Senate pattern)
   partySplit: { open: false, sourcePartyId: null, departing: {}, campItemIds: {}, newName: '', mode: 'stay', rationsToNew: 0, waterToNew: 0 },
 
+  // ── the full-detail party MODAL (Roster ▸ Groups quick box → ⚙ Manage) ─────
+  // Two-tier party surface (Joachim 2026-07-01): the Groups view shows a succinct quick-access box
+  // (summary + Move / Send-on-journey / Manage) when a party is selected; ⚙ Manage — and the party
+  // name, and a character sheet's "in party …" link — open THIS modal with all the details (membership
+  // drag, split/merge/muster, provisioning & load, members table, camp, chronicle). Transient state.
+  partyModalId: null,
+  openPartyModal(partyId){ if(!partyId) return; if(typeof this.selectGroup === 'function') this.selectGroup('party', partyId); this.partyModalId = partyId; },
+  closePartyModal(){ this.partyModalId = null; },
+  partyModalParty(){ return this.partyModalId ? ((this.currentCampaign?.parties || []).find(p => p && p.id === this.partyModalId) || null) : null; },
+  // Is the party on the map (a hex position, directly or via its journey)? Gates the quick-box Move/Journey.
+  partyOnMap(pt){
+    const A = window.ACKS;
+    if(!pt) return false;
+    if(A && typeof A.resolveMover === 'function'){ const m = A.resolveMover(this.currentCampaign, pt.id); return !!(m && m.currentHexId); }
+    return !!pt.currentHexId;
+  },
+
   // ── §2.1 party-member DRAG (Senate pattern; H1 drop ring) ──────────────────
   partyDragStart(charId){ this.partyEdit.dragCharId = charId; },
   partyDragEnd(){ this.partyEdit.dragCharId = null; },   // two-clear: cleared here AND in each drop handler

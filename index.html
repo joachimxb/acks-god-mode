@@ -11209,6 +11209,137 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <!-- Party quick-access box (like the Roster ▸ Characters action box): a succinct summary + the
+           Move / Send-on-journey / Manage actions. The party name and ⚙ Manage open the full detail modal
+           (partyModalId); Split / Merge / Muster and all the deep mechanics live there. Shown when a party is
+           selected. (Part 2, Joachim 2026-07-01 — the leaner quick box.) -->
+      <template x-if="groupSelKind==='party' && selectedParty()">
+        <div class="vellum border border-ink rounded p-4 mb-3" x-cloak>
+          <div class="flex flex-wrap justify-between items-start gap-2 mb-2">
+            <div>
+              <button @click="openPartyModal(selectedParty().id)" class="font-bold text-lg underline hover:opacity-80 text-left" title="Open the full party view (membership, provisioning, camp, chronicle, split / merge / muster)"><span x-text="selectedParty().name"></span></button>
+              <div class="text-sm text-muted" x-text="partyMemberCount(selectedParty()) + ' member' + (partyMemberCount(selectedParty())===1?'':'s') + ' · ' + (selectedParty().currentHexId ? journeyHexLabel(selectedParty().currentHexId) : 'no hex set') + (selectedParty().autoFormed ? ' · travelling party' : '')"></div>
+            </div>
+            <button @click="openPartyModal(selectedParty().id)" class="btn btn-primary text-sm" title="Membership, provisioning, camp, chronicle, split / merge / muster">⚙ Manage party…</button>
+          </div>
+          <!-- one-line provisioning summary (full controls live in ⚙ Manage) -->
+          <div class="text-sm flex flex-wrap gap-x-4 gap-y-1 mb-2" x-data="{ get cons(){ return provConsumption(selectedParty()); }, get haul(){ return provHaul(selectedParty()); }, get load(){ return provLoadReport(selectedParty()); } }">
+            <span title="Food + water the party consumes per day (RR p.276)">🍖 <span class="font-semibold" x-text="cons.people.rationsPerDay"></span>/day · 💧 <span class="font-semibold" x-text="cons.people.waterPerDay"></span>/day</span>
+            <span title="Party carrying capacity">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+            <template x-if="load.slowestMilesPerDay!==null"><span title="Party pace = the slowest walker's band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span></template>
+          </div>
+          <!-- actions: Move · Send on journey · Manage -->
+          <div class="flex flex-wrap gap-1.5">
+            <button @click="mvBeginMoveOnMap(selectedParty().id)" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? 'hover-tint' : 'opacity-40 cursor-not-allowed'" class="btn text-sm" :title="partyOnMap(selectedParty()) ? 'Move the party across the map, one hex at a time — pick a hex on the Map' : 'The party has no map position yet — set its hex first (⚙ Manage)'">
+              <span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span>
+            </button>
+            <template x-if="selectedParty().activeJourneyId && journeyById(selectedParty().activeJourneyId)">
+              <button @click="journeyOpenDetail(selectedParty().activeJourneyId)" class="btn text-sm" style="background:var(--c-ink);color:var(--c-parchment);border-color:var(--c-ink)" title="This party is on a journey — open it">⛺ on journey →</button>
+            </template>
+            <template x-if="!(selectedParty().activeJourneyId && journeyById(selectedParty().activeJourneyId))">
+              <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? 'hover-tint' : 'opacity-40 cursor-not-allowed'" class="btn text-sm" title="Start a journey with the whole party">🧭 Send on journey</button>
+            </template>
+            <button @click="openPartyModal(selectedParty().id)" class="btn text-sm" title="Split, merge, muster, membership, camp, chronicle…">⚙ Manage</button>
+          </div>
+        </div>
+      </template>      <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
+           loose units as three clickable-row tables. Clicking a row opens that group's
+           detail below (the armies table is the model). A party can be mustered into an
+           army from its detail; a unit marching to a muster point shows as its own row
+           until it joins, then only under the army. -->
+
+      <!-- ── PARTIES ────────────────────────────────────────────────────────── -->
+      <div class="vellum border border-ink rounded p-4 mb-3">
+        <div class="flex justify-between items-baseline mb-2">
+          <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
+          <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="btn text-sm">+ New party</button>
+        </div>
+        <!-- Founder picker: a party is started by one character; others join from the same hex. -->
+        <template x-if="newPartyPickerOpen">
+          <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
+            <label class="text-sm">Start a party with
+              <select x-model="newPartyFounderId" class="block mt-0.5">
+                <option value="">— pick a character —</option>
+                <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
+                  <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
+                </template>
+              </select>
+            </label>
+            <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">Create party</button>
+            <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="btn text-sm">Cancel</button>
+            <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
+            <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
+          </div>
+        </template>
+        <template x-if="(currentCampaign?.parties?.length || 0) === 0">
+          <p class="text-base italic opacity-60 py-4 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex.</p>
+        </template>
+        <template x-if="(currentCampaign?.parties?.length || 0) > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th></th><th>Party</th><th>Leader</th><th>Members</th><th>Total</th><th>Location</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="r in partyRows()" :key="r.id">
+                <tr :class="(groupSelKind==='party' && partySelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('party', r.id)">
+                  <td x-text="r.icon"></td>
+                  <td><button @click.stop="openPartyModal(r.id)" class="underline font-semibold text-left" title="Open the full party view (⚙ Manage)" x-text="r.name"></button></td>
+                  <td><span x-show="r.leaderName" x-text="r.leaderName"></span><span x-show="!r.leaderName" class="opacity-50">—</span></td>
+                  <td class="font-mono" x-text="r.memberCount"></td>
+                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
+                  <td x-text="r.hexLabel"></td>
+                  <td><span x-show="r.onTheMove" class="text-xs text-sky-700" title="On a journey">⛺ travelling</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- ── ARMIES (relocated from World ▸ 🎖 Armies — §12) ─────────────────── -->
+      <div class="vellum border border-ink rounded p-4 mb-3">
+        <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+          <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
+          <button @click="openMusterArmy()" class="btn btn-primary text-sm" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
+        </div>
+        <template x-if="armiesRows().length === 0">
+          <p class="text-base italic opacity-60 py-4 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — or turn a party into an army with the 🎖 Muster button on its detail. (A character can also raise one from his sheet, a ruler from his domain's Military tab.)</p>
+        </template>
+        <template x-if="armiesRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th></th><th>Army</th><th>Leader</th><th>Troops</th><th>BR</th><th>Location</th><th>Stance</th><th>Speed</th><th>State</th></tr></thead>
+            <tbody>
+              <template x-for="row in armiesRows()" :key="row.army.id">
+                <tr :class="(groupSelKind==='army' && armiesSelectedId === row.army.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('army', row.army.id)">
+                  <td x-text="row.icon"></td>
+                  <td><button class="underline font-semibold text-left" x-text="row.army.name || row.army.id"></button></td>
+                  <td><span x-show="row.army.leaderCharacterId" x-text="row.leaderName"></span><span x-show="!row.army.leaderCharacterId" class="opacity-60">—</span></td>
+                  <td class="font-mono" x-text="row.troops"></td>
+                  <td class="font-mono" x-text="row.br"></td>
+                  <td x-text="row.location"></td>
+                  <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
+                  <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
+                  <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- ── DETAIL panel — the clicked group ───────────────────────────────── -->
+      <div id="group-detail">
+        <!-- PARTY detail (the full party card, now driven by the selection) -->
+      <!-- Full party detail MODAL — everything (membership drag, split / merge / muster, provisioning & load,
+           members table, camp, chronicle). Opened by the quick box's name / ⚙ Manage, or a character-sheet
+           party link (openPartyModal). Gated on partyModalId; openPartyModal also selects the party so the
+           inner blocks (each self-gated on the selected party) render. .modal-overlay is fixed-position, so
+           its place inside #group-detail is immaterial. -->
+        <template x-if="partyModalId && selectedParty()">
+          <div class="modal-overlay p-4" @click.self="closePartyModal()">
+            <div class="modal-card w-full" style="max-width:60rem; max-height:92vh; overflow-y:auto">
+              <div class="flex justify-between items-center gap-2 mb-3">
+                <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-people"></use></svg> Manage party</h3>
+                <button @click="closePartyModal()" class="btn text-sm" title="Close">✕ Close</button>
+              </div>
       <!-- Selected-party membership & operations (§2.1 member drag + split + merge + follow) -->
       <div x-show="groupSelKind==='party' && selectedParty()" class="vellum border border-ink rounded p-4 mb-3" x-cloak>
         <template x-if="selectedParty()">
@@ -11285,7 +11416,6 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
       </div>
-
       <!-- MV2:agent-4 (party-view zone): regime-toggle strip + group food/water-per-day readout (party-canonical, journey-mirrored) -->
       <!-- Movement 2.0 Lane D — the selected party's provisioning regime + daily consumption. The regime
            is party-canonical (D8) and available even when the party is stationary; toggling it here also
@@ -11318,92 +11448,6 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
       </template>
-      <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
-           loose units as three clickable-row tables. Clicking a row opens that group's
-           detail below (the armies table is the model). A party can be mustered into an
-           army from its detail; a unit marching to a muster point shows as its own row
-           until it joins, then only under the army. -->
-
-      <!-- ── PARTIES ────────────────────────────────────────────────────────── -->
-      <div class="vellum border border-ink rounded p-4 mb-3">
-        <div class="flex justify-between items-baseline mb-2">
-          <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
-          <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="btn text-sm">+ New party</button>
-        </div>
-        <!-- Founder picker: a party is started by one character; others join from the same hex. -->
-        <template x-if="newPartyPickerOpen">
-          <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
-            <label class="text-sm">Start a party with
-              <select x-model="newPartyFounderId" class="block mt-0.5">
-                <option value="">— pick a character —</option>
-                <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
-                  <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
-                </template>
-              </select>
-            </label>
-            <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">Create party</button>
-            <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="btn text-sm">Cancel</button>
-            <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
-            <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
-          </div>
-        </template>
-        <template x-if="(currentCampaign?.parties?.length || 0) === 0">
-          <p class="text-base italic opacity-60 py-4 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex.</p>
-        </template>
-        <template x-if="(currentCampaign?.parties?.length || 0) > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th></th><th>Party</th><th>Leader</th><th>Members</th><th>Total</th><th>Location</th><th></th></tr></thead>
-            <tbody>
-              <template x-for="r in partyRows()" :key="r.id">
-                <tr :class="(groupSelKind==='party' && partySelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('party', r.id)">
-                  <td x-text="r.icon"></td>
-                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
-                  <td><span x-show="r.leaderName" x-text="r.leaderName"></span><span x-show="!r.leaderName" class="opacity-50">—</span></td>
-                  <td class="font-mono" x-text="r.memberCount"></td>
-                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
-                  <td x-text="r.hexLabel"></td>
-                  <td><span x-show="r.onTheMove" class="text-xs text-sky-700" title="On a journey">⛺ travelling</span></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
-
-      <!-- ── ARMIES (relocated from World ▸ 🎖 Armies — §12) ─────────────────── -->
-      <div class="vellum border border-ink rounded p-4 mb-3">
-        <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-          <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
-          <button @click="openMusterArmy()" class="btn btn-primary text-sm" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
-        </div>
-        <template x-if="armiesRows().length === 0">
-          <p class="text-base italic opacity-60 py-4 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — or turn a party into an army with the 🎖 Muster button on its detail. (A character can also raise one from his sheet, a ruler from his domain's Military tab.)</p>
-        </template>
-        <template x-if="armiesRows().length > 0">
-          <table class="bookkeeping text-sm w-full">
-            <thead><tr><th></th><th>Army</th><th>Leader</th><th>Troops</th><th>BR</th><th>Location</th><th>Stance</th><th>Speed</th><th>State</th></tr></thead>
-            <tbody>
-              <template x-for="row in armiesRows()" :key="row.army.id">
-                <tr :class="(groupSelKind==='army' && armiesSelectedId === row.army.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('army', row.army.id)">
-                  <td x-text="row.icon"></td>
-                  <td><button class="underline font-semibold text-left" x-text="row.army.name || row.army.id"></button></td>
-                  <td><span x-show="row.army.leaderCharacterId" x-text="row.leaderName"></span><span x-show="!row.army.leaderCharacterId" class="opacity-60">—</span></td>
-                  <td class="font-mono" x-text="row.troops"></td>
-                  <td class="font-mono" x-text="row.br"></td>
-                  <td x-text="row.location"></td>
-                  <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
-                  <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
-                  <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </template>
-      </div>
-
-      <!-- ── DETAIL panel — the clicked group ───────────────────────────────── -->
-      <div id="group-detail">
-        <!-- PARTY detail (the full party card, now driven by the selection) -->
         <div x-show="groupSelKind==='party' && selectedParty()" class="space-y-3">
           <template x-for="pt in selectedPartyList()" :key="pt.id">
             <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
@@ -11624,8 +11668,9 @@ document.addEventListener('alpine:init', () => {
             </div>
           </template>
         </div>
-
-        <!-- ARMY detail — relocated from the old World ▸ 🎖 Armies view (§12 Group model).
+            </div>
+          </div>
+        </template>        <!-- ARMY detail — relocated from the old World ▸ 🎖 Armies view (§12 Group model).
              Same campaign card + methods; gated on the army being the selected group. -->
         <template x-if="groupSelKind==='army' && armySelected()">
       <div class="mt-3 border-2 rounded p-3 text-sm" style="background:var(--c-parchment); border-color:var(--c-border)">
@@ -20628,7 +20673,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- BEGIN generated:scripts:tail -->
-<script src="domain-app.js?v=6e82d02a"></script>
+<script src="domain-app.js?v=007094a3"></script>
 <script src="domain-app-banking.js?v=7ae76d7f"></script>
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
@@ -20644,7 +20689,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bd01b93d"></script>
-<script src="domain-app-party.js?v=f6a9b2d7"></script>
+<script src="domain-app-party.js?v=8e8860de"></script>
 <script src="domain-app-provisioning.js?v=9d6ef7d7"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
