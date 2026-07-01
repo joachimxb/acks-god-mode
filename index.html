@@ -2759,6 +2759,80 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
+<!-- ═══ MONSTER / GROUP SHEET (2026-07-01) — the monster twin of the character/party sheets: the
+     standardized active-encounter strip + an Overview tab + a Day-log tab, for a Group (a monster band).
+     Opened from the Lair detail's inhabitants and the Roster ▸ Monsters Groups table (openGroupSheet). ═══ -->
+<div x-show="groupSheetId" @keydown.escape.window="if(groupSheetId){ closeGroupSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeGroupSheet()">
+  <div class="modal-card w-full max-w-2xl my-6">
+    <template x-if="groupSheet()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-beast"></use></svg> <span x-text="groupSheetName()"></span></h3>
+            <p class="text-sm opacity-70">
+              <span class="capitalize" x-text="groupSheetKindLabel()"></span>
+              <template x-if="groupSheetMonsterLabel()"><span> · <span x-text="groupSheetMonsterLabel()"></span></span></template>
+              <span> · </span><span class="font-mono" x-text="groupSheetActive() + ' active'"></span>
+              <span> · </span><span x-text="groupSheetHexLabel()"></span>
+            </p>
+          </div>
+          <button @click="closeGroupSheet()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <template x-if="entityActiveEncounterCount('group', groupSheet().id) > 0">
+          <div class="mx-4 mt-3 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+            <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+            <template x-for="e in entityActiveEncounters('group', groupSheet().id)" :key="e.id">
+              <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+                <span x-text="'⚔ ' + e.label"></span>
+                <span class="flex items-center gap-1.5 whitespace-nowrap">
+                  <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                  <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+                </span>
+              </div>
+            </template>
+          </div>
+        </template>
+        <div role="tablist" aria-label="Group sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-4">
+          <button @click="groupSheetTab='overview'" role="tab" :aria-selected="groupSheetTab==='overview'?'true':'false'" :class="groupSheetTab==='overview' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="groupSheetTab==='overview' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">Overview</button>
+          <button @click="groupSheetTab='daylog'" role="tab" :aria-selected="groupSheetTab==='daylog'?'true':'false'" :class="groupSheetTab==='daylog' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="groupSheetTab==='daylog' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">📅 Day log</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <div x-show="groupSheetTab==='overview'" class="space-y-2">
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div><span class="opacity-60">Type</span> · <span x-text="groupSheetMonsterLabel() || '—'"></span></div>
+              <div><span class="opacity-60">Kind</span> · <span class="capitalize" x-text="groupSheetKindLabel()"></span></div>
+              <div><span class="opacity-60">Strength</span> · <span class="font-mono" x-text="groupSheetActive() + ' / ' + ((groupSheet().count)||0)"></span></div>
+              <div><span class="opacity-60">HD</span> · <span x-text="(groupSheet().groupTemplate && groupSheet().groupTemplate.hitDice) || '—'"></span></div>
+              <div class="col-span-2"><span class="opacity-60">Location</span> · <span x-text="groupSheetHexLabel()"></span></div>
+            </div>
+          </div>
+          <div x-show="groupSheetTab==='daylog'" class="space-y-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what this band did, day by day</span></span>
+              <span class="text-xs opacity-70" x-text="entityDayLogCount('group', groupSheet().id) + ' day' + (entityDayLogCount('group', groupSheet().id)===1?'':'s') + ' logged'"></span>
+            </div>
+            <template x-if="entityDayLog('group', groupSheet().id).length === 0">
+              <p class="text-base italic opacity-60 py-4 text-center">No day-scale activity yet. Wandering, encounters met, and settling appear here grouped by the day they happened.</p>
+            </template>
+            <div class="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+              <template x-for="day in entityDayLog('group', groupSheet().id)" :key="day.key">
+                <div class="border border-hairline rounded p-2">
+                  <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                  <div class="space-y-0.5">
+                    <template x-for="(row,ri) in day.entries" :key="ri">
+                      <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeLairDetail()">
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
@@ -2779,6 +2853,20 @@ document.addEventListener('alpine:init', () => {
           <button @click="closeLairDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-3 text-sm">
+          <template x-if="entityActiveEncounterCount('lair', lairDetailLair().id) > 0">
+            <div class=" border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+              <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+              <template x-for="e in entityActiveEncounters('lair', lairDetailLair().id)" :key="e.id">
+                <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+                  <span x-text="'⚔ ' + e.label"></span>
+                  <span class="flex items-center gap-1.5 whitespace-nowrap">
+                    <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                    <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </template>
           <!-- Inhabitants -->
           <div>
             <h4 class="font-semibold mb-1">Inhabitants <span class="opacity-60 font-normal" x-text="'· ' + (lairInhabitants(lairDetailLair()) || 0)"></span></h4>
@@ -2789,7 +2877,7 @@ document.addEventListener('alpine:init', () => {
               <template x-for="row in lairDetailGroups()" :key="'ldg-'+row.g.id">
                 <li class="flex items-center gap-2">
                   <span>👥</span>
-                  <span class="flex-grow" x-text="(row.g.name || '(group)')"></span>
+                  <button class="flex-grow text-left underline hover:opacity-80" @click="closeLairDetail(); openGroupSheet(row.g.id)" title="Open this band's sheet" x-text="(row.g.name || '(group)')"></button>
                   <span class="font-mono text-xs" x-text="row.active + ' / ' + (row.g.count || 0) + ' active'"></span>
                 </li>
               </template>
@@ -12199,7 +12287,7 @@ document.addEventListener('alpine:init', () => {
           <template x-for="row in monsterLooseBandRows()" :key="row.key">
             <tr>
               <td x-text="row.icon" :title="row.statusLabel"></td>
-              <td class="font-semibold" x-text="row.band"></td>
+              <td class="font-semibold"><template x-if="row.groupId"><button @click="openGroupSheet(row.groupId)" class="underline hover:opacity-80 text-left" title="Open this band's sheet" x-text="row.band"></button></template><template x-if="!row.groupId"><span x-text="row.band"></span></template></td>
               <td x-text="row.monster"></td>
               <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
               <td>
@@ -21126,7 +21214,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
 <script src="domain-app-construction.js?v=064e807d"></script>
-<script src="domain-app-encounters.js?v=3e241a0b"></script>
+<script src="domain-app-encounters.js?v=173e1810"></script>
 <script src="domain-app-favors-duties.js?v=44959545"></script>
 <script src="domain-app-generators.js?v=7d123e93"></script>
 <script src="domain-app-gladiators.js?v=6da7a6a4"></script>
