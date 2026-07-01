@@ -268,5 +268,31 @@ section('characterActivityBudget() — a reversed errand drops out of the day (r
 }
 
 // =============================================================================
+section('characterActivityBudget() — ad-hoc Move → travel activity (Movement 2.0 · pace-from-Moves)');
+// =============================================================================
+// A manual Move debits character.dailyMovement.{milesUsed,dayBaseMiles} but is NOT a journey; the budget
+// DERIVES the travel cost from the day-fraction moved (~1 ancillary hour per 1/8 of a full expedition day):
+// ≤ half a day charges as that many ancillary (dedicated free), > half escalates to the dedicated block.
+// _todayOrd = (currentTurn||1)*30 + (currentDayInMonth||1) = 31 for turn 1 / day 1.
+const mvCamp = (miles, base) => mkCampaign({ currentTurn: 1, currentDayInMonth: 1,
+  characters: [mkChar('chr-a', { dailyMovement: { worldOrd: 31, milesUsed: miles, dayBaseMiles: base } })] });
+const bMove1 = ACKS.characterActivityBudget(mvCamp(6, 24), 'chr-a');       // 1 grassland hex = 6/24 day = 2 h
+ok('moved 1 hex (6mi/24): 2 ancillary, dedicated free', bMove1.ancillaryUsed === 2 && bMove1.dedicatedUsed === 0);
+ok('moved 1 hex: a movement-sourced travel line', bMove1.ancillary.some(a => a.kind === 'travel' && a.sourceKind === 'movement'));
+const bMoveHalf = ACKS.characterActivityBudget(mvCamp(12, 24), 'chr-a');   // half a day = 4 h
+ok('moved half a day (12mi/24): 4 ancillary, dedicated free', bMoveHalf.ancillaryUsed === 4 && bMoveHalf.dedicatedUsed === 0);
+ok('half a day of moving is within budget', bMoveHalf.overBudget === false);
+const bMoveFull = ACKS.characterActivityBudget(mvCamp(18, 24), 'chr-a');   // > half a day → the dedicated block
+ok('moved > half a day (18mi/24): the dedicated travel block', bMoveFull.dedicatedUsed === 1 && bMoveFull.ancillaryUsed === 0);
+ok('a full march is a dedicated-bucket travel line', bMoveFull.dedicated.some(a => a.kind === 'travel' && a.sourceKind === 'movement'));
+ok('excludeMovement omits the movement travel line', ACKS.characterActivityBudget(mvCamp(18, 24), 'chr-a', { excludeMovement: true }).dedicatedUsed === 0);
+ok('stale-day (yesterday) movement is ignored', ACKS.characterActivityBudget(mkCampaign({ currentTurn: 1, currentDayInMonth: 2, characters: [mkChar('chr-a', { dailyMovement: { worldOrd: 31, milesUsed: 18, dayBaseMiles: 24 } })] }), 'chr-a').dedicatedUsed === 0);
+const cMoveAdmin = mkCampaign({ currentTurn: 1, currentDayInMonth: 1, characters: [mkChar('chr-a', { dailyMovement: { worldOrd: 31, milesUsed: 18, dayBaseMiles: 24 } })], domains: [adminD()] });
+ok('a full march + administering a domain = over budget (2 dedicated)', ACKS.characterActivityBudget(cMoveAdmin, 'chr-a').overBudget === true);
+const cMoveJrn = mkCampaign({ currentTurn: 1, currentDayInMonth: 1, characters: [mkChar('chr-a', { dailyMovement: { worldOrd: 31, milesUsed: 6, dayBaseMiles: 24 } })], journeys: [jrnPace('normal')] });
+const bMoveJrn = ACKS.characterActivityBudget(cMoveJrn, 'chr-a');
+ok('journey + moved: ONE travel line (journey wins, no double-count)', bMoveJrn.dedicated.concat(bMoveJrn.ancillary).filter(a => a.kind === 'travel').length === 1);
+
+// =============================================================================
 console.log('\n' + (fail ? 'FAIL' : 'PASS') + ' — activity-budget.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }

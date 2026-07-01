@@ -2261,6 +2261,24 @@ function resolveDaySurvival(campaign, args, opts){
   if(!members.length) return out;
   const hex = args.hex;
 
+  // Fix 1 — employer-scoped sourcing (RR Ch.7: an employer feeds its hires, over and above their wages; a
+  // hireling doesn't keep a purse of rations of its own). In the UNSHARED path (each dips into own stores), a
+  // hireling whose employer is also present draws food/water from the EMPLOYER's stores once its own run out,
+  // rather than starving beside a well-stocked master. Gated on args.employerSourcing so every shipped
+  // journey/legacy caller (members-only, no flag) stays BYTE-IDENTICAL; the off-journey party consumer sets it.
+  // (When sharing, the camp/comrade pooling already covers this, so the branch is scoped to !share.)
+  const employerOf = Object.create(null);
+  if(args.employerSourcing){
+    const inParty = Object.create(null); for(const c of members) inParty[c.id] = 1;
+    const link = (hireId, employerId) => { if(hireId && inParty[hireId] && inParty[employerId] && !employerOf[hireId]) employerOf[hireId] = employerId; };
+    for(const c of members){
+      const eid = c.id;
+      (typeof A.henchmanshipsByPatron === 'function' ? A.henchmanshipsByPatron(campaign, eid) : []).forEach(x => link(x && x.subjectCharacterId, eid));
+      (typeof A.specialistContractsByEmployer === 'function' ? A.specialistContractsByEmployer(campaign, eid) : []).forEach(x => link(x && x.specialistCharacterId, eid));
+      (typeof A.hirelingContractsByEmployer === 'function' ? A.hirelingContractsByEmployer(campaign, eid) : []).forEach(x => link(x && x.hirelingCharacterId, eid));
+    }
+  }
+
   const share = !!args.share;
   const camp = args.camp || null;
   // Leader-first ordering (decision #8, 🔧): the party leader, then the others in a stable order.
@@ -2328,6 +2346,7 @@ function resolveDaySurvival(campaign, args, opts){
       for(const c of order){
         const m = M[c.id];
         if(m.water >= 1){ m.water -= 1; m.fedWater = true; continue; }                         // own reserve
+        if(!share && employerOf[c.id]){ const e = M[employerOf[c.id]]; if(e && e.water >= 1){ e.water -= 1; m.fedWater = true; continue; } }  // Fix 1 — the employer's barrels feed its hire
         if(share && campWater >= 1){ campWater -= 1; campWaterTouched = true; m.fedWater = true; continue; }  // camp barrels
         if(share){ const d = order.find(o => M[o.id].water >= 1); if(d){ M[d.id].water -= 1; m.fedWater = true; continue; } }  // a comrade's reserve
         if(poolWater >= 1){ poolWater -= 1; m.fedWater = true; continue; }                      // legacy party stores
@@ -2340,6 +2359,7 @@ function resolveDaySurvival(campaign, args, opts){
     const m = M[c.id];
     if(args.freeFood){ m.fedFood = true; continue; }                                            // settled regime (CoL-1 §16.1) — food abstracted into cost of living
     if(_drawRationDays(m.inv, 1) > 0){ m.fedFood = true; continue; }                            // own pack
+    if(!share && employerOf[c.id] && M[employerOf[c.id]] && _drawRationDays(M[employerOf[c.id]].inv, 1) > 0){ m.fedFood = true; continue; }  // Fix 1 — the employer's pack feeds its hire
     if(share && campItems && _drawRationDays(campItems, 1) > 0){ campItemsTouched = true; m.fedFood = true; continue; }  // camp stash
     if(share){ const d = order.find(o => hasOwnRation(M[o.id].inv)); if(d && _drawRationDays(M[d.id].inv, 1) > 0){ m.fedFood = true; continue; } }  // a comrade's pack
     if(poolRations >= 1){ poolRations -= 1; m.fedFood = true; continue; }                       // legacy party stores
@@ -2497,8 +2517,12 @@ function _armyContactBlocker(campaign, marchingArmy, hexId, ctx){
   return null;
 }
 
-function journeyBaseSpeedMilesPerDay(campaign, journey){
+function journeyBaseSpeedMilesPerDay(campaign, journey, opts){
   const A = _jACKS();
+  // Fix 2 — when the mover ignores encumbrance (the global ignore-encumbrance rule OR a per-mover "Skip
+  // load" override, folded into opts.ignoreEncumbrance by the caller), walkers travel at the unencumbered
+  // band instead of their load band. opts absent ⇒ false ⇒ the shipped journey tick is byte-identical.
+  const ignoreEnc = !!(opts && opts.ignoreEncumbrance);
   // W4 — an army's march: the army governs the base rate (slowest unit × the
   // large-army multiplier × the war-machine cap, RR pp.448–449). The §26 GM
   // override still wins in tickJourneyDay (the escape hatch outranks everything).
@@ -2526,6 +2550,7 @@ function journeyBaseSpeedMilesPerDay(campaign, journey){
     if(!c || ids.indexOf(c.id) === -1) continue;
     let mpd;
     if(riddenBy[c.id]) mpd = A.mountExpeditionMi(campaign, riddenBy[c.id]);          // rides — the mount governs
+    else if(ignoreEnc) mpd = A.JOURNEY_BASE_SPEED_MILES_PER_DAY;                       // walks, load ignored (Fix 2) — unencumbered band
     else mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(c).band.milesPerDay : A.JOURNEY_BASE_SPEED_MILES_PER_DAY;  // walks
     if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
   }
@@ -3055,7 +3080,7 @@ function tickJourneyDay(campaign, journey, ctx){
       && !A.isHouseRuleEnabled(campaign, 'ignore-rations')
       && typeof A.resolveMountFeedingDay === 'function'
       && (journey.packAnimalIds || []).length)
-    ? A.resolveMountFeedingDay(campaign, journey, { forcedMarch: pace === 'forced-march', hasFreshWater: hasFreshSource(campaign, curHex), terrain: (curHex && curHex.terrain) || null })
+    ? A.resolveMountFeedingDay(campaign, journey, { forcedMarch: pace === 'forced-march', halfOrSlower: (pace === 'half-speed' || pace === 'halted' || restDay), hasFreshWater: hasFreshSource(campaign, curHex), terrain: (curHex && curHex.terrain) || null })
     : null;
   if(_mountFeeding && _mountFeeding.tracked && _mountFeeding.anyShort){
     notableEvents.push({
@@ -3422,6 +3447,10 @@ function proposeJourneyDay(campaign, ctx){
   if(!ctx._armyDay) ctx._armyDay = { moves: {}, contacts: [] };
   for(const j of campaign.journeys){
     if(!j || j.status !== 'in-transit') continue;
+    // GM hold (Movement 2.0 TS1 Lane B — plan §3.3): a paused journey is held from the slot-30
+    // Day-Clock auto-advance (the interactive ▶ one-hex hand-step overrides via advanceJourneyOneHex).
+    // Lazy field — no seeded journey sets it, so the seeded oracles stay byte-identical.
+    if(j.paused) continue;
     // Lockstep skip-guard (Complete Movement, 2026-06-05): one leg per world day. If this journey's
     // travel for the day being left has already been resolved — by a manual "Complete Movement" or an
     // earlier pass — don't resolve it again (that would march the party twice in one day). A journey
@@ -4887,6 +4916,24 @@ function _seededSurvivalRng(campaign, group, ctx){
   return _jMulberry32(_jHash32(_survivalPreviewFingerprint(campaign, group, ctx)));
 }
 
+// Fix 2 — does this survival group's party carry a per-mover "Skip rations" override? (mode==='skip' on the
+// party regime). Reached only when ignore-rations is OFF, so it's the genuine per-mover opt-out. The party is
+// read off g.partyId (a SHARING group) OR, since _survivalDayGroups gives a NON-sharing party's members
+// partyId:null individual groups, off the member's own partyId. A truly loose character (no party) never
+// skips. Defensive: any failure → false (provision normally).
+function _groupSkipsRations(campaign, g){
+  const A = _jACKS();
+  if(!g || typeof A.moverRegimeState !== 'function') return false;
+  let party = g.partyId ? (campaign.parties || []).find(p => p && p.id === g.partyId) : null;
+  if(!party){
+    const pid = g.members && g.members[0] && g.members[0].partyId;
+    if(pid) party = (campaign.parties || []).find(p => p && p.id === pid);
+  }
+  if(!party) return false;
+  try { return (A.moverRegimeState(campaign, party).skipProvisioning || {}).mode === 'skip'; }
+  catch(e){ return false; }
+}
+
 // PURE handler (Calendar §14): propose each field group's survival + settled top-ups. No mutation.
 function proposeSurvivalDay(campaign, ctx){
   const A = _jACKS();
@@ -4894,11 +4941,16 @@ function proposeSurvivalDay(campaign, ctx){
   if(!campaign || (A.isHouseRuleEnabled && A.isHouseRuleEnabled(campaign, 'ignore-rations'))) return out;
   const split = _survivalDayGroups(campaign);
   for(const g of split.groups){
+    // Fix 2 — per-mover ration skip: a party set to "Skip rations" (a regime override, reachable only when the
+    // ⚙ ignore-rations house rule is OFF, which it is here) is not provisioned this day. The global-rule skip
+    // already returned above; this is the per-mover opt-out actually biting the off-journey survival tick.
+    if(_groupSkipsRations(campaign, g)) continue;
     // Stable preview: seed the day's 1d6 dehydration from the group's committed fingerprint unless
     // the caller forced an rng — so re-opening / refreshing the review reproduces the same day.
     const rng = (ctx && ctx.rng) || _seededSurvivalRng(campaign, g, ctx);
     const surv = resolveDaySurvival(campaign, {
       members: g.members, hex: g.hex, share: g.share, camp: g.camp, leaderId: g.leaderId,
+      employerSourcing: true,   // Fix 1 — an unshared hire draws from its employer's stores (RR Ch.7)
       notable: { kind: 'survival-day-tick', prefix: g.prefix, primaryHexId: (g.hex && g.hex.id) || null, payload: g.payload, transient: true }
     }, Object.assign({}, ctx || {}, { rng: rng }));
     if(surv.ignored) continue;

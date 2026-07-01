@@ -49,8 +49,8 @@
 <script src="acks-engine-monsters.js?v=5d1e299a"></script>
 <script src="acks-engine-encounter-tables.js?v=e4e15625"></script>
 <script src="acks-engine-troops.js?v=e2a66d44"></script>
-<script src="acks-engine.js?v=85ba148c"></script>
-<script src="acks-engine-lairs.js?v=eeebe789"></script>
+<script src="acks-engine.js?v=e1e3c267"></script>
+<script src="acks-engine-lairs.js?v=0aaf9e5e"></script>
 <script src="acks-engine-stash.js?v=4e68b45c"></script>
 <script src="acks-engine-military.js?v=f52fd240"></script>
 <script src="acks-engine-entities.js?v=49023d65"></script>
@@ -60,7 +60,7 @@
 <script src="acks-engine-events.js?v=c6f9e0a0"></script>
 <script src="acks-engine-battles.js?v=9d1c6376"></script>
 <script src="acks-engine-maneuvers.js?v=fedbf51b"></script>
-<script src="acks-engine-subsystems.js?v=202c846e"></script>
+<script src="acks-engine-subsystems.js?v=644780a4"></script>
 <script src="acks-engine-banking.js?v=6ff7f6f3"></script>
 <script src="acks-engine-construction.js?v=369bd89b"></script>
 <script src="acks-engine-custom-classes.js?v=38e864c5"></script>
@@ -79,11 +79,13 @@
 <script src="acks-engine-magic-items.js?v=1bed3b18"></script>
 <script src="acks-engine-magic-research.js?v=8af432d4"></script>
 <script src="acks-engine-mortal-wounds.js?v=69827ed3"></script>
-<script src="acks-engine-mounts.js?v=98abfc55"></script>
-<script src="acks-engine-movement.js?v=bc96b885"></script>
+<script src="acks-engine-mounts.js?v=98d1d276"></script>
+<script src="acks-engine-movement-party.js?v=a41c12f9"></script>
+<script src="acks-engine-movement.js?v=a59c4714"></script>
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
 <script src="acks-engine-proficiencies.js?v=e3d3d820"></script>
+<script src="acks-engine-provisioning.js?v=c54da1c3"></script>
 <script src="acks-engine-religion.js?v=3146b13e"></script>
 <script src="acks-engine-sages.js?v=363943c5"></script>
 <script src="acks-engine-sanctums.js?v=b692451c"></script>
@@ -521,7 +523,7 @@ document.addEventListener('alpine:init', () => {
     clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 </style>
 </head>
-<body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
+<body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem; display:flex; flex-direction:column;">
 
 <!-- ═══ SVG icon sprite (H1 path b, 2026-06-29) — identity glyphs as <symbol> defs; rendered via
      <svg class="ico"><use href="#i-NAME"></use></svg> or window.acksIcon('NAME'). currentColor + 1em.
@@ -576,6 +578,10 @@ document.addEventListener('alpine:init', () => {
   <symbol id="i-wizard" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2 L6.5 16 L17.5 16 Z M12 8.4 L12.85 10.5 L15.1 10.6 L13.35 12 L13.95 14.1 L12 12.85 L10.05 14.1 L10.65 12 L8.9 10.6 L11.15 10.5 Z"/><rect x="4.5" y="16.3" width="15" height="2.7" rx="1.35"/></symbol>
   <!-- Dynamic-emitter glyphs (H1 path b, 2026-06-29) — 🔒 lock, for the Inspector ✏ Edit / 🔒 Done-editing toggle (emitted via acksIcon in x-html). -->
   <symbol id="i-lock" viewBox="0 0 24 24"><path d="M8 10 L8 7.5 A4 4 0 0 1 16 7.5 L16 10" fill="none" stroke="currentColor" stroke-width="2"/><path fill-rule="evenodd" d="M5.5 10 L18.5 10 A1.5 1.5 0 0 1 20 11.5 L20 19.5 A1.5 1.5 0 0 1 18.5 21 L5.5 21 A1.5 1.5 0 0 1 4 19.5 L4 11.5 A1.5 1.5 0 0 1 5.5 10 Z M12 13.5 A1.7 1.7 0 0 0 11 16.6 L10.6 18.5 L13.4 18.5 L13 16.6 A1.7 1.7 0 0 0 12 13.5 Z"/></symbol>
+  <!-- Movement 2.0 Lane A (MV2:agent-1) — the Move glyph (an arrow stepping into a hex). The one sprite
+       symbol the Move UI needs; it lives here (the always-in-DOM sprite) because every Move <use href="#i-move">
+       sits inside a template-gated zone (map / roster box / hex modal). Registered in tests/palette.smoke.js. -->
+  <symbol id="i-move" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M15 5 L20.5 8.2 L20.5 14.8 L15 18 L9.5 14.8 L9.5 8.2 Z"/><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M2.5 11.5 L12.6 11.5 M9.2 8 L13 11.5 L9.2 15"/></symbol>
 </defs></svg>
 <script>
   // SVG icon helper for dynamic emitters (used in x-html, not x-text). Returns an <svg> string
@@ -2753,6 +2759,80 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
+<!-- ═══ MONSTER / GROUP SHEET (2026-07-01) — the monster twin of the character/party sheets: the
+     standardized active-encounter strip + an Overview tab + a Day-log tab, for a Group (a monster band).
+     Opened from the Lair detail's inhabitants and the Roster ▸ Monsters Groups table (openGroupSheet). ═══ -->
+<div x-show="groupSheetId" @keydown.escape.window="if(groupSheetId){ closeGroupSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:79" x-cloak @click.self="closeGroupSheet()">
+  <div class="modal-card w-full max-w-2xl my-6">
+    <template x-if="groupSheet()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-beast"></use></svg> <span x-text="groupSheetName()"></span></h3>
+            <p class="text-sm opacity-70">
+              <span class="capitalize" x-text="groupSheetKindLabel()"></span>
+              <template x-if="groupSheetMonsterLabel()"><span> · <span x-text="groupSheetMonsterLabel()"></span></span></template>
+              <span> · </span><span class="font-mono" x-text="groupSheetActive() + ' active'"></span>
+              <span> · </span><span x-text="groupSheetHexLabel()"></span>
+            </p>
+          </div>
+          <button @click="closeGroupSheet()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <template x-if="entityActiveEncounterCount('group', groupSheet().id) > 0">
+          <div class="mx-4 mt-3 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+            <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+            <template x-for="e in entityActiveEncounters('group', groupSheet().id)" :key="e.id">
+              <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+                <span x-text="'⚔ ' + e.label"></span>
+                <span class="flex items-center gap-1.5 whitespace-nowrap">
+                  <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                  <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+                </span>
+              </div>
+            </template>
+          </div>
+        </template>
+        <div role="tablist" aria-label="Group sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-4">
+          <button @click="groupSheetTab='overview'" role="tab" :aria-selected="groupSheetTab==='overview'?'true':'false'" :class="groupSheetTab==='overview' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="groupSheetTab==='overview' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">Overview</button>
+          <button @click="groupSheetTab='daylog'" role="tab" :aria-selected="groupSheetTab==='daylog'?'true':'false'" :class="groupSheetTab==='daylog' ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="groupSheetTab==='daylog' ? 'border-color:var(--c-ink)' : 'border-color:transparent'">📅 Day log</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <div x-show="groupSheetTab==='overview'" class="space-y-2">
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div><span class="opacity-60">Type</span> · <span x-text="groupSheetMonsterLabel() || '—'"></span></div>
+              <div><span class="opacity-60">Kind</span> · <span class="capitalize" x-text="groupSheetKindLabel()"></span></div>
+              <div><span class="opacity-60">Strength</span> · <span class="font-mono" x-text="groupSheetActive() + ' / ' + ((groupSheet().count)||0)"></span></div>
+              <div><span class="opacity-60">HD</span> · <span x-text="(groupSheet().groupTemplate && groupSheet().groupTemplate.hitDice) || '—'"></span></div>
+              <div class="col-span-2"><span class="opacity-60">Location</span> · <span x-text="groupSheetHexLabel()"></span></div>
+            </div>
+          </div>
+          <div x-show="groupSheetTab==='daylog'" class="space-y-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what this band did, day by day</span></span>
+              <span class="text-xs opacity-70" x-text="entityDayLogCount('group', groupSheet().id) + ' day' + (entityDayLogCount('group', groupSheet().id)===1?'':'s') + ' logged'"></span>
+            </div>
+            <template x-if="entityDayLog('group', groupSheet().id).length === 0">
+              <p class="text-base italic opacity-60 py-4 text-center">No day-scale activity yet. Wandering, encounters met, and settling appear here grouped by the day they happened.</p>
+            </template>
+            <div class="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+              <template x-for="day in entityDayLog('group', groupSheet().id)" :key="day.key">
+                <div class="border border-hairline rounded p-2">
+                  <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                  <div class="space-y-0.5">
+                    <template x-for="(row,ri) in day.entries" :key="ri">
+                      <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="modal-overlay p-4" style="z-index:78" x-cloak @click.self="closeLairDetail()">
   <div class="modal-card w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
@@ -2773,6 +2853,20 @@ document.addEventListener('alpine:init', () => {
           <button @click="closeLairDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-3 text-sm">
+          <template x-if="entityActiveEncounterCount('lair', lairDetailLair().id) > 0">
+            <div class=" border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+              <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+              <template x-for="e in entityActiveEncounters('lair', lairDetailLair().id)" :key="e.id">
+                <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+                  <span x-text="'⚔ ' + e.label"></span>
+                  <span class="flex items-center gap-1.5 whitespace-nowrap">
+                    <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                    <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </template>
           <!-- Inhabitants -->
           <div>
             <h4 class="font-semibold mb-1">Inhabitants <span class="opacity-60 font-normal" x-text="'· ' + (lairInhabitants(lairDetailLair()) || 0)"></span></h4>
@@ -2783,7 +2877,7 @@ document.addEventListener('alpine:init', () => {
               <template x-for="row in lairDetailGroups()" :key="'ldg-'+row.g.id">
                 <li class="flex items-center gap-2">
                   <span>👥</span>
-                  <span class="flex-grow" x-text="(row.g.name || '(group)')"></span>
+                  <button class="flex-grow text-left underline hover:opacity-80" @click="closeLairDetail(); openGroupSheet(row.g.id)" title="Open this band's sheet" x-text="(row.g.name || '(group)')"></button>
                   <span class="font-mono text-xs" x-text="row.active + ' / ' + (row.g.count || 0) + ' active'"></span>
                 </li>
               </template>
@@ -5093,6 +5187,28 @@ document.addEventListener('alpine:init', () => {
         <span class="opacity-50 italic" x-text="weatherCurrentDayLabel()"></span>
       </div>
 
+      <!-- MV2:agent-1 (map action zone): the Movement 2.0 move-mode banner. A "Move" action (the Roster ▸
+           Characters action list, or a party's quick-access box) arms move mode — the mover's hex is ringed
+           and its reachable hexes highlighted on the map below; click one to step there (one real one-hex
+           journey, encounters and all). Distinct from a GM set-location drop (plan §15.3): Move spends the
+           day-budget, one hex. -->
+      <template x-if="mvInMoveMode()">
+        <div x-cloak class="mb-2 border-2 rounded p-2 flex flex-wrap items-center gap-2" style="border-color:var(--c-success); background:var(--c-vellum)">
+          <span class="text-sm font-semibold inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Moving <span class="font-bold" x-text="mvMoverName(_mapMoveMoverRef)"></span></span>
+          <span class="text-xs px-2 py-0.5 rounded border border-ink/40" :class="mvChipClass(mvBudgetChip(_mapMoveMoverRef))" :title="mvBudgetChip(_mapMoveMoverRef)?.title || ''" x-text="mvBudgetChip(_mapMoveMoverRef)?.text || ''"></span>
+          <label class="text-xs inline-flex items-center gap-1" title="Travel mode — how the mover crosses the map. Mounted uses the mover's mounts (faster, carries more); Voyage needs a vessel (coming with Voyages).">
+            <span class="text-muted">Mode</span>
+            <select class="text-xs border border-ink/40 rounded px-1 py-0.5" :value="mvMoveModeOf(_mapMoveMoverRef)" @change="mvSetMoveMode(_mapMoveMoverRef, $event.target.value)">
+              <option value="foot">🥾 On foot</option>
+              <option value="mounted" :disabled="!mvMoverHasMounts(_mapMoveMoverRef)" x-text="mvMoverHasMounts(_mapMoveMoverRef) ? '🐴 Mounted' : '🐴 Mounted (no mount)'"></option>
+              <option value="voyage" disabled>⛵ Voyage (with Voyages)</option>
+            </select>
+          </label>
+          <span class="text-xs opacity-70" x-show="mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">— click a highlighted hex to step there</span>
+          <span class="text-xs text-muted italic" x-show="!mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">no reachable hex — the day's movement is spent</span>
+          <button @click="mvEndMove()" class="btn btn-primary text-xs ml-auto" title="Finish moving and return the map to normal">Done moving</button>
+        </div>
+      </template>
       <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
       <div class="border border-ink rounded overflow-hidden" style="height:70vh; background:var(--c-parchment);">
         <!-- Hexes are generated as an SVG markup STRING via x-html (innerHTML on an SVG <g> parses
@@ -9314,15 +9430,60 @@ document.addEventListener('alpine:init', () => {
             </select>
             <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
           </div>
-          <!-- selected travellers (removable chips) -->
-          <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
-            <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
-              <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
-                <span x-text="journeyParticipantName(cid)"></span>
-                <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
-                <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
-              </span>
-            </template>
+          <!-- selected travellers -->
+          <!-- MV2:agent-2 (journey wizard zone): graphical 5.1 Available|Traveling traveller DRAG panel (Senate pattern, c-success ring); drops mutate journeyWizard.participantIds then ensureTravelParty -->
+          <!-- §5.1 (Movement 2.0 TS1, Lane B): drag a traveller between Available and Traveling — drops mutate
+               journeyWizard.participantIds (the "Add traveller" dropdown above stays as a quick/keyboard path).
+               On Start, startJourney → ensureTravelParty (D9) forms the ephemeral party from these travellers.
+               A character already on another journey is shown greyed + non-draggable (blocked). -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+            <!-- Available (loose characters, at the start hex once one is set) -->
+            <div class="border border-dashed border-ink rounded p-2 min-h-[3.5rem]"
+                 @dragover.prevent @drop="journeyDropToAvailable()"
+                 :class="journeyWizard.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+              <div class="text-xs font-semibold opacity-70 mb-1">Available <span class="font-normal opacity-60" x-text="'· ' + journeyParticipantOptions().length"></span></div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="c in journeyParticipantOptions()" :key="'javail-'+c.id">
+                  <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-warm cursor-grab"
+                        :class="journeyWizard.dragCharId===c.id ? 'opacity-50' : ''"
+                        draggable="true"
+                        @dragstart="journeyDragStart(c.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', c.id)"
+                        @dragend="journeyDragEnd()"
+                        title="Drag into Traveling (or click + to add)">
+                    <span x-text="c.name||'(unnamed)'"></span>
+                    <button @click="journeyAddParticipant(c.id)" class="opacity-60 hover:opacity-100 font-bold" title="Add to the journey">+</button>
+                  </span>
+                </template>
+                <span x-show="journeyParticipantOptions().length===0 && journeyUnavailableTravellers().length===0" class="text-xs italic opacity-50" x-text="journeyWizard.startHexId ? ('No unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + '.') : 'No unattached characters — add one in the Roster, or pick a party above.'"></span>
+                <!-- §15.2 visible block: characters here who are already on a journey/venture — greyed, non-draggable -->
+                <template x-for="c in journeyUnavailableTravellers()" :key="'jblock-'+c.id">
+                  <span class="inline-flex items-center gap-1 text-xs border border-dashed border-ink rounded px-1.5 py-0.5 opacity-50 cursor-not-allowed" title="Already travelling — this character is on another journey or venture">
+                    <span x-text="c.name||'(unnamed)'"></span><span class="opacity-70">· travelling</span>
+                  </span>
+                </template>
+              </div>
+            </div>
+            <!-- Traveling (the participant set) -->
+            <div class="border border-ink rounded p-2 min-h-[3.5rem]"
+                 @dragover.prevent @drop="journeyDropToTraveling()"
+                 :class="journeyWizard.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+              <div class="text-xs font-semibold opacity-70 mb-1">Traveling <span class="font-normal opacity-60" x-text="'· ' + journeyWizard.participantIds.length"></span></div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
+                  <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-warm-2 cursor-grab"
+                        :class="journeyWizard.dragCharId===cid ? 'opacity-50' : ''"
+                        draggable="true"
+                        @dragstart="journeyDragStart(cid); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', cid)"
+                        @dragend="journeyDragEnd()"
+                        title="Drag back to Available to remove">
+                    <span x-text="journeyParticipantName(cid)"></span>
+                    <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
+                    <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
+                  </span>
+                </template>
+                <span x-show="!journeyWizard.participantIds.length" class="text-xs italic opacity-50">none yet — drag a traveller here, or use “Add traveller” above</span>
+              </div>
+            </div>
           </div>
           <p class="text-xs opacity-60 mt-1" x-text="journeyWizardHeadcountLabel()"></p>
         </div>
@@ -9444,7 +9605,7 @@ document.addEventListener('alpine:init', () => {
     </template>
 
     <!-- ───── (B) JOURNEY DETAIL ───── -->
-    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail()">
+    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail() && journeyGroupKind(journeyDetail())!=='party'">
       <div class="vellum border border-ink rounded p-4 space-y-3">
         <div class="flex items-start justify-between flex-wrap gap-2">
           <div>
@@ -9479,6 +9640,48 @@ document.addEventListener('alpine:init', () => {
           <span class="opacity-50 text-xs ml-1">(🗺 View on map to see it drawn — and change the destination or waypoints there)</span>
         </div>
 
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
+             over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
+             lost journey keeps the whole-day "Complete Movement" button below. journey.paused holds the
+             ⏩/⏭ autopilot; ▶ is a deliberate hand-step and overrides it. Night travel is NOT modelled — ⏩
+             stops at the pace-determined RAW day's march (a longer march = the Forced-march pace). -->
+        <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
+          <div class="border border-ink rounded p-2.5 space-y-2" style="background:var(--c-vellum)">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span class="text-sm font-semibold">Advance travel</span>
+              <div class="flex items-center gap-1">
+                <button @click="journeyAdvanceOneHex(journeyDetail())"
+                        :disabled="journeyBudgetSpentToday(journeyDetail())"
+                        :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                        class="btn text-sm">▶ One hex</button>
+                <button @click="journeyAdvanceDay(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏩ The day</button>
+                <button @click="journeyAdvanceToDestination(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏭ To destination</button>
+              </div>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶/⏩ spend it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
+                <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
+                <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause autopilot)'"></span>
+              </label>
+              <button @click="journeyActInThisHex(journeyDetail())" class="btn text-xs" title="Do a hex activity here — forage, search, and the like (spends the day's activity budget; RR p.272)"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Act in this hex</button>
+            </div>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
+          </div>
+        </template>
         <!-- distance: total + remaining miles (6-mile hexes) -->
         <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
 
@@ -9508,6 +9711,34 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- MV2:agent-4 (journey-detail members-table zone): regime-toggle strip + group food/water-per-day readout on the members table -->
+        <!-- Movement 2.0 Lane D — the per-mover regime strip + the group food/water-per-day readout. Shown
+             for people-journeys (an army/unit march draws SUPPLIES, RR p.450 — the §12 supply note below). -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit'">
+          <div class="border border-dashed border-hairline rounded p-2 mb-2 space-y-1.5">
+            <div class="text-xs uppercase tracking-wide text-muted">⛺ Provisioning &amp; load</div>
+            <!-- regime toggle strip (party-canonical, journey-mirrored — D8) -->
+            <div class="flex flex-wrap items-center gap-1.5">
+              <template x-for="t in provJourneyToggles()" :key="'jr-'+t.key">
+                <button type="button" class="text-xs px-2 py-0.5 rounded-full border border-ink" :class="provRegimePillActive(journeyDetail(), t) ? 'tab-active' : 'hover-tint'" :title="t.title" @click="provToggleRegime(journeyDetail(), t.key)" x-text="provRegimePillLabel(journeyDetail(), t)"></button>
+              </template>
+            </div>
+            <!-- consumption per day + carry + pace (derived, no storage) -->
+            <div class="text-xs flex flex-wrap gap-x-4 gap-y-1" x-data="{ get cons(){ return provConsumption(journeyDetail()); }, get haul(){ return provHaul(journeyDetail()); }, get load(){ return provLoadReport(journeyDetail()); } }">
+              <span title="Food + water the group consumes per day — one ration + one water per individual (RR p.276); mercenary units on gold supply cost + animals are counted separately">🍖 <span class="font-semibold" x-text="cons.people.rationsPerDay"></span>/day · 💧 <span class="font-semibold" x-text="cons.people.waterPerDay"></span>/day <span class="text-muted" x-text="'· '+cons.people.count+' fed'"></span></span>
+              <template x-if="cons.animals.count">
+                <span title="Animal feed per day (food = load÷10, water = load÷5 st; grazers self-feed, camels need no water; RR p.276)">🐴 feed <span class="font-mono" x-text="cons.animals.foodSt"></span> st · water <span class="font-mono" x-text="cons.animals.waterSt"></span> st</span>
+              </template>
+              <span title="Group carrying capacity: members + hired individuals + pack/draft animals (vehicles added in a later wave)">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+              <template x-if="load.slowestMilesPerDay!==null">
+                <span title="Group travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span>
+              </template>
+              <template x-if="provRegimeState(journeyDetail()).shareLoad.value && load.balanced.improves">
+                <button type="button" class="btn text-xs" @click="provBalanceLoad(journeyDetail())" :title="'Hand gear around to even the load (RR pp.83–84) — the group would then travel at '+load.balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="load.balanced.slowestMilesPerDay"></span> mi/day</button>
+              </template>
+            </div>
+          </div>
+        </template>
         <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
              that travel with them. Room for more per-character columns later. -->
         <div x-show="journeyDetail().participantCharacterIds.length">
@@ -9760,11 +9991,13 @@ document.addEventListener('alpine:init', () => {
 
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit'">🚶 Complete Movement</button>
+          <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
+               lost) — a steppable people-journey uses the per-hex ▶/⏩/⏭ panel above instead (no redundancy). -->
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">🚶 Complete Movement</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base tint-green accent-green border-2 bdr-green">✓ Arrived</span>
           <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base tint-red accent-red border-2 bdr-red">🛑 Stopped</span>
           <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
-          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
 
@@ -9852,7 +10085,10 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-baseline justify-between flex-wrap gap-2">
           <div>
             <h2 class="font-bold text-xl">⛺ Journeys</h2>
-            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em>; drive them with the Day Clock (top-right).</p>
+            <!-- MV2:agent-2 (Travel overview zone): Travel stays an OVERVIEW (in-flight journeys + multi-venue launch), not the launcher -->
+            <!-- Movement 2.0 (Lane B): this tab is the OVERVIEW of in-flight journeys; open one to drive it
+                 hex-by-hex (▶/⏩/⏭). A journey is launched from HERE, a character, a party, or a hex card. -->
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em> — open one to advance it hex-by-hex (▶ one hex · ⏩ the day · ⏭ to destination), or drive them all together with the Day Clock (top-right). Start one here, or from a character, a party, or a hex.</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="btn btn-primary text-sm">🧭 Start a journey</button>
         </div>
@@ -9872,6 +10108,7 @@ document.addEventListener('alpine:init', () => {
                   · <span x-text="journeyDayLabel(j)"></span>
                 </div>
               </div>
+              <span x-show="journeyPaused(j)" class="text-xs px-2 py-0.5 rounded shrink-0 tint-amber accent-amber font-semibold" title="Held — the ⏩/⏭ autopilot won't advance this journey; open it to step by hand or resume">⏸ held</span>
               <span class="text-xs px-2 py-0.5 rounded shrink-0" :class="j.isLost ? 'tint-red' : (j.status==='planning' ? 'bg-warm-2' : 'bg-sky-100')" x-text="journeyStatusLabel(j)"></span>
               <span class="text-xs shrink-0" :class="journeySupplyDaysLeft(j) < 3 ? 'accent-red font-semibold' : 'opacity-50'" title="approx. days of supplies left" x-text="'🍖' + journeySupplyDaysLeft(j) + 'd'"></span>
             </div>
@@ -10824,6 +11061,11 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
 
+          <!-- MV2:agent-1 (selected-actor action-box zone): Move is now a first-class entry in the Actions
+               list below (characterActionMenu 'move' → mvBeginMoveOnMap → the map move-mode overlay). The old
+               inline Move panel was retired 2026-07-01 (Joachim) — pick "👣 Move" among the actions to move
+               the character (or its party) on the map, one highlighted hex at a time. -->
+          <template x-if="false"></template>
           <!-- Activities: available today + done today (the #346 day-budget read surface) -->
           <div class="grid md:grid-cols-2 gap-3 mb-3">
             <div class="border border-ink/40 rounded p-2">
@@ -10891,7 +11133,9 @@ document.addEventListener('alpine:init', () => {
                         :style="act.active ? 'background:var(--c-ink);color:var(--c-parchment);border-color:var(--c-ink)' : ''"
                         class="btn text-sm"
                         :title="act.title">
-                  <span x-text="act.icon + ' ' + act.label"></span>
+                  <!-- an action may carry an H1 sprite glyph (act.sprite = the symbol id, e.g. i-move); else its emoji icon. -->
+                  <template x-if="act.sprite"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use :href="'#' + act.sprite"></use></svg><span x-text="act.label"></span></span></template>
+                  <template x-if="!act.sprite"><span x-text="act.icon + ' ' + act.label"></span></template>
                 </button>
               </template>
             </div>
@@ -11043,7 +11287,58 @@ document.addEventListener('alpine:init', () => {
     <!-- ───── Sub-tab: PARTIES (Phase 2.6.5 placeholder) ───── -->
     <div x-show="rosterSubView==='groups'" class="p-4" x-cloak>
 
-      <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
+      <!-- MV2:agent-3 (party-view zone): split / merge / tracking-split + D9 ephemeral-party lifecycle; canonical setter addToParty/removeFromParty/moveToParty + graphical 2.1 member DRAG -->
+      <!-- D9 ephemeral travel-party arrival prompts — keep or disband on arrival (default disband) -->
+      <template x-if="travelPartyArrivalPrompts().length">
+        <div class="vellum border bdr-amber rounded p-3 mb-3">
+          <h3 class="font-bold text-lg mb-1">⛺ Travelling parties arrived</h3>
+          <p class="text-sm text-muted mb-2">An auto-formed travelling party disbands on arrival unless you keep it (on disband the leader takes its camp).</p>
+          <template x-for="pt in travelPartyArrivalPrompts()" :key="pt.id">
+            <div class="flex flex-wrap items-center gap-2 border-hairline border-t py-2">
+              <span class="font-semibold" x-text="pt.name"></span>
+              <span class="text-xs text-muted" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt)===1?'':'s')"></span>
+              <input type="text" class="text-sm" style="width:11rem" :placeholder="pt.name + ' (rename)'" x-model="pt._keepName">
+              <button @click="keepTravelPartyUI(pt.id, pt._keepName)" class="btn btn-primary text-sm">Keep as standing party</button>
+              <button @click="dissolveTravelPartyUI(pt.id)" class="btn text-sm accent-red">Disband</button>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Party quick-access box (like the Roster ▸ Characters action box): a succinct summary + the
+           Move / Send-on-journey / Manage actions. The party name and ⚙ Manage open the full detail modal
+           (partyModalId); Split / Merge / Muster and all the deep mechanics live there. Shown when a party is
+           selected. (Part 2, Joachim 2026-07-01 — the leaner quick box.) -->
+      <template x-if="groupSelKind==='party' && selectedParty()">
+        <div class="vellum border border-ink rounded p-4 mb-3" x-cloak>
+          <div class="flex flex-wrap justify-between items-start gap-2 mb-2">
+            <div>
+              <button @click="openPartyModal(selectedParty().id)" class="font-bold text-lg underline hover:opacity-80 text-left" title="Open the full party view (membership, provisioning, camp, chronicle, split / merge / muster)"><span x-text="selectedParty().name"></span></button>
+              <div class="text-sm text-muted" x-text="partyMemberCount(selectedParty()) + ' member' + (partyMemberCount(selectedParty())===1?'':'s') + ' · ' + (selectedParty().currentHexId ? journeyHexLabel(selectedParty().currentHexId) : 'no hex set') + (selectedParty().autoFormed ? ' · travelling party' : '')"></div>
+            </div>
+            <button @click="openPartyModal(selectedParty().id)" class="btn btn-primary text-sm" title="Membership, provisioning, camp, chronicle, split / merge / muster">⚙ Manage party…</button>
+          </div>
+          <!-- one-line provisioning summary (full controls live in ⚙ Manage) -->
+          <div class="text-sm flex flex-wrap gap-x-4 gap-y-1 mb-2" x-data="{ get cons(){ return provConsumption(selectedParty()); }, get haul(){ return provHaul(selectedParty()); }, get load(){ return provLoadReport(selectedParty()); } }">
+            <span title="Food + water the party consumes per day (RR p.276)">🍖 <span class="font-semibold" x-text="cons.people.rationsPerDay"></span>/day · 💧 <span class="font-semibold" x-text="cons.people.waterPerDay"></span>/day</span>
+            <span title="Party carrying capacity">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+            <template x-if="load.slowestMilesPerDay!==null"><span title="Party pace = the slowest walker's band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span></template>
+          </div>
+          <!-- actions: Move · Send on journey · Manage -->
+          <div class="flex flex-wrap gap-1.5">
+            <button @click="mvBeginMoveOnMap(selectedParty().id)" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? 'hover-tint' : 'opacity-40 cursor-not-allowed'" class="btn text-sm" :title="partyOnMap(selectedParty()) ? 'Move the party across the map, one hex at a time — pick a hex on the Map' : 'The party has no map position yet — set its hex first (⚙ Manage)'">
+              <span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span>
+            </button>
+            <template x-if="selectedParty().activeJourneyId && journeyById(selectedParty().activeJourneyId)">
+              <button @click="journeyOpenDetail(selectedParty().activeJourneyId)" class="btn text-sm" style="background:var(--c-ink);color:var(--c-parchment);border-color:var(--c-ink)" title="This party is on a journey — open it">⛺ on journey →</button>
+            </template>
+            <template x-if="!(selectedParty().activeJourneyId && journeyById(selectedParty().activeJourneyId))">
+              <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? 'hover-tint' : 'opacity-40 cursor-not-allowed'" class="btn text-sm" title="Start a journey with the whole party">🧭 Send on journey</button>
+            </template>
+            <button @click="openPartyModal(selectedParty().id)" class="btn text-sm" title="Split, merge, muster, membership, camp, chronicle…">⚙ Manage</button>
+          </div>
+        </div>
+      </template>      <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
            loose units as three clickable-row tables. Clicking a row opens that group's
            detail below (the armies table is the model). A party can be mustered into an
            army from its detail; a unit marching to a muster point shows as its own row
@@ -11082,7 +11377,7 @@ document.addEventListener('alpine:init', () => {
               <template x-for="r in partyRows()" :key="r.id">
                 <tr :class="(groupSelKind==='party' && partySelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('party', r.id)">
                   <td x-text="r.icon"></td>
-                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
+                  <td><button @click.stop="openPartyModal(r.id)" class="underline font-semibold text-left" title="Open the full party view (⚙ Manage)" x-text="r.name"></button></td>
                   <td><span x-show="r.leaderName" x-text="r.leaderName"></span><span x-show="!r.leaderName" class="opacity-50">—</span></td>
                   <td class="font-mono" x-text="r.memberCount"></td>
                   <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
@@ -11128,228 +11423,10 @@ document.addEventListener('alpine:init', () => {
 
       <!-- ── DETAIL panel — the clicked group ───────────────────────────────── -->
       <div id="group-detail">
-        <!-- PARTY detail (the full party card, now driven by the selection) -->
-        <div x-show="groupSelKind==='party' && selectedParty()" class="space-y-3">
-          <template x-for="pt in selectedPartyList()" :key="pt.id">
-            <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
-              <div class="flex justify-between items-center gap-2 flex-wrap">
-                <div class="flex items-center gap-2">
-                  <!-- Party name — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like other fields. -->
-                  <span class="ed-stat" x-data="editableStat({entityType:'party', entity:pt, fieldPath:'name', label:'Party name', kind:'text', placeholder:'(unnamed party)'})">
-                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-base font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit name (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
-                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                  </span>
-                  <span class="text-sm opacity-60 font-mono" x-text="pt.id"></span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
-                  <button x-show="pt.activeJourneyId && journeyById(pt.activeJourneyId)" @click="journeyOpenDetail(pt.activeJourneyId)" class="btn btn-info text-sm" title="This party is on a journey — open it">⛺ on journey</button>
-                  <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="btn btn-info text-sm" title="Start a journey with this whole party">🧭 Send on journey</button>
-                  <!-- §12 — turn this party into an army (RR pp.435–437) -->
-                  <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
-                  <button @click="removeParty(pt.id)" class="btn text-sm accent-red">× delete</button>
-                </div>
-              </div>
-              <div class="mt-2 space-y-2 text-sm">
-                <!-- Current hex + Notes, stacked (Notes under Current hex). Current hex is a lock-edit:
-                     on a journey it's journey-driven ("Command" style — locked, links to the journey);
-                     otherwise the GM edits it with the ✏ / ✓ / × control ("Generate" style override). -->
-                <div>
-                  <span class="block text-xs opacity-70">Current hex</span>
-                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
-                    <span class="flex items-center gap-2">
-                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
-                      <button @click="journeyOpenDetail(pt.activeJourneyId)" class="text-xs opacity-70 underline whitespace-nowrap" title="On a journey — the party's hex moves with it. Open the journey.">🔒 on journey ›</button>
-                    </span>
-                  </template>
-                  <!-- Generate style — same ✏ / ✓ / × draft-edit mechanic as every other GM-edited
-                       field (editableStat): ✏ opens, the pick lives in a draft, ✓ commits via
-                       commitStatEdit (emits a logged gm-fiat event ONLY on save), × discards. -->
-                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
-                    <span class="ed-stat">
-                      <template x-if="!pt._hexEditing">
-                        <span class="ed-stat">
-                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
-                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
-                        </span>
-                      </template>
-                      <template x-if="pt._hexEditing">
-                        <span class="ed-stat">
-                          <!-- @change + :selected (not x-model): an x-for option list doesn't pre-select
-                               reliably under x-model. Writes only the DRAFT — no emit until ✓. -->
-                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
-                            <option value="" :selected="!pt._hexDraft">— none —</option>
-                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
-                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
-                            </template>
-                          </select>
-                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
-                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
-                        </span>
-                      </template>
-                    </span>
-                  </template>
-                </div>
-                <!-- Notes — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like every other field. -->
-                <div x-data="editableStat({entityType:'party', entity:pt, fieldPath:'notes', label:'Party notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs opacity-70">Notes</span>
-                    <template x-if="!editing">
-                      <button @click="start()" class="ed-edit" title="Edit notes (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
-                    </template>
-                    <template x-if="editing">
-                      <span class="flex gap-1">
-                        <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
-                        <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
-                      </span>
-                    </template>
-                  </div>
-                  <template x-if="!editing">
-                    <p class="text-sm whitespace-pre-wrap" :class="(currentValue==null || currentValue==='') ? 'opacity-60 italic' : ''" x-text="displayValue"></p>
-                  </template>
-                  <template x-if="editing">
-                    <textarea class="w-full h-20" x-model="draft" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="Free notes about this party"></textarea>
-                  </template>
-                </div>
-              </div>
-              <div class="mt-3">
-                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
-                <!-- CoL-1 lifestyle banner (Joachim 2026-06-06): in a settlement / stronghold / a realm the
-                     party's ruler holds, no rations or water are spent — they live off the lifestyle. -->
-                <template x-if="rationsShown() && partyMembers(pt).length > 0 && partyProvisioningInfo(pt).onLifestyle">
-                  <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1 max-w-3xl">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
-                </template>
-                <template x-if="partyMembers(pt).length === 0">
-                  <p class="text-sm italic opacity-60">No members. Add characters below.</p>
-                </template>
-                <!-- Members table — same shape + contents as the Journey Detail members table
-                     (Member · Mercenaries · Encumbrance · Conditions); the leader ★ + role sit in the
-                     Member cell, and a trailing actions cell carries the party-management buttons
-                     (make-leader / remove). Mercenaries inline, encumbrance gated on encumbranceShown(). -->
-                <table class="text-sm w-full max-w-3xl" x-show="partyMembers(pt).length > 0">
-                  <thead>
-                    <tr class="text-left text-xs opacity-60 border-b border-ink/30">
-                      <th class="font-normal py-0.5 pr-4">Member</th>
-                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
-                      <th class="font-normal py-0.5 pr-4">Mercenaries</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
-                      <th class="font-normal py-0.5 pr-4">Conditions</th>
-                      <th class="font-normal py-0.5"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="ch in partyMembers(pt)" :key="ch.id">
-                      <tr class="border-b border-dashed border-hairline align-top">
-                        <td class="py-1 pr-4">
-                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
-                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                        </td>
-                        <td class="py-1 pr-4 text-center">
-                          <!-- Leader column: ★ marks the party founder/leader; em-dash otherwise -->
-                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
-                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
-                        </td>
-                        <td class="py-1 pr-4">
-                          <template x-if="partyMemberMercSummary(ch).length">
-                            <span class="text-xs">
-                              <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
-                            </span>
-                          </template>
-                          <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="rationsShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'accent-amber font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="rationsShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="encumbranceShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
-                        </td>
-                        <td class="py-1 pr-4">
-                          <template x-if="characterJourneyConditions(ch).length">
-                            <span class="flex flex-nowrap gap-1">
-                              <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
-                            </span>
-                          </template>
-                          <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
-                        </td>
-                        <td class="py-1 whitespace-nowrap text-right">
-                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-xs underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
-                          <button @click="removeCharacterFromParty(ch)" class="text-xs underline opacity-70 hover:opacity-100 ml-2">remove</button>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-                <!-- Total party headcount = characters + the mercenaries that travel with them. -->
-                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
-                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
-                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
-                </div>
-                <div class="mt-2 flex items-center gap-2 text-sm flex-wrap">
-                  <span class="opacity-70">Add member <span class="text-xs opacity-60">(same hex: <span x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set'"></span>)</span>:</span>
-                  <template x-if="charactersInPartyHex(pt).length > 0">
-                    <span class="flex items-center gap-2">
-                      <select x-model="pt._addMemberPick" class="text-sm">
-                        <option value="">— pick a character —</option>
-                        <template x-for="ch in charactersInPartyHex(pt)" :key="ch.id">
-                          <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1)"></option>
-                        </template>
-                      </select>
-                      <button @click="if(pt._addMemberPick){ addCharacterToParty(pt, pt._addMemberPick); pt._addMemberPick=''; }" :disabled="!pt._addMemberPick" class="text-sm btn" :class="pt._addMemberPick ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
-                    </span>
-                  </template>
-                  <template x-if="charactersInPartyHex(pt).length === 0">
-                    <span class="text-xs italic opacity-60">No unassigned characters in this hex. Change the party's hex above, or move a character here first.</span>
-                  </template>
-                </div>
-              </div>
-              <!-- Party camp (Items I1 / Stash B) — the travelling stash that follows the party's hex.
-                   Always-on core. Disbanding hands the camp to the leader. -->
-              <div class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
-                <div class="flex justify-between items-center">
-                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
-                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
-                </div>
-                <template x-if="camp">
-                  <div class="flex justify-between items-center text-sm mt-1">
-                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
-                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
-                  </div>
-                </template>
-                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
-
-                <!-- CHRONICLE — the party's world-memory (T3): every eventLog entry that names this
-                     party in its context envelope (travel days, survival, camp, anything party-tagged). -->
-                <div class="border-t border-ink/30 pt-2 mt-1">
-                  <div class="flex justify-between items-baseline mb-1">
-                    <span class="text-sm uppercase tracking-wide opacity-70"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle</span>
-                    <span class="text-xs opacity-70" x-text="entityChronicleCount('party', pt.id) + ' events'"></span>
-                  </div>
-                  <template x-if="entityChronicleCount('party', pt.id) === 0">
-                    <p class="text-xs italic opacity-60">Nothing recorded yet. Party-tagged events (travel, survival, camp) appear here from the campaign log.</p>
-                  </template>
-                  <template x-if="entityChronicleCount('party', pt.id) > 0">
-                    <div class="text-sm max-h-72 overflow-y-auto pr-1">
-                      <template x-for="(row,ri) in entityChronicle('party', pt.id)" :key="ri">
-                        <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:var(--c-border)">
-                          <div class="flex justify-between items-baseline gap-2">
-                            <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
-                            <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-
+        <!-- PARTY detail is now a TOP-LEVEL overlay: the Manage-party modal (partyModalId) lives in the
+             global modal stack below (beside the Party SPLIT modal), so it renders over ANY view without
+             changing navigation — a position:fixed overlay is still hidden by a display:none view ancestor,
+             which is why it must NOT live inside #group-detail. This div keeps only the inline ARMY detail. -->
         <!-- ARMY detail — relocated from the old World ▸ 🎖 Armies view (§12 Group model).
              Same campaign card + methods; gated on the army being the selected group. -->
         <template x-if="groupSelKind==='army' && armySelected()">
@@ -12218,7 +12295,7 @@ document.addEventListener('alpine:init', () => {
           <template x-for="row in monsterLooseBandRows()" :key="row.key">
             <tr>
               <td x-text="row.icon" :title="row.statusLabel"></td>
-              <td class="font-semibold" x-text="row.band"></td>
+              <td class="font-semibold"><template x-if="row.groupId"><button @click="openGroupSheet(row.groupId)" class="underline hover:opacity-80 text-left" title="Open this band's sheet" x-text="row.band"></button></template><template x-if="!row.groupId"><span x-text="row.band"></span></template></td>
               <td x-text="row.monster"></td>
               <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
               <td>
@@ -12692,6 +12769,856 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Character editor modal (Phase 2.6.2 — minimal sheet covering identity + stats + skills + inventory + background + location) -->
 <!-- v2: panel wrapped in x-if so its bindings don't evaluate against null characterEditing -->
+<!-- Manage-party MODAL (Movement 2.0 rework) — the full party surface (advance-travel, provisioning,
+     members, camp, membership, chronicle). A TOP-LEVEL overlay so openPartyModal shows it over whatever
+     view called it (a Travel-overview row, a character sheet, a hex) WITHOUT navigating. selectedParty()
+     resolves because openPartyModal selects the party first. -->
+<template x-if="partyModalId && selectedParty()">
+  <div class="modal-overlay p-4" @click.self="closePartyModal()">
+    <div class="modal-card w-full" style="max-width:60rem; max-height:92vh; overflow-y:auto">
+      <!-- header: party name + close -->
+      <div class="flex justify-between items-center gap-2 mb-2">
+        <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-people"></use></svg> <span x-text="selectedParty().name || 'Party'"></span></h3>
+        <button @click="closePartyModal()" class="btn text-sm" title="Close">✕ Close</button>
+      </div>
+      <!-- ═══ Active-encounter resolve strip (standardized 2026-07-01) — the entity-scoped twin of the Events
+           "clock is held" banner. Shows when THIS party is in ≥1 active encounter; same box + ✕ dismiss /
+           ⚔ resolve rows, reusing dismissEncounter + openEncounterModal. The SAME markup lives on the character,
+           party, and monster/group sheets — one accessor (entityActiveEncounters), one look. ═══ -->
+      <template x-if="selectedParty() && entityActiveEncounterCount('party', selectedParty().id) > 0">
+        <div class="mb-3 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+          <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+          <template x-for="e in entityActiveEncounters('party', selectedParty().id)" :key="e.id">
+            <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+              <span x-text="'⚔ ' + e.label"></span>
+              <span class="flex items-center gap-1.5 whitespace-nowrap">
+                <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+                <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+              </span>
+            </div>
+          </template>
+        </div>
+      </template>
+      <!-- tab strip: Manage · Travel · Camp · Chronicle (4 tabs — Movement 2.0 rework, Joachim 2026-07-01) -->
+      <div class="flex items-center gap-1.5 mb-3">
+        <button @click="partyModalTab='manage'" class="tab-pill text-sm" :class="partyModalTab==='manage' ? 'tab-active' : ''">Manage</button>
+        <button @click="partyModalTab='travel'" class="tab-pill text-sm" :class="partyModalTab==='travel' ? 'tab-active' : ''">🧭 Travel</button>
+        <button @click="partyModalTab='provisioning'" class="tab-pill text-sm" :class="partyModalTab==='provisioning' ? 'tab-active' : ''">📦 Provisioning</button>
+        <button @click="partyModalTab='camp'" class="tab-pill text-sm" :class="partyModalTab==='camp' ? 'tab-active' : ''">⛺ Camp</button>
+        <button @click="partyModalTab='chronicle'" class="tab-pill text-sm inline-flex items-center gap-1" :class="partyModalTab==='chronicle' ? 'tab-active' : ''"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60" x-text="'· ' + entityChronicleCount('party', selectedParty().id)"></span></button>
+      </div>
+
+      <!-- ══════════════ MANAGE TAB ══════════════ -->
+      <div x-show="partyModalTab==='manage'" class="space-y-3">
+        <template x-for="pt in selectedPartyList()" :key="pt.id">
+          <div class="space-y-3">
+
+            <!-- ── MAIN VIEW: the party box ── -->
+            <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
+              <!-- name + actions -->
+              <div class="flex justify-between items-center gap-2 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <span class="ed-stat" x-data="editableStat({entityType:'party', entity:pt, fieldPath:'name', label:'Party name', kind:'text', placeholder:'(unnamed party)'})">
+                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-base font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit name (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
+                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+                  </span>
+                  <span class="text-sm opacity-60 font-mono" x-text="pt.id"></span>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
+                  <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="btn btn-info text-sm" title="Start a journey with this whole party">🧭 Send on journey</button>
+                  <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
+                  <button @click="removeParty(pt.id)" class="btn text-sm accent-red">× delete</button>
+                </div>
+              </div>
+
+              <!-- operating rules: Encounters / Rations / Encumbrance — the standing rules the party
+                   travels + provisions under (Movement 2.0 rework: migrated from the old Provisioning box). -->
+              <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                <span class="text-xs uppercase tracking-wide text-muted mr-1" title="The standing rules this party operates under — applied to any journey it's on">Operating rules</span>
+                <template x-for="t in provOperatingToggles()" :key="'op-'+t.key">
+                  <button type="button" class="text-xs px-2 py-0.5 rounded-full border border-ink" :class="provRegimePillActive(pt, t) ? 'tab-active' : 'hover-tint'" :title="t.title" @click="provToggleRegime(pt, t.key)" x-text="provRegimePillLabel(pt, t)"></button>
+                </template>
+              </div>
+
+              <!-- current hex + notes (verbatim from the old party card; the "on journey" link is now a
+                   static lock — the journey is advanced in the box above) -->
+              <div class="mt-2 space-y-2 text-sm">
+                <div>
+                  <span class="block text-xs opacity-70">Current hex</span>
+                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
+                    <span class="flex items-center gap-2">
+                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
+                      <span class="text-xs opacity-70 whitespace-nowrap" title="On a journey — the party's hex moves with it (advance it above)">🔒 on journey</span>
+                    </span>
+                  </template>
+                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
+                    <span class="ed-stat">
+                      <template x-if="!pt._hexEditing">
+                        <span class="ed-stat">
+                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
+                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
+                        </span>
+                      </template>
+                      <template x-if="pt._hexEditing">
+                        <span class="ed-stat">
+                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
+                            <option value="" :selected="!pt._hexDraft">— none —</option>
+                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
+                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
+                            </template>
+                          </select>
+                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
+                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
+                        </span>
+                      </template>
+                    </span>
+                  </template>
+                </div>
+                <div x-data="editableStat({entityType:'party', entity:pt, fieldPath:'notes', label:'Party notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs opacity-70">Notes</span>
+                    <template x-if="!editing">
+                      <button @click="start()" class="ed-edit" title="Edit notes (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
+                    </template>
+                    <template x-if="editing">
+                      <span class="flex gap-1">
+                        <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
+                        <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
+                      </span>
+                    </template>
+                  </div>
+                  <template x-if="!editing">
+                    <p class="text-sm whitespace-pre-wrap" :class="(currentValue==null || currentValue==='') ? 'opacity-60 italic' : ''" x-text="displayValue"></p>
+                  </template>
+                  <template x-if="editing">
+                    <textarea class="w-full h-20" x-model="draft" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="Free notes about this party"></textarea>
+                  </template>
+                </div>
+              </div>
+
+              <!-- MEMBERS (verbatim table; the add-member picker + the lifestyle banner are removed —
+                   membership is the drag panel below, lifestyle moved into Provisioning) -->
+              <div class="mt-3">
+                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
+                <template x-if="partyMembers(pt).length === 0">
+                  <p class="text-sm italic opacity-60">No members. Drag someone in from the Membership panel below.</p>
+                </template>
+                <table class="text-sm w-full max-w-3xl" x-show="partyMembers(pt).length > 0">
+                  <thead>
+                    <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                      <th class="font-normal py-0.5 pr-4">Member</th>
+                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
+                      <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
+                      <th class="font-normal py-0.5 pr-4">Conditions</th>
+                      <th class="font-normal py-0.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="ch in partyMembers(pt)" :key="ch.id">
+                      <tr class="border-b border-dashed border-hairline align-top">
+                        <td class="py-1 pr-4">
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </td>
+                        <td class="py-1 pr-4 text-center">
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
+                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="partyMemberMercSummary(ch).length">
+                            <span class="text-xs">
+                              <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'accent-amber font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="encumbranceShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="characterJourneyConditions(ch).length">
+                            <span class="flex flex-nowrap gap-1">
+                              <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
+                        </td>
+                        <td class="py-1 whitespace-nowrap text-right">
+                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-xs underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
+                          <button @click="removeCharacterFromParty(ch)" class="text-xs underline opacity-70 hover:opacity-100 ml-2">remove</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
+                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
+                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- ── MEMBERSHIP & OPERATIONS — below the main view (verbatim block A) ── -->
+            <div class="vellum border border-ink rounded p-4" x-cloak>
+              <div>
+                <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
+                  <h3 class="font-bold text-lg">🧭 Membership &amp; operations</h3>
+                  <button @click="openPartySplit(pt.id)" :disabled="partyMemberCount(pt) < 2" :class="partyMemberCount(pt) < 2 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Split a subset of members off into a new party">✂ Split party…</button>
+                </div>
+
+                <!-- follow (tracking-split) banner -->
+                <template x-if="partyFollowInfo(pt)">
+                  <div class="tint-green border bdr-green rounded p-2 mb-2 text-sm flex flex-wrap items-center gap-2">
+                    <span>👣 Following <strong x-text="partyFollowInfo(pt).leadName"></strong> at half-speed (RR p.120).</span>
+                    <button @click="retargetFollowUI(partyFollowInfo(pt).journeyId)" class="btn text-sm">↻ Re-point to lead's hex</button>
+                  </div>
+                </template>
+
+                <!-- §2.1 member drag: member list | available roster | remove gutter -->
+                <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
+                  <div class="border-hairline border rounded p-2" style="min-height:5rem"
+                       @dragover.prevent @drop="partyDropAddToParty(pt.id)"
+                       :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                    <div class="text-xs font-semibold text-muted mb-1" x-text="'Members · ' + partyMemberCount(pt)"></div>
+                    <template x-for="m in partyMembers(pt)" :key="m.id">
+                      <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                            draggable="true"
+                            @dragstart="partyDragStart(m.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', m.id)"
+                            @dragend="partyDragEnd()"
+                            :class="partyEdit.dragCharId === m.id ? 'opacity-50' : ''"
+                            x-text="(m.name||m.id) + (pt.leaderCharacterId===m.id ? ' ★' : '')"></span>
+                    </template>
+                    <p x-show="partyMemberCount(pt)===0" class="text-xs text-muted italic">No members — drag someone in.</p>
+                  </div>
+                  <div>
+                    <div class="border-hairline border rounded p-2 mb-2" style="min-height:3.5rem"
+                         @dragover.prevent @drop="partyDropRemoveMember()"
+                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                      <div class="text-xs font-semibold text-muted mb-1">Available here (drag out to release)</div>
+                      <template x-for="a in partyAvailableRoster(pt)" :key="a.id">
+                        <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                              draggable="true"
+                              @dragstart="partyDragStart(a.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', a.id)"
+                              @dragend="partyDragEnd()"
+                              :class="partyEdit.dragCharId === a.id ? 'opacity-50' : ''"
+                              x-text="a.name||a.id"></span>
+                      </template>
+                      <p x-show="partyAvailableRoster(pt).length===0" class="text-xs text-muted italic">No party-less characters at this hex.</p>
+                    </div>
+                    <div class="tint-red border bdr-red rounded p-2 text-center text-sm text-muted"
+                         @dragover.prevent @drop="partyDropRemoveMember()"
+                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                      ✕ Drop here to remove from the party
+                    </div>
+                  </div>
+                </div>
+
+                <!-- co-located parties: drag-target cards + whole-party merge prompt -->
+                <template x-if="partyMergeCandidates(pt).length">
+                  <div class="mt-3">
+                    <div class="text-xs font-semibold text-muted mb-1">Other parties in this hex — drag a member across, or merge them in</div>
+                    <div class="flex flex-wrap gap-2">
+                      <template x-for="cp in partyMergeCandidates(pt)" :key="cp.id">
+                        <div class="border border-ink rounded p-2 text-sm bg-warm"
+                             @dragover.prevent @drop="partyDropAddToParty(cp.id)"
+                             :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                          <div class="font-semibold" x-text="cp.name"></div>
+                          <div class="text-xs text-muted" x-text="partyMemberCount(cp) + ' member' + (partyMemberCount(cp)===1?'':'s')"></div>
+                          <button @click="confirmPartyMerge(pt.id, cp.id)" class="btn text-sm mt-1">🔀 Merge into this party</button>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+          </div>
+        </template>
+      </div>
+
+      <!-- ══════════════ TRAVEL TAB ══════════════ -->
+      <!-- Everything directly about travel: advance mechanics, vessel/voyage, pace/speed, stop journey,
+           and the day log. journeyDetail()-driven (openPartyModal points journeyDetailId at this party's
+           journey); journey links open the modal straight to this tab. Moved out of the Manage box
+           (Joachim 2026-07-01). -->
+      <div x-show="partyModalTab==='travel'" class="space-y-3">
+        <!-- JOURNEY BOX — Move / Send-on-journey when idle; "On a journey to X" + advance / distance /
+             pace / vessel / stop when travelling (Joachim 2026-07-01 rework). -->
+        <div class="border border-ink rounded p-3">
+          <!-- NOT TRAVELLING — the Move action lives here now (removed from the Manage box). -->
+          <template x-if="!journeyDetail()">
+            <p class="text-base italic opacity-70 py-3 text-center">This party isn't travelling. Start a journey with
+              <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" class="btn btn-info text-xs not-italic align-baseline">🧭 Send on journey</button>,
+              or <button @click="const pp=selectedParty(); if(pp && partyOnMap(pp)){ const id=pp.id; closePartyModal(); mvBeginMoveOnMap(id); }" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? '' : 'opacity-50 cursor-not-allowed'" :title="partyOnMap(selectedParty()) ? 'Move the party across the map, one hex at a time' : 'The party has no map position yet — set its hex first'" class="btn text-xs not-italic align-baseline"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span></button>
+              it a hex at a time.</p>
+          </template>
+          <!-- TRAVELLING -->
+          <template x-if="journeyDetail()">
+            <div class="space-y-3">
+              <!-- header: "On a journey to X" (the old Route: line is retired) + View on map -->
+              <div class="flex justify-between items-baseline gap-2 flex-wrap">
+                <span class="text-base font-semibold" x-text="'On a journey to ' + journeyHexLabel(journeyDetail().destinationHexId) + '.'"></span>
+                <button @click="const id=journeyDetail().id; closePartyModal(); journeyViewOnMap(id)" class="btn text-xs" title="See this journey on the map — change its route, destination, or waypoints there">🗺 View on map</button>
+              </div>
+        <!-- E5 — this journey is steered by a live FOLLOW: the destination tracks the quarry
+             daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
+             the trail controls (rain lever, give up). -->
+        <template x-if="window.ACKS.journeyTrackingPursuit && window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id)">
+          <div class="text-xs px-2 py-1.5 border bdr-amber/40 rounded flex flex-wrap items-center gap-2" style="background:var(--c-warning-bg)">
+            <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
+              — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
+            <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="btn" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
+          </div>
+        </template>
+        <!-- E8 (RR p.285) — the party evaded an encounter and failed its Navigation throw at −4:
+             LOST, and it KNOWS it (unlike the §27 secret travel-stray). The journey holds — no
+             travel days — until the last known landmark is found (the Wilderness Search below,
+             1 ancillary, encounter check included), the route is re-drawn, or the GM clears it. -->
+        <template x-if="journeyDetail().status === 'lost'">
+          <div class="text-xs px-2 py-1.5 border bdr-red/50 rounded space-y-1" style="background:var(--c-danger-bg)">
+            <div>⚠ <span class="font-semibold accent-red">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search for the landmark</button>
+              <button x-show="journeyDetail().lostEncounterId" @click="openEncounterModal(journeyDetail().lostEncounterId)" class="btn" title="The meeting the party fled — the aftermath line carries the failed Navigation throw">⚔ the encounter</button>
+              <span class="opacity-70">Re-drawing the route (✎ on the map) also re-orients them.</span>
+            </div>
+          </div>
+        </template>
+              <!-- row 1 — distance -->
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+              <!-- row 2 — pace / mode / speed -->
+        <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
+             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
+             override (no value/event); off shows nothing beside the tick. The value is set/edited via the
+             standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
+        <div x-show="journeyDetail().status==='in-transit'">
+          <!-- Current speed (RR pp.83–84): the party's base overland rate = its SLOWEST member's encumbrance
+               rate, shown ABOVE Pace/Mode. The §26 GM "Override" sits on this row and REPLACES this base rate
+               (greys it); pace/weather/per-hex terrain still multiply it downstream, so Pace is an independent
+               control below. The tick only ARMS the override (no value/event); the value is set with the
+               standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); unticking disarms AND
+               clears any value. -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
+            <span class="opacity-70 text-xs">Current speed</span>
+            <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
+                  :title="'The group travels at ' + journeySpeedBasisLabel(journeyDetail()) + ' (RR pp.83–84 / p.448 for an army). Pace, weather and terrain then modify it.'"
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — overloaded' : '')"></span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
+              <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+              <span class="text-xs">Override</span>
+            </label>
+            <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                 reads "— set a value" and nothing is written (the slowest-member rate governs). -->
+            <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+              <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold accent-amber'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+              </span>
+            </template>
+            <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
+          </div>
+          <!-- pace + mode — pace is now ALWAYS settable (the override no longer disables it); it multiplies the
+               current speed for the next day ticked and governs fatigue (RR p.279). -->
+          <div class="flex flex-wrap gap-4 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Pace</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5"
+                      @change="setJourneyPace(journeyDetail(), $event.target.value)"
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged). A pace the travellers' other activities can't sustain is disabled (the activity budget caps it).">
+                <option value="normal" :selected="journeyEffectivePaceUI(journeyDetail())==='normal'" :disabled="!journeyPaceAllowed(journeyDetail(),'normal')">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyEffectivePaceUI(journeyDetail())==='half-speed'" :disabled="!journeyPaceAllowed(journeyDetail(),'half-speed')">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyEffectivePaceUI(journeyDetail())==='forced-march'" :disabled="!journeyPaceAllowed(journeyDetail(),'forced-march')">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                <option value="halted" :selected="journeyEffectivePaceUI(journeyDetail())==='halted'">Halted (×0 — the day's activities leave no time to travel)</option>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Mode</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+                <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'">⛵ Voyage (set by assigning a vessel above)</option>
+                <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+              </select>
+            </div>
+          </div>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)" x-text="'Current speed = ' + journeySpeedBasisLabel(journeyDetail()) + '; pace multiplies it for the next day ticked.'"></span>
+          <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
+               leave no room for full-speed travel, the faster paces are disabled + this names why. -->
+          <span class="text-xs accent-amber font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
+          <span class="text-xs accent-amber" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
+          <span class="text-xs accent-amber" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
+        </div>
+              <!-- row 3 — vessel -->
+        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
+             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
+             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
+             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
+          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
+                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
+                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
+                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
+                </select>
+              </div>
+              <template x-if="journeyVessel()">
+                <div>
+                  <label class="opacity-70 block text-xs">Propulsion</label>
+                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
+                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
+                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
+                  </select>
+                </div>
+              </template>
+              <template x-if="journeyVessel()">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
+                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
+                  🌙 24-hour sailing
+                </label>
+              </template>
+            </div>
+            <template x-if="journeyVessel()">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
+                <span class="opacity-60">· River current</span>
+                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
+                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
+                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
+                </select>
+                <template x-if="journeyDetail().riverCurrent">
+                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
+                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
+                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
+                  </select>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+              <!-- row 4 — stop / status -->
+        <!-- actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
+               lost) — a steppable people-journey uses the per-hex ▶/⏩/⏭ panel above instead (no redundancy). -->
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">🚶 Complete Movement</button>
+          <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base tint-green accent-green border-2 bdr-green">✓ Arrived</span>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base tint-red accent-red border-2 bdr-red">🛑 Stopped</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status) && !(journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail()))" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
+        </div>
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance control (journeyAdvanceOneHex) + Stop + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey steps here one hex at a
+             time (▶ Advance one hex, over the Foundation engine, halting on encounter / river / budget / arrival);
+             bulk day-advance goes through the campaign Day Clock (top-right). An army / voyage / lost journey keeps
+             the whole-day "Complete Movement" button below. journey.paused (Hold) makes the Day Clock skip this
+             journey; ▶ is a deliberate hand-step. Night travel is NOT modelled. -->
+        <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <button @click="journeyAdvanceOneHex(journeyDetail())"
+                      :disabled="journeyBudgetSpentToday(journeyDetail())"
+                      :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                      :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                      class="btn text-sm">▶ Advance one hex</button>
+              <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the Day Clock won't auto-advance it; step it by hand with ▶ and act in each hex.">
+                <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
+                <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause journey)'"></span>
+              </label>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶ spends it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
+            </div>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the Day Clock won't advance this journey. Step one hex with ▶, or untick Hold to let it travel.</p>
+          </div>
+        </template>
+            </div>
+          </template>
+        </div>
+        <!-- DAY LOG box — the party's day-by-day record, always below the journey box. While travelling
+             it shows the rich per-day journey log (with its re-rolls); otherwise the DERIVED all-activity
+             log (entityDayLog), so a party's past moves/activity show even when it isn't on a journey. -->
+        <div>
+        <!-- DAY LOG — the party's travel log, folded from the Travel page (verbatim, journeyDetail()-driven) -->
+        <template x-if="journeyDetail() && (journeyDetail().days||[]).length">
+          <div class="mt-1">
+        <!-- day log -->
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Day log</h3>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days travelled yet — the party is at the start hex. Press Complete Movement to travel the first day (or advance the Day Clock).</p></template>
+          <div class="space-y-1">
+            <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
+              <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-hairline'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
+                <!-- Row 1 — day header: weather · distance · pace · speed override. The LATEST day, while
+                     still rerollable (the world clock stands on it), is the party's CURRENT STATE —
+                     highlighted + rerolled in place (Joachim 2026-06-05: "it is the current state… the
+                     Journey updates location and conditions"). Once the clock advances past it (or an
+                     earlier day) it locks into history. Same gate as the reroll buttons below. -->
+                <div class="flex flex-wrap gap-x-3 items-baseline">
+                  <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-xs uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
+                  <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                  <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                  <span class="capitalize" x-text="d.pace"></span>
+                  <span x-show="d.speedOverrideMilesPerDay > 0" class="accent-amber font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
+                </div>
+                <!-- Row 2 — navigation: the nav throw + this day's movement / fording / encounter / arrival
+                     notes, with its OWN reroll. 🎲 reroll nav re-rolls navigation & movement and HOLDS the
+                     day's water/food outcome fixed (the forage row owns that). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.navigationThrow || journeyDayNotables(d,'nav').length || (di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail()))">
+                  <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'accent-green' : 'accent-red'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                  <span x-show="!d.navigationThrow" class="font-mono opacity-40">nav — no throw (on road / at rest)</span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs btn ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
+                </div>
+                <!-- Row 2b — encounters (#476 M3/M7): the day's pool-aware encounter(s), each with its
+                     GM affordance — open the lair it surfaced, or the hex whose seeded shells want
+                     populating. Resolution stays GM judgment (the lair detail has the lifecycle actions). -->
+                <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
+                  <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
+                    <span class="accent-red">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
+                    <!-- E2: a committed meeting IS an Encounter entity — walk the RAW procedure on it.
+                         A pending/preview day has no entity yet (it materializes at commit) → button hides. -->
+                    <button x-show="ee.payload && ee.payload.encounterId && encounterById(ee.payload.encounterId)" @click="openEncounterModal(ee.payload.encounterId)" class="btn text-xs accent-red font-semibold" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(ee.payload.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+                    <button x-show="ee.payload && ee.payload.lairId && (ee.payload.encounterKind !== 'wandering-fragment' || lairKnown(ee.payload.lairId))" @click="openLairDetail(ee.payload.lairId)" class="text-xs btn" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
+                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose;
+                         once the den is discovered both flip to the full → lair above. -->
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ encounterId: ee.payload.encounterId || null, lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs btn" title="Track the fragment — find the trail (Tracking 11+, RR p.120) and follow it home">🐾 Track</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openLairDetail(ee.payload.lairId)" class="btn text-xs opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                    <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs btn" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
+                  </div>
+                </template>
+                <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
+                     with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
+                  <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'accent-amber'" x-text="journeyForageDetail(d.waterForage)"></span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'survival')" :key="'dls-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="btn text-xs text-sky-800 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
+                </div>
+                <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-xs opacity-80">
+                  <span class="opacity-50">via </span>
+                  <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold accent-green' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <span x-show="di===(journeyDetail().days.length-1)" class="accent-green" title="The party is here now"> 📍 here now</span>
+                </div>
+                <!-- Row 5 — V6 voyage: the day's sailing/rowing breakdown (wind · point of sail · speed
+                     factors · river current · weathering · provisioning), then any hull hazard / gale /
+                     grounding / scurvy. Only on a voyage day (d.voyage present). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.voyage">
+                  <span class="font-mono text-sky-800" x-text="voyageDayLine(d)"></span>
+                  <span class="font-mono accent-red" x-show="voyageDayHazardLine(d)" x-text="voyageDayHazardLine(d)"></span>
+                </div>
+              </div>
+            </template>
+            <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
+                 day above, highlighted + rerollable in place. Joachim 2026-06-05: "remove the Preview
+                 name… it is the current state. The Journey updates location and current conditions.") -->
+          </div>
+          <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
+        </div>          </div>
+        </template>
+          <!-- off a journey (or a journey with no days yet): the derived all-activity log -->
+          <template x-if="!(journeyDetail() && (journeyDetail().days||[]).length)">
+            <div>
+              <div class="flex items-baseline justify-between mb-1">
+                <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what the party did, day by day</span></span>
+                <span class="text-xs opacity-70" x-text="entityDayLogCount('party', selectedParty().id) + ' day' + (entityDayLogCount('party', selectedParty().id)===1?'':'s') + ' logged'"></span>
+              </div>
+              <template x-if="entityDayLog('party', selectedParty().id).length === 0">
+                <p class="text-base italic opacity-60 py-3 text-center">No day-scale activity yet. Moves, journeys, encounters met, and camp events appear here grouped by the day they happened.</p>
+              </template>
+              <div class="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                <template x-for="day in entityDayLog('party', selectedParty().id)" :key="day.key">
+                  <div class="border border-hairline rounded p-2">
+                    <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                    <div class="space-y-0.5">
+                      <template x-for="(row,ri) in day.entries" :key="ri">
+                        <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ══════════════ PROVISIONING TAB ══════════════ -->
+      <!-- The party's supplies + load — moved out of the Manage card to its own tab (Joachim 2026-07-01). -->
+      <div x-show="partyModalTab==='provisioning'" class="space-y-3">
+        <template x-for="pt in selectedPartyList()" :key="pt.id">
+          <div>
+            <!-- provisioning off (Rations + Encumbrance both off in Operating rules): nothing to track —
+                 point the GM back to the Manage-tab toggles. -->
+            <template x-if="!(rationsShown() || encumbranceShown())">
+              <p class="text-base italic opacity-60 py-6 text-center">Provisioning is off for this party. Turn on <strong>Rations</strong> or <strong>Encumbrance</strong> in the <em>Operating rules</em> row on the Manage tab to track food, water, and load here.</p>
+            </template>
+              <!-- PROVISIONING & LOAD (Movement 2.0: the old Provisioning box + the journey supplies
+                   tracker, unified — a held/consumed table + lifestyle + fatigue + carry/pace + the
+                   share-rations / share-load tick-boxes; under Members, before Camp) -->
+              <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown() || encumbranceShown()">
+                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">📦 Provisioning &amp; load</div>
+                <template x-if="partyProvisioningInfo(pt).onLifestyle">
+                  <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
+                </template>
+                <!-- unified held / consumed rations table -->
+                <!-- rations: pooled (Share rations ON) = one party-aggregate table; own-stores (OFF) = a
+                     per-character table (each dips into their OWN carried stores, RR p.276). The tickbox
+                     decides the shape (Joachim 2026-07-01). Animals feed from the party's stores either way. -->
+                <div x-show="rationsShown()" x-data="{ get cons(){ return provConsumption(pt); } }">
+                  <!-- POOLED — one party Food/Water table -->
+                  <div x-show="provSharesRations(pt)">
+                    <table class="text-sm w-full max-w-lg">
+                      <thead>
+                        <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                          <th class="font-normal py-0.5 pr-4"></th>
+                          <th class="font-normal py-0.5 pr-4" title="Consumed per day — one ration + one water per individual (RR p.276)">Per day</th>
+                          <th class="font-normal py-0.5 pr-4" title="Days the party currently holds — members' carried stores + the party camp, pooled">Party holds</th>
+                          <th class="font-normal py-0.5" title="Whole days before the first traveller runs short">Days left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr class="border-b border-dashed border-hairline">
+                          <td class="py-1 pr-4">🍖 Food</td>
+                          <td class="py-1 pr-4 font-mono" x-text="cons.people.rationsPerDay + '/day'"></td>
+                          <td class="py-1 pr-4 font-mono" x-text="partyHeldFoodDays(pt) + ' d'"></td>
+                          <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (partySupplyDaysLeft(pt) < 3 ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + partySupplyDaysLeft(pt))"></td>
+                        </tr>
+                        <tr class="border-b border-dashed border-hairline">
+                          <td class="py-1 pr-4">💧 Water</td>
+                          <td class="py-1 pr-4 font-mono" x-text="cons.people.waterPerDay + '/day'"></td>
+                          <td class="py-1 pr-4 font-mono" x-text="partyHeldWaterDays(pt) + ' d'"></td>
+                          <td class="py-1 font-mono opacity-50" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞' : '—'"></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <!-- OWN STORES — a per-character table (each eats from their own carried stores) -->
+                  <div x-show="!provSharesRations(pt)">
+                    <table class="text-sm w-full max-w-lg">
+                      <thead>
+                        <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                          <th class="font-normal py-0.5 pr-4" title="Each traveller eats 1 ration + 1 water/day from their OWN stores (RR p.276)">Each · 1/day</th>
+                          <th class="font-normal py-0.5 pr-4" title="This member's own carried food">🍖 Food</th>
+                          <th class="font-normal py-0.5 pr-4" title="This member's own carried water">💧 Water</th>
+                          <th class="font-normal py-0.5" title="Whole days before THIS member runs short from their own stores">Days left</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="mp in partyMemberProvisioning(pt)" :key="mp.id">
+                          <tr class="border-b border-dashed border-hairline">
+                            <td class="py-1 pr-4" x-text="mp.name"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="mp.foodDays + ' d'"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="mp.waterDays + ' d'"></td>
+                            <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (mp.low ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + mp.daysLeft)"></td>
+                          </tr>
+                        </template>
+                        <template x-if="partyCampReserve(pt)">
+                          <tr class="border-b border-dashed border-hairline opacity-70">
+                            <td class="py-1 pr-4">⛺ Party camp <span class="text-xs opacity-60">· reserve</span></td>
+                            <td class="py-1 pr-4 font-mono" x-text="partyCampReserve(pt).foodDays + ' d'"></td>
+                            <td class="py-1 pr-4 font-mono" x-text="partyCampReserve(pt).waterDays + ' d'"></td>
+                            <td class="py-1 font-mono opacity-50" title="Shared camp stores aren't auto-eaten while each dips into their own — tick Share rations to pool them">—</td>
+                          </tr>
+                        </template>
+                        <template x-if="!partyMemberProvisioning(pt).length">
+                          <tr><td class="py-1 pr-4 opacity-60 italic" colspan="4">No individual members to provision.</td></tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <!-- animals feed from the party's stores either way -->
+                  <template x-if="cons.animals.count">
+                    <div class="text-xs opacity-70 mt-1">🐴 Animals ×<span x-text="cons.animals.count"></span> — feed <span class="font-mono" x-text="cons.animals.foodSt"></span> st · water <span class="font-mono" x-text="cons.animals.waterSt"></span> st/day</div>
+                  </template>
+                </div>
+                <!-- fatigue + carry + pace (derived) -->
+                <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2" x-data="{ get haul(){ return provHaul(pt); }, get load(){ return provLoadReport(pt); } }">
+                  <template x-if="partyJourney(pt)"><span title="Consecutive strenuous travel days — 6 brings the Fatigued condition (RR p.279)">🔥 Fatigue streak: <span class="font-semibold" x-text="(partyJourney(pt).fatigueDays)||0"></span>/6</span></template>
+                  <span x-show="encumbranceShown()" title="Party carrying capacity: members + hired individuals + pack/draft animals">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+                  <template x-if="load.slowestMilesPerDay!==null"><span title="Party travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span></template>
+                </div>
+                <!-- rules: share rations · share load (the retired pills, now tick-boxes) + forage water -->
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 pt-2 border-t border-dashed border-ink/30">
+                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
+                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareRations && provRegimeState(pt).shareRations.value)" @change="provToggleRegime(pt, 'shareRations')">
+                    🤝 Share rations
+                  </label>
+                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Even the party's carried gear so it travels at a better band (RR pp.83–84); off = the slowest-loaded walker sets the pace">
+                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value)" @change="provToggleRegime(pt, 'shareLoad')">
+                    📦 Share load
+                  </label>
+                  <template x-if="provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value && provLoadReport(pt).balanced.improves">
+                    <button type="button" class="btn text-xs" @click="provBalanceLoad(pt)" :title="'Hand gear around to even the load (RR pp.83–84) — the party would then travel at '+provLoadReport(pt).balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="provLoadReport(pt).balanced.slowestMilesPerDay"></span> mi/day</button>
+                  </template>
+                  <template x-if="partyJourney(pt) && partyJourney(pt).status==='in-transit'">
+                    <span class="flex items-center gap-2" x-data="{ get j(){ return partyJourney(pt); } }">
+                      <template x-if="journeyHexSourcesWater(j)"><span class="flex items-center gap-1.5 text-xs text-sky-700" title="This hex has a river / lake / settlement — water is free here, no foraging needed">💧 Water available here</span></template>
+                      <template x-if="!journeyHexSourcesWater(j)">
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="No water source at this hex — tick to make one Foraging throw for water on a no-source day (each forager spends an ancillary slot)">
+                          <span>🚱 No water here —</span>
+                          <input type="checkbox" :checked="!!j.forageWaterEnabled" @change="toggleJourneyForageWater(j)">
+                          <span>🥤 forage for water</span>
+                        </label>
+                      </template>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+          </div>
+        </template>
+      </div>
+
+      <!-- ══════════════ CAMP TAB ══════════════ -->
+      <div x-show="partyModalTab==='camp'" class="space-y-3">
+        <template x-for="pt in selectedPartyList()" :key="pt.id">
+          <div>
+              <!-- CAMP (verbatim, minus the Chronicle — Chronicle is its own tab now) -->
+              <div class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
+                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
+                </div>
+                <template x-if="camp">
+                  <div class="flex justify-between items-center text-sm mt-1">
+                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
+                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
+                  </div>
+                </template>
+                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
+              </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ══════════════ CHRONICLE TAB ══════════════ -->
+      <div x-show="partyModalTab==='chronicle'" class="space-y-2">
+        <template x-if="selectedParty()">
+          <div>
+            <div class="flex justify-between items-baseline mb-1">
+              <span class="text-sm uppercase tracking-wide opacity-70 inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="normal-case opacity-60 text-xs">· the party's world-memory</span></span>
+              <span class="text-xs opacity-70" x-text="entityChronicleCount('party', selectedParty().id) + ' events'"></span>
+            </div>
+            <template x-if="entityChronicleCount('party', selectedParty().id) === 0">
+              <p class="text-base italic opacity-60 py-4 text-center">Nothing recorded yet. Party-tagged events (travel, survival, camp) appear here from the campaign log.</p>
+            </template>
+            <template x-if="entityChronicleCount('party', selectedParty().id) > 0">
+              <div class="text-sm max-h-[60vh] overflow-y-auto pr-1">
+                <template x-for="(row,ri) in entityChronicle('party', selectedParty().id)" :key="ri">
+                  <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:var(--c-border)">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                      <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+    </div>
+  </div>
+</template>
+
+<!-- MV2:agent-3 (modal-stack zone): party split/merge modal (modal-overlay/modal-card shell) mounts among the top-level modals here -->
+<!-- Party SPLIT modal (Movement 2.0 · Lane C) — choose who departs + allocate a share of the shared stores -->
+<div class="modal-overlay" style="z-index:70; padding:2rem 1rem" x-show="partySplit.open" x-cloak
+     @keydown.escape.window="closePartySplit()" @click.self="closePartySplit()">
+  <template x-if="partySplit.open && partySplitSource()">
+    <div class="modal-card p-4" style="max-width:40rem; width:100%">
+      <div class="flex justify-between items-baseline mb-2">
+        <h3 class="font-bold text-lg">✂ Split <span x-text="partySplitSource().name"></span></h3>
+        <button @click="closePartySplit()" class="btn text-sm">✕ Close</button>
+      </div>
+      <p class="text-sm text-muted mb-3">Choose who leaves to form a new party. By default the camp, rations and water stay with the main party — allocate a share to the departing part below.</p>
+
+      <!-- who departs -->
+      <div class="mb-3">
+        <div class="text-xs font-semibold text-muted mb-1">Members who split off</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="m in partySplitMembers()" :key="m.id">
+            <label class="inline-flex items-center gap-1 border border-ink rounded px-2 py-1 text-sm" style="cursor:pointer"
+                   :class="partySplit.departing[m.id] ? 'tab-active' : 'bg-warm'">
+              <input type="checkbox" :checked="!!partySplit.departing[m.id]" @change="partySplitToggleDeparting(m.id)">
+              <span x-text="m.name||m.id"></span>
+            </label>
+          </template>
+        </div>
+        <p class="text-xs text-muted italic mt-1" x-text="partySplitDepartingIds().length + ' leaving · ' + (partyMemberCount(partySplitSource()) - partySplitDepartingIds().length) + ' staying'"></p>
+      </div>
+
+      <!-- new party name -->
+      <label class="block text-sm mb-3">New party name
+        <input type="text" class="block mt-0.5 w-full" x-model="partySplit.newName" placeholder="(auto — named after the departing leader)">
+      </label>
+
+      <!-- camp items (tick-boxes) -->
+      <template x-if="partySplitCampItems().length">
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-muted mb-1">Camp items to take (default: stay with the main party)</div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="it in partySplitCampItems()" :key="it.id">
+              <label class="inline-flex items-center gap-1 border-hairline border rounded px-2 py-1 text-sm" style="cursor:pointer"
+                     :class="partySplit.campItemIds[it.id] ? 'tint-green' : ''">
+                <input type="checkbox" :checked="!!partySplit.campItemIds[it.id]" @change="partySplitToggleItem(it.id)">
+                <span x-text="it.name + (it.qty>1 ? (' ×'+it.qty) : '')"></span>
+              </label>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- rations / water sliders -->
+      <div class="grid gap-3 mb-2" style="grid-template-columns:1fr 1fr">
+        <label class="text-sm">Rations to take (days)
+          <input type="range" min="0" :max="partySplitAvailRations()" x-model.number="partySplit.rationsToNew" class="w-full">
+          <span class="text-xs text-muted" x-text="partySplit.rationsToNew + ' / ' + partySplitAvailRations() + ' day' + (partySplitAvailRations()===1?'':'s')"></span>
+        </label>
+        <label class="text-sm">Camp water to take (days)
+          <input type="range" min="0" :max="partySplitAvailWater()" x-model.number="partySplit.waterToNew" class="w-full">
+          <span class="text-xs text-muted" x-text="partySplit.waterToNew + ' / ' + partySplitAvailWater() + ' day' + (partySplitAvailWater()===1?'':'s')"></span>
+        </label>
+      </div>
+      <p class="text-xs text-muted italic mb-3">Each member also carries their own water, which travels with them. Shared rations pool in the party camp.</p>
+
+      <!-- follow-or-stay (tracking-split) -->
+      <template x-if="partySplitSourceOnJourney()">
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-muted mb-1">After the split, the new party will…</div>
+          <label class="inline-flex items-center gap-1 text-sm mr-4" style="cursor:pointer"><input type="radio" value="stay" x-model="partySplit.mode"> Stay here</label>
+          <label class="inline-flex items-center gap-1 text-sm" style="cursor:pointer"><input type="radio" value="follow" x-model="partySplit.mode"> Follow the others (track at half-speed, RR p.120)</label>
+        </div>
+      </template>
+
+      <div class="flex justify-end gap-2">
+        <button @click="closePartySplit()" class="btn text-sm">Cancel</button>
+        <button @click="confirmPartySplit()" :disabled="!partySplitCanSubmit()" :class="partySplitCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">Split party</button>
+      </div>
+    </div>
+  </template>
+</div>
 <div class="modal-backdrop" x-show="showCharacterEditorModal" x-cloak @keydown.escape.window="closeCharacterEditor()" @click.self="closeCharacterEditor()">
   <template x-if="characterEditing">
   <div class="modal-panel" role="dialog" aria-modal="true">
@@ -12738,9 +13665,27 @@ document.addEventListener('alpine:init', () => {
         <button @click="expandCharacterUi(characterEditing)" class="btn text-xs font-semibold whitespace-nowrap" title="Roll the six abilities and promote this stub to a full character (recorded in History)">⬆ Expand to full</button>
       </div>
     </template>
+    <!-- ═══ Active-encounter resolve strip (standardized 2026-07-01) — the entity-scoped twin of the Events
+         "clock is held" banner. Shows when THIS character is in ≥1 active encounter; same box + ✕ dismiss /
+         ⚔ resolve rows, reusing dismissEncounter + openEncounterModal. The SAME markup lives on the character,
+         party, and monster/group sheets — one accessor (entityActiveEncounters), one look. ═══ -->
+    <template x-if="characterEditing && !characterEditingIsNew && entityActiveEncounterCount('character', characterEditing.id) > 0">
+      <div class="mx-3 mt-2 border-2 bdr-red/60 rounded p-2.5 tint-red text-sm">
+        <div class="font-semibold mb-1 accent-red">⚔ In an encounter — resolve before the world advances:</div>
+        <template x-for="e in entityActiveEncounters('character', characterEditing.id)" :key="e.id">
+          <div class="flex items-center justify-between gap-2 border-b border-dashed bdr-red py-0.5">
+            <span x-text="'⚔ ' + e.label"></span>
+            <span class="flex items-center gap-1.5 whitespace-nowrap">
+              <button @click="dismissEncounter(e.id, e.label)" class="btn text-xs" title="Quick-dismiss: resolve this encounter as ‘dismissed’ (nothing came of it) and free the clock.">✕ dismiss</button>
+              <button @click="openEncounterModal(e.id)" class="btn text-xs accent-red font-semibold" title="Resolve — walk the RAW encounter procedure (distance / surprise / reaction / parley).">⚔ resolve</button>
+            </span>
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- Sub-tab bar inside the modal -->
     <div role="tablist" aria-label="Character sheet sections" class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
-      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
+      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'travel',label:'🧭 Travel'},{id:'history',label:'History'}]" :key="tab.id">
         <button @click="characterEditorTab=tab.id" role="tab" :aria-selected="characterEditorTab===tab.id ? 'true' : 'false'" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover-tint'" class="px-3 py-1 text-sm border-b-2 tab-pill" :style="characterEditorTab===tab.id ? 'border-color:var(--c-ink)' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
@@ -14411,6 +15356,320 @@ document.addEventListener('alpine:init', () => {
         <p class="text-sm opacity-70 italic mt-2">Map rendering of character positions and party movement mechanics arrive with Phase 2.5 (map mode). For now these fields are tracked but not visualized; the data is captured so the eventual map can reconstruct movement.</p>
       </div>
 
+      <!-- ══════════════ TRAVEL tab (character) ══════════════ -->
+      <!-- Mirrors the party Travel tab (Joachim 2026-07-01): a journey box (idle → Send-on-journey / Move;
+           travelling → the reworked advance / distance / pace / vessel / stop layout) + a Day-log box.
+           journeyDetail() resolves to THIS character's journey — openCharacterEditor points journeyDetailId
+           at their (or their party's) journey; null → the idle state. Replaces the old 📅 Day log tab. -->
+      <div x-show="characterEditorTab==='travel'" class="space-y-3">
+        <!-- JOURNEY BOX — Move / Send-on-journey when idle; "On a journey to X" + advance / distance /
+             pace / vessel / stop when travelling (Joachim 2026-07-01 rework). -->
+        <div class="border border-ink rounded p-3">
+          <!-- NOT TRAVELLING — the Move action lives here now (removed from the Manage box). -->
+          <template x-if="!journeyDetail()">
+            <p class="text-base italic opacity-70 py-3 text-center">This character isn't travelling. Start a journey with
+              <button @click="startJourneyForCharacter(characterEditing)" class="btn btn-info text-xs not-italic align-baseline">🧭 Send on journey</button>,
+              or <button @click="const m=mvMoverForCharacter(characterEditing); if(m){ closeCharacterEditor(); mvBeginMoveOnMap(m.ref); }" class="btn text-xs not-italic align-baseline"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span></button>
+              it a hex at a time.</p>
+          </template>
+          <!-- TRAVELLING -->
+          <template x-if="journeyDetail()">
+            <div class="space-y-3">
+              <!-- header: "On a journey to X" (the old Route: line is retired) + View on map -->
+              <div class="flex justify-between items-baseline gap-2 flex-wrap">
+                <span class="text-base font-semibold" x-text="'On a journey to ' + journeyHexLabel(journeyDetail().destinationHexId) + '.'"></span>
+                <button @click="const id=journeyDetail().id; closeCharacterEditor(); journeyViewOnMap(id)" class="btn text-xs" title="See this journey on the map — change its route, destination, or waypoints there">🗺 View on map</button>
+              </div>
+        <!-- E5 — this journey is steered by a live FOLLOW: the destination tracks the quarry
+             daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
+             the trail controls (rain lever, give up). -->
+        <template x-if="window.ACKS.journeyTrackingPursuit && window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id)">
+          <div class="text-xs px-2 py-1.5 border bdr-amber/40 rounded flex flex-wrap items-center gap-2" style="background:var(--c-warning-bg)">
+            <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
+              — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
+            <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="btn" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
+          </div>
+        </template>
+        <!-- E8 (RR p.285) — the party evaded an encounter and failed its Navigation throw at −4:
+             LOST, and it KNOWS it (unlike the §27 secret travel-stray). The journey holds — no
+             travel days — until the last known landmark is found (the Wilderness Search below,
+             1 ancillary, encounter check included), the route is re-drawn, or the GM clears it. -->
+        <template x-if="journeyDetail().status === 'lost'">
+          <div class="text-xs px-2 py-1.5 border bdr-red/50 rounded space-y-1" style="background:var(--c-danger-bg)">
+            <div>⚠ <span class="font-semibold accent-red">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search for the landmark</button>
+              <button x-show="journeyDetail().lostEncounterId" @click="openEncounterModal(journeyDetail().lostEncounterId)" class="btn" title="The meeting the party fled — the aftermath line carries the failed Navigation throw">⚔ the encounter</button>
+              <span class="opacity-70">Re-drawing the route (✎ on the map) also re-orients them.</span>
+            </div>
+          </div>
+        </template>
+              <!-- row 1 — distance -->
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+              <!-- row 2 — pace / mode / speed -->
+        <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
+             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
+             override (no value/event); off shows nothing beside the tick. The value is set/edited via the
+             standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
+        <div x-show="journeyDetail().status==='in-transit'">
+          <!-- Current speed (RR pp.83–84): the party's base overland rate = its SLOWEST member's encumbrance
+               rate, shown ABOVE Pace/Mode. The §26 GM "Override" sits on this row and REPLACES this base rate
+               (greys it); pace/weather/per-hex terrain still multiply it downstream, so Pace is an independent
+               control below. The tick only ARMS the override (no value/event); the value is set with the
+               standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); unticking disarms AND
+               clears any value. -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
+            <span class="opacity-70 text-xs">Current speed</span>
+            <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
+                  :title="'The group travels at ' + journeySpeedBasisLabel(journeyDetail()) + ' (RR pp.83–84 / p.448 for an army). Pace, weather and terrain then modify it.'"
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — overloaded' : '')"></span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
+              <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+              <span class="text-xs">Override</span>
+            </label>
+            <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                 reads "— set a value" and nothing is written (the slowest-member rate governs). -->
+            <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+              <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold accent-amber'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+              </span>
+            </template>
+            <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
+          </div>
+          <!-- pace + mode — pace is now ALWAYS settable (the override no longer disables it); it multiplies the
+               current speed for the next day ticked and governs fatigue (RR p.279). -->
+          <div class="flex flex-wrap gap-4 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Pace</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5"
+                      @change="setJourneyPace(journeyDetail(), $event.target.value)"
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged). A pace the travellers' other activities can't sustain is disabled (the activity budget caps it).">
+                <option value="normal" :selected="journeyEffectivePaceUI(journeyDetail())==='normal'" :disabled="!journeyPaceAllowed(journeyDetail(),'normal')">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyEffectivePaceUI(journeyDetail())==='half-speed'" :disabled="!journeyPaceAllowed(journeyDetail(),'half-speed')">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyEffectivePaceUI(journeyDetail())==='forced-march'" :disabled="!journeyPaceAllowed(journeyDetail(),'forced-march')">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                <option value="halted" :selected="journeyEffectivePaceUI(journeyDetail())==='halted'">Halted (×0 — the day's activities leave no time to travel)</option>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Mode</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+                <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'">⛵ Voyage (set by assigning a vessel above)</option>
+                <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+              </select>
+            </div>
+          </div>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)" x-text="'Current speed = ' + journeySpeedBasisLabel(journeyDetail()) + '; pace multiplies it for the next day ticked.'"></span>
+          <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
+               leave no room for full-speed travel, the faster paces are disabled + this names why. -->
+          <span class="text-xs accent-amber font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
+          <span class="text-xs accent-amber" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
+          <span class="text-xs accent-amber" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
+        </div>
+              <!-- row 3 — vessel -->
+        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
+             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
+             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
+             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
+          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
+                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
+                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
+                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
+                </select>
+              </div>
+              <template x-if="journeyVessel()">
+                <div>
+                  <label class="opacity-70 block text-xs">Propulsion</label>
+                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
+                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
+                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
+                  </select>
+                </div>
+              </template>
+              <template x-if="journeyVessel()">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
+                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
+                  🌙 24-hour sailing
+                </label>
+              </template>
+            </div>
+            <template x-if="journeyVessel()">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
+                <span class="opacity-60">· River current</span>
+                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
+                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
+                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
+                </select>
+                <template x-if="journeyDetail().riverCurrent">
+                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
+                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
+                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
+                  </select>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+              <!-- row 4 — stop / status -->
+        <!-- actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
+               lost) — a steppable people-journey uses the per-hex ▶/⏩/⏭ panel above instead (no redundancy). -->
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">🚶 Complete Movement</button>
+          <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base tint-green accent-green border-2 bdr-green">✓ Arrived</span>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base tint-red accent-red border-2 bdr-red">🛑 Stopped</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status) && !(journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail()))" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
+        </div>
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance control (journeyAdvanceOneHex) + Stop + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey steps here one hex at a
+             time (▶ Advance one hex, over the Foundation engine, halting on encounter / river / budget / arrival);
+             bulk day-advance goes through the campaign Day Clock (top-right). An army / voyage / lost journey keeps
+             the whole-day "Complete Movement" button below. journey.paused (Hold) makes the Day Clock skip this
+             journey; ▶ is a deliberate hand-step. Night travel is NOT modelled. -->
+        <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <button @click="journeyAdvanceOneHex(journeyDetail())"
+                      :disabled="journeyBudgetSpentToday(journeyDetail())"
+                      :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                      :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                      class="btn text-sm">▶ Advance one hex</button>
+              <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the Day Clock won't auto-advance it; step it by hand with ▶ and act in each hex.">
+                <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
+                <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause journey)'"></span>
+              </label>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶ spends it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
+            </div>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the Day Clock won't advance this journey. Step one hex with ▶, or untick Hold to let it travel.</p>
+          </div>
+        </template>
+            </div>
+          </template>
+        </div>
+        <!-- DAY LOG box — the party's day-by-day record, always below the journey box. While travelling
+             it shows the rich per-day journey log (with its re-rolls); otherwise the DERIVED all-activity
+             log (entityDayLog), so a party's past moves/activity show even when it isn't on a journey. -->
+        <div>
+        <!-- DAY LOG — the party's travel log, folded from the Travel page (verbatim, journeyDetail()-driven) -->
+        <template x-if="journeyDetail() && (journeyDetail().days||[]).length">
+          <div class="mt-1">
+        <!-- day log -->
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Day log</h3>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days travelled yet — the party is at the start hex. Press Complete Movement to travel the first day (or advance the Day Clock).</p></template>
+          <div class="space-y-1">
+            <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
+              <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-hairline'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
+                <!-- Row 1 — day header: weather · distance · pace · speed override. The LATEST day, while
+                     still rerollable (the world clock stands on it), is the party's CURRENT STATE —
+                     highlighted + rerolled in place (Joachim 2026-06-05: "it is the current state… the
+                     Journey updates location and conditions"). Once the clock advances past it (or an
+                     earlier day) it locks into history. Same gate as the reroll buttons below. -->
+                <div class="flex flex-wrap gap-x-3 items-baseline">
+                  <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-xs uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
+                  <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                  <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                  <span class="capitalize" x-text="d.pace"></span>
+                  <span x-show="d.speedOverrideMilesPerDay > 0" class="accent-amber font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
+                </div>
+                <!-- Row 2 — navigation: the nav throw + this day's movement / fording / encounter / arrival
+                     notes, with its OWN reroll. 🎲 reroll nav re-rolls navigation & movement and HOLDS the
+                     day's water/food outcome fixed (the forage row owns that). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.navigationThrow || journeyDayNotables(d,'nav').length || (di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail()))">
+                  <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'accent-green' : 'accent-red'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                  <span x-show="!d.navigationThrow" class="font-mono opacity-40">nav — no throw (on road / at rest)</span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs btn ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
+                </div>
+                <!-- Row 2b — encounters (#476 M3/M7): the day's pool-aware encounter(s), each with its
+                     GM affordance — open the lair it surfaced, or the hex whose seeded shells want
+                     populating. Resolution stays GM judgment (the lair detail has the lifecycle actions). -->
+                <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
+                  <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
+                    <span class="accent-red">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
+                    <!-- E2: a committed meeting IS an Encounter entity — walk the RAW procedure on it.
+                         A pending/preview day has no entity yet (it materializes at commit) → button hides. -->
+                    <button x-show="ee.payload && ee.payload.encounterId && encounterById(ee.payload.encounterId)" @click="openEncounterModal(ee.payload.encounterId)" class="btn text-xs accent-red font-semibold" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(ee.payload.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+                    <button x-show="ee.payload && ee.payload.lairId && (ee.payload.encounterKind !== 'wandering-fragment' || lairKnown(ee.payload.lairId))" @click="openLairDetail(ee.payload.lairId)" class="text-xs btn" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
+                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose;
+                         once the den is discovered both flip to the full → lair above. -->
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ encounterId: ee.payload.encounterId || null, lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs btn" title="Track the fragment — find the trail (Tracking 11+, RR p.120) and follow it home">🐾 Track</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openLairDetail(ee.payload.lairId)" class="btn text-xs opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                    <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs btn" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
+                  </div>
+                </template>
+                <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
+                     with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
+                  <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'accent-amber'" x-text="journeyForageDetail(d.waterForage)"></span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'survival')" :key="'dls-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="btn text-xs text-sky-800 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
+                </div>
+                <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-xs opacity-80">
+                  <span class="opacity-50">via </span>
+                  <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold accent-green' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <span x-show="di===(journeyDetail().days.length-1)" class="accent-green" title="The party is here now"> 📍 here now</span>
+                </div>
+                <!-- Row 5 — V6 voyage: the day's sailing/rowing breakdown (wind · point of sail · speed
+                     factors · river current · weathering · provisioning), then any hull hazard / gale /
+                     grounding / scurvy. Only on a voyage day (d.voyage present). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.voyage">
+                  <span class="font-mono text-sky-800" x-text="voyageDayLine(d)"></span>
+                  <span class="font-mono accent-red" x-show="voyageDayHazardLine(d)" x-text="voyageDayHazardLine(d)"></span>
+                </div>
+              </div>
+            </template>
+            <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
+                 day above, highlighted + rerollable in place. Joachim 2026-06-05: "remove the Preview
+                 name… it is the current state. The Journey updates location and current conditions.") -->
+          </div>
+          <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
+        </div>          </div>
+        </template>
+          <!-- off a journey (or a journey with no days yet): the derived all-activity log -->
+          <template x-if="!(journeyDetail() && (journeyDetail().days||[]).length)">
+            <div>
+              <div class="flex items-baseline justify-between mb-1">
+                <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what this character did, day by day</span></span>
+                <span class="text-xs opacity-70" x-text="entityDayLogCount('character', characterEditing.id) + ' day' + (entityDayLogCount('character', characterEditing.id)===1?'':'s') + ' logged'"></span>
+              </div>
+              <template x-if="entityDayLog('character', characterEditing.id).length === 0">
+                <p class="text-base italic opacity-60 py-3 text-center">No day-scale activity yet. Moves, journeys, encounters met, foraging, and research appear here grouped by the day they happened.</p>
+              </template>
+              <div class="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                <template x-for="day in entityDayLog('character', characterEditing.id)" :key="day.key">
+                  <div class="border border-hairline rounded p-2">
+                    <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                    <div class="space-y-0.5">
+                      <template x-for="(row,ri) in day.entries" :key="ri">
+                        <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      </div>
       <!-- HISTORY tab (Phase 2.6 followup 7) — per-character chronological log -->
       <div x-show="characterEditorTab==='history'" class="space-y-3">
         <div class="vellum border border-ink p-3 rounded">
@@ -14804,6 +16063,33 @@ document.addEventListener('alpine:init', () => {
       <button @click="closeHexDetail()" class="text-xl px-2">×</button>
     </div>
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
+    <!-- MV2:agent-1 (hex-card action zone): one-hex Move affordance + hex-budget chip -->
+      <!-- Movement 2.0 (Lane A) — move the active mover INTO this hex (or note it is here / not adjacent).
+           Active mover = the map picker's pick, else the character selected in Roster ▸ Characters. -->
+      <template x-if="mvHexCardMove(worldHexEditingHex()).state !== 'none'">
+        <div class="border border-ink/40 rounded p-2 flex flex-wrap items-center gap-2" style="background:var(--c-vellum)">
+          <span class="text-xs font-semibold opacity-70 inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Movement</span>
+          <template x-if="mvHexCardMove(worldHexEditingHex()).state === 'here'">
+            <span class="text-xs inline-flex items-center gap-1" :class="mvChipClass(mvHexCardMove(worldHexEditingHex()).chip)">
+              <span class="font-semibold" x-text="mvMoverName(mvHexCardMove(worldHexEditingHex()).ref)"></span> is here · <span x-text="mvHexCardMove(worldHexEditingHex()).chip?.text || ''"></span>
+            </span>
+          </template>
+          <template x-if="mvHexCardMove(worldHexEditingHex()).state === 'move'">
+            <span class="inline-flex flex-wrap items-center gap-2">
+              <button @click="!mvHexCardMove(worldHexEditingHex()).target.disabled && (mvMoveGroup(mvHexCardMove(worldHexEditingHex()).ref, worldHexEditingHex().id), closeHexDetail())"
+                      :disabled="mvHexCardMove(worldHexEditingHex()).target.disabled"
+                      class="btn text-sm" :class="mvHexCardMove(worldHexEditingHex()).target.disabled ? 'opacity-40 cursor-not-allowed' : 'hover-tint'"
+                      :title="mvHexCardMove(worldHexEditingHex()).target.disabled ? mvHexCardMove(worldHexEditingHex()).target.reason : ('Spend one hex of movement — ' + mvHexCardMove(worldHexEditingHex()).target.cost + ' mi')">
+                <svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move <span class="font-semibold" x-text="mvMoverName(mvHexCardMove(worldHexEditingHex()).ref)"></span> here
+              </button>
+              <span class="text-xs" :class="mvChipClass(mvHexCardMove(worldHexEditingHex()).chip)" x-text="mvHexCardMove(worldHexEditingHex()).chip?.text || ''"></span>
+            </span>
+          </template>
+          <template x-if="mvHexCardMove(worldHexEditingHex()).state === 'far'">
+            <span class="text-xs text-muted italic"><span class="font-semibold not-italic" x-text="mvMoverName(mvHexCardMove(worldHexEditingHex()).ref)"></span> isn't adjacent to this hex.</span>
+          </template>
+        </div>
+      </template>
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
            Coord is the GM-facing COLUMN·ROW hex number (the JG/Auran convention the map labels use);
            axial {q,r} stays the internal store (shown in the tooltip). worldHexSetColRow converts.
@@ -20249,21 +21535,24 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- BEGIN generated:scripts:tail -->
-<script src="domain-app.js?v=a5263b1b"></script>
+<script src="domain-app.js?v=edd7fe91"></script>
 <script src="domain-app-banking.js?v=7ae76d7f"></script>
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
 <script src="domain-app-construction.js?v=064e807d"></script>
-<script src="domain-app-encounters.js?v=3e241a0b"></script>
+<script src="domain-app-encounters.js?v=173e1810"></script>
 <script src="domain-app-favors-duties.js?v=44959545"></script>
 <script src="domain-app-generators.js?v=7d123e93"></script>
 <script src="domain-app-gladiators.js?v=6da7a6a4"></script>
 <script src="domain-app-inspector.js?v=9bb9d6c8"></script>
-<script src="domain-app-journeys.js?v=4b53c7e3"></script>
+<script src="domain-app-journeys.js?v=15c68ebb"></script>
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
-<script src="domain-app-map.js?v=b272bc82"></script>
+<script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
-<script src="domain-app-mounts.js?v=16231156"></script>
+<script src="domain-app-mounts.js?v=a3a94353"></script>
+<script src="domain-app-move.js?v=bc971c24"></script>
+<script src="domain-app-party.js?v=a929c989"></script>
+<script src="domain-app-provisioning.js?v=d7343a89"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
 <script src="domain-app-trade.js?v=0b449ec0"></script>
@@ -20278,7 +21567,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- About / source notice. Static, shown on every page state. The "Source on GitHub" link is
      the AGPL §13 offer-of-source for the network-served app (oss-community audit C3). -->
-<footer class="no-print text-center text-xs opacity-60 py-4 px-4 border-t border-ink/20 mt-8">
+<footer class="no-print text-center text-xs opacity-60 py-4 px-4 border-t border-ink/20 mt-auto">
   ACKS God Mode — an independent community tool for ACKS II ·
   <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" class="underline hover:opacity-90">AGPL-3.0</a> ·
   <a href="https://github.com/joachimxb/acks-god-mode" target="_blank" rel="noopener" class="underline hover:opacity-90">Source on GitHub</a>

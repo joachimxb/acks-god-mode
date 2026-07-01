@@ -13,6 +13,34 @@
   'use strict';
   var M = (window.__ACKS_APP_MIXINS__ = window.__ACKS_APP_MIXINS__ || []);
   M.push({
+  // ── Monster / Group sheet (2026-07-01) — a tabbed modal for a Group (a monster band, primarily):
+  // an Overview tab + a Day-log tab, with the standardized active-encounter strip above the tabs —
+  // the monster twin of the character / party sheets. Opened from the Lair detail's inhabitants and
+  // the Roster ▸ Monsters Groups table. Transient state; derives everything (no new save data).
+  groupSheetId: null,
+  groupSheetTab: 'overview',   // 'overview' | 'daylog'
+  openGroupSheet(groupId, tab){
+    if(!groupId) return;
+    this.groupSheetTab = (tab === 'daylog') ? 'daylog' : 'overview';
+    this.groupSheetId = groupId;
+  },
+  closeGroupSheet(){ this.groupSheetId = null; },
+  groupSheet(){ return this.groupSheetId ? ((this.currentCampaign && this.currentCampaign.groups || []).find(g => g && g.id === this.groupSheetId) || null) : null; },
+  groupSheetName(g){ g = g || this.groupSheet(); if(!g) return '(group)'; try { return window.ACKS.groupDisplayName(g) || g.name || '(group)'; } catch(e){ return g.name || '(group)'; } },
+  groupSheetKindLabel(g){
+    g = g || this.groupSheet(); if(!g) return 'group';
+    try { const k = window.ACKS.groupKindOf ? window.ACKS.groupKindOf(g) : null; const m = (k && window.ACKS.groupKindMeta) ? window.ACKS.groupKindMeta(k) : null; return (m && (m.label || m.name)) || k || 'group'; }
+    catch(e){ return 'group'; }
+  },
+  groupSheetActive(g){ g = g || this.groupSheet(); return g ? Math.max(0, (g.count || 0) - (g.casualties || 0)) : 0; },
+  groupSheetMonsterLabel(g){
+    g = g || this.groupSheet(); const t = g && g.groupTemplate; if(!t) return '';
+    return t.monsterCatalogKey || (Array.isArray(t.creatureTypes) ? t.creatureTypes.join(', ') : '') || '';
+  },
+  groupSheetHexLabel(g){
+    g = g || this.groupSheet(); if(!g || !g.currentHexId) return '— no fixed hex —';
+    try { return this.journeyHexLabel ? this.journeyHexLabel(g.currentHexId) : g.currentHexId; } catch(e){ return g.currentHexId; }
+  },
   lairWizardTerrainOptions(){ return (window.ACKS.mapTerrainTypes ? window.ACKS.mapTerrainTypes() : []); },
   lairWizardHexOptions(){
     const camp = this.currentCampaign; const hexes = (camp && camp.hexes) || [];

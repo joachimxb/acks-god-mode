@@ -20,7 +20,9 @@
   // Start Journey is the ACTION verb (this wizard, in the Recruiting-Wizard shape).
   // Inspector › Create is the ADMIN verb (J1 — free-form authoring). journeyDetailId
   // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
-  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null },
+  // dragCharId (Movement 2.0 Lane B) — the transient §5.1 "Available | Traveling" traveller-drag state
+  // (Senate drag pattern). Held here so the wizard reset clears it; never persisted.
+  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null, dragCharId:'' },
   journeyDetailId: null,
   // §26 — transient: the GM ticked "Override" but hasn't set a value yet (armed, null state — no event).
   // Reset whenever the open journey changes; a journey with a committed value reads as overridden on its own.
@@ -272,7 +274,7 @@
     return out.sort((a,b)=> a.q-b.q || a.r-b.r);
   },
   // ── Wizard (Action verb) ──
-  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null }; },
+  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null, dragCharId:'' }; },
   journeyToggleParticipant(id){ const a=this.journeyWizard.participantIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
   // Add an individual traveller from the picker + default the start hex to their current location
   // (RAW: a journey sets out from where the traveller is). Only fills the start hex if unset, so a
@@ -304,7 +306,18 @@
     } catch(e){ return null; }
   },
   // ── Detail ──
-  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  // A journey now opens through its owner. A PARTY's travel opens the Manage-party modal (which absorbs the
+  // Advance-travel box + provisioning — the old standalone Travel page is retired as the default surface);
+  // an army / unit march (no partyId) still opens the standalone page. (Movement 2.0 rework, Joachim 2026-07-01.)
+  journeyOpenDetail(id){
+    const j = this.journeyById(id);
+    const party = (j && j.partyId) ? (this.currentCampaign?.parties || []).find(p => p && p.id === j.partyId) : null;
+    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.openPartyModal(party.id, 'travel'); return; }   // open the modal straight to its Travel tab (journeyDetailId → the party's journey)
+    this.journeyOpenDetailPage(id);
+  },
+  // The standalone Travel-detail PAGE (the full pace/mode/vessel/speed-override/day-log surface). Now reached
+  // ONLY for army/unit marches — a party's travel lives in the modal's Travel tab (Joachim 2026-07-01).
+  journeyOpenDetailPage(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
   journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   // Complete Movement (Joachim 2026-06-05): resolve THIS journey's travel for the current world day,
   // locally — the party marches its day's leg now, WITHOUT advancing the global clock. Lockstep: at
@@ -370,6 +383,120 @@
   },
   journeyHasSpeedOverride(j){
     return !!j && typeof j.speedOverrideMilesPerDay === 'number' && isFinite(j.speedOverrideMilesPerDay) && j.speedOverrideMilesPerDay > 0;
+  },
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // Movement 2.0 — Lane B: the per-hex journey autopilot UI (Team Session 1, 2026-07-01).
+  // Wires the journey-detail advance controls to the AS-BUILT Foundation engine
+  // (acks-engine-movement.js): ▶ one hex = advanceJourneyOneHex, ⏩ the day =
+  // advanceJourneyDay, ⏭ to destination = advanceJourneyToDestination — all per-hex under
+  // the hood (they loop the single-hex step, halting on encounter / paused / budget /
+  // arrival; the day-grained nav + fatigue invariants live in the engine, plan §3.6). The
+  // UI only CALLS them + reads journey.paused (a lazy, defensive bool; no migration).
+  // NIGHT TRAVEL is NOT built here: ⏩ stops at the pace-determined RAW day's march — a
+  // longer march is the shipped forced-march pace (plan §5/§12; RAW-compliant, no clock).
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // A journey the per-hex path steps DIRECTLY (else the whole-day resolver owns it) —
+  // mirrors the engine's _journeyPerHexSteppable so the per-hex controls show only where a
+  // step means one hex; an army/unit/voyage/lost journey keeps the whole-day Complete Movement.
+  journeyPerHexSteppable(j){ return !!(j && !j.armyId && !j.unitId && !j.shipId && !j.isLost); },
+  // journey.paused (Lane B) — a lazy defensive bool. The Foundation ⏩/⏭ autopilot halts when
+  // it's set (F-8b); ▶ one hex is a deliberate manual step and overrides it (ignorePaused).
+  journeyPaused(j){ return !!(j && j.paused); },
+  journeyTogglePaused(j){
+    if(!j) return;
+    j.paused = !j.paused;
+    this.markDirty(); this.schedulePersist();
+    this.showToast(j.paused
+      ? 'Journey held — the ⏩/⏭ autopilot won\'t advance it; step it by hand with ▶.'
+      : 'Journey resumed.');
+  },
+  // The mover's day budget for the readout: hexes still travellable today at the current-hex
+  // terrain cost (moverDayBudget, F-1). Guarded — null pre-Foundation. This is the per-hex
+  // (▶/⏩) budget; the whole-day Day Clock path is a separate, coexisting flow (Foundation).
+  journeyBudgetToday(j){
+    if(!j || !window.ACKS || typeof window.ACKS.moverDayBudget !== 'function') return null;
+    try { return this._journeyWithDomains(() => window.ACKS.moverDayBudget(this.currentCampaign, j)); }
+    catch(e){ return null; }
+  },
+  journeyHexesLeftToday(j){ const b = this.journeyBudgetToday(j); return b ? (b.hexesRemaining||0) : null; },
+  // Today's per-hex budget is spent (no more ▶/⏩ hexes) — used to grey those two controls.
+  journeyBudgetSpentToday(j){ const b = this.journeyBudgetToday(j); return !!(b && b.hexesRemaining <= 0); },
+  // A short toast for an advance result (encounter / arrival / budget / ford / pause / stall).
+  _journeyAdvanceToast(j, r, grain){
+    if(!r) return;
+    if(r.arrived || j.status === 'arrived'){ this.showToast('Arrived: ' + (j.name || '(unnamed)') + ' 🎉'); return; }
+    if(r.halted && (r.reason === 'encounter' || r.encounterId)){ this.showToast('⚔ Encounter! The party halts — resolve it in the day log below.', 5000); return; }
+    if(r.reason === 'fording' || (r.halted && r.reason === 'fording')){ this.showToast('🌊 The party reached a river crossing — see the day log.', 4500); return; }
+    if(r.reason === 'paused'){ this.showToast('Journey is held (paused) — resume to run the autopilot, or step one hex with ▶.', 4000); return; }
+    if(r.stalled){ this.showToast('The party can\'t travel — its day is fully committed (0 mi). Free an activity, or change pace.', 4500); return; }
+    if(grain === 'hex'){ this.showToast(r.stepped ? ('Stepped one hex to ' + this.journeyHexLabel(j.currentHexId) + '.') : (r.reason === 'budget' ? 'Today\'s travel budget is spent — advance the Day Clock, or ⏭ to fast-forward.' : 'No move — nothing to step.')); return; }
+    if(grain === 'day'){ this.showToast('Travelled today\'s leg' + (r.dayClosed ? ' — advance the Day Clock to continue, or ⏭.' : '.')); return; }
+    if(grain === 'dest'){ this.showToast('Fast-forwarded ' + (r.days || 0) + ' day' + ((r.days||0)===1?'':'s') + ' toward the destination (the campaign Day Clock is unchanged).', 4500); return; }
+  },
+  // ▶ Step one hex — the manual per-hex advance. A deliberate hand-step, so it OVERRIDES a pause
+  // (ignorePaused) — that is the "hold the journey, then walk it one hex at a time, acting each hex".
+  journeyAdvanceOneHex(j){
+    if(!j || !window.ACKS || typeof window.ACKS.advanceJourneyOneHex !== 'function') return;
+    if(j.status !== 'in-transit') return;
+    const r = this._journeyWithDomains(() => window.ACKS.advanceJourneyOneHex(this.currentCampaign, j, { ignorePaused: true }));
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this._journeyAdvanceToast(j, r, 'hex');
+  },
+  // ⏩ Advance the day — run the rest of today's hex budget (halts on encounter / ford / arrival;
+  // refuses a paused journey — the tickbox holds the autopilot).
+  journeyAdvanceDay(j){
+    if(!j || !window.ACKS || typeof window.ACKS.advanceJourneyDay !== 'function') return;
+    if(j.status !== 'in-transit' || j.paused) return;
+    const r = this._journeyWithDomains(() => window.ACKS.advanceJourneyDay(this.currentCampaign, j, {}));
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this._journeyAdvanceToast(j, r, 'day');
+  },
+  // ⏭ To destination — a per-journey FAST-FORWARD (does NOT move the campaign Day Clock; the journey
+  // advances its own travel-days to arrival or a halt). Halts on encounter / ford; refuses a pause.
+  journeyAdvanceToDestination(j){
+    if(!j || !window.ACKS || typeof window.ACKS.advanceJourneyToDestination !== 'function') return;
+    if(j.status !== 'in-transit' || j.paused) return;
+    const r = this._journeyWithDomains(() => window.ACKS.advanceJourneyToDestination(this.currentCampaign, j, {}));
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this._journeyAdvanceToast(j, r, 'dest');
+  },
+  // "Act in this hex" — a (paused) journey can spend the day on a hex activity (forage / search /
+  // etc.). Opens the party's current-hex detail, where the #346 activity affordances already live.
+  journeyActInThisHex(j){
+    if(!j) return;
+    const hexId = j.currentHexId || j.startHexId;
+    if(!hexId){ this.showToast('The party has no fixed hex yet — step one hex first.', 3500); return; }
+    if(typeof this.openHexDetailById === 'function'){ this.openHexDetailById(hexId); }
+    else { this.showToast('Open the party\'s hex from the Map to act there.', 3500); }
+  },
+  // ── §5.1 traveller DRAG (Senate pattern; H1 --c-success ring) — the Choose-Travellers step. ──
+  // Available column = loose characters (journeyParticipantOptions); Traveling column =
+  // journeyWizard.participantIds. Drops mutate participantIds; on wizard finish startJourney →
+  // ensureTravelParty (D9) forms the ephemeral party. A char already on a journey is blocked.
+  journeyDragStart(cid){ this.journeyWizard.dragCharId = cid; },
+  journeyDragEnd(){ this.journeyWizard.dragCharId = null; },
+  journeyDropToTraveling(){
+    const id = this.journeyWizard.dragCharId; this.journeyWizard.dragCharId = null;
+    if(!id) return;
+    const c = (this.currentCampaign?.characters||[]).find(x=>x&&x.id===id);
+    if(c && this.characterIsTravelCommitted && this.characterIsTravelCommitted(c)){ this.showToast('Already travelling — that character is on another journey.', 3000); return; }
+    this.journeyAddParticipant(id);   // adds + defaults the start hex from the traveller (existing)
+  },
+  journeyDropToAvailable(){
+    const id = this.journeyWizard.dragCharId; this.journeyWizard.dragCharId = null;
+    if(!id) return;
+    const i = this.journeyWizard.participantIds.indexOf(id);
+    if(i >= 0) this.journeyWizard.participantIds.splice(i, 1);
+  },
+  // Characters AT the start hex who CAN'T be dragged in — already on a journey/venture (the §15.2
+  // block, shown greyed + non-draggable so the constraint is visible, not silent).
+  journeyUnavailableTravellers(){
+    const startHex = this.journeyWizard?.startHexId || null;
+    const chosen = new Set(this.journeyWizard?.participantIds || []);
+    return (this.currentCampaign?.characters||[]).filter(c =>
+      c && c.alive !== false && !c.partyId && !chosen.has(c.id) &&
+      this.characterIsTravelCommitted && this.characterIsTravelCommitted(c) &&
+      (!startHex || c.currentHexId === startHex));
   },
   // ── Hex card ──
   journeysThroughHex(hexId){

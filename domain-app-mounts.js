@@ -83,7 +83,7 @@
   journeyAnimalFeedSummary(j){
     const A=window.ACKS; const mounts=this.journeyMounts(j); if(!mounts.length) return null;
     const sup=(j && j.supplies)||{};
-    const needF=mounts.reduce((s,m)=> s + (A.mountIsGrazer(m)?0:(A.mountDailyFoodSt(m)||0)), 0);
+    const needF=mounts.reduce((s,m)=> s + (A.mountIsMarchGrazer(m)?0:(A.mountDailyFoodSt(m)||0)), 0);  // only march-grazers (donkey/steppe) feed free while marching; an ox draws its feed (RR p.276)
     const feed=Number(sup.animalFeed)||0, water=Number(sup.animalWater)||0;
     return { count:mounts.length, feed, water, days: needF>0 ? Math.floor(feed/needF) : null };
   },

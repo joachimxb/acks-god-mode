@@ -4937,11 +4937,17 @@ const _component = {
       gladiating = !!(tInfo.inTraining || inBout);
     }
     const researching = (camp.researchProjects || []).some(p => p && (p.researcherCharacterId === c.id || (p.assistantCharacterIds||[]).includes(c.id)) && (p.status === 'in-progress' || p.status === 'awaiting-throw'));
+    // Movement 2.0 — is this character's natural mover (its party if in one, else itself) on the map?
+    const moverInfo = this.mvMoverForCharacter(c);
+    let moverOnMap = false;
+    if(moverInfo && A.resolveMover){ const mm = A.resolveMover(camp, moverInfo.ref); moverOnMap = !!(mm && mm.currentHexId); }
+    const moveActive = !!(this.mvInMoveMode && this.mvInMoveMode() && moverInfo && this._mapMoveMoverRef === moverInfo.ref);
     const T = (ok, okText, reason) => ok ? okText : reason;
     return [
       { key:'market',         icon:'🛒', label:'Market',        active:false,     enabled:atSet, title:T(atSet, 'Buy or sell at ' + setName, setReason) },
       { key:'recruit',        icon:'⚔', label:'Recruit',        active:recruiting, enabled:atSet, title: recruiting ? 'Recruiting now — go to the hiring drive →' : T(atSet, 'Recruit hirelings, henchmen or specialists here', setReason) },
       { key:'travel',         icon:'🧭', label:'Travel',         active:onJourney,  enabled:atHex && !onVenture, title: onJourney ? 'On a journey — go to it →' : (onVenture ? "Away on a venture — can't travel until it resolves." : T(atHex, (this.characterPartyOf(c) ? "Start a journey for this character's party" : 'Start a journey'), hexReason)) },
+      { key:'move',           icon:'👣', sprite:'i-move', label:'Move',           active:moveActive, enabled:moverOnMap, title: moverOnMap ? ('Move ' + (moverInfo && moverInfo.kind === 'party' ? 'the party' : 'this character') + ' across the map, one hex at a time — pick a hex on the Map') : 'This mover has no position on the map yet — set its location first.' },
       { key:'forage',         icon:'🌿', label:'Forage / Hunt',  active:false,     enabled:atHex, title:T(atHex, 'Forage or hunt — live off the land (RR p.278)', hexReason) },
       { key:'search',         icon:'🔍', label:'Search hex',     active:false,     enabled:atHex, title:T(atHex, 'Search this hex for lairs & points of interest (RR pp.276–277)', hexReason) },
       { key:'hijinks',        icon:'🗡', label:'Hijinks',        active:hijinking,  enabled:atSet, title: hijinking ? 'A hijink is under way — go to it →' : T(atSet, 'Attempt an urban hijink here (RR pp.358–370)', setReason) },
@@ -4971,6 +4977,7 @@ const _component = {
       case 'market':      this.openTrade({ actorCharacterId: c.id }); break;
       case 'recruit':     this.recruitDeepLink({ patronId: c.id }); break;
       case 'travel':      this.startJourneyForCharacter(c); break;
+      case 'move':        this.mvBeginMoveOnMap((this.mvMoverForCharacter(c) || {}).ref); break;
       case 'forage':      this.openForage({ actorCharacterId: c.id }); break;
       case 'search':      this.openSearchHex({ actorCharacterId: c.id, hexId: c.currentHexId }); break;
       case 'hijinks':     this.openHijinkForCharacter(c); break;
@@ -5312,8 +5319,10 @@ const _component = {
     this.markDirty(); this.schedulePersist();
     const id = j.id;
     this._journeyResetWizard();
-    this.journeyDetailId = id;
-    this.showToast('Set out: ' + (j.name||'(unnamed)') + ' — press Complete Movement to travel the first day.');
+    // Open the new journey through its owner — a party journey lands in the Manage-party modal (its
+    // Advance-travel box), an army/unit march on the standalone Travel page. (Movement 2.0 rework.)
+    this.journeyOpenDetail(id);
+    this.showToast('Set out: ' + (j.name||'(unnamed)') + ' — advance it hex by hex, or with the Day Clock.');
   },
   // Change a journey's marching pace mid-trip — logged via gm-fiat; the engine reads journey.pace
   // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
@@ -5558,6 +5567,70 @@ const _component = {
     const fn = accessor && window.ACKS && window.ACKS[accessor];
     if(typeof fn !== 'function') return 0;
     try { return (fn(this.currentCampaign, id) || []).length; } catch(e){ return 0; }
+  },
+
+  // ── Active-encounter strip (2026-07-01) — the entity-scoped twin of the Events "clock is held"
+  // banner. entityActiveEncounters returns the active enc- entities this character / party / group /
+  // lair is involved in (engine encountersInvolvingEntity), as rows for the ONE shared resolve strip
+  // (✕ dismiss / ⚔ resolve reuse dismissEncounter + openEncounterModal). Renders only when non-empty.
+  entityActiveEncounters(kind, id){
+    if(!kind || !id || !this.currentCampaign) return [];
+    const A = window.ACKS;
+    if(!A || typeof A.encountersInvolvingEntity !== 'function') return [];
+    let list; try { list = A.encountersInvolvingEntity(this.currentCampaign, kind, id, { activeOnly: true }) || []; } catch(e){ return []; }
+    return list.map(e => ({
+      id: e.id,
+      label: (typeof A.encounterDisplayName === 'function') ? A.encounterDisplayName(this.currentCampaign, e) : (e.name || e.id),
+      phase: e.phase || null,
+    }));
+  },
+  entityActiveEncounterCount(kind, id){ return this.entityActiveEncounters(kind, id).length; },
+
+  // ── Per-entity DAY LOG (2026-07-01) — "all daily activity", grouped by game-day. The day-grouped
+  // twin of entityChronicle: the same per-entity history (movement / journeys / encounters / forage /
+  // research / hijinks / combat …), bucketed by the day it happened on, newest day first. Derived —
+  // no new save data; an individual Move step lands here because its `movement` event names the mover
+  // + every traveller in relatedEntities. Day-scale only (monthly-turn accounting stays in History).
+  entityDayLog(kind, id, limitDays){
+    if(!kind || !id || !this.currentCampaign) return [];
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return [];
+    let evs; try { evs = fn(this.currentCampaign, id) || []; } catch(e){ return []; }
+    const buckets = new Map();
+    for(const e of evs){
+      const ev = (e && e.event) || e;
+      if(!ev) continue;
+      const gt = ev.gameTimeAt;
+      if(!gt || !gt.day) continue;   // a day log accounts for DAY-scale activity; monthly events stay in History
+      const key = (gt.year || 1) + ':' + (gt.month || 1) + ':' + gt.day;
+      let b = buckets.get(key);
+      if(!b){ b = { key, label: this._dayLogLabel(gt), ordinal: (gt.year || 1) * 1000000 + (gt.month || 1) * 10000 + gt.day, entries: [] }; buckets.set(key, b); }
+      const summary = (e.result && e.result.narrativeSummary) || (ev.payload && ev.payload.narrativeSummary)
+        || (ev.payload && ev.payload.narrative) || (ev.kind + (ev.status && ev.status !== 'applied' ? (' [' + ev.status + ']') : ''));
+      b.entries.push({ icon: this._chronicleIcon(ev.kind), summary, kind: ev.kind, hidden: !!e.campaignLogHidden });
+    }
+    const days = [...buckets.values()].sort((a, b) => b.ordinal - a.ordinal);   // newest day first
+    const n = (typeof limitDays === 'number' && limitDays > 0) ? limitDays : 40;
+    return days.length > n ? days.slice(0, n) : days;
+  },
+  // A day-bucket label that ALWAYS names the day (unlike _travelEventDate, which drops "Day 1" — fine
+  // for a flat chronicle, wrong for a day-grouped log where each bucket needs a distinct heading).
+  _dayLogLabel(gt){
+    let s = 'Year ' + ((gt && gt.year) || 1);
+    try { s += ', ' + window.ACKS.monthName(this.currentCampaign, (gt && gt.month) || 1); }
+    catch(e){ s += ', Month ' + ((gt && gt.month) || 1); }
+    return s + ', Day ' + ((gt && gt.day) || 1);
+  },
+  entityDayLogCount(kind, id){
+    if(!kind || !id || !this.currentCampaign) return 0;
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return 0;
+    let evs; try { evs = fn(this.currentCampaign, id) || []; } catch(e){ return 0; }
+    const seen = new Set();
+    for(const e of evs){ const ev = (e && e.event) || e; const gt = ev && ev.gameTimeAt; if(gt && gt.day) seen.add((gt.year||1)+':'+(gt.month||1)+':'+gt.day); }
+    return seen.size;
   },
 
   // ── Per-person Travel log (2026-06-04) ───────────────────────────────────────────────
@@ -5970,6 +6043,11 @@ const _component = {
     this.characterEditing = c;
     this.characterEditingIsNew = false;
     this.characterEditorTab = 'identity';
+    // Movement 2.0 (Travel tab): point journeyDetail() at this character's journey — their own, or the
+    // journey of the party they travel with — so the Travel tab reuses the journeyDetail()-driven journey
+    // box (advance / distance / pace / vessel / stop). Null when not travelling → the idle state shows.
+    this.journeyDetailId = (c && c.currentJourneyId) || (this.characterPartyOf(c)?.activeJourneyId) || null;
+    this.journeyOverrideArmed = false;
     this.showCharacterEditorModal = true;
   },
 
@@ -6256,6 +6334,7 @@ const _component = {
     if(!ch || !ch.partyId) return;
     this.closeCharacterEditor();
     this.openPartyView(ch.partyId);
+    this.openPartyModal(ch.partyId);   // Part 2 — the character-sheet party link opens the full party modal
   },
   // Jump to Characters › Parties, select the party, and scroll its detail into view.
   openPartyView(partyId){
@@ -6476,6 +6555,12 @@ const _component = {
     this.showCharacterEditorModal = false;
     this.characterEditing = null;
     this.characterEditingIsNew = false;
+    // Movement 2.0: the character sheet borrowed journeyDetailId for its Travel tab. Restore it to the
+    // party modal's journey if that modal is still open underneath (viewing a member, then returning);
+    // otherwise clear it. Keeps the party Travel tab from blanking after a member round-trip.
+    const _pm = this.partyModalId ? (this.currentCampaign?.parties||[]).find(p => p && p.id === this.partyModalId) : null;
+    this.journeyDetailId = (_pm && _pm.activeJourneyId) || null;
+    this.journeyOverrideArmed = false;
   },
   softDeleteCharacter(c){
     if(!c)return;

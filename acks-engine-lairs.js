@@ -569,6 +569,36 @@ function encountersAtHex(campaign, hexId){
 function activeEncounters(campaign){
   return ((campaign && campaign.encounters) || []).filter(e => e && e.status === 'active');
 }
+// --- Entity ↔ encounter involvement (Movement 2.0 · entity-sheet strips, 2026-07-01) ----------
+// Which live entities is this encounter ABOUT? partySide names the drawing party + its characterIds;
+// monsterSide names the lair, any bound Groups, and a resident NPC. A character counts as involved
+// if it is on the party side directly OR is a current member/leader of the involved party — so a
+// party's fight surfaces on each member's sheet. Pure predicate + a filter (activeOnly by default off).
+function encounterInvolvesEntity(campaign, enc, kind, id){
+  if(!enc || !kind || !id) return false;
+  const ps = enc.partySide || {}, ms = enc.monsterSide || {};
+  switch(kind){
+    case 'party':   return ps.partyId === id;
+    case 'group':   return (ms.groupIds || []).indexOf(id) >= 0;
+    case 'lair':    return ms.lairId === id;
+    case 'hex':     return enc.hexId === id;
+    case 'character': {
+      if((ps.characterIds || []).indexOf(id) >= 0) return true;
+      if(ms.residentCharacterId === id) return true;
+      if(ps.partyId){
+        const p = ((campaign && campaign.parties) || []).find(x => x && x.id === ps.partyId);
+        if(p && ((p.memberCharacterIds || []).indexOf(id) >= 0 || p.leaderCharacterId === id)) return true;
+      }
+      return false;
+    }
+    default: return false;
+  }
+}
+function encountersInvolvingEntity(campaign, kind, id, opts){
+  opts = opts || {};
+  return ((campaign && campaign.encounters) || [])
+    .filter(e => e && (!opts.activeOnly || e.status === 'active') && encounterInvolvesEntity(campaign, e, kind, id));
+}
 function encounterDisplayName(campaign, enc){
   if(!enc) return '';
   if(enc.name) return enc.name;
@@ -1283,6 +1313,7 @@ Object.assign(ACKS, {
   hexSecuringBlockers,
   // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
   findEncounter, encountersAtHex, activeEncounters, encounterDisplayName, priorReactionBetween,
+  encounterInvolvesEntity, encountersInvolvingEntity,
   createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
   bindEncounterIdentity, _applyIdentityBinding, _unwindEncounterMinting, looseMonsterBands
 });

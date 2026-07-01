@@ -7129,6 +7129,34 @@ function characterActivityBudget(campaign, charId, opts){
       }
     }
   }
+  // ── Ad-hoc Move → travel activity (Movement 2.0 · derive-don't-store) ──
+  // A manual Move (moveActorOneHex) debits character.dailyMovement.milesUsed but is NOT a journey, so
+  // the loop above added no travel line. RAW (RR p.272): travel IS an activity-budget expenditure — a
+  // full expedition day = the dedicated (8h) travel activity; a half day = 4 ancillary. So DERIVE the
+  // day's travel cost from how far the character actually MOVED today: the day-fraction = milesMoved /
+  // the day's base (mode-aware) expedition distance → ~1 ancillary hour per 1/8 of the day; ≤ 4 hours
+  // (≤ half a day) charges as that many ancillary (the dedicated slot stays free), > half escalates to
+  // the whole dedicated travel block. So "pace" EMERGES from how many hexes you Move (Joachim 2026-07-01),
+  // and it gels across party joins (journeyMaxPace already binds the party on its busiest member). Skipped
+  // when a journey already booked travel today (no double-count) and when opts.excludeMovement — the flag
+  // moverDayBudget sets so it can read its OWN cap from other commitments WITHOUT self-capping (else a
+  // half-day of moving would drop the pace cap below what was already moved and strand the mover).
+  if(!opts.excludeMovement && !activities.some(a => a.kind === 'travel')){
+    const dm = char && char.dailyMovement;
+    const movedMiles = (dm && dm.worldOrd === _todayOrd && typeof dm.milesUsed === 'number') ? dm.milesUsed : 0;
+    if(movedMiles > 1e-9){
+      const footBase = (typeof A.carryEncumbranceInfo === 'function' && char) ? (A.carryEncumbranceInfo(char).band.milesPerDay || 0) : 0;
+      const dayBase = (dm && typeof dm.dayBaseMiles === 'number' && dm.dayBaseMiles > 0) ? dm.dayBaseMiles : (footBase || A.JOURNEY_BASE_SPEED_MILES_PER_DAY || 24);
+      const hours = Math.max(1, Math.round(8 * movedMiles / dayBase));   // 8 h = a full expedition (dedicated) day
+      const tc = costFor('travel');
+      if(hours > HALF_DAY_ANCILLARY){   // more than half a day of travel = the dedicated travel block (RR p.272)
+        activities.push({ kind:'travel', label:'Travel · a full day\'s march', cost:'dedicated', strenuous: !!tc.strenuous, sourceKind:'movement', sourceId: char.id, dedicatedUnits:1, ancillaryUnits:0 });
+      } else {                          // up to half a day = a few ancillary hours; the dedicated slot stays free
+        activities.push({ kind:'travel', label:'Travel · moved ' + hours + ' h today', cost:'ancillary', strenuous:false, sourceKind:'movement', sourceId: char.id, dedicatedUnits:0, ancillaryUnits: hours });
+      }
+    }
+  }
+
   // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold
   // court"), but only for whoever is ACTUALLY administering THIS month — the +1-domain-morale lever
   // (RR p.344/349; domain.administersThisMonth for the ruler, magistrates[role].administersThisMonth
@@ -7330,7 +7358,7 @@ function journeyMaxPace(campaign, journey, opts){
   for(const cid of ids){
     const ch = chars.find(c => c && c.id === cid);
     if(!ch) continue;
-    const b = characterActivityBudget(campaign, cid, { excludeJourneyId: journey.id });
+    const b = characterActivityBudget(campaign, cid, { excludeJourneyId: journey.id, excludeMovement: opts.excludeMovement });
     const cap = _maxPaceForLoad(b.dedicatedUsed, b.ancillaryUsed, BUDGET);
     if(PACE_RANK[cap] < maxRank){
       maxRank = PACE_RANK[cap];
