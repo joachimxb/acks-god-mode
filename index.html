@@ -9315,16 +9315,60 @@ document.addEventListener('alpine:init', () => {
             </select>
             <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
           </div>
-          <!-- selected travellers (removable chips) -->
+          <!-- selected travellers -->
           <!-- MV2:agent-2 (journey wizard zone): graphical 5.1 Available|Traveling traveller DRAG panel (Senate pattern, c-success ring); drops mutate journeyWizard.participantIds then ensureTravelParty -->
-          <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
-            <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
-              <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
-                <span x-text="journeyParticipantName(cid)"></span>
-                <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
-                <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
-              </span>
-            </template>
+          <!-- §5.1 (Movement 2.0 TS1, Lane B): drag a traveller between Available and Traveling — drops mutate
+               journeyWizard.participantIds (the "Add traveller" dropdown above stays as a quick/keyboard path).
+               On Start, startJourney → ensureTravelParty (D9) forms the ephemeral party from these travellers.
+               A character already on another journey is shown greyed + non-draggable (blocked). -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+            <!-- Available (loose characters, at the start hex once one is set) -->
+            <div class="border border-dashed border-ink rounded p-2 min-h-[3.5rem]"
+                 @dragover.prevent @drop="journeyDropToAvailable()"
+                 :class="journeyWizard.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+              <div class="text-xs font-semibold opacity-70 mb-1">Available <span class="font-normal opacity-60" x-text="'· ' + journeyParticipantOptions().length"></span></div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="c in journeyParticipantOptions()" :key="'javail-'+c.id">
+                  <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-warm cursor-grab"
+                        :class="journeyWizard.dragCharId===c.id ? 'opacity-50' : ''"
+                        draggable="true"
+                        @dragstart="journeyDragStart(c.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', c.id)"
+                        @dragend="journeyDragEnd()"
+                        title="Drag into Traveling (or click + to add)">
+                    <span x-text="c.name||'(unnamed)'"></span>
+                    <button @click="journeyAddParticipant(c.id)" class="opacity-60 hover:opacity-100 font-bold" title="Add to the journey">+</button>
+                  </span>
+                </template>
+                <span x-show="journeyParticipantOptions().length===0 && journeyUnavailableTravellers().length===0" class="text-xs italic opacity-50" x-text="journeyWizard.startHexId ? ('No unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + '.') : 'No unattached characters — add one in the Roster, or pick a party above.'"></span>
+                <!-- §15.2 visible block: characters here who are already on a journey/venture — greyed, non-draggable -->
+                <template x-for="c in journeyUnavailableTravellers()" :key="'jblock-'+c.id">
+                  <span class="inline-flex items-center gap-1 text-xs border border-dashed border-ink rounded px-1.5 py-0.5 opacity-50 cursor-not-allowed" title="Already travelling — this character is on another journey or venture">
+                    <span x-text="c.name||'(unnamed)'"></span><span class="opacity-70">· travelling</span>
+                  </span>
+                </template>
+              </div>
+            </div>
+            <!-- Traveling (the participant set) -->
+            <div class="border border-ink rounded p-2 min-h-[3.5rem]"
+                 @dragover.prevent @drop="journeyDropToTraveling()"
+                 :class="journeyWizard.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+              <div class="text-xs font-semibold opacity-70 mb-1">Traveling <span class="font-normal opacity-60" x-text="'· ' + journeyWizard.participantIds.length"></span></div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
+                  <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-warm-2 cursor-grab"
+                        :class="journeyWizard.dragCharId===cid ? 'opacity-50' : ''"
+                        draggable="true"
+                        @dragstart="journeyDragStart(cid); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', cid)"
+                        @dragend="journeyDragEnd()"
+                        title="Drag back to Available to remove">
+                    <span x-text="journeyParticipantName(cid)"></span>
+                    <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
+                    <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
+                  </span>
+                </template>
+                <span x-show="!journeyWizard.participantIds.length" class="text-xs italic opacity-50">none yet — drag a traveller here, or use “Add traveller” above</span>
+              </div>
+            </div>
           </div>
           <p class="text-xs opacity-60 mt-1" x-text="journeyWizardHeadcountLabel()"></p>
         </div>
@@ -9482,6 +9526,47 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
+             over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
+             lost journey keeps the whole-day "Complete Movement" button below. journey.paused holds the
+             ⏩/⏭ autopilot; ▶ is a deliberate hand-step and overrides it. Night travel is NOT modelled — ⏩
+             stops at the pace-determined RAW day's march (a longer march = the Forced-march pace). -->
+        <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
+          <div class="border border-ink rounded p-2.5 space-y-2" style="background:var(--c-vellum)">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span class="text-sm font-semibold">Advance travel</span>
+              <div class="flex items-center gap-1">
+                <button @click="journeyAdvanceOneHex(journeyDetail())"
+                        :disabled="journeyBudgetSpentToday(journeyDetail())"
+                        :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                        class="btn text-sm">▶ One hex</button>
+                <button @click="journeyAdvanceDay(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏩ The day</button>
+                <button @click="journeyAdvanceToDestination(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏭ To destination</button>
+              </div>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶/⏩ spend it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
+                <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
+                <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause autopilot)'"></span>
+              </label>
+              <button @click="journeyActInThisHex(journeyDetail())" class="btn text-xs" title="Do a hex activity here — forage, search, and the like (spends the day's activity budget; RR p.272)"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Act in this hex</button>
+            </div>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
+          </div>
+        </template>
         <!-- distance: total + remaining miles (6-mile hexes) -->
         <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
 
@@ -9764,11 +9849,13 @@ document.addEventListener('alpine:init', () => {
 
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit'">🚶 Complete Movement</button>
+          <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
+               lost) — a steppable people-journey uses the per-hex ▶/⏩/⏭ panel above instead (no redundancy). -->
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">🚶 Complete Movement</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base tint-green accent-green border-2 bdr-green">✓ Arrived</span>
           <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base tint-red accent-red border-2 bdr-red">🛑 Stopped</span>
           <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
-          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
 
@@ -9857,7 +9944,9 @@ document.addEventListener('alpine:init', () => {
           <div>
             <h2 class="font-bold text-xl">⛺ Journeys</h2>
             <!-- MV2:agent-2 (Travel overview zone): Travel stays an OVERVIEW (in-flight journeys + multi-venue launch), not the launcher -->
-            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em>; drive them with the Day Clock (top-right).</p>
+            <!-- Movement 2.0 (Lane B): this tab is the OVERVIEW of in-flight journeys; open one to drive it
+                 hex-by-hex (▶/⏩/⏭). A journey is launched from HERE, a character, a party, or a hex card. -->
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em> — open one to advance it hex-by-hex (▶ one hex · ⏩ the day · ⏭ to destination), or drive them all together with the Day Clock (top-right). Start one here, or from a character, a party, or a hex.</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="btn btn-primary text-sm">🧭 Start a journey</button>
         </div>
@@ -9877,6 +9966,7 @@ document.addEventListener('alpine:init', () => {
                   · <span x-text="journeyDayLabel(j)"></span>
                 </div>
               </div>
+              <span x-show="journeyPaused(j)" class="text-xs px-2 py-0.5 rounded shrink-0 tint-amber accent-amber font-semibold" title="Held — the ⏩/⏭ autopilot won't advance this journey; open it to step by hand or resume">⏸ held</span>
               <span class="text-xs px-2 py-0.5 rounded shrink-0" :class="j.isLost ? 'tint-red' : (j.status==='planning' ? 'bg-warm-2' : 'bg-sky-100')" x-text="journeyStatusLabel(j)"></span>
               <span class="text-xs shrink-0" :class="journeySupplyDaysLeft(j) < 3 ? 'accent-red font-semibold' : 'opacity-50'" title="approx. days of supplies left" x-text="'🍖' + journeySupplyDaysLeft(j) + 'd'"></span>
             </div>
@@ -20269,7 +20359,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-generators.js?v=7d123e93"></script>
 <script src="domain-app-gladiators.js?v=6da7a6a4"></script>
 <script src="domain-app-inspector.js?v=9bb9d6c8"></script>
-<script src="domain-app-journeys.js?v=4b53c7e3"></script>
+<script src="domain-app-journeys.js?v=cd4a292b"></script>
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
 <script src="domain-app-map.js?v=b272bc82"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
