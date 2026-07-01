@@ -450,6 +450,15 @@ function proposeConvalescenceDay(campaign, ctx){
   const days = (typeof ctx.days === 'number' && ctx.days > 0) ? ctx.days : 1;
   const out = { pendingRecords: [], notableEvents: [], encounters: [] };
   (campaign && campaign.characters || []).forEach(c => {
+    // CE-4 — a character who cannot heal (hypothermia, RR p.510) does not advance bed-rest convalescence
+    // until warmed. Reads the Condition Effects flag set (conditionFlags; late-bound). No-op unless present.
+    if(typeof ACKS.conditionFlags === 'function' && ACKS.conditionFlags(campaign, c).has('cannot-heal')
+       && characterActiveWounds(c).some(w => (w.bedRestDaysRemaining||0) > 0)){
+      out.notableEvents.push({ type:'convalescence', transient:true,
+        label: c.name + ' cannot heal while hypothermic — convalescence suspended (RR p.510)',
+        summary: c.name + ' cannot heal' });
+      return;
+    }
     characterActiveWounds(c).forEach((w, wi) => {
       const remaining = w.bedRestDaysRemaining || 0;
       if(remaining <= 0) return;

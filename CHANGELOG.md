@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-01
+
+### Added
+- **A fatigued character now takes the rulebook's −1 on its proficiency throws (RR p.516).** Pushing past exhaustion — six un-rested strenuous days, or a forced march — leaves a character *Fatigued*, and that penalty now actually reaches the dice: each proficiency throw takes −1, deepening by 1 for every further day spent active without rest, and clearing after one full rest day. The penalty appears in the throw's modifier breakdown ("Fatigued (RR p.516): −2") beside any others, and is separate from the working-overtime penalty (JJ p.95), which still applies on its own. Previously the tool could *record* a condition but nothing read it into a roll. The same layer now also enforces a condition's capability limits: a character left out in the cold (hypothermia, RR p.510) can no longer keep up a forced march — the party drops back to a normal pace — nor recover from wounds (bed-rest convalescence pauses) until they are warmed. And the character sheet now shows it: a character’s Conditions box (on the Stats tab) lists every active condition alongside its mechanical effect — a fatigued character’s −1/−2/… to attack, proficiency, saving throws and damage; a hypothermic character’s “cannot force-march or heal” — colour-coded by severity. This is the foundation of a broader condition layer — attack, saving-throw, and damage effects, Hunger and thirst now bite too: a **hungry** character takes the rulebook’s −1 on attack, proficiency, and saving throws (RR p.276), and an **underfed**, **starving**, or **dehydrated** character can no longer force-march or heal naturally — the same limits hypothermia imposes. The remaining conditions (disease, wounds) hang off the same machinery as they are built out.
+
 ## [0.53.0] - 2026-06-30
 
 ### Added

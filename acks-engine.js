@@ -87,7 +87,7 @@ const SCHEMA_VERSION = 2;
 // runtime (package.json isn't reachable from a file:// browser load). tests/schema.smoke.js
 // asserts it equals package.json's "version" — the same release-checklist guard that pins the
 // README version (T1-C); bump both together on release.
-const ENGINE_VERSION = '0.53.0';
+const ENGINE_VERSION = '0.54.0';
 
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
 // When in doubt, look up via ID_PREFIXES rather than hardcoding.
@@ -7344,6 +7344,19 @@ function journeyMaxPace(campaign, journey, opts){
     maxRank = PACE_RANK['half-speed'];
     binding = { characterId: null, name: 'tracking ' + ((tracking.pursuit && tracking.pursuit.quarryLabel) || 'a quarry') + ' (RR p.120)',
                 maxPace: 'half-speed', reason: 'tracking', otherDedicated: 0, otherAncillary: 0 };
+  }
+  // CE-4 — a traveller who cannot force-march (hypothermia, RR p.510) caps the party at normal pace,
+  // however generous the budget. Reads the Condition Effects flag set (conditionFlags; late-bound — the
+  // conditions layer loads after this module). Guarded; only bites when forced-march was otherwise on the table.
+  if(maxRank > PACE_RANK['normal'] && typeof A.conditionFlags === 'function'){
+    for(const cid of ids){
+      const ch = chars.find(c => c && c.id === cid);
+      if(ch && A.conditionFlags(campaign, ch).has('cannot-force-march')){
+        maxRank = PACE_RANK['normal'];
+        binding = { characterId: cid, name: (ch.name || cid) + ' cannot force-march (RR p.510)', maxPace: 'normal', reason: 'cannot-force-march', otherDedicated: 0, otherAncillary: 0 };
+        break;
+      }
+    }
   }
   return { maxPace: RANK_PACE[maxRank], binding };
 }

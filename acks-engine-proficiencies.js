@@ -734,6 +734,17 @@
       if(s && typeof s.value === 'number' && s.value !== 0) itemized.push({ source: s.source || 'situational', value: s.value, label: s.label || s.source || 'situational' });
     }
     if(typeof opts.fatiguePenalty === 'number' && opts.fatiguePenalty !== 0) itemized.push({ source: 'overtime', value: opts.fatiguePenalty, label: 'overtime/fatigue (JJ p.95)' });
+    // Condition Effects (CE-3) — the actor's PERSISTENT conditions modify the throw (RR p.516: Fatigued
+    // is a cumulative -1 on proficiency throws). Late-bound (acks-engine-lifecycle.js loads after this
+    // module): derive-on-read + side-effect-free, so a roll:false forecast stays pure. Distinct from the
+    // JJ-p.95 'overtime' fatiguePenalty above (a caller-supplied situational, not the RAW condition).
+    if(campaign && character && typeof ACKS.conditionModifiers === 'function'){
+      const cm = ACKS.conditionModifiers(campaign, character, { rollType: 'proficiency' });
+      for(const m of (cm && cm.itemized || [])){
+        if(m && typeof m.value === 'number' && m.value !== 0)
+          itemized.push({ source: m.condition, value: m.value, label: m.label + (m.cite ? ' (' + m.cite + ')' : '') });
+      }
+    }
 
     const modifierTotal = itemized.reduce((s, m) => s + (Number(m.value) || 0), 0);
     const secret = (opts.secret != null) ? !!opts.secret : !!(task && task.secretByDefault);
