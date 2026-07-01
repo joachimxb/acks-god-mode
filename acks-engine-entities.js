@@ -1223,6 +1223,10 @@ function blankCharacter(opts={}){
     history: opts.history || [],
     // Behavior flag
     autoAdvance: opts.autoAdvance !== false,
+    // Movement 2.0 (F-1) — the per-character daily MOVEMENT budget ledger { worldOrd, milesUsed }.
+    // Lives on the character so it survives a party join (D1). Lazy + read defensively by
+    // acks-engine-movement.js (moverDayBudget); reset when the world day rolls over. null = never moved.
+    dailyMovement: opts.dailyMovement || null,
     // Status
     alive: opts.alive !== false,
     deceasedTurn: opts.deceasedTurn || null,
