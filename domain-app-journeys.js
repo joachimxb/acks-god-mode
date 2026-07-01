@@ -312,11 +312,11 @@
   journeyOpenDetail(id){
     const j = this.journeyById(id);
     const party = (j && j.partyId) ? (this.currentCampaign?.parties || []).find(p => p && p.id === j.partyId) : null;
-    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.openPartyModal(party.id); return; }   // openPartyModal points journeyDetailId at the party's journey
+    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.openPartyModal(party.id, 'travel'); return; }   // open the modal straight to its Travel tab (journeyDetailId → the party's journey)
     this.journeyOpenDetailPage(id);
   },
-  // The standalone Travel-detail PAGE (the full pace/mode/vessel/speed-override/day-log surface). Reached
-  // from the modal's "⚙ Travel settings & day log →" deep-link, and directly for army/unit marches.
+  // The standalone Travel-detail PAGE (the full pace/mode/vessel/speed-override/day-log surface). Now reached
+  // ONLY for army/unit marches — a party's travel lives in the modal's Travel tab (Joachim 2026-07-01).
   journeyOpenDetailPage(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
   journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   // Complete Movement (Joachim 2026-06-05): resolve THIS journey's travel for the current world day,

@@ -30,8 +30,8 @@
   // name, and a character sheet's "in party …" link — open THIS modal with all the details (membership
   // drag, split/merge/muster, provisioning & load, members table, camp, chronicle). Transient state.
   partyModalId: null,
-  partyModalTab: 'manage',   // 'manage' | 'chronicle' — the modal's two tabs (Movement 2.0 rework)
-  openPartyModal(partyId){
+  partyModalTab: 'manage',   // 'manage' | 'travel' | 'camp' | 'chronicle' — the modal's four tabs (Movement 2.0 rework)
+  openPartyModal(partyId, tab){
     if(!partyId) return;
     // Select the party (so selectedParty() resolves) but DO NOT navigate — the modal is a top-level overlay
     // in the global modal stack, so it renders over whatever view called it (a Travel-overview row, a
@@ -44,7 +44,9 @@
     const p = (this.currentCampaign?.parties || []).find(x => x && x.id === partyId);
     this.journeyDetailId = (p && p.activeJourneyId) || null;
     this.journeyOverrideArmed = false;
-    this.partyModalTab = 'manage';
+    // Open on the requested tab (journey links pass 'travel' so they land straight on the travel controls);
+    // anything unrecognised falls back to Manage. (Joachim 2026-07-01.)
+    this.partyModalTab = ['manage','travel','camp','chronicle'].includes(tab) ? tab : 'manage';
     this.partyModalId = partyId;
   },
   closePartyModal(){ this.partyModalId = null; this.journeyDetailId = null; this.journeyOverrideArmed = false; },

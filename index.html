@@ -12685,9 +12685,11 @@ document.addEventListener('alpine:init', () => {
         <h3 class="font-bold text-lg inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-people"></use></svg> <span x-text="selectedParty().name || 'Party'"></span></h3>
         <button @click="closePartyModal()" class="btn text-sm" title="Close">✕ Close</button>
       </div>
-      <!-- tab strip: Manage · Chronicle (Chronicle is its own tab — Movement 2.0 rework, Joachim 2026-07-01) -->
+      <!-- tab strip: Manage · Travel · Camp · Chronicle (4 tabs — Movement 2.0 rework, Joachim 2026-07-01) -->
       <div class="flex items-center gap-1.5 mb-3">
         <button @click="partyModalTab='manage'" class="tab-pill text-sm" :class="partyModalTab==='manage' ? 'tab-active' : ''">Manage</button>
+        <button @click="partyModalTab='travel'" class="tab-pill text-sm" :class="partyModalTab==='travel' ? 'tab-active' : ''">🧭 Travel</button>
+        <button @click="partyModalTab='camp'" class="tab-pill text-sm" :class="partyModalTab==='camp' ? 'tab-active' : ''">⛺ Camp</button>
         <button @click="partyModalTab='chronicle'" class="tab-pill text-sm inline-flex items-center gap-1" :class="partyModalTab==='chronicle' ? 'tab-active' : ''"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60" x-text="'· ' + entityChronicleCount('party', selectedParty().id)"></span></button>
       </div>
 
@@ -12725,6 +12727,299 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </div>
 
+              <!-- current hex + notes (verbatim from the old party card; the "on journey" link is now a
+                   static lock — the journey is advanced in the box above) -->
+              <div class="mt-2 space-y-2 text-sm">
+                <div>
+                  <span class="block text-xs opacity-70">Current hex</span>
+                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
+                    <span class="flex items-center gap-2">
+                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
+                      <span class="text-xs opacity-70 whitespace-nowrap" title="On a journey — the party's hex moves with it (advance it above)">🔒 on journey</span>
+                    </span>
+                  </template>
+                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
+                    <span class="ed-stat">
+                      <template x-if="!pt._hexEditing">
+                        <span class="ed-stat">
+                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
+                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
+                        </span>
+                      </template>
+                      <template x-if="pt._hexEditing">
+                        <span class="ed-stat">
+                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
+                            <option value="" :selected="!pt._hexDraft">— none —</option>
+                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
+                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
+                            </template>
+                          </select>
+                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
+                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
+                        </span>
+                      </template>
+                    </span>
+                  </template>
+                </div>
+                <div x-data="editableStat({entityType:'party', entity:pt, fieldPath:'notes', label:'Party notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs opacity-70">Notes</span>
+                    <template x-if="!editing">
+                      <button @click="start()" class="ed-edit" title="Edit notes (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
+                    </template>
+                    <template x-if="editing">
+                      <span class="flex gap-1">
+                        <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
+                        <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
+                      </span>
+                    </template>
+                  </div>
+                  <template x-if="!editing">
+                    <p class="text-sm whitespace-pre-wrap" :class="(currentValue==null || currentValue==='') ? 'opacity-60 italic' : ''" x-text="displayValue"></p>
+                  </template>
+                  <template x-if="editing">
+                    <textarea class="w-full h-20" x-model="draft" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="Free notes about this party"></textarea>
+                  </template>
+                </div>
+              </div>
+
+              <!-- MEMBERS (verbatim table; the add-member picker + the lifestyle banner are removed —
+                   membership is the drag panel below, lifestyle moved into Provisioning) -->
+              <div class="mt-3">
+                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
+                <template x-if="partyMembers(pt).length === 0">
+                  <p class="text-sm italic opacity-60">No members. Drag someone in from the Membership panel below.</p>
+                </template>
+                <table class="text-sm w-full max-w-3xl" x-show="partyMembers(pt).length > 0">
+                  <thead>
+                    <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                      <th class="font-normal py-0.5 pr-4">Member</th>
+                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
+                      <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
+                      <th class="font-normal py-0.5 pr-4">Conditions</th>
+                      <th class="font-normal py-0.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="ch in partyMembers(pt)" :key="ch.id">
+                      <tr class="border-b border-dashed border-hairline align-top">
+                        <td class="py-1 pr-4">
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </td>
+                        <td class="py-1 pr-4 text-center">
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
+                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="partyMemberMercSummary(ch).length">
+                            <span class="text-xs">
+                              <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'accent-amber font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="encumbranceShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="characterJourneyConditions(ch).length">
+                            <span class="flex flex-nowrap gap-1">
+                              <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
+                        </td>
+                        <td class="py-1 whitespace-nowrap text-right">
+                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-xs underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
+                          <button @click="removeCharacterFromParty(ch)" class="text-xs underline opacity-70 hover:opacity-100 ml-2">remove</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
+                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
+                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+                </div>
+              </div>
+
+              <!-- PROVISIONING & LOAD (Movement 2.0: the old Provisioning box + the journey supplies
+                   tracker, unified — a held/consumed table + lifestyle + fatigue + carry/pace + the
+                   share-rations / share-load tick-boxes; under Members, before Camp) -->
+              <div class="mt-3 border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown() || encumbranceShown()">
+                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">⛺ Provisioning &amp; load</div>
+                <template x-if="partyProvisioningInfo(pt).onLifestyle">
+                  <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
+                </template>
+                <!-- unified held / consumed rations table -->
+                <div x-show="rationsShown()" x-data="{ get cons(){ return provConsumption(pt); } }">
+                  <table class="text-sm w-full max-w-lg">
+                    <thead>
+                      <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                        <th class="font-normal py-0.5 pr-4"></th>
+                        <th class="font-normal py-0.5 pr-4" title="Consumed per day — one ration + one water per individual (RR p.276)">Per day</th>
+                        <th class="font-normal py-0.5 pr-4" title="Days the party currently holds — members' carried stores + the party camp">Party holds</th>
+                        <th class="font-normal py-0.5" title="Whole days before the first traveller runs short">Days left</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="border-b border-dashed border-hairline">
+                        <td class="py-1 pr-4">🍖 Food</td>
+                        <td class="py-1 pr-4 font-mono" x-text="cons.people.rationsPerDay + '/day'"></td>
+                        <td class="py-1 pr-4 font-mono" x-text="partyHeldFoodDays(pt) + ' d'"></td>
+                        <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (partySupplyDaysLeft(pt) < 3 ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + partySupplyDaysLeft(pt))"></td>
+                      </tr>
+                      <tr class="border-b border-dashed border-hairline">
+                        <td class="py-1 pr-4">💧 Water</td>
+                        <td class="py-1 pr-4 font-mono" x-text="cons.people.waterPerDay + '/day'"></td>
+                        <td class="py-1 pr-4 font-mono" x-text="partyHeldWaterDays(pt) + ' d'"></td>
+                        <td class="py-1 font-mono opacity-50" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞' : '—'"></td>
+                      </tr>
+                      <template x-if="cons.animals.count">
+                        <tr class="border-b border-dashed border-hairline">
+                          <td class="py-1 pr-4">🐴 Animals <span class="opacity-60 text-xs" x-text="'×'+cons.animals.count"></span></td>
+                          <td class="py-1 pr-4 font-mono text-xs" x-text="'feed '+cons.animals.foodSt+' st · water '+cons.animals.waterSt+' st'"></td>
+                          <td class="py-1 pr-4"></td>
+                          <td class="py-1"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <!-- fatigue + carry + pace (derived) -->
+                <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2" x-data="{ get haul(){ return provHaul(pt); }, get load(){ return provLoadReport(pt); } }">
+                  <template x-if="partyJourney(pt)"><span title="Consecutive strenuous travel days — 6 brings the Fatigued condition (RR p.279)">🔥 Fatigue streak: <span class="font-semibold" x-text="(partyJourney(pt).fatigueDays)||0"></span>/6</span></template>
+                  <span x-show="encumbranceShown()" title="Party carrying capacity: members + hired individuals + pack/draft animals">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
+                  <template x-if="load.slowestMilesPerDay!==null"><span title="Party travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span></template>
+                </div>
+                <!-- rules: share rations · share load (the retired pills, now tick-boxes) + forage water -->
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 pt-2 border-t border-dashed border-ink/30">
+                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
+                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareRations && provRegimeState(pt).shareRations.value)" @change="provToggleRegime(pt, 'shareRations')">
+                    🤝 Share rations
+                  </label>
+                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Even the party's carried gear so it travels at a better band (RR pp.83–84); off = the slowest-loaded walker sets the pace">
+                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value)" @change="provToggleRegime(pt, 'shareLoad')">
+                    📦 Share load
+                  </label>
+                  <template x-if="provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value && provLoadReport(pt).balanced.improves">
+                    <button type="button" class="btn text-xs" @click="provBalanceLoad(pt)" :title="'Hand gear around to even the load (RR pp.83–84) — the party would then travel at '+provLoadReport(pt).balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="provLoadReport(pt).balanced.slowestMilesPerDay"></span> mi/day</button>
+                  </template>
+                  <template x-if="partyJourney(pt) && partyJourney(pt).status==='in-transit'">
+                    <span class="flex items-center gap-2" x-data="{ get j(){ return partyJourney(pt); } }">
+                      <template x-if="journeyHexSourcesWater(j)"><span class="flex items-center gap-1.5 text-xs text-sky-700" title="This hex has a river / lake / settlement — water is free here, no foraging needed">💧 Water available here</span></template>
+                      <template x-if="!journeyHexSourcesWater(j)">
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="No water source at this hex — tick to make one Foraging throw for water on a no-source day (each forager spends an ancillary slot)">
+                          <span>🚱 No water here —</span>
+                          <input type="checkbox" :checked="!!j.forageWaterEnabled" @change="toggleJourneyForageWater(j)">
+                          <span>🥤 forage for water</span>
+                        </label>
+                      </template>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- ── MEMBERSHIP & OPERATIONS — below the main view (verbatim block A) ── -->
+            <div class="vellum border border-ink rounded p-4" x-cloak>
+              <div>
+                <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
+                  <h3 class="font-bold text-lg">🧭 Membership &amp; operations</h3>
+                  <button @click="openPartySplit(pt.id)" :disabled="partyMemberCount(pt) < 2" :class="partyMemberCount(pt) < 2 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Split a subset of members off into a new party">✂ Split party…</button>
+                </div>
+
+                <!-- follow (tracking-split) banner -->
+                <template x-if="partyFollowInfo(pt)">
+                  <div class="tint-green border bdr-green rounded p-2 mb-2 text-sm flex flex-wrap items-center gap-2">
+                    <span>👣 Following <strong x-text="partyFollowInfo(pt).leadName"></strong> at half-speed (RR p.120).</span>
+                    <button @click="retargetFollowUI(partyFollowInfo(pt).journeyId)" class="btn text-sm">↻ Re-point to lead's hex</button>
+                  </div>
+                </template>
+
+                <!-- §2.1 member drag: member list | available roster | remove gutter -->
+                <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
+                  <div class="border-hairline border rounded p-2" style="min-height:5rem"
+                       @dragover.prevent @drop="partyDropAddToParty(pt.id)"
+                       :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                    <div class="text-xs font-semibold text-muted mb-1" x-text="'Members · ' + partyMemberCount(pt)"></div>
+                    <template x-for="m in partyMembers(pt)" :key="m.id">
+                      <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                            draggable="true"
+                            @dragstart="partyDragStart(m.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', m.id)"
+                            @dragend="partyDragEnd()"
+                            :class="partyEdit.dragCharId === m.id ? 'opacity-50' : ''"
+                            x-text="(m.name||m.id) + (pt.leaderCharacterId===m.id ? ' ★' : '')"></span>
+                    </template>
+                    <p x-show="partyMemberCount(pt)===0" class="text-xs text-muted italic">No members — drag someone in.</p>
+                  </div>
+                  <div>
+                    <div class="border-hairline border rounded p-2 mb-2" style="min-height:3.5rem"
+                         @dragover.prevent @drop="partyDropRemoveMember()"
+                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                      <div class="text-xs font-semibold text-muted mb-1">Available here (drag out to release)</div>
+                      <template x-for="a in partyAvailableRoster(pt)" :key="a.id">
+                        <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                              draggable="true"
+                              @dragstart="partyDragStart(a.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', a.id)"
+                              @dragend="partyDragEnd()"
+                              :class="partyEdit.dragCharId === a.id ? 'opacity-50' : ''"
+                              x-text="a.name||a.id"></span>
+                      </template>
+                      <p x-show="partyAvailableRoster(pt).length===0" class="text-xs text-muted italic">No party-less characters at this hex.</p>
+                    </div>
+                    <div class="tint-red border bdr-red rounded p-2 text-center text-sm text-muted"
+                         @dragover.prevent @drop="partyDropRemoveMember()"
+                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                      ✕ Drop here to remove from the party
+                    </div>
+                  </div>
+                </div>
+
+                <!-- co-located parties: drag-target cards + whole-party merge prompt -->
+                <template x-if="partyMergeCandidates(pt).length">
+                  <div class="mt-3">
+                    <div class="text-xs font-semibold text-muted mb-1">Other parties in this hex — drag a member across, or merge them in</div>
+                    <div class="flex flex-wrap gap-2">
+                      <template x-for="cp in partyMergeCandidates(pt)" :key="cp.id">
+                        <div class="border border-ink rounded p-2 text-sm bg-warm"
+                             @dragover.prevent @drop="partyDropAddToParty(cp.id)"
+                             :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                          <div class="font-semibold" x-text="cp.name"></div>
+                          <div class="text-xs text-muted" x-text="partyMemberCount(cp) + ' member' + (partyMemberCount(cp)===1?'':'s')"></div>
+                          <button @click="confirmPartyMerge(pt.id, cp.id)" class="btn text-sm mt-1">🔀 Merge into this party</button>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+          </div>
+        </template>
+      </div>
+
+      <!-- ══════════════ TRAVEL TAB ══════════════ -->
+      <!-- Everything directly about travel: advance mechanics, vessel/voyage, pace/speed, stop journey,
+           and the day log. journeyDetail()-driven (openPartyModal points journeyDetailId at this party's
+           journey); journey links open the modal straight to this tab. Moved out of the Manage box
+           (Joachim 2026-07-01). -->
+      <div x-show="partyModalTab==='travel'" class="space-y-3">
+        <template x-if="!journeyDetail()">
+          <p class="text-base italic opacity-60 py-4 text-center">This party isn't travelling. Start a journey with <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" class="underline accent-green not-italic">🧭 Send on journey</button>, or Move it a hex at a time from the Manage tab.</p>
+        </template>
               <!-- TRAVEL — the whole Travel page folded in, VERBATIM (journeyDetail()-driven; openPartyModal
                    points journeyDetailId at THIS party's journey, so the folded controls + no-arg methods
                    [journeyCompleteMovement] resolve). The standalone Travel PAGE is scoped to army/unit
@@ -12937,302 +13232,6 @@ document.addEventListener('alpine:init', () => {
         </div>
                 </div>
               </template>
-              <!-- current hex + notes (verbatim from the old party card; the "on journey" link is now a
-                   static lock — the journey is advanced in the box above) -->
-              <div class="mt-2 space-y-2 text-sm">
-                <div>
-                  <span class="block text-xs opacity-70">Current hex</span>
-                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
-                    <span class="flex items-center gap-2">
-                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
-                      <span class="text-xs opacity-70 whitespace-nowrap" title="On a journey — the party's hex moves with it (advance it above)">🔒 on journey</span>
-                    </span>
-                  </template>
-                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
-                    <span class="ed-stat">
-                      <template x-if="!pt._hexEditing">
-                        <span class="ed-stat">
-                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
-                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
-                        </span>
-                      </template>
-                      <template x-if="pt._hexEditing">
-                        <span class="ed-stat">
-                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
-                            <option value="" :selected="!pt._hexDraft">— none —</option>
-                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
-                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
-                            </template>
-                          </select>
-                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
-                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
-                        </span>
-                      </template>
-                    </span>
-                  </template>
-                </div>
-                <div x-data="editableStat({entityType:'party', entity:pt, fieldPath:'notes', label:'Party notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs opacity-70">Notes</span>
-                    <template x-if="!editing">
-                      <button @click="start()" class="ed-edit" title="Edit notes (logged on save)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button>
-                    </template>
-                    <template x-if="editing">
-                      <span class="flex gap-1">
-                        <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
-                        <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
-                      </span>
-                    </template>
-                  </div>
-                  <template x-if="!editing">
-                    <p class="text-sm whitespace-pre-wrap" :class="(currentValue==null || currentValue==='') ? 'opacity-60 italic' : ''" x-text="displayValue"></p>
-                  </template>
-                  <template x-if="editing">
-                    <textarea class="w-full h-20" x-model="draft" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="Free notes about this party"></textarea>
-                  </template>
-                </div>
-              </div>
-
-              <!-- MEMBERS (verbatim table; the add-member picker + the lifestyle banner are removed —
-                   membership is the drag panel below, lifestyle moved into Provisioning) -->
-              <div class="mt-3">
-                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
-                <template x-if="partyMembers(pt).length === 0">
-                  <p class="text-sm italic opacity-60">No members. Drag someone in from the Membership panel below.</p>
-                </template>
-                <table class="text-sm w-full max-w-3xl" x-show="partyMembers(pt).length > 0">
-                  <thead>
-                    <tr class="text-left text-xs opacity-60 border-b border-ink/30">
-                      <th class="font-normal py-0.5 pr-4">Member</th>
-                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
-                      <th class="font-normal py-0.5 pr-4">Mercenaries</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
-                      <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
-                      <th class="font-normal py-0.5 pr-4">Conditions</th>
-                      <th class="font-normal py-0.5"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="ch in partyMembers(pt)" :key="ch.id">
-                      <tr class="border-b border-dashed border-hairline align-top">
-                        <td class="py-1 pr-4">
-                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
-                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                        </td>
-                        <td class="py-1 pr-4 text-center">
-                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
-                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
-                        </td>
-                        <td class="py-1 pr-4">
-                          <template x-if="partyMemberMercSummary(ch).length">
-                            <span class="text-xs">
-                              <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
-                            </span>
-                          </template>
-                          <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="rationsShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'accent-amber font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="rationsShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
-                        </td>
-                        <td class="py-1 pr-4" x-show="encumbranceShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
-                        </td>
-                        <td class="py-1 pr-4">
-                          <template x-if="characterJourneyConditions(ch).length">
-                            <span class="flex flex-nowrap gap-1">
-                              <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
-                            </span>
-                          </template>
-                          <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
-                        </td>
-                        <td class="py-1 whitespace-nowrap text-right">
-                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-xs underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
-                          <button @click="removeCharacterFromParty(ch)" class="text-xs underline opacity-70 hover:opacity-100 ml-2">remove</button>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
-                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
-                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
-                </div>
-              </div>
-
-              <!-- PROVISIONING & LOAD (Movement 2.0: the old Provisioning box + the journey supplies
-                   tracker, unified — a held/consumed table + lifestyle + fatigue + carry/pace + the
-                   share-rations / share-load tick-boxes; under Members, before Camp) -->
-              <div class="mt-3 border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown() || encumbranceShown()">
-                <div class="text-sm uppercase tracking-wide opacity-70 mb-1">⛺ Provisioning &amp; load</div>
-                <template x-if="partyProvisioningInfo(pt).onLifestyle">
-                  <div class="mb-2 text-xs accent-green tint-green/60 border bdr-green/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
-                </template>
-                <!-- unified held / consumed rations table -->
-                <div x-show="rationsShown()" x-data="{ get cons(){ return provConsumption(pt); } }">
-                  <table class="text-sm w-full max-w-lg">
-                    <thead>
-                      <tr class="text-left text-xs opacity-60 border-b border-ink/30">
-                        <th class="font-normal py-0.5 pr-4"></th>
-                        <th class="font-normal py-0.5 pr-4" title="Consumed per day — one ration + one water per individual (RR p.276)">Per day</th>
-                        <th class="font-normal py-0.5 pr-4" title="Days the party currently holds — members' carried stores + the party camp">Party holds</th>
-                        <th class="font-normal py-0.5" title="Whole days before the first traveller runs short">Days left</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr class="border-b border-dashed border-hairline">
-                        <td class="py-1 pr-4">🍖 Food</td>
-                        <td class="py-1 pr-4 font-mono" x-text="cons.people.rationsPerDay + '/day'"></td>
-                        <td class="py-1 pr-4 font-mono" x-text="partyHeldFoodDays(pt) + ' d'"></td>
-                        <td class="py-1 font-mono" :class="partyProvisioningInfo(pt).onLifestyle ? 'opacity-50' : (partySupplyDaysLeft(pt) < 3 ? 'accent-red font-semibold' : '')" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞ (lifestyle)' : ('≈ ' + partySupplyDaysLeft(pt))"></td>
-                      </tr>
-                      <tr class="border-b border-dashed border-hairline">
-                        <td class="py-1 pr-4">💧 Water</td>
-                        <td class="py-1 pr-4 font-mono" x-text="cons.people.waterPerDay + '/day'"></td>
-                        <td class="py-1 pr-4 font-mono" x-text="partyHeldWaterDays(pt) + ' d'"></td>
-                        <td class="py-1 font-mono opacity-50" x-text="partyProvisioningInfo(pt).onLifestyle ? '∞' : '—'"></td>
-                      </tr>
-                      <template x-if="cons.animals.count">
-                        <tr class="border-b border-dashed border-hairline">
-                          <td class="py-1 pr-4">🐴 Animals <span class="opacity-60 text-xs" x-text="'×'+cons.animals.count"></span></td>
-                          <td class="py-1 pr-4 font-mono text-xs" x-text="'feed '+cons.animals.foodSt+' st · water '+cons.animals.waterSt+' st'"></td>
-                          <td class="py-1 pr-4"></td>
-                          <td class="py-1"></td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                </div>
-                <!-- fatigue + carry + pace (derived) -->
-                <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2" x-data="{ get haul(){ return provHaul(pt); }, get load(){ return provLoadReport(pt); } }">
-                  <template x-if="partyJourney(pt)"><span title="Consecutive strenuous travel days — 6 brings the Fatigued condition (RR p.279)">🔥 Fatigue streak: <span class="font-semibold" x-text="(partyJourney(pt).fatigueDays)||0"></span>/6</span></template>
-                  <span x-show="encumbranceShown()" title="Party carrying capacity: members + hired individuals + pack/draft animals">📦 carry <span class="font-mono" x-text="haul.totalSt"></span> st</span>
-                  <template x-if="load.slowestMilesPerDay!==null"><span title="Party travel speed = the slowest walker's encumbrance band (RR pp.83–84)">pace <span class="font-mono" x-text="load.slowestMilesPerDay"></span> mi/day</span></template>
-                </div>
-                <!-- rules: share rations · share load (the retired pills, now tick-boxes) + forage water -->
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 pt-2 border-t border-dashed border-ink/30">
-                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
-                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareRations && provRegimeState(pt).shareRations.value)" @change="provToggleRegime(pt, 'shareRations')">
-                    🤝 Share rations
-                  </label>
-                  <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Even the party's carried gear so it travels at a better band (RR pp.83–84); off = the slowest-loaded walker sets the pace">
-                    <input type="checkbox" :checked="!!(provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value)" @change="provToggleRegime(pt, 'shareLoad')">
-                    📦 Share load
-                  </label>
-                  <template x-if="provRegimeState(pt).shareLoad && provRegimeState(pt).shareLoad.value && provLoadReport(pt).balanced.improves">
-                    <button type="button" class="btn text-xs" @click="provBalanceLoad(pt)" :title="'Hand gear around to even the load (RR pp.83–84) — the party would then travel at '+provLoadReport(pt).balanced.slowestMilesPerDay+' mi/day'">Balance load → <span x-text="provLoadReport(pt).balanced.slowestMilesPerDay"></span> mi/day</button>
-                  </template>
-                  <template x-if="partyJourney(pt) && partyJourney(pt).status==='in-transit'">
-                    <span class="flex items-center gap-2" x-data="{ get j(){ return partyJourney(pt); } }">
-                      <template x-if="journeyHexSourcesWater(j)"><span class="flex items-center gap-1.5 text-xs text-sky-700" title="This hex has a river / lake / settlement — water is free here, no foraging needed">💧 Water available here</span></template>
-                      <template x-if="!journeyHexSourcesWater(j)">
-                        <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="No water source at this hex — tick to make one Foraging throw for water on a no-source day (each forager spends an ancillary slot)">
-                          <span>🚱 No water here —</span>
-                          <input type="checkbox" :checked="!!j.forageWaterEnabled" @change="toggleJourneyForageWater(j)">
-                          <span>🥤 forage for water</span>
-                        </label>
-                      </template>
-                    </span>
-                  </template>
-                </div>
-              </div>
-
-              <!-- CAMP (verbatim, minus the Chronicle — Chronicle is its own tab now) -->
-              <div class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
-                <div class="flex justify-between items-center">
-                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
-                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
-                </div>
-                <template x-if="camp">
-                  <div class="flex justify-between items-center text-sm mt-1">
-                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
-                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
-                  </div>
-                </template>
-                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
-              </div>
-            </div>
-
-            <!-- ── MEMBERSHIP & OPERATIONS — below the main view (verbatim block A) ── -->
-            <div class="vellum border border-ink rounded p-4" x-cloak>
-              <div>
-                <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
-                  <h3 class="font-bold text-lg">🧭 Membership &amp; operations</h3>
-                  <button @click="openPartySplit(pt.id)" :disabled="partyMemberCount(pt) < 2" :class="partyMemberCount(pt) < 2 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Split a subset of members off into a new party">✂ Split party…</button>
-                </div>
-
-                <!-- follow (tracking-split) banner -->
-                <template x-if="partyFollowInfo(pt)">
-                  <div class="tint-green border bdr-green rounded p-2 mb-2 text-sm flex flex-wrap items-center gap-2">
-                    <span>👣 Following <strong x-text="partyFollowInfo(pt).leadName"></strong> at half-speed (RR p.120).</span>
-                    <button @click="retargetFollowUI(partyFollowInfo(pt).journeyId)" class="btn text-sm">↻ Re-point to lead's hex</button>
-                  </div>
-                </template>
-
-                <!-- §2.1 member drag: member list | available roster | remove gutter -->
-                <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
-                  <div class="border-hairline border rounded p-2" style="min-height:5rem"
-                       @dragover.prevent @drop="partyDropAddToParty(pt.id)"
-                       :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
-                    <div class="text-xs font-semibold text-muted mb-1" x-text="'Members · ' + partyMemberCount(pt)"></div>
-                    <template x-for="m in partyMembers(pt)" :key="m.id">
-                      <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
-                            draggable="true"
-                            @dragstart="partyDragStart(m.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', m.id)"
-                            @dragend="partyDragEnd()"
-                            :class="partyEdit.dragCharId === m.id ? 'opacity-50' : ''"
-                            x-text="(m.name||m.id) + (pt.leaderCharacterId===m.id ? ' ★' : '')"></span>
-                    </template>
-                    <p x-show="partyMemberCount(pt)===0" class="text-xs text-muted italic">No members — drag someone in.</p>
-                  </div>
-                  <div>
-                    <div class="border-hairline border rounded p-2 mb-2" style="min-height:3.5rem"
-                         @dragover.prevent @drop="partyDropRemoveMember()"
-                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
-                      <div class="text-xs font-semibold text-muted mb-1">Available here (drag out to release)</div>
-                      <template x-for="a in partyAvailableRoster(pt)" :key="a.id">
-                        <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
-                              draggable="true"
-                              @dragstart="partyDragStart(a.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', a.id)"
-                              @dragend="partyDragEnd()"
-                              :class="partyEdit.dragCharId === a.id ? 'opacity-50' : ''"
-                              x-text="a.name||a.id"></span>
-                      </template>
-                      <p x-show="partyAvailableRoster(pt).length===0" class="text-xs text-muted italic">No party-less characters at this hex.</p>
-                    </div>
-                    <div class="tint-red border bdr-red rounded p-2 text-center text-sm text-muted"
-                         @dragover.prevent @drop="partyDropRemoveMember()"
-                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
-                      ✕ Drop here to remove from the party
-                    </div>
-                  </div>
-                </div>
-
-                <!-- co-located parties: drag-target cards + whole-party merge prompt -->
-                <template x-if="partyMergeCandidates(pt).length">
-                  <div class="mt-3">
-                    <div class="text-xs font-semibold text-muted mb-1">Other parties in this hex — drag a member across, or merge them in</div>
-                    <div class="flex flex-wrap gap-2">
-                      <template x-for="cp in partyMergeCandidates(pt)" :key="cp.id">
-                        <div class="border border-ink rounded p-2 text-sm bg-warm"
-                             @dragover.prevent @drop="partyDropAddToParty(cp.id)"
-                             :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
-                          <div class="font-semibold" x-text="cp.name"></div>
-                          <div class="text-xs text-muted" x-text="partyMemberCount(cp) + ' member' + (partyMemberCount(cp)===1?'':'s')"></div>
-                          <button @click="confirmPartyMerge(pt.id, cp.id)" class="btn text-sm mt-1">🔀 Merge into this party</button>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-
-          </div>
-        </template>
         <!-- DAY LOG — the party's travel log, folded from the Travel page (verbatim, journeyDetail()-driven) -->
         <template x-if="journeyDetail() && (journeyDetail().days||[]).length">
           <div class="mt-1">
@@ -13311,6 +13310,28 @@ document.addEventListener('alpine:init', () => {
           </div>
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
         </div>          </div>
+        </template>
+      </div>
+
+      <!-- ══════════════ CAMP TAB ══════════════ -->
+      <div x-show="partyModalTab==='camp'" class="space-y-3">
+        <template x-for="pt in selectedPartyList()" :key="pt.id">
+          <div>
+              <!-- CAMP (verbatim, minus the Chronicle — Chronicle is its own tab now) -->
+              <div class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
+                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
+                </div>
+                <template x-if="camp">
+                  <div class="flex justify-between items-center text-sm mt-1">
+                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
+                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
+                  </div>
+                </template>
+                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
+              </div>
+          </div>
         </template>
       </div>
 
@@ -21016,13 +21037,13 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-generators.js?v=7d123e93"></script>
 <script src="domain-app-gladiators.js?v=6da7a6a4"></script>
 <script src="domain-app-inspector.js?v=9bb9d6c8"></script>
-<script src="domain-app-journeys.js?v=ab450538"></script>
+<script src="domain-app-journeys.js?v=15c68ebb"></script>
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
 <script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bd01b93d"></script>
-<script src="domain-app-party.js?v=9f464985"></script>
+<script src="domain-app-party.js?v=08828671"></script>
 <script src="domain-app-provisioning.js?v=59e6cade"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
