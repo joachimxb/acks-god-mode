@@ -193,6 +193,45 @@ section('seam byte-safety — resolveDaySurvival uses the eater set only when a 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Fix 1 — an unshared hire draws from its employer\'s stores (RR Ch.7)');
+{
+  const emp  = { id: 'chr-emp',  name: 'Master', abilities: { CON: 12 }, waterDaysCarried: 4, inventory: [ ACKS.makeRationLine({ rationType: 'iron', daysRemaining: 4 }) ], partyId: 'par-e' };
+  const hire = { id: 'chr-hir2', name: 'Hire',   abilities: { CON: 12 }, waterDaysCarried: 0, inventory: [], partyId: 'par-e' };
+  const party = { id: 'par-e', memberCharacterIds: ['chr-emp', 'chr-hir2'], leaderCharacterId: 'chr-emp', currentHexId: 'hex-1' };
+  const camp = { characters: [emp, hire], parties: [party], hexes: [{ id: 'hex-1', terrain: 'grassland' }], houseRules: {},
+    hirelingContracts: [{ id: 'hc-1', status: 'active', employerCharacterId: 'chr-emp', hirelingCharacterId: 'chr-hir2' }] };
+  const withFlag = ACKS.resolveDaySurvival(camp, { members: [emp, hire], hex: null, share: false, leaderId: 'chr-emp', employerSourcing: true }, { rng: () => 0.5 });
+  check('the unshared hire eats from the employer\'s pack', withFlag.members['chr-hir2'].fedFood === true);
+  check('the unshared hire drinks from the employer\'s barrels', withFlag.members['chr-hir2'].fedWater === true);
+  check('the employer is still fed', withFlag.members['chr-emp'].fedFood === true);
+  const noFlag = ACKS.resolveDaySurvival(camp, { members: [emp, hire], hex: null, share: false, leaderId: 'chr-emp' }, { rng: () => 0.5 });
+  check('WITHOUT employerSourcing the hire starves (shipped/legacy path stays own-stores-only)', noFlag.members['chr-hir2'].fedFood === false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Fix 2 — a per-mover skip actually bites');
+{
+  // (a) skipEncumbrance → the Move budget walks the unencumbered band
+  const loaded = { id: 'chr-load', name: 'Loaded', inventory: [{ name: 'anvil', stone: 8 }], currentHexId: 'hex-1' };
+  const party = { id: 'par-l', memberCharacterIds: ['chr-load'], currentHexId: 'hex-1' };
+  const camp = { characters: [loaded], parties: [party], hexes: [{ id: 'hex-1', terrain: 'grassland', coord: { q: 0, r: 0 } }], currentTurn: 1, currentDayInMonth: 1, houseRules: {} };
+  const loadedMi = ACKS.carryEncumbranceInfo(loaded).band.milesPerDay;
+  check('a heavy load slows the Move base below 24', loadedMi < 24 && ACKS.moverDayBudget(camp, party).base === loadedMi);
+  ACKS.setMoverRegimeFlag(camp, party, 'skipEncumbrance', true);
+  check('skipEncumbrance override → the Move base is the unencumbered 24', ACKS.moverDayBudget(camp, party).base === 24);
+  // (b) skipProvisioning → the off-journey survival consumer skips this party's group
+  const eater = { id: 'chr-eat', name: 'Eater', abilities: { CON: 10 }, waterDaysCarried: 0, inventory: [], currentHexId: 'hex-1', partyId: 'par-p', lifecycleState: 'active', controlledBy: 'gm' };
+  const p8 = { id: 'par-p', memberCharacterIds: ['chr-eat'], leaderCharacterId: 'chr-eat', currentHexId: 'hex-1' };
+  const c8 = { characters: [eater], parties: [p8], hexes: [{ id: 'hex-1', terrain: 'grassland' }], houseRules: {}, currentTurn: 1, currentDayInMonth: 1 };
+  const inRecs = (res) => res.pendingRecords.some(r => (r.memberIds || []).indexOf('chr-eat') >= 0);   // non-sharing → partyId:null groups, so match the member
+  const before = ACKS.proposeSurvivalDay(c8, { rng: () => 0.5 });
+  check('by default the party IS provisioned (a survival record is proposed)', inRecs(before));
+  ACKS.setMoverRegimeFlag(c8, p8, 'skipProvisioning', true);
+  const after = ACKS.proposeSurvivalDay(c8, { rng: () => 0.5 });
+  check('skipProvisioning override → the party is NOT provisioned (no record proposed)', !inRecs(after));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

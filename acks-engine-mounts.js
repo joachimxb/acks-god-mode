@@ -69,15 +69,17 @@
   //   dailyFoodSt / dailyWaterSt        — RR p.276 (= normalLoad/10 and normalLoad/5 for most)
   //   trainings                          — which trainings the breed allows ('draft'|'riding'|'war'|'hunting')
   //   cost                               — gp by training (RR p.130; only the keys the table prints)
-  //   traits                             — 'surefooted'|'grazer'|'desert-dromedary'|'force-march'|'fear-paralysis'|'war-no-charge'|'war-no-extra-hoof'|'scent-track'|'hunt-assist'|'howdah'
+  //   traits                             — 'surefooted'|'grazer'|'march-grazer'|'desert-dromedary'|'force-march'|'fear-paralysis'|'war-no-charge'|'war-no-extra-hoof'|'scent-track'|'hunt-assist'|'howdah'
+  //   ('grazer' can graze its ration only on a non-marching day / at ≤ half-speed [ox &c., RR p.276];
+  //    'march-grazer' grazes with its ANCILLARY activities [donkey, steppe horse] so it feeds free even at a full march.)
   //   rideable / packable / draftable    — role eligibility · size — abstract size category
   const MOUNT_CATALOG = [
     { key:'camel',        label:'Camel',        explorationFt:150, explorationEncFt:75,  combatFt:50, combatEncFt:25, runningFt:150, runningEncFt:75,  expeditionMi:30, expeditionEncMi:15, normalLoadSt:30, maxLoadSt:60,  dailyFoodSt:3,   dailyWaterSt:6,   trainings:['riding','war'],          cost:{ riding:100 },               traits:['desert-dromedary','war-no-charge'],      rideable:true,  packable:true,  draftable:false, size:'large', page:161 },
-    { key:'donkey',       label:'Donkey',       explorationFt:120, explorationEncFt:60,  combatFt:40, combatEncFt:20, runningFt:120, runningEncFt:60,  expeditionMi:24, expeditionEncMi:12, normalLoadSt:15, maxLoadSt:30,  dailyFoodSt:1.5, dailyWaterSt:3,   trainings:['draft','riding'],        cost:{ draft:10 },                 traits:['surefooted','grazer','fear-paralysis'],  rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
+    { key:'donkey',       label:'Donkey',       explorationFt:120, explorationEncFt:60,  combatFt:40, combatEncFt:20, runningFt:120, runningEncFt:60,  expeditionMi:24, expeditionEncMi:12, normalLoadSt:15, maxLoadSt:30,  dailyFoodSt:1.5, dailyWaterSt:3,   trainings:['draft','riding'],        cost:{ draft:10 },                 traits:['surefooted','march-grazer','fear-paralysis'],  rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
     { key:'horse-heavy',  label:'Horse, Heavy', explorationFt:150, explorationEncFt:75,  combatFt:50, combatEncFt:25, runningFt:150, runningEncFt:75,  expeditionMi:30, expeditionEncMi:15, normalLoadSt:40, maxLoadSt:80,  dailyFoodSt:4,   dailyWaterSt:8,   trainings:['draft','war'],           cost:{ draft:40, war:315 },        traits:[],                                        rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
     { key:'horse-light',  label:'Horse, Light', explorationFt:240, explorationEncFt:120, combatFt:80, combatEncFt:40, runningFt:240, runningEncFt:120, expeditionMi:48, expeditionEncMi:24, normalLoadSt:20, maxLoadSt:40,  dailyFoodSt:2,   dailyWaterSt:4,   trainings:['riding','war'],          cost:{ riding:75, war:150 },       traits:[],                                        rideable:true,  packable:true,  draftable:false, size:'large', page:161 },
     { key:'horse-medium', label:'Horse, Medium',explorationFt:180, explorationEncFt:90,  combatFt:60, combatEncFt:30, runningFt:180, runningEncFt:90,  expeditionMi:36, expeditionEncMi:18, normalLoadSt:30, maxLoadSt:60,  dailyFoodSt:3,   dailyWaterSt:6,   trainings:['draft','riding','war'],  cost:{ draft:30, riding:40, war:250 }, traits:[],                                    rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
-    { key:'horse-steppe', label:'Horse, Steppe',explorationFt:210, explorationEncFt:105, combatFt:70, combatEncFt:35, runningFt:210, runningEncFt:105, expeditionMi:42, expeditionEncMi:21, normalLoadSt:25, maxLoadSt:40,  dailyFoodSt:2,   dailyWaterSt:4,   trainings:['draft','riding','war'],  cost:{ draft:30, riding:60, war:120 }, traits:['grazer','force-march'],              rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
+    { key:'horse-steppe', label:'Horse, Steppe',explorationFt:210, explorationEncFt:105, combatFt:70, combatEncFt:35, runningFt:210, runningEncFt:105, expeditionMi:42, expeditionEncMi:21, normalLoadSt:25, maxLoadSt:40,  dailyFoodSt:2,   dailyWaterSt:4,   trainings:['draft','riding','war'],  cost:{ draft:30, riding:60, war:120 }, traits:['march-grazer','force-march'],              rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
     { key:'mule',         label:'Mule',         explorationFt:150, explorationEncFt:75,  combatFt:50, combatEncFt:25, runningFt:150, runningEncFt:75,  expeditionMi:30, expeditionEncMi:15, normalLoadSt:25, maxLoadSt:50,  dailyFoodSt:2.5, dailyWaterSt:5,   trainings:['draft','riding','war'],  cost:{ draft:20, riding:30, war:50 },  traits:['surefooted','war-no-extra-hoof'],    rideable:true,  packable:true,  draftable:true,  size:'large', page:161 },
     { key:'ox',           label:'Ox',           explorationFt:120, explorationEncFt:60,  combatFt:40, combatEncFt:20, runningFt:120, runningEncFt:60,  expeditionMi:24, expeditionEncMi:12, normalLoadSt:45, maxLoadSt:90,  dailyFoodSt:4.5, dailyWaterSt:9,   trainings:['draft'],                 cost:{ draft:40 },                 traits:['grazer'],                                rideable:false, packable:true,  draftable:true,  size:'large', page:161 },
     { key:'elephant',     label:'Elephant',     explorationFt:120, explorationEncFt:60,  combatFt:40, combatEncFt:20, runningFt:120, runningEncFt:60,  expeditionMi:24, expeditionEncMi:12, normalLoadSt:180,maxLoadSt:360, dailyFoodSt:18,  dailyWaterSt:36,  trainings:['riding','war'],          cost:{ riding:1500, war:2000 },    traits:['howdah'],                                rideable:true,  packable:true,  draftable:false, size:'huge',  page:161 },
@@ -195,7 +197,12 @@
     const c = mountClass(mount);
     return !!(c && Array.isArray(c.traits) && c.traits.indexOf(trait) !== -1);
   }
-  function mountIsGrazer(mount){ return mountHasTrait(mount, 'grazer'); }
+  // A "grazer" can feed itself off the land. Two tiers (RR p.276): a MARCH-grazer (donkey, steppe horse)
+  // grazes its full ration with just its ancillary activities, so it feeds free even on a full day's march;
+  // a plain grazer (ox &c.) needs a dedicated grazing day (or ≤ half-speed) to feed free. mountIsGrazer is
+  // "grazes at all" (either tier); mountIsMarchGrazer is the graze-while-marching tier.
+  function mountIsGrazer(mount){ return mountHasTrait(mount, 'grazer') || mountHasTrait(mount, 'march-grazer'); }
+  function mountIsMarchGrazer(mount){ return mountHasTrait(mount, 'march-grazer'); }
   function mountIsSurefooted(mount){ return mountHasTrait(mount, 'surefooted'); }
   function mountIsDesertDromedary(mount){ return mountHasTrait(mount, 'desert-dromedary'); }
   function mountCanForceMarchFree(mount){ return mountHasTrait(mount, 'force-march'); }
@@ -312,6 +319,8 @@
   // pattern). The journey day-tick calls this (gated by ignore-rations), records the result,
   // and applyMountFeedingDay replays it on commit; a reroll reverts from the _preDay snapshot.
   //   opts.forcedMarch   — the day's pace is forced-march (grazers can't graze, RR p.276)
+  //   opts.halfOrSlower  — the party is NOT marching at full speed today (≤ half-speed / halted / a rest day).
+  //                        A plain grazer (ox) can graze its ration free only then; a march-grazer always can.
   //   opts.hasFreshWater — the hex has a free water source (river/lake/settlement) → no water drawn
   //   opts.terrain       — the hex terrain key ('barrens'/'desert' block non-native grazing)
   function resolveMountFeedingDay(campaign, journey, opts){
@@ -326,13 +335,18 @@
     let waterStore = Number(sup.animalWater) || 0;
     out.foodStoreAfter = foodStore; out.waterStoreAfter = waterStore;
     const forcedMarch = !!opts.forcedMarch;
+    const halfOrSlower = !!opts.halfOrSlower;
     const freeWater = !!opts.hasFreshWater;
     const grazeBlocked = (opts.terrain === 'barrens' || opts.terrain === 'desert');  // RR p.276 — only native grazers
     for(const m of herd){
       const needF = mountDailyFoodSt(m), needW = mountDailyWaterSt(m);
-      // FOOD: graze free (grazer, not force-marched, terrain permits) else draw from the store
+      // FOOD (RR p.276): a MARCH-grazer (donkey/steppe) grazes its full ration with its ancillary activities,
+      // so it feeds free even at a full day's march; any OTHER grazer (ox &c.) grazes free only on a day it
+      // isn't marching at full speed (halfOrSlower — a dedicated grazing day / ≤ half-speed). Force-march or
+      // barrens/desert (non-native) blocks grazing; then draw from the store.
       let grazed=false, fedFood=false;
-      if(mountIsGrazer(m) && !forcedMarch && !grazeBlocked){ grazed=true; fedFood=true; }
+      const canGrazeFree = !forcedMarch && !grazeBlocked && (mountIsMarchGrazer(m) || (mountIsGrazer(m) && halfOrSlower));
+      if(canGrazeFree){ grazed=true; fedFood=true; }
       else if(foodStore >= needF){ foodStore -= needF; out.foodConsumed += needF; fedFood=true; }
       // WATER: camels need none; a fresh source waters free; else draw from the store
       let fedWater=false, freeW=false;
@@ -391,7 +405,7 @@
     findMountClass, mountClassKeys, mountCatalogList, isMountClass, mountClassLabel, mountTrainingCost,
     blankMount, createMount,
     findMount, mountsOwnedBy, mountsAtHex, mountsForJourney, mountClass, mountRider,
-    mountHasTrait, mountIsGrazer, mountIsSurefooted, mountIsDesertDromedary, mountCanForceMarchFree,
+    mountHasTrait, mountIsGrazer, mountIsMarchGrazer, mountIsSurefooted, mountIsDesertDromedary, mountCanForceMarchFree,
     mountCanBeWarTrained, mountCanWearBarding,
     mountBardingAc, mountBardingLoadSt,
     mountRiderWeightSt, mountCargoWeightSt, mountNormalLoadSt, mountMaxLoadSt,

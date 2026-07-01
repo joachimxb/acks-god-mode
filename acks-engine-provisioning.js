@@ -26,17 +26,20 @@
  * LATE-BOUND at call time, so load order is irrelevant. Loads after acks-engine-movement.js (alphabetical),
  * so the ACKS._provisioningDemand override below supersedes the Foundation default.
  *
- * RAW reconciles surfaced this build (see _handoffs/Movement_Provisioning.SUMMARY.md):
- *   • hireling→employer link — present as RELATIONS (henchmanships.patronCharacterId /
- *     specialistContracts.employerCharacterId / hirelingContracts.employerCharacterId), walked here;
- *     the shipped resolver's OFF (unshared) path is own-stores-only, so employer-scoped sourcing needs a
- *     future resolver seam (flagged, not forced — Foundation-only file).
- *   • animal feed — the ox is flagged traits:['grazer'] in MOUNT_CATALOG (self-feeds food; water still
- *     tracked), which the shipped resolveMountFeedingDay already honours; kept + surfaced, not rebuilt.
- *   • per-mover skipProvisioning / skipEncumbrance — the MODEL + toggles + storage + two-way sync ship
- *     here; their RUNTIME consumption needs a survival/encumbrance skip seam in subsystems.js that
- *     Foundation did not add (skipEncounters IS live via _moveStep; the global ignore-rations /
- *     ignore-encumbrance rules still govern by default). Flagged.
+ * RAW reconciles surfaced by the Lane D build — all three RESOLVED 2026-07-01 (Joachim; see the SUMMARY):
+ *   • hireling→employer link — an UNSHARED hire now draws its food/water from its EMPLOYER's stores once its
+ *     own run out (RR Ch.7), via resolveDaySurvival's employerOf map (built from the shipped hire relations),
+ *     gated on args.employerSourcing — which the off-journey survival consumer (proposeSurvivalDay) sets; the
+ *     shipped journey/legacy members-only callers pass no flag and stay BYTE-IDENTICAL.
+ *   • animal feed — the grazer trait was SPLIT (RR p.276): 'march-grazer' (donkey, steppe horse) grazes its
+ *     ration with its ancillary activities so it feeds free even at a full march; a plain 'grazer' (ox &c.)
+ *     grazes free only off the full march (a dedicated grazing day / ≤ half-speed). resolveMountFeedingDay
+ *     takes opts.halfOrSlower; the readout here shows an ox's feed demand at the normal-pace headline.
+ *   • per-mover skipProvisioning / skipEncumbrance — now BITE: skipProvisioning skips the off-journey survival
+ *     tick (proposeSurvivalDay / _groupSkipsRations); skipEncumbrance walks the unencumbered band in the Move
+ *     budget (moverDayBudget → journeyBaseSpeedMilesPerDay opts.ignoreEncumbrance). Each renders as a 2-state
+ *     Track/Skip pill and is HIDDEN while its global ignore-rations / ignore-encumbrance rule is on (the override
+ *     isn't available then). skipEncounters was already live via _moveStep. (Journey-tick convergence deferred.)
  */
 (function(global){
 'use strict';
@@ -193,7 +196,10 @@ function moverConsumptionPerDay(campaign, group){
   out.people.foodSt = _round(out.people.count * RATION_FOOD_ST());
   out.people.waterSt = _round(out.people.count * RATION_WATER_ST());
   for(const mt of _groupAnimals(campaign, m)){
-    const grazer = (typeof A.mountIsGrazer === 'function') ? A.mountIsGrazer(mt) : false;
+    // Food-free in the readout = a MARCH-grazer only (donkey/steppe graze free even while marching, RR p.276).
+    // A plain grazer (ox) draws its feed at a normal day's march, so it shows its demand here (the headline
+    // normal-pace number); it grazes free only on a non-marching / ≤half-speed day, resolved at the day-tick.
+    const grazer = (typeof A.mountIsMarchGrazer === 'function') ? A.mountIsMarchGrazer(mt) : false;
     const dromedary = (typeof A.mountIsDesertDromedary === 'function') ? A.mountIsDesertDromedary(mt) : false;
     const foodSt = grazer ? 0 : ((typeof A.mountDailyFoodSt === 'function') ? (Number(A.mountDailyFoodSt(mt)) || 0) : 0);
     const waterSt = dromedary ? 0 : ((typeof A.mountDailyWaterSt === 'function') ? (Number(A.mountDailyWaterSt(mt)) || 0) : 0);

@@ -60,7 +60,7 @@
 <script src="acks-engine-events.js?v=c6f9e0a0"></script>
 <script src="acks-engine-battles.js?v=9d1c6376"></script>
 <script src="acks-engine-maneuvers.js?v=fedbf51b"></script>
-<script src="acks-engine-subsystems.js?v=fe063e3a"></script>
+<script src="acks-engine-subsystems.js?v=644780a4"></script>
 <script src="acks-engine-banking.js?v=6ff7f6f3"></script>
 <script src="acks-engine-construction.js?v=369bd89b"></script>
 <script src="acks-engine-custom-classes.js?v=38e864c5"></script>
@@ -79,13 +79,13 @@
 <script src="acks-engine-magic-items.js?v=1bed3b18"></script>
 <script src="acks-engine-magic-research.js?v=8af432d4"></script>
 <script src="acks-engine-mortal-wounds.js?v=69827ed3"></script>
-<script src="acks-engine-mounts.js?v=98abfc55"></script>
+<script src="acks-engine-mounts.js?v=98d1d276"></script>
 <script src="acks-engine-movement-party.js?v=a41c12f9"></script>
-<script src="acks-engine-movement.js?v=4d08c5f8"></script>
+<script src="acks-engine-movement.js?v=a59c4714"></script>
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
 <script src="acks-engine-proficiencies.js?v=e3d3d820"></script>
-<script src="acks-engine-provisioning.js?v=b0486844"></script>
+<script src="acks-engine-provisioning.js?v=73dc3364"></script>
 <script src="acks-engine-religion.js?v=3146b13e"></script>
 <script src="acks-engine-sages.js?v=363943c5"></script>
 <script src="acks-engine-sanctums.js?v=b692451c"></script>
@@ -9719,7 +9719,7 @@ document.addEventListener('alpine:init', () => {
             <div class="text-xs uppercase tracking-wide text-muted">⛺ Provisioning &amp; load</div>
             <!-- regime toggle strip (party-canonical, journey-mirrored — D8) -->
             <div class="flex flex-wrap items-center gap-1.5">
-              <template x-for="t in provRegimeToggles()" :key="'jr-'+t.key">
+              <template x-for="t in provJourneyToggles()" :key="'jr-'+t.key">
                 <button type="button" class="text-xs px-2 py-0.5 rounded-full border border-ink" :class="provRegimePillActive(journeyDetail(), t) ? 'tab-active' : 'hover-tint'" :title="t.title" @click="provToggleRegime(journeyDetail(), t.key)" x-text="provRegimePillLabel(journeyDetail(), t)"></button>
               </template>
             </div>
@@ -21549,10 +21549,10 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
 <script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
-<script src="domain-app-mounts.js?v=16231156"></script>
+<script src="domain-app-mounts.js?v=a3a94353"></script>
 <script src="domain-app-move.js?v=bc971c24"></script>
 <script src="domain-app-party.js?v=a929c989"></script>
-<script src="domain-app-provisioning.js?v=ab1ab694"></script>
+<script src="domain-app-provisioning.js?v=d7343a89"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
 <script src="domain-app-trade.js?v=0b449ec0"></script>

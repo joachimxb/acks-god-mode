@@ -166,7 +166,13 @@ function moverDayBudget(campaign, actor){
   if(m.kind === 'army' || m.kind === 'unit' || m.kind === 'band'){
     base = (typeof ACKS.groupSpeed === 'function') ? ACKS.groupSpeed(campaign, m.entity) : (ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY || 24);
   } else {
-    base = (typeof ACKS.journeyBaseSpeedMilesPerDay === 'function') ? ACKS.journeyBaseSpeedMilesPerDay(campaign, jl) : (ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY || 24);
+    // Fix 2 — a Move honours the mover's "Skip load" regime (or the global ignore-encumbrance rule): both
+    // fold into effectiveSkip, and a load-ignoring mover walks the unencumbered band. Defensive read.
+    let ignoreEnc = false;
+    if(typeof ACKS.moverRegimeState === 'function'){
+      try { ignoreEnc = !!((ACKS.moverRegimeState(campaign, m).skipEncumbrance || {}).effectiveSkip); } catch(e){}
+    }
+    base = (typeof ACKS.journeyBaseSpeedMilesPerDay === 'function') ? ACKS.journeyBaseSpeedMilesPerDay(campaign, jl, { ignoreEncumbrance: ignoreEnc }) : (ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY || 24);
   }
   // effective pace: the desired pace capped by each traveller's #346 activity budget (a dedicated
   // travel day is full; an ancillary day is half; a fully-booked day is halted). Groups (army/unit/

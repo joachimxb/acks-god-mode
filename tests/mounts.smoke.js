@@ -41,7 +41,8 @@ check('light horse: 48/24 mi, load 20/40 (RR p.161)', lh.expeditionMi === 48 && 
 check('light horse: 2 st food / 4 st water (RR p.276)', lh.dailyFoodSt === 2 && lh.dailyWaterSt === 4);
 const mh = ACKS.findMountClass('horse-medium');
 check('medium horse: 36 mi, load 30, food 3 / water 6', mh.expeditionMi === 36 && mh.normalLoadSt === 30 && mh.dailyFoodSt === 3 && mh.dailyWaterSt === 6);
-check('donkey is a grazer + surefooted, not war-trainable', ACKS.findMountClass('donkey').traits.indexOf('grazer') !== -1 && !ACKS.mountCanBeWarTrained('donkey'));
+check('donkey is a march-grazer + surefooted, not war-trainable (RR p.276 — grazes while marching)', ACKS.findMountClass('donkey').traits.indexOf('march-grazer') !== -1 && !ACKS.mountCanBeWarTrained('donkey'));
+check('ox is a plain grazer, NOT a march-grazer (RR p.276 — grazes free only off the march)', ACKS.mountIsGrazer({catalogKey:'ox'}) && !ACKS.mountIsMarchGrazer({catalogKey:'ox'}));
 check('medium horse is war-trainable', ACKS.mountCanBeWarTrained('horse-medium'));
 check('every breed (bar the RAW-rounded steppe) food=load/10 & water=load/5 (RR p.276)', CAT.filter(c => c.key !== 'horse-steppe').every(c => Math.abs(c.dailyFoodSt - c.normalLoadSt/10) < 0.001 && Math.abs(c.dailyWaterSt - c.normalLoadSt/5) < 0.001));
 check('steppe horse is the RAW exception: 2 st* food / 4 st water (RR p.276 efficient grazer)', ACKS.findMountClass('horse-steppe').dailyFoodSt === 2 && ACKS.findMountClass('horse-steppe').dailyWaterSt === 4);
@@ -113,6 +114,12 @@ check('donkey grazes its food free (grazer, off-march)', r.mounts[0].grazed && r
 check('donkey with no water store → dehydrated', !r.mounts[0].fedWater && r.mounts[0].flags.dehydrated);
 r = ACKS.resolveMountFeedingDay(f.cc, f.j, { forcedMarch: true, terrain: 'desert' });
 check('donkey force-marched in desert cannot graze → hungry', !r.mounts[0].fedFood && r.mounts[0].flags.hungry);
+// Ox is a plain grazer (RR p.276): grazes free only off the full march — draws its feed at normal pace.
+f = feedRig('ox', 'pack', { animalFeed: 0, animalWater: 99 });
+r = ACKS.resolveMountFeedingDay(f.cc, f.j, { terrain: 'grassland' });
+check('ox at a normal march draws its feed (plain grazer) → no store, hungry', !r.mounts[0].grazed && !r.mounts[0].fedFood && r.mounts[0].flags.hungry);
+r = ACKS.resolveMountFeedingDay(f.cc, f.j, { terrain: 'grassland', halfOrSlower: true });
+check('ox at half-speed grazes its feed free (RR p.276)', r.mounts[0].grazed && r.mounts[0].fedFood && r.foodConsumed === 0);
 f = feedRig('camel', 'mount', { animalFeed: 99, animalWater: 0 });
 r = ACKS.resolveMountFeedingDay(f.cc, f.j, { terrain: 'desert' });
 check('camel needs no water (desert dromedary, RR p.276)', r.mounts[0].fedWater && r.waterConsumed === 0);
