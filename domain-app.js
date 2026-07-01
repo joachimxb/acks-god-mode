@@ -6043,6 +6043,11 @@ const _component = {
     this.characterEditing = c;
     this.characterEditingIsNew = false;
     this.characterEditorTab = 'identity';
+    // Movement 2.0 (Travel tab): point journeyDetail() at this character's journey — their own, or the
+    // journey of the party they travel with — so the Travel tab reuses the journeyDetail()-driven journey
+    // box (advance / distance / pace / vessel / stop). Null when not travelling → the idle state shows.
+    this.journeyDetailId = (c && c.currentJourneyId) || (this.characterPartyOf(c)?.activeJourneyId) || null;
+    this.journeyOverrideArmed = false;
     this.showCharacterEditorModal = true;
   },
 
@@ -6550,6 +6555,12 @@ const _component = {
     this.showCharacterEditorModal = false;
     this.characterEditing = null;
     this.characterEditingIsNew = false;
+    // Movement 2.0: the character sheet borrowed journeyDetailId for its Travel tab. Restore it to the
+    // party modal's journey if that modal is still open underneath (viewing a member, then returning);
+    // otherwise clear it. Keeps the party Travel tab from blanking after a member round-trip.
+    const _pm = this.partyModalId ? (this.currentCampaign?.parties||[]).find(p => p && p.id === this.partyModalId) : null;
+    this.journeyDetailId = (_pm && _pm.activeJourneyId) || null;
+    this.journeyOverrideArmed = false;
   },
   softDeleteCharacter(c){
     if(!c)return;
