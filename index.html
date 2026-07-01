@@ -80,6 +80,7 @@
 <script src="acks-engine-magic-research.js?v=8af432d4"></script>
 <script src="acks-engine-mortal-wounds.js?v=69827ed3"></script>
 <script src="acks-engine-mounts.js?v=98abfc55"></script>
+<script src="acks-engine-movement-party.js?v=a41c12f9"></script>
 <script src="acks-engine-movement.js?v=bc96b885"></script>
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
@@ -11213,6 +11214,100 @@ document.addEventListener('alpine:init', () => {
     <div x-show="rosterSubView==='groups'" class="p-4" x-cloak>
 
       <!-- MV2:agent-3 (party-view zone): split / merge / tracking-split + D9 ephemeral-party lifecycle; canonical setter addToParty/removeFromParty/moveToParty + graphical 2.1 member DRAG -->
+      <!-- D9 ephemeral travel-party arrival prompts — keep or disband on arrival (default disband) -->
+      <template x-if="travelPartyArrivalPrompts().length">
+        <div class="vellum border bdr-amber rounded p-3 mb-3">
+          <h3 class="font-bold text-lg mb-1">⛺ Travelling parties arrived</h3>
+          <p class="text-sm text-muted mb-2">An auto-formed travelling party disbands on arrival unless you keep it (on disband the leader takes its camp).</p>
+          <template x-for="pt in travelPartyArrivalPrompts()" :key="pt.id">
+            <div class="flex flex-wrap items-center gap-2 border-hairline border-t py-2">
+              <span class="font-semibold" x-text="pt.name"></span>
+              <span class="text-xs text-muted" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt)===1?'':'s')"></span>
+              <input type="text" class="text-sm" style="width:11rem" :placeholder="pt.name + ' (rename)'" x-model="pt._keepName">
+              <button @click="keepTravelPartyUI(pt.id, pt._keepName)" class="btn btn-primary text-sm">Keep as standing party</button>
+              <button @click="dissolveTravelPartyUI(pt.id)" class="btn text-sm accent-red">Disband</button>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Selected-party membership & operations (§2.1 member drag + split + merge + follow) -->
+      <div x-show="groupSelKind==='party' && selectedParty()" class="vellum border border-ink rounded p-4 mb-3" x-cloak>
+        <template x-if="selectedParty()">
+          <div>
+            <div class="flex justify-between items-baseline mb-2 flex-wrap gap-2">
+              <h3 class="font-bold text-lg">🧭 Membership &amp; operations <span class="text-sm text-muted font-normal" x-text="'· ' + selectedParty().name"></span></h3>
+              <button @click="openPartySplit(selectedParty().id)" :disabled="partyMemberCount(selectedParty()) < 2" :class="partyMemberCount(selectedParty()) < 2 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Split a subset of members off into a new party">✂ Split party…</button>
+            </div>
+
+            <!-- follow (tracking-split) banner -->
+            <template x-if="partyFollowInfo(selectedParty())">
+              <div class="tint-green border bdr-green rounded p-2 mb-2 text-sm flex flex-wrap items-center gap-2">
+                <span>👣 Following <strong x-text="partyFollowInfo(selectedParty()).leadName"></strong> at half-speed (RR p.120).</span>
+                <button @click="retargetFollowUI(partyFollowInfo(selectedParty()).journeyId)" class="btn text-sm">↻ Re-point to lead's hex</button>
+              </div>
+            </template>
+
+            <!-- §2.1 member drag: member list | available roster | remove gutter -->
+            <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
+              <div class="border-hairline border rounded p-2" style="min-height:5rem"
+                   @dragover.prevent @drop="partyDropAddToParty(selectedParty().id)"
+                   :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                <div class="text-xs font-semibold text-muted mb-1" x-text="'Members · ' + partyMemberCount(selectedParty())"></div>
+                <template x-for="m in partyMembers(selectedParty())" :key="m.id">
+                  <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                        draggable="true"
+                        @dragstart="partyDragStart(m.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', m.id)"
+                        @dragend="partyDragEnd()"
+                        :class="partyEdit.dragCharId === m.id ? 'opacity-50' : ''"
+                        x-text="(m.name||m.id) + (selectedParty().leaderCharacterId===m.id ? ' ★' : '')"></span>
+                </template>
+                <p x-show="partyMemberCount(selectedParty())===0" class="text-xs text-muted italic">No members — drag someone in.</p>
+              </div>
+              <div>
+                <div class="border-hairline border rounded p-2 mb-2" style="min-height:3.5rem"
+                     @dragover.prevent @drop="partyDropRemoveMember()"
+                     :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                  <div class="text-xs font-semibold text-muted mb-1">Available here (drag out to release)</div>
+                  <template x-for="a in partyAvailableRoster(selectedParty())" :key="a.id">
+                    <span class="inline-flex items-center gap-1 border border-ink rounded px-2 py-0.5 m-0.5 text-sm bg-warm" style="cursor:move"
+                          draggable="true"
+                          @dragstart="partyDragStart(a.id); $event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', a.id)"
+                          @dragend="partyDragEnd()"
+                          :class="partyEdit.dragCharId === a.id ? 'opacity-50' : ''"
+                          x-text="a.name||a.id"></span>
+                  </template>
+                  <p x-show="partyAvailableRoster(selectedParty()).length===0" class="text-xs text-muted italic">No party-less characters at this hex.</p>
+                </div>
+                <div class="tint-red border bdr-red rounded p-2 text-center text-sm text-muted"
+                     @dragover.prevent @drop="partyDropRemoveMember()"
+                     :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                  ✕ Drop here to remove from the party
+                </div>
+              </div>
+            </div>
+
+            <!-- co-located parties: drag-target cards + whole-party merge prompt -->
+            <template x-if="partyMergeCandidates(selectedParty()).length">
+              <div class="mt-3">
+                <div class="text-xs font-semibold text-muted mb-1">Other parties in this hex — drag a member across, or merge them in</div>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="cp in partyMergeCandidates(selectedParty())" :key="cp.id">
+                    <div class="border border-ink rounded p-2 text-sm bg-warm"
+                         @dragover.prevent @drop="partyDropAddToParty(cp.id)"
+                         :class="partyEdit.dragCharId ? 'ring-2 ring-offset-1 ring-[color:var(--c-success)]' : ''">
+                      <div class="font-semibold" x-text="cp.name"></div>
+                      <div class="text-xs text-muted" x-text="partyMemberCount(cp) + ' member' + (partyMemberCount(cp)===1?'':'s')"></div>
+                      <button @click="confirmPartyMerge(selectedParty().id, cp.id)" class="btn text-sm mt-1">🔀 Merge into this party</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
       <!-- MV2:agent-4 (party-view zone): regime-toggle strip + group food/water-per-day readout (party-canonical, journey-mirrored) -->
       <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
            loose units as three clickable-row tables. Clicking a row opens that group's
@@ -12864,6 +12959,82 @@ document.addEventListener('alpine:init', () => {
 <!-- Character editor modal (Phase 2.6.2 — minimal sheet covering identity + stats + skills + inventory + background + location) -->
 <!-- v2: panel wrapped in x-if so its bindings don't evaluate against null characterEditing -->
 <!-- MV2:agent-3 (modal-stack zone): party split/merge modal (modal-overlay/modal-card shell) mounts among the top-level modals here -->
+<!-- Party SPLIT modal (Movement 2.0 · Lane C) — choose who departs + allocate a share of the shared stores -->
+<div class="modal-overlay" style="z-index:70; padding:2rem 1rem" x-show="partySplit.open" x-cloak
+     @keydown.escape.window="closePartySplit()" @click.self="closePartySplit()">
+  <template x-if="partySplit.open && partySplitSource()">
+    <div class="modal-card p-4" style="max-width:40rem; width:100%">
+      <div class="flex justify-between items-baseline mb-2">
+        <h3 class="font-bold text-lg">✂ Split <span x-text="partySplitSource().name"></span></h3>
+        <button @click="closePartySplit()" class="btn text-sm">✕ Close</button>
+      </div>
+      <p class="text-sm text-muted mb-3">Choose who leaves to form a new party. By default the camp, rations and water stay with the main party — allocate a share to the departing part below.</p>
+
+      <!-- who departs -->
+      <div class="mb-3">
+        <div class="text-xs font-semibold text-muted mb-1">Members who split off</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="m in partySplitMembers()" :key="m.id">
+            <label class="inline-flex items-center gap-1 border border-ink rounded px-2 py-1 text-sm" style="cursor:pointer"
+                   :class="partySplit.departing[m.id] ? 'tab-active' : 'bg-warm'">
+              <input type="checkbox" :checked="!!partySplit.departing[m.id]" @change="partySplitToggleDeparting(m.id)">
+              <span x-text="m.name||m.id"></span>
+            </label>
+          </template>
+        </div>
+        <p class="text-xs text-muted italic mt-1" x-text="partySplitDepartingIds().length + ' leaving · ' + (partyMemberCount(partySplitSource()) - partySplitDepartingIds().length) + ' staying'"></p>
+      </div>
+
+      <!-- new party name -->
+      <label class="block text-sm mb-3">New party name
+        <input type="text" class="block mt-0.5 w-full" x-model="partySplit.newName" placeholder="(auto — named after the departing leader)">
+      </label>
+
+      <!-- camp items (tick-boxes) -->
+      <template x-if="partySplitCampItems().length">
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-muted mb-1">Camp items to take (default: stay with the main party)</div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="it in partySplitCampItems()" :key="it.id">
+              <label class="inline-flex items-center gap-1 border-hairline border rounded px-2 py-1 text-sm" style="cursor:pointer"
+                     :class="partySplit.campItemIds[it.id] ? 'tint-green' : ''">
+                <input type="checkbox" :checked="!!partySplit.campItemIds[it.id]" @change="partySplitToggleItem(it.id)">
+                <span x-text="it.name + (it.qty>1 ? (' ×'+it.qty) : '')"></span>
+              </label>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- rations / water sliders -->
+      <div class="grid gap-3 mb-2" style="grid-template-columns:1fr 1fr">
+        <label class="text-sm">Rations to take (days)
+          <input type="range" min="0" :max="partySplitAvailRations()" x-model.number="partySplit.rationsToNew" class="w-full">
+          <span class="text-xs text-muted" x-text="partySplit.rationsToNew + ' / ' + partySplitAvailRations() + ' day' + (partySplitAvailRations()===1?'':'s')"></span>
+        </label>
+        <label class="text-sm">Camp water to take (days)
+          <input type="range" min="0" :max="partySplitAvailWater()" x-model.number="partySplit.waterToNew" class="w-full">
+          <span class="text-xs text-muted" x-text="partySplit.waterToNew + ' / ' + partySplitAvailWater() + ' day' + (partySplitAvailWater()===1?'':'s')"></span>
+        </label>
+      </div>
+      <p class="text-xs text-muted italic mb-3">Each member also carries their own water, which travels with them. Shared rations pool in the party camp.</p>
+
+      <!-- follow-or-stay (tracking-split) -->
+      <template x-if="partySplitSourceOnJourney()">
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-muted mb-1">After the split, the new party will…</div>
+          <label class="inline-flex items-center gap-1 text-sm mr-4" style="cursor:pointer"><input type="radio" value="stay" x-model="partySplit.mode"> Stay here</label>
+          <label class="inline-flex items-center gap-1 text-sm" style="cursor:pointer"><input type="radio" value="follow" x-model="partySplit.mode"> Follow the others (track at half-speed, RR p.120)</label>
+        </div>
+      </template>
+
+      <div class="flex justify-end gap-2">
+        <button @click="closePartySplit()" class="btn text-sm">Cancel</button>
+        <button @click="confirmPartySplit()" :disabled="!partySplitCanSubmit()" :class="partySplitCanSubmit() ? '' : 'opacity-50 cursor-not-allowed'" class="btn btn-primary text-sm">Split party</button>
+      </div>
+    </div>
+  </template>
+</div>
 <div class="modal-backdrop" x-show="showCharacterEditorModal" x-cloak @keydown.escape.window="closeCharacterEditor()" @click.self="closeCharacterEditor()">
   <template x-if="characterEditing">
   <div class="modal-panel" role="dialog" aria-modal="true">
@@ -20464,6 +20635,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=d9d90784"></script>
+<script src="domain-app-party.js?v=f6a9b2d7"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
 <script src="domain-app-trade.js?v=0b449ec0"></script>
