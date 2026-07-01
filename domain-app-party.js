@@ -33,10 +33,10 @@
   partyModalTab: 'manage',   // 'manage' | 'chronicle' — the modal's two tabs (Movement 2.0 rework)
   openPartyModal(partyId){
     if(!partyId) return;
+    // Select the party (so selectedParty() resolves) but DO NOT navigate — the modal is a top-level overlay
+    // in the global modal stack, so it renders over whatever view called it (a Travel-overview row, a
+    // character-sheet party link, a hex, the map) without changing the current tab. (Joachim 2026-07-01.)
     if(typeof this.selectGroup === 'function') this.selectGroup('party', partyId);
-    // The modal is an overlay inside the Roster ▸ Groups view — navigate there so it shows from anywhere
-    // (a Travel-overview row, a character-sheet party link, the map). The overlay itself is position:fixed.
-    this.currentView = 'roster'; this.rosterSubView = 'groups';
     this.partyModalTab = 'manage';
     this.partyModalId = partyId;
   },
