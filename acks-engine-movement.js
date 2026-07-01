@@ -574,6 +574,100 @@ function _rollMoverToNextDay(campaign, journey){
   const host = _moverNavHost(m); if(host) host._mvNavOrd = null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SLICE 3 — F-6 ensureTravelParty (D9) · F-7 the regime write + groupCarryingCapacity
+// skeleton · F-8a the provisioning-demand seam.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// F-6 (D9) — a people-journey ALWAYS resolves to a Party. If the travellers aren't already one,
+// auto-form an EPHEMERAL party (autoFormed) from the loose travellers, so the party is the single
+// canonical home for the regime / shared camp / membership. Solo (≤1 traveller, sharing moot) and
+// army/unit/band/voyage journeys are exempt (they keep their own group / need no party). Foundation
+// FORMS it; Lane C dissolves-on-arrival / keeps-and-promotes. Returns the party (existing or new), or
+// null when exempt. Idempotent — a journey that already has a party returns it unchanged.
+function ensureTravelParty(campaign, journey){
+  const j = (typeof journey === 'string') ? _findById(campaign.journeys, journey) : journey;
+  if(!j) return null;
+  // exempt: a non-people mover (army / unit / band-via-groupId / voyage) keeps its own group home.
+  if(j.armyId || j.unitId || j.groupId || j.shipId) return null;
+  if(j.partyId){ const existing = _findById(campaign.parties, j.partyId); if(existing) return existing; }
+  const ids = (j.participantCharacterIds || []).filter(Boolean);
+  if(ids.length <= 1) return null;   // a truly solo traveller needs no party (sharing is moot)
+  const party = ACKS.blankParty({
+    name: (j.name ? (j.name + ' — party') : 'Travelling party'),
+    memberCharacterIds: ids.slice(), leaderCharacterId: ids[0],
+    currentHexId: j.currentHexId || j.startHexId || null
+  });
+  party.autoFormed = true;
+  party.activeJourneyId = j.id;
+  party.formedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : null;
+  (party.history = party.history || []).push({ turn: campaign.currentTurn || null, type: 'formed', narrative: 'Auto-formed for travel (' + ids.length + ' travellers).' });
+  campaign.parties = campaign.parties || [];
+  campaign.parties.push(party);
+  j.partyId = party.id;
+  for(const id of ids){ const c = _findById(campaign.characters, id); if(c && ('partyId' in c)) c.partyId = party.id; }
+  return party;
+}
+
+// F-7 (write half) — set a regime flag on a mover, writing to the CANONICAL home (the party for a
+// people-mover; the journey's own for an army/band journey) and MIRRORING onto the journey (D8 two-way
+// sync; the full share logic is Lane D). key ∈ the REGIME_DEFAULT shape. Returns the resolved regime.
+function setMoverRegime(campaign, moverOrResolved, key, value){
+  if(!(key in REGIME_DEFAULT)) return moverRegime(campaign, moverOrResolved);
+  const m = (moverOrResolved && moverOrResolved.entity) ? moverOrResolved : resolveMover(campaign, moverOrResolved);
+  if(!m) return Object.assign({}, REGIME_DEFAULT);
+  const party = (m.kind === 'party') ? m.entity
+              : (m.journey && m.journey.partyId) ? _findById(campaign.parties, m.journey.partyId)
+              : null;
+  const canonical = party || m.journey || m.entity;
+  if(canonical){ canonical.regime = canonical.regime || {}; canonical.regime[key] = value; }
+  if(m.journey && m.journey !== canonical){ m.journey.regime = m.journey.regime || {}; m.journey.regime[key] = value; }   // mirror onto the journey
+  return moverRegime(campaign, m);
+}
+
+// F-7 (skeleton) — a per-character max carrying capacity in STONE (the heaviest LOAD that still allows
+// movement = the top movable encumbrance band's ceiling; above it the mover is overloaded, speed 0).
+// Derived from CARRY_ENCUMBRANCE_BANDS (RR pp.83-84). A skeleton for Lane D's share-load redistribution.
+function characterCarryCapacitySt(character){
+  const bands = ACKS.CARRY_ENCUMBRANCE_BANDS || [];
+  let cap = 0;
+  for(const b of bands){ if(b && typeof b.maxSt === 'number' && (b.milesPerDay == null || b.milesPerDay > 0)) cap = Math.max(cap, b.maxSt); }
+  return cap || 20;   // the RR severe-band ceiling (20 st) as the fallback
+}
+
+// F-7 (skeleton) — the total carrying capacity of a Group (party/army/unit/band): the sum of its member
+// characters' capacities. Lane D fills the share-load redistribution over it; Lane G extends it with
+// vehicles/porters (the `+ vehicles` hook). Returns { totalSt, memberSt, memberCount }.
+function groupCarryingCapacity(campaign, group){
+  const m = (group && group.entity && group.memberIds) ? group : resolveMover(campaign, group);
+  if(!m) return { totalSt: 0, memberSt: 0, memberCount: 0 };
+  let memberSt = 0, memberCount = 0;
+  for(const id of m.memberIds){
+    const c = _findById(campaign.characters, id);
+    if(!c) continue;
+    memberSt += characterCarryCapacitySt(c);
+    memberCount++;
+  }
+  // Lane G — vehicles/pack animals extend this (leave the hook): + partyCarriageCapacity(...) later.
+  return { totalSt: memberSt, memberSt, memberCount };
+}
+
+// F-8a — the survival/provisioning-demand SEAM. resolveDaySurvival's who-eats / how-much / share-sourcing
+// computation is now the overridable ACKS._provisioningDemand (default = _defaultProvisioningDemand, a pure
+// extraction that reproduces the shipped per-traveller demand). Lane D swaps in a richer demand from
+// acks-engine-provisioning.js WITHOUT editing subsystems.js. The default here is a thin, additive helper
+// the movement layer owns; the orchestration stays in subsystems.js (resolveDaySurvival). A caller reads
+// it via ACKS._provisioningDemand(campaign, group, regime) → { eaters: [charId…], perEaterFood, perEaterWater }.
+function _defaultProvisioningDemand(campaign, group, regime){
+  const m = (group && group.entity && group.memberIds) ? group : resolveMover(campaign, group);
+  const ids = m ? m.memberIds.slice() : [];
+  // RAW (RR p.276): every humanoid traveller eats 1 ration + drinks 1 water/day. The individual-vs-unit
+  // split (D4 — mercenary Units ride the gold supply cost, not this tally) is Lane D's to refine; the
+  // default counts the group's individuated member characters.
+  return { eaters: ids, perEaterFood: 1, perEaterWater: 1, shareRations: !!(regime && regime.shareRations) };
+}
+if(typeof ACKS._provisioningDemand !== 'function'){ ACKS._provisioningDemand = _defaultProvisioningDemand; }
+
 // ── the self-registered `movement` event kind (record-only, wizard opt-out) ──
 if(typeof ACKS.registerEventKind === 'function'){
   ACKS.registerEventKind('movement', {
@@ -592,8 +686,12 @@ Object.assign(ACKS, {
   _moveStep, moveActorOneHex,
   // F-3 per-hex journey advance (+ the ⏩ day / ⏭ destination loops)
   advanceJourneyOneHex, advanceJourneyDay, advanceJourneyToDestination,
-  // F-7 regime read (the shape/write lands in Slice 3)
-  moverRegime
+  // F-6 D9 ephemeral travel party
+  ensureTravelParty,
+  // F-7 regime read/write + the carrying-capacity skeleton
+  moverRegime, setMoverRegime, groupCarryingCapacity, characterCarryCapacitySt,
+  // F-8a the provisioning-demand seam default (Lane D overrides ACKS._provisioningDemand)
+  _defaultProvisioningDemand
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

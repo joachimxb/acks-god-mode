@@ -261,6 +261,81 @@ section('F-3 — the journey stays Gantt-renderable through the per-hex refactor
   check('per-day span is not opaque — journey.days[] carries a dated per-day record', j.days.length === 1 && j.days[0].dayIndex === 1 && Array.isArray(j.days[0].hexPath) && j.days[0].hexPath.length === 4);
 }
 
+// ═══════════════════════════════════ SLICE 3 ═══════════════════════════════════
+section('F-6 (D9) — ensureTravelParty auto-forms an ephemeral party for loose travellers');
+{
+  const c = ACKS.blankCampaign({ name: 'd9' });
+  c.currentTurn = 1; c.currentDayInMonth = 5; c.calendar = { year: 1, month: 1, day: 5 };
+  c.hexes = [ACKS.blankHex({ id: 'h0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'h1', coord: { q: 1, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'chr-1', currentHexId: 'h0' }), ACKS.blankCharacter({ id: 'chr-2', currentHexId: 'h0' })];
+  const j = ACKS.blankJourney({ id: 'jrn-1', participantCharacterIds: ['chr-1', 'chr-2'], startHexId: 'h0', destinationHexId: 'h1', status: 'planning' });
+  c.journeys = [j];
+  ACKS.startJourney(c, j);
+  check('a party was auto-formed on start', !!j.partyId && (c.parties || []).length === 1);
+  check('the party is flagged autoFormed (ephemeral)', c.parties[0].autoFormed === true);
+  check('the loose travellers are its members, first = leader', c.parties[0].memberCharacterIds.length === 2 && c.parties[0].leaderCharacterId === 'chr-1');
+  check('the members are linked to the party', c.characters.every(ch => ch.partyId === j.partyId));
+  check('the party points back at the journey', c.parties[0].activeJourneyId === j.id);
+  // idempotent — a second call returns the same party, forms no new one
+  const again = ACKS.ensureTravelParty(c, j);
+  check('ensureTravelParty is idempotent', again && again.id === j.partyId && c.parties.length === 1);
+}
+
+section('F-6 — a solo traveller + an army journey are exempt (no ephemeral party)');
+{
+  const c = ACKS.blankCampaign({ name: 'd9solo' });
+  c.currentTurn = 1; c.currentDayInMonth = 5; c.calendar = { year: 1, month: 1, day: 5 };
+  c.hexes = [ACKS.blankHex({ id: 'h0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'h1', coord: { q: 1, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'chr-1', currentHexId: 'h0' })];
+  const j = ACKS.blankJourney({ id: 'jrn-1', participantCharacterIds: ['chr-1'], startHexId: 'h0', destinationHexId: 'h1', status: 'planning' });
+  c.journeys = [j]; ACKS.startJourney(c, j);
+  check('a solo journey forms no party', (c.parties || []).length === 0 && !j.partyId);
+  check('an army journey is exempt', ACKS.ensureTravelParty(c, { id: 'jrn-a', armyId: 'arm-1', participantCharacterIds: ['chr-1', 'chr-2'] }) === null);
+  check('a band (groupId) journey is exempt', ACKS.ensureTravelParty(c, { id: 'jrn-b', groupId: 'grp-1', participantCharacterIds: ['chr-1', 'chr-2'] }) === null);
+}
+
+section('F-7 — the per-mover regime (party-canonical, journey-mirrored; shareProvisions mapped in)');
+{
+  const c = ACKS.blankCampaign({ name: 'regime' });
+  c.parties = [ACKS.blankParty({ id: 'par-1', memberCharacterIds: ['chr-1'] })];
+  c.journeys = [ACKS.blankJourney({ id: 'jrn-1', partyId: 'par-1', participantCharacterIds: ['chr-1'] })];
+  c.parties[0].activeJourneyId = 'jrn-1';
+  const def = ACKS.moverRegime(c, c.parties[0]);
+  check('default regime = RAW (encounters on, sharing off, opt-outs null)', def.skipEncounters === false && def.shareRations === false && def.skipProvisioning === null);
+  ACKS.setMoverRegime(c, c.parties[0], 'skipEncounters', true);
+  check('setMoverRegime writes the canonical party regime', c.parties[0].regime.skipEncounters === true);
+  check('and mirrors onto the journey (D8 two-way)', c.journeys[0].regime.skipEncounters === true);
+  // the shipped party.shareProvisions maps into regime.shareRations (retires the old journey-overrides precedence)
+  c.parties[0].shareProvisions = true;
+  check('party.shareProvisions maps into regime.shareRations', ACKS.moverRegime(c, c.parties[0]).shareRations === true);
+}
+
+section('F-7 — groupCarryingCapacity sums member capacities (skeleton for Lane D share-load)');
+{
+  const c = ACKS.blankCampaign({ name: 'cap' });
+  c.characters = [ACKS.blankCharacter({ id: 'chr-1' }), ACKS.blankCharacter({ id: 'chr-2' })];
+  c.parties = [ACKS.blankParty({ id: 'par-1', memberCharacterIds: ['chr-1', 'chr-2'] })];
+  const cap = ACKS.groupCarryingCapacity(c, c.parties[0]);
+  check('a per-character capacity is the top movable encumbrance band (20 st, RR pp.83-84)', ACKS.characterCarryCapacitySt(c.characters[0]) === 20);
+  check('the group total sums its members (2 × 20 = 40 st)', cap.totalSt === 40 && cap.memberCount === 2);
+}
+
+section('F-8a — resolveDaySurvival demand is pluggable (verify by stubbing ACKS._provisioningDemand)');
+{
+  const c = ACKS.blankCampaign({ name: 'seam' });
+  c.hexes = [ACKS.blankHex({ id: 'h0', coord: { q: 0, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'chr-1' }), ACKS.blankCharacter({ id: 'chr-2' })];
+  c.parties = [ACKS.blankParty({ id: 'par-1', memberCharacterIds: ['chr-1', 'chr-2'] })];
+  check('a default _provisioningDemand is registered', typeof ACKS._provisioningDemand === 'function');
+  const orig = ACKS._provisioningDemand;
+  ACKS._provisioningDemand = () => ({ eaters: ['chr-1'], perEaterFood: 1, perEaterWater: 1 });   // only chr-1 eats
+  const surv = ACKS.resolveDaySurvival(c, { members: c.characters.slice(), group: c.parties[0], hex: c.hexes[0] }, { rng: () => 0.99 });
+  check('with a group, the stubbed demand governs the eaters (1, not 2)', Object.keys(surv.members).length === 1 && ('chr-1' in surv.members));
+  ACKS._provisioningDemand = orig;
+  const surv2 = ACKS.resolveDaySurvival(c, { members: c.characters.slice(), hex: c.hexes[0] }, { rng: () => 0.99 });
+  check('without a group, args.members governs unchanged (byte-identical to shipped callers)', Object.keys(surv2.members).length === 2);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

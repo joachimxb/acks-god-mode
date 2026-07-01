@@ -2240,7 +2240,24 @@ function resolveDaySurvival(campaign, args, opts){
   const out = { ignored: false, waterSourced: false, waterForage: null, members: {}, inventoryUpdates: {}, campItems: null, campWater: null, notableEvents: [], anyHungry: false, anyThirsty: false, anyCritical: false };
   if(A.isHouseRuleEnabled(campaign, 'ignore-rations')){ out.ignored = true; return out; }
 
-  const members = (args.members || []).filter(Boolean);
+  let members = (args.members || []).filter(Boolean);
+  // F-8a — the provisioning-demand SEAM (Movement 2.0 Foundation). The who-eats set is pluggable: when
+  // the caller passes a `group`, the eaters are DERIVED via the overridable ACKS._provisioningDemand so
+  // Lane D can swap in the D4 individual-vs-unit rule (feed hired individuals, exclude mercenary Units)
+  // from acks-engine-provisioning.js — WITHOUT re-editing this orchestration. Absent a group (every
+  // shipped caller today), the explicit args.members list governs unchanged → byte-identical. The seam
+  // never blocks survival (a bad override falls back to args.members).
+  if(args.group && typeof A._provisioningDemand === 'function'){
+    try {
+      const demand = A._provisioningDemand(campaign, args.group, args.regime || null);
+      if(demand && Array.isArray(demand.eaters) && demand.eaters.length){
+        const byId = {}; for(const c of members) byId[c.id] = c;
+        const derived = [];
+        for(const id of demand.eaters){ const c = byId[id] || (campaign.characters || []).find(x => x && x.id === id); if(c) derived.push(c); }
+        if(derived.length) members = derived;
+      }
+    } catch(e){ /* the demand seam never breaks survival */ }
+  }
   if(!members.length) return out;
   const hex = args.hex;
 
@@ -4080,6 +4097,11 @@ function startJourney(campaign, journey){
   try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ j.routeCoords = j.routeCoords || []; }
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){ if(c && ids.indexOf(c.id) >= 0) c.currentJourneyId = j.id; }
+  // Movement 2.0 (F-6 / D9) — a people-journey ALWAYS resolves to a Party: if the ≥2 travellers aren't
+  // already one, auto-form an ephemeral (autoFormed) party so the party is the canonical regime/camp/
+  // membership home. Solo + army/unit/band/voyage journeys are exempt. Late-bound (the movement module
+  // loads after this one); a no-op when absent, so nothing changes for a solo or already-partied journey.
+  if(typeof A.ensureTravelParty === 'function') A.ensureTravelParty(campaign, j);
   if(j.partyId){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
     if(pt) pt.activeJourneyId = j.id;
