@@ -103,6 +103,36 @@
     return ({ green: 'accent-green', amber: 'accent-amber', red: 'accent-red', muted: 'text-muted' })[chip.tone] || 'text-muted';
   },
 
+  // ── travel mode (the map Move banner selector) ────────────────────────────────
+  // The mover's chosen travel mode is stored on the party/character entity (entity.moveMode, lazy —
+  // default on foot), so the engine budget (ACKS.moverDayBudget → _moverSpeedJourney) reads it directly
+  // and the hex-budget chip + reachable set update the moment it changes. 'mounted' lends the mover's
+  // standing mounts to the speed calc (faster + carries more); 'voyage' is reserved for Lane E (vessels).
+  _mvMoverEntity(ref){
+    const c = this.currentCampaign; if(!c || !ref) return null;
+    return (c.parties || []).find(p => p && p.id === ref) || (c.characters || []).find(x => x && x.id === ref) || null;
+  },
+  mvMoveModeOf(ref){ const e = this._mvMoverEntity(ref); return (e && e.moveMode) || 'foot'; },
+  // Does the mover have any standing mount (a member rides or owns one)? Gates the 'Mounted' option.
+  mvMoverHasMounts(ref){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !ref || !Array.isArray(c.mounts) || !c.mounts.length || typeof A.resolveMover !== 'function') return false;
+    const m = A.resolveMover(c, ref); if(!m) return false;
+    const mem = new Set(m.memberIds || []);
+    return c.mounts.some(mt => mt && (mem.has(mt.riderCharacterId) || mem.has(mt.ownerCharacterId)));
+  },
+  mvSetMoveMode(ref, mode){
+    const e = this._mvMoverEntity(ref); if(!e) return;
+    if(mode === 'mounted' && !this.mvMoverHasMounts(ref)){
+      if(this.showToast) this.showToast('This mover has no mounts — assign one in the character sheet ▸ Inventory ▸ Mounts first.');
+      return;
+    }
+    if(mode === 'voyage'){ if(this.showToast) this.showToast('Voyage travel is coming with Voyages (Lane E) — on foot or mounted for now.'); return; }
+    e.moveMode = (mode === 'foot') ? null : mode;   // foot is the default — store null, read back as 'foot'
+    if(this.markDirty) this.markDirty();
+    if(this.schedulePersist) this.schedulePersist();
+  },
+
   // ── adjacent Move targets (the one helper all three zones share) ──────────────
   // For each authored neighbour hex of the mover's position: the per-hex cost, and whether the
   // step is legal (water gate + budget, mirroring _moveStep's own checks incl. the first-step floor).

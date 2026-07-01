@@ -125,8 +125,17 @@ function moverRegime(campaign, moverOrResolved){
 // ═══════════════════════════════════════════════════════════════════════════════
 function _charDailyMovement(character, worldOrd){
   const dm = character && character.dailyMovement;
-  if(dm && typeof dm === 'object' && dm.worldOrd === worldOrd) return { worldOrd, milesUsed: dm.milesUsed || 0 };
-  return { worldOrd, milesUsed: 0 };   // stale / absent ⇒ a fresh day (read-only reset; the write happens on debit)
+  if(dm && typeof dm === 'object' && dm.worldOrd === worldOrd) return { worldOrd, milesUsed: dm.milesUsed || 0, dayBaseMiles: dm.dayBaseMiles || 0 };
+  return { worldOrd, milesUsed: 0, dayBaseMiles: 0 };   // stale / absent ⇒ a fresh day (read-only reset; the write happens on debit)
+}
+
+// The mover's standing mounts (ridden or owned by a member) — a journey-less Move's mount roster. A mount
+// carries a standing riderCharacterId/ownerCharacterId (set at creation, domain-app-mounts.js), so it is
+// found without a journey. Used when the mover's travel mode is 'mounted' (below).
+function _mountIdsForMover(campaign, m){
+  if(!campaign || !Array.isArray(campaign.mounts) || !m) return [];
+  const mem = new Set(m.memberIds || []);
+  return campaign.mounts.filter(mt => mt && (mem.has(mt.riderCharacterId) || mem.has(mt.ownerCharacterId))).map(mt => mt.id);
 }
 
 // A journey-shaped object the shipped speed/pace dispatchers understand, for a non-journey mover.
@@ -136,13 +145,20 @@ function _moverSpeedJourney(campaign, m){
   if(m.kind === 'army') jl.armyId = m.entity.id;
   else if(m.kind === 'unit') jl.unitId = m.entity.id;
   if(m.kind === 'party') jl.partyId = m.entity.id;
+  // Movement 2.0 (travel mode): a journey-less Move honours the mover's chosen travel mode (entity.moveMode,
+  // lazy — default on foot). 'mounted' lends the mover's standing mounts to the speed calc (the shipped
+  // journeyBaseSpeedMilesPerDay reads jl.packAnimalIds), so a mounted party moves at mount speed + carries
+  // more. 'voyage' is reserved for Lane E (vessels); until then it falls through to foot.
+  if(m.entity && m.entity.moveMode === 'mounted'){
+    jl.packAnimalIds = _mountIdsForMover(campaign, m);
+  }
   return jl;
 }
 
 function moverDayBudget(campaign, actor){
   const MPH = (ACKS.JOURNEY_MILES_PER_HEX != null) ? ACKS.JOURNEY_MILES_PER_HEX : 6;
   const m = (actor && actor.entity && actor.memberIds) ? actor : resolveMover(campaign, actor);
-  if(!m) return { capMiles: 0, usedMiles: 0, remainingMiles: 0, hexesRemaining: 0, perHexCostHere: MPH, memberIds: [], pace: 'halted', kind: null };
+  if(!m) return { capMiles: 0, usedMiles: 0, remainingMiles: 0, hexesRemaining: 0, perHexCostHere: MPH, base: 0, memberIds: [], pace: 'halted', kind: null };
   const worldOrd = movementWorldOrd(campaign);
   const jl = _moverSpeedJourney(campaign, m);
   // base = the mover's current speed (slowest member incl. mounts/encumbrance; army/unit dispatch).
@@ -157,7 +173,9 @@ function moverDayBudget(campaign, actor){
   // band) ride their own march cadence — the activity budget is a party-grain concept.
   let pace = jl.pace || 'normal';
   if(m.kind !== 'army' && m.kind !== 'unit' && m.kind !== 'band' && typeof ACKS.journeyEffectivePace === 'function' && m.memberIds.length){
-    try { pace = ACKS.journeyEffectivePace(campaign, jl); } catch(e){ /* fall back to the stored pace */ }
+    // excludeMovement: read the pace cap from this mover's OTHER commitments only — never from its own
+    // miles-moved-today (the ad-hoc Move's travel line), which would self-cap and strand a half-moved day.
+    try { pace = ACKS.journeyEffectivePace(campaign, jl, { excludeMovement: true }); } catch(e){ /* fall back to the stored pace */ }
   }
   const paceMult = (ACKS.JOURNEY_PACE_SPEED && ACKS.JOURNEY_PACE_SPEED[pace] != null) ? ACKS.JOURNEY_PACE_SPEED[pace] : 1;
   const capMiles = Math.max(0, base * paceMult);
@@ -172,7 +190,7 @@ function moverDayBudget(campaign, actor){
   const hereHex = m.currentHexId ? (typeof ACKS.findHex === 'function' ? ACKS.findHex(campaign, m.currentHexId) : null) : null;
   const perHexCostHere = _perHexCostMilesInto(campaign, hereHex || { terrain: 'grassland' }, null, m);
   return {
-    capMiles, usedMiles, remainingMiles, perHexCostHere,
+    capMiles, usedMiles, remainingMiles, perHexCostHere, base,
     hexesRemaining: (perHexCostHere > 0) ? Math.floor((remainingMiles + 1e-9) / perHexCostHere) : 0,
     memberIds: m.memberIds.slice(), pace, kind: m.kind
   };
@@ -303,12 +321,14 @@ function _moveStep(campaign, mover, destHexId, ctx){
       fordRecord = ford; endDay = true;
     }
   }
-  // DEBIT the budget — perHexCost onto every member's ledger (they move together, D1).
+  // DEBIT the budget — perHexCost onto every member's ledger (they move together, D1). Stash the day's
+  // base (mode-aware) expedition distance too, so characterActivityBudget can derive the travel-activity
+  // cost as a fraction of a full day (Movement 2.0 · pace-from-Moves).
   for(const id of m.memberIds){
     const c = _findById(campaign.characters, id);
     if(!c) continue;
     const dm = _charDailyMovement(c, worldOrd);
-    c.dailyMovement = { worldOrd, milesUsed: dm.milesUsed + perHexCost };
+    c.dailyMovement = { worldOrd, milesUsed: dm.milesUsed + perHexCost, dayBaseMiles: budget.base || (dm.dayBaseMiles || 0) };
   }
   // MOVE
   _setMoverPosition(campaign, m, toHex);

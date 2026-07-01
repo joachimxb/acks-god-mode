@@ -273,6 +273,27 @@ section('the #i-move sprite is defined + USED in the map + hex-card Move UI; Mov
         !/emerald|orange|rose|gray-|slate|zinc|neutral|stone-/.test(mixin));
 }
 
+// ── travel mode (the map Move banner selector: On foot / Mounted / Voyage) ──────
+section('mvMoveModeOf / mvMoverHasMounts / mvSetMoveMode — the Move banner travel-mode selector');
+{
+  const { c, ch, pt, app } = grid();
+  check('default mode is foot', app.mvMoveModeOf('par-1') === 'foot');
+  check('no mounts → Mounted disabled', app.mvMoverHasMounts('par-1') === false);
+  app.mvSetMoveMode('par-1', 'mounted');
+  check('picking Mounted with no mount is refused (mode unchanged)', app.mvMoveModeOf('par-1') === 'foot');
+  const footBase = ACKS.moverDayBudget(c, 'par-1').base;
+  ACKS.createMount(c, { catalogKey: 'horse-light', training: 'riding', role: 'mount', ownerCharacterId: 'chr-1', riderCharacterId: 'chr-1', currentHexId: 'hex-a' });
+  check('with a standing mount → Mounted enabled', app.mvMoverHasMounts('par-1') === true);
+  app.mvSetMoveMode('par-1', 'mounted');
+  check('Mounted is now the mover mode (stored on the party)', app.mvMoveModeOf('par-1') === 'mounted' && pt.moveMode === 'mounted');
+  const mountBase = ACKS.moverDayBudget(c, 'par-1').base;
+  check('mounted raises the base speed', mountBase > footBase, JSON.stringify({ footBase, mountBase }));
+  app.mvSetMoveMode('par-1', 'foot');
+  check('back to foot: mode foot, stored null (the default)', app.mvMoveModeOf('par-1') === 'foot' && pt.moveMode == null);
+  app.mvSetMoveMode('par-1', 'voyage');
+  check('voyage is deferred (mode stays foot)', app.mvMoveModeOf('par-1') === 'foot');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

@@ -49,7 +49,7 @@
 <script src="acks-engine-monsters.js?v=5d1e299a"></script>
 <script src="acks-engine-encounter-tables.js?v=e4e15625"></script>
 <script src="acks-engine-troops.js?v=e2a66d44"></script>
-<script src="acks-engine.js?v=85ba148c"></script>
+<script src="acks-engine.js?v=e1e3c267"></script>
 <script src="acks-engine-lairs.js?v=0aaf9e5e"></script>
 <script src="acks-engine-stash.js?v=4e68b45c"></script>
 <script src="acks-engine-military.js?v=f52fd240"></script>
@@ -81,7 +81,7 @@
 <script src="acks-engine-mortal-wounds.js?v=69827ed3"></script>
 <script src="acks-engine-mounts.js?v=98abfc55"></script>
 <script src="acks-engine-movement-party.js?v=a41c12f9"></script>
-<script src="acks-engine-movement.js?v=bc96b885"></script>
+<script src="acks-engine-movement.js?v=4d08c5f8"></script>
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
 <script src="acks-engine-proficiencies.js?v=e3d3d820"></script>
@@ -5196,6 +5196,14 @@ document.addEventListener('alpine:init', () => {
         <div x-cloak class="mb-2 border-2 rounded p-2 flex flex-wrap items-center gap-2" style="border-color:var(--c-success); background:var(--c-vellum)">
           <span class="text-sm font-semibold inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Moving <span class="font-bold" x-text="mvMoverName(_mapMoveMoverRef)"></span></span>
           <span class="text-xs px-2 py-0.5 rounded border border-ink/40" :class="mvChipClass(mvBudgetChip(_mapMoveMoverRef))" :title="mvBudgetChip(_mapMoveMoverRef)?.title || ''" x-text="mvBudgetChip(_mapMoveMoverRef)?.text || ''"></span>
+          <label class="text-xs inline-flex items-center gap-1" title="Travel mode — how the mover crosses the map. Mounted uses the mover's mounts (faster, carries more); Voyage needs a vessel (coming with Voyages).">
+            <span class="text-muted">Mode</span>
+            <select class="text-xs border border-ink/40 rounded px-1 py-0.5" :value="mvMoveModeOf(_mapMoveMoverRef)" @change="mvSetMoveMode(_mapMoveMoverRef, $event.target.value)">
+              <option value="foot">🥾 On foot</option>
+              <option value="mounted" :disabled="!mvMoverHasMounts(_mapMoveMoverRef)" x-text="mvMoverHasMounts(_mapMoveMoverRef) ? '🐴 Mounted' : '🐴 Mounted (no mount)'"></option>
+              <option value="voyage" disabled>⛵ Voyage (with Voyages)</option>
+            </select>
+          </label>
           <span class="text-xs opacity-70" x-show="mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">— click a highlighted hex to step there</span>
           <span class="text-xs text-muted italic" x-show="!mvAdjacentTargets(_mapMoveMoverRef).some(t => !t.disabled)">no reachable hex — the day's movement is spent</span>
           <button @click="mvEndMove()" class="btn btn-primary text-xs ml-auto" title="Finish moving and return the map to normal">Done moving</button>
@@ -21506,7 +21514,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
-<script src="domain-app-move.js?v=bd01b93d"></script>
+<script src="domain-app-move.js?v=bc971c24"></script>
 <script src="domain-app-party.js?v=a929c989"></script>
 <script src="domain-app-provisioning.js?v=59e6cade"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
