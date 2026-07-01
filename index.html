@@ -13214,46 +13214,31 @@ document.addEventListener('alpine:init', () => {
           <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
-        <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
-        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
-             over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
-             lost journey keeps the whole-day "Complete Movement" button below. journey.paused holds the
-             ⏩/⏭ autopilot; ▶ is a deliberate hand-step and overrides it. Night travel is NOT modelled — ⏩
-             stops at the pace-determined RAW day's march (a longer march = the Forced-march pace). -->
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance control (journeyAdvanceOneHex) + Stop + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey steps here one hex at a
+             time (▶ Advance one hex, over the Foundation engine, halting on encounter / river / budget / arrival);
+             bulk day-advance goes through the campaign Day Clock (top-right). An army / voyage / lost journey keeps
+             the whole-day "Complete Movement" button below. journey.paused (Hold) makes the Day Clock skip this
+             journey; ▶ is a deliberate hand-step. Night travel is NOT modelled. -->
         <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
           <div class="space-y-2">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span class="text-sm font-semibold">Advance travel</span>
-              <div class="flex items-center gap-1">
-                <button @click="journeyAdvanceOneHex(journeyDetail())"
-                        :disabled="journeyBudgetSpentToday(journeyDetail())"
-                        :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
-                        class="btn text-sm">▶ One hex</button>
-                <button @click="journeyAdvanceDay(journeyDetail())"
-                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
-                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')"
-                        class="btn text-sm">⏩ The day</button>
-                <button @click="journeyAdvanceToDestination(journeyDetail())"
-                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
-                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')"
-                        class="btn text-sm">⏭ To destination</button>
-              </div>
-              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
-                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶/⏩ spend it; a fresh day resets it.'">
-                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
-              </span>
-            </div>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <button @click="journeyAdvanceOneHex(journeyDetail())"
+                      :disabled="journeyBudgetSpentToday(journeyDetail())"
+                      :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                      :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                      class="btn text-sm">▶ Advance one hex</button>
               <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the Day Clock won't auto-advance it; step it by hand with ▶ and act in each hex.">
                 <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
                 <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause journey)'"></span>
               </label>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶ spends it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
             </div>
-            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the Day Clock won't advance this journey. Step one hex with ▶, or untick Hold to let it travel.</p>
           </div>
         </template>
             </div>
@@ -15501,46 +15486,31 @@ document.addEventListener('alpine:init', () => {
           <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
-        <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
-        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
-             over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
-             lost journey keeps the whole-day "Complete Movement" button below. journey.paused holds the
-             ⏩/⏭ autopilot; ▶ is a deliberate hand-step and overrides it. Night travel is NOT modelled — ⏩
-             stops at the pace-determined RAW day's march (a longer march = the Forced-march pace). -->
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance control (journeyAdvanceOneHex) + Stop + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey steps here one hex at a
+             time (▶ Advance one hex, over the Foundation engine, halting on encounter / river / budget / arrival);
+             bulk day-advance goes through the campaign Day Clock (top-right). An army / voyage / lost journey keeps
+             the whole-day "Complete Movement" button below. journey.paused (Hold) makes the Day Clock skip this
+             journey; ▶ is a deliberate hand-step. Night travel is NOT modelled. -->
         <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
           <div class="space-y-2">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span class="text-sm font-semibold">Advance travel</span>
-              <div class="flex items-center gap-1">
-                <button @click="journeyAdvanceOneHex(journeyDetail())"
-                        :disabled="journeyBudgetSpentToday(journeyDetail())"
-                        :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
-                        class="btn text-sm">▶ One hex</button>
-                <button @click="journeyAdvanceDay(journeyDetail())"
-                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
-                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')"
-                        class="btn text-sm">⏩ The day</button>
-                <button @click="journeyAdvanceToDestination(journeyDetail())"
-                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
-                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
-                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')"
-                        class="btn text-sm">⏭ To destination</button>
-              </div>
-              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
-                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶/⏩ spend it; a fresh day resets it.'">
-                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
-              </span>
-            </div>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <button @click="journeyAdvanceOneHex(journeyDetail())"
+                      :disabled="journeyBudgetSpentToday(journeyDetail())"
+                      :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                      :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                      class="btn text-sm">▶ Advance one hex</button>
               <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the Day Clock won't auto-advance it; step it by hand with ▶ and act in each hex.">
                 <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
                 <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause journey)'"></span>
               </label>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶ spends it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
             </div>
-            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the Day Clock won't advance this journey. Step one hex with ▶, or untick Hold to let it travel.</p>
           </div>
         </template>
             </div>
