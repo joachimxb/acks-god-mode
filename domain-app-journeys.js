@@ -312,7 +312,7 @@
   journeyOpenDetail(id){
     const j = this.journeyById(id);
     const party = (j && j.partyId) ? (this.currentCampaign?.parties || []).find(p => p && p.id === j.partyId) : null;
-    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.journeyDetailId = null; this.openPartyModal(party.id); return; }
+    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.openPartyModal(party.id); return; }   // openPartyModal points journeyDetailId at the party's journey
     this.journeyOpenDetailPage(id);
   },
   // The standalone Travel-detail PAGE (the full pace/mode/vessel/speed-override/day-log surface). Reached

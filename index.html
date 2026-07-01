@@ -523,7 +523,7 @@ document.addEventListener('alpine:init', () => {
     clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 </style>
 </head>
-<body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
+<body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem; display:flex; flex-direction:column;">
 
 <!-- ═══ SVG icon sprite (H1 path b, 2026-06-29) — identity glyphs as <symbol> defs; rendered via
      <svg class="ico"><use href="#i-NAME"></use></svg> or window.acksIcon('NAME'). currentColor + 1em.
@@ -9509,7 +9509,7 @@ document.addEventListener('alpine:init', () => {
     </template>
 
     <!-- ───── (B) JOURNEY DETAIL ───── -->
-    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail()">
+    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail() && (journeyGroupKind(journeyDetail())==='army' || journeyGroupKind(journeyDetail())==='unit')">
       <div class="vellum border border-ink rounded p-4 space-y-3">
         <div class="flex items-start justify-between flex-wrap gap-2">
           <div>
@@ -12725,53 +12725,218 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </div>
 
-              <!-- ADVANCE TRAVEL — top-most of the body when the party is on a journey (Movement 2.0:
-                   the old Travel page's driver, now here). Deep controls (pace/mode/vessel/day log) are
-                   one click away behind the ⚙ link. -->
-              <template x-if="partyJourney(pt)">
-                <div class="mt-3 border border-ink rounded p-2.5 space-y-2" style="background:var(--c-vellum)" x-data="{ get j(){ return partyJourney(pt); } }">
-                  <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
-                    <span x-text="journeyModeIcon(j)"></span>
-                    <span class="font-semibold" x-text="journeyCurrentLabel(j)"></span> →
-                    <span class="font-semibold" x-text="journeyHexLabel(j.destinationHexId)"></span>
-                    <span class="opacity-60" x-text="'· ' + journeyDayLabel(j)"></span>
-                    <span :class="j.isLost ? 'accent-red font-semibold' : (j.status==='arrived' ? 'accent-green font-semibold' : 'opacity-70')" x-text="'· ' + journeyStatusLabel(j)"></span>
-                    <span class="ml-auto flex items-center gap-2">
-                      <button @click="journeyViewOnMap(j.id)" class="btn text-xs" title="See this journey on the map — change its route/destination there">🗺 Map</button>
-                      <button @click="journeyOpenDetailPage(j.id)" class="btn text-xs" title="Open the full travel detail — pace, mode, vessel, speed override, and the day log with rerolls">⚙ Travel settings &amp; day log →</button>
-                    </span>
+              <!-- TRAVEL — the whole Travel page folded in, VERBATIM (journeyDetail()-driven; openPartyModal
+                   points journeyDetailId at THIS party's journey, so the folded controls + no-arg methods
+                   [journeyCompleteMovement] resolve). The standalone Travel PAGE is scoped to army/unit
+                   marches. Shown whenever the party is on a journey. -->
+              <template x-if="journeyDetail()">
+                <div class="mt-3 space-y-3">
+                  <div class="flex justify-end">
+                    <button @click="const id=journeyDetail().id; closePartyModal(); journeyViewOnMap(id)" class="btn text-xs" title="See this journey on the map — change its route, destination, or waypoints there">🗺 View on map</button>
                   </div>
-                  <!-- per-hex advance controls (a steppable people-journey) -->
-                  <template x-if="j.status==='in-transit' && journeyPerHexSteppable(j)">
-                    <div class="space-y-2">
-                      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                        <span class="text-sm font-semibold">Advance travel</span>
-                        <div class="flex items-center gap-1">
-                          <button @click="journeyAdvanceOneHex(j)" :disabled="journeyBudgetSpentToday(j)" :class="journeyBudgetSpentToday(j) ? 'opacity-50 cursor-not-allowed' : ''" :title="journeyBudgetSpentToday(j) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'" class="btn text-sm">▶ One hex</button>
-                          <button @click="journeyAdvanceDay(j)" :disabled="journeyPaused(j) || journeyBudgetSpentToday(j)" :class="(journeyPaused(j) || journeyBudgetSpentToday(j)) ? 'opacity-50 cursor-not-allowed' : ''" :title="journeyPaused(j) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(j) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')" class="btn text-sm">⏩ The day</button>
-                          <button @click="journeyAdvanceToDestination(j)" :disabled="journeyPaused(j) || journeyBudgetSpentToday(j)" :class="(journeyPaused(j) || journeyBudgetSpentToday(j)) ? 'opacity-50 cursor-not-allowed' : ''" :title="journeyPaused(j) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(j) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')" class="btn text-sm">⏭ To destination</button>
-                        </div>
-                        <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(j) !== null" :title="'The party can still step about ' + journeyHexesLeftToday(j) + ' hex(es) today at this terrain (RR p.272).'">≈ <span class="font-semibold" x-text="journeyHexesLeftToday(j)"></span> hex(es) left today</span>
-                      </div>
-                      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                        <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
-                          <input type="checkbox" :checked="journeyPaused(j)" @change="journeyTogglePaused(j)">
-                          <span x-text="journeyPaused(j) ? '⏸ Held (paused)' : '⏸ Hold (pause autopilot)'"></span>
-                        </label>
-                        <button @click="journeyActInThisHex(j)" class="btn text-xs" title="Do a hex activity here — forage, search, and the like (spends the day's activity budget; RR p.272)"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Act in this hex</button>
-                      </div>
-                      <p class="text-xs accent-amber" x-show="journeyPaused(j)">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
-                    </div>
-                  </template>
-                  <!-- a voyage / lost / non-steppable party journey drives from the full travel detail -->
-                  <template x-if="!(j.status==='in-transit' && journeyPerHexSteppable(j))">
-                    <p class="text-xs opacity-70" x-text="j.isLost ? 'The party is lost — recover from the full travel detail (⚙ above).' : (journeyPerHexSteppable(j) ? ('Journey ' + journeyStatusLabel(j) + '.') : 'A voyage / march — advance it from the full travel detail (⚙ above).')"></p>
-                  </template>
-                  <!-- distance -->
-                  <div class="text-sm" x-text="(() => { const m = journeyMiles(j); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+        <!-- text route (map mode #225 will render this graphically) -->
+        <div class="text-sm">
+          <span class="opacity-60">Route:</span>
+          <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span>
+          <template x-for="(wp,wi) in (journeyDetail().waypoints||[])" :key="'rt-'+wi"><span> → <span x-text="journeyHexLabel(wp.hexId)"></span></span></template>
+          <span> → </span><span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
+          <span class="opacity-50 text-xs ml-1">(🗺 View on map to see it drawn — and change the destination or waypoints there)</span>
+        </div>
+
+        <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
+        <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
+             over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
+             lost journey keeps the whole-day "Complete Movement" button below. journey.paused holds the
+             ⏩/⏭ autopilot; ▶ is a deliberate hand-step and overrides it. Night travel is NOT modelled — ⏩
+             stops at the pace-determined RAW day's march (a longer march = the Forced-march pace). -->
+        <template x-if="journeyDetail().status==='in-transit' && journeyPerHexSteppable(journeyDetail())">
+          <div class="border border-ink rounded p-2.5 space-y-2" style="background:var(--c-vellum)">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span class="text-sm font-semibold">Advance travel</span>
+              <div class="flex items-center gap-1">
+                <button @click="journeyAdvanceOneHex(journeyDetail())"
+                        :disabled="journeyBudgetSpentToday(journeyDetail())"
+                        :class="journeyBudgetSpentToday(journeyDetail()) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right) to continue' : 'Step one hex — the party moves to the next hex on the route, stopping on an encounter or a river crossing'"
+                        class="btn text-sm">▶ One hex</button>
+                <button @click="journeyAdvanceDay(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to run the day (or step one hex with ▶)' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right)' : 'Run the rest of today\'s hex budget — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏩ The day</button>
+                <button @click="journeyAdvanceToDestination(journeyDetail())"
+                        :disabled="journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())"
+                        :class="(journeyPaused(journeyDetail()) || journeyBudgetSpentToday(journeyDetail())) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :title="journeyPaused(journeyDetail()) ? '⏸ Held — resume to fast-forward' : (journeyBudgetSpentToday(journeyDetail()) ? 'Today\'s travel is done — advance the Day Clock (top-right), then ⏭' : 'Fast-forward this journey to its destination, day by day, WITHOUT advancing the campaign Day Clock — stops on an encounter or a river crossing')"
+                        class="btn text-sm">⏭ To destination</button>
+              </div>
+              <span class="text-xs opacity-70" x-show="journeyHexesLeftToday(journeyDetail()) !== null"
+                    :title="'The party can still step about ' + journeyHexesLeftToday(journeyDetail()) + ' hex(es) today at this terrain (RR p.272). ▶/⏩ spend it; a fresh day resets it.'">
+                ≈ <span class="font-semibold" x-text="journeyHexesLeftToday(journeyDetail())"></span> hex(es) left today
+              </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Hold this journey — the ⏩/⏭ autopilot won't advance it; step it by hand with ▶ and act in each hex. (The campaign Day Clock still ticks the calendar.)">
+                <input type="checkbox" :checked="journeyPaused(journeyDetail())" @change="journeyTogglePaused(journeyDetail())">
+                <span x-text="journeyPaused(journeyDetail()) ? '⏸ Held (paused)' : '⏸ Hold (pause autopilot)'"></span>
+              </label>
+              <button @click="journeyActInThisHex(journeyDetail())" class="btn text-xs" title="Do a hex activity here — forage, search, and the like (spends the day's activity budget; RR p.272)"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Act in this hex</button>
+            </div>
+            <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
+          </div>
+        </template>
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+
+        <!-- E5 — this journey is steered by a live FOLLOW: the destination tracks the quarry
+             daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
+             the trail controls (rain lever, give up). -->
+        <template x-if="window.ACKS.journeyTrackingPursuit && window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id)">
+          <div class="text-xs px-2 py-1.5 border bdr-amber/40 rounded flex flex-wrap items-center gap-2" style="background:var(--c-warning-bg)">
+            <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
+              — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
+            <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="btn" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
+          </div>
+        </template>
+
+        <!-- E8 (RR p.285) — the party evaded an encounter and failed its Navigation throw at −4:
+             LOST, and it KNOWS it (unlike the §27 secret travel-stray). The journey holds — no
+             travel days — until the last known landmark is found (the Wilderness Search below,
+             1 ancillary, encounter check included), the route is re-drawn, or the GM clears it. -->
+        <template x-if="journeyDetail().status === 'lost'">
+          <div class="text-xs px-2 py-1.5 border bdr-red/50 rounded space-y-1" style="background:var(--c-danger-bg)">
+            <div>⚠ <span class="font-semibold accent-red">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="btn" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw"><svg class="ico" aria-hidden="true"><use href="#i-glass"></use></svg> Search for the landmark</button>
+              <button x-show="journeyDetail().lostEncounterId" @click="openEncounterModal(journeyDetail().lostEncounterId)" class="btn" title="The meeting the party fled — the aftermath line carries the failed Navigation throw">⚔ the encounter</button>
+              <span class="opacity-70">Re-drawing the route (✎ on the map) also re-orients them.</span>
+            </div>
+          </div>
+        </template>
+        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
+             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
+             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
+             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
+          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
+                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
+                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
+                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
+                </select>
+              </div>
+              <template x-if="journeyVessel()">
+                <div>
+                  <label class="opacity-70 block text-xs">Propulsion</label>
+                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
+                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
+                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
+                  </select>
                 </div>
               </template>
+              <template x-if="journeyVessel()">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
+                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
+                  🌙 24-hour sailing
+                </label>
+              </template>
+            </div>
+            <template x-if="journeyVessel()">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
+                <span class="opacity-60">· River current</span>
+                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
+                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
+                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
+                </select>
+                <template x-if="journeyDetail().riverCurrent">
+                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
+                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
+                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
+                  </select>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
 
+        <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
+             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
+             override (no value/event); off shows nothing beside the tick. The value is set/edited via the
+             standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
+        <div x-show="journeyDetail().status==='in-transit'">
+          <!-- Current speed (RR pp.83–84): the party's base overland rate = its SLOWEST member's encumbrance
+               rate, shown ABOVE Pace/Mode. The §26 GM "Override" sits on this row and REPLACES this base rate
+               (greys it); pace/weather/per-hex terrain still multiply it downstream, so Pace is an independent
+               control below. The tick only ARMS the override (no value/event); the value is set with the
+               standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); unticking disarms AND
+               clears any value. -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
+            <span class="opacity-70 text-xs">Current speed</span>
+            <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
+                  :title="'The group travels at ' + journeySpeedBasisLabel(journeyDetail()) + ' (RR pp.83–84 / p.448 for an army). Pace, weather and terrain then modify it.'"
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — overloaded' : '')"></span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
+              <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+              <span class="text-xs">Override</span>
+            </label>
+            <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                 reads "— set a value" and nothing is written (the slowest-member rate governs). -->
+            <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+              <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold accent-amber'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)"><svg class="ico" aria-hidden="true"><use href="#i-quill"></use></svg></button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
+              </span>
+            </template>
+            <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
+          </div>
+          <!-- pace + mode — pace is now ALWAYS settable (the override no longer disables it); it multiplies the
+               current speed for the next day ticked and governs fatigue (RR p.279). -->
+          <div class="flex flex-wrap gap-4 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Pace</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5"
+                      @change="setJourneyPace(journeyDetail(), $event.target.value)"
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged). A pace the travellers' other activities can't sustain is disabled (the activity budget caps it).">
+                <option value="normal" :selected="journeyEffectivePaceUI(journeyDetail())==='normal'" :disabled="!journeyPaceAllowed(journeyDetail(),'normal')">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyEffectivePaceUI(journeyDetail())==='half-speed'" :disabled="!journeyPaceAllowed(journeyDetail(),'half-speed')">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyEffectivePaceUI(journeyDetail())==='forced-march'" :disabled="!journeyPaceAllowed(journeyDetail(),'forced-march')">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                <option value="halted" :selected="journeyEffectivePaceUI(journeyDetail())==='halted'">Halted (×0 — the day's activities leave no time to travel)</option>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Mode</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+                <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'">⛵ Voyage (set by assigning a vessel above)</option>
+                <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+              </select>
+            </div>
+          </div>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)" x-text="'Current speed = ' + journeySpeedBasisLabel(journeyDetail()) + '; pace multiplies it for the next day ticked.'"></span>
+          <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
+               leave no room for full-speed travel, the faster paces are disabled + this names why. -->
+          <span class="text-xs accent-amber font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
+          <span class="text-xs accent-amber" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
+          <span class="text-xs accent-amber" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
+        </div>
+
+        <!-- actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
+               lost) — a steppable people-journey uses the per-hex ▶/⏩/⏭ panel above instead (no redundancy). -->
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? '' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="btn btn-info text-base" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">🚶 Complete Movement</button>
+          <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base tint-green accent-green border-2 bdr-green">✓ Arrived</span>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base tint-red accent-red border-2 bdr-red">🛑 Stopped</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="btn text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
+        </div>
+                </div>
+              </template>
               <!-- current hex + notes (verbatim from the old party card; the "on journey" link is now a
                    static lock — the journey is advanced in the box above) -->
               <div class="mt-2 space-y-2 text-sm">
@@ -13067,6 +13232,85 @@ document.addEventListener('alpine:init', () => {
             </div>
 
           </div>
+        </template>
+        <!-- DAY LOG — the party's travel log, folded from the Travel page (verbatim, journeyDetail()-driven) -->
+        <template x-if="journeyDetail() && (journeyDetail().days||[]).length">
+          <div class="mt-1">
+        <!-- day log -->
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Day log</h3>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days travelled yet — the party is at the start hex. Press Complete Movement to travel the first day (or advance the Day Clock).</p></template>
+          <div class="space-y-1">
+            <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
+              <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-hairline'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
+                <!-- Row 1 — day header: weather · distance · pace · speed override. The LATEST day, while
+                     still rerollable (the world clock stands on it), is the party's CURRENT STATE —
+                     highlighted + rerolled in place (Joachim 2026-06-05: "it is the current state… the
+                     Journey updates location and conditions"). Once the clock advances past it (or an
+                     earlier day) it locks into history. Same gate as the reroll buttons below. -->
+                <div class="flex flex-wrap gap-x-3 items-baseline">
+                  <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-xs uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
+                  <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                  <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                  <span class="capitalize" x-text="d.pace"></span>
+                  <span x-show="d.speedOverrideMilesPerDay > 0" class="accent-amber font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
+                </div>
+                <!-- Row 2 — navigation: the nav throw + this day's movement / fording / encounter / arrival
+                     notes, with its OWN reroll. 🎲 reroll nav re-rolls navigation & movement and HOLDS the
+                     day's water/food outcome fixed (the forage row owns that). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.navigationThrow || journeyDayNotables(d,'nav').length || (di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail()))">
+                  <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'accent-green' : 'accent-red'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                  <span x-show="!d.navigationThrow" class="font-mono opacity-40">nav — no throw (on road / at rest)</span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs btn ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
+                </div>
+                <!-- Row 2b — encounters (#476 M3/M7): the day's pool-aware encounter(s), each with its
+                     GM affordance — open the lair it surfaced, or the hex whose seeded shells want
+                     populating. Resolution stays GM judgment (the lair detail has the lifecycle actions). -->
+                <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
+                  <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
+                    <span class="accent-red">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
+                    <!-- E2: a committed meeting IS an Encounter entity — walk the RAW procedure on it.
+                         A pending/preview day has no entity yet (it materializes at commit) → button hides. -->
+                    <button x-show="ee.payload && ee.payload.encounterId && encounterById(ee.payload.encounterId)" @click="openEncounterModal(ee.payload.encounterId)" class="btn text-xs accent-red font-semibold" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(ee.payload.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+                    <button x-show="ee.payload && ee.payload.lairId && (ee.payload.encounterKind !== 'wandering-fragment' || lairKnown(ee.payload.lairId))" @click="openLairDetail(ee.payload.lairId)" class="text-xs btn" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
+                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose;
+                         once the den is discovered both flip to the full → lair above. -->
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ encounterId: ee.payload.encounterId || null, lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs btn" title="Track the fragment — find the trail (Tracking 11+, RR p.120) and follow it home">🐾 Track</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openLairDetail(ee.payload.lairId)" class="btn text-xs opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                    <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs btn" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
+                  </div>
+                </template>
+                <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
+                     with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
+                  <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'accent-amber'" x-text="journeyForageDetail(d.waterForage)"></span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'survival')" :key="'dls-'+di+'-'+nei"><span class="accent-amber" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="btn text-xs text-sky-800 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
+                </div>
+                <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-xs opacity-80">
+                  <span class="opacity-50">via </span>
+                  <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold accent-green' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <span x-show="di===(journeyDetail().days.length-1)" class="accent-green" title="The party is here now"> 📍 here now</span>
+                </div>
+                <!-- Row 5 — V6 voyage: the day's sailing/rowing breakdown (wind · point of sail · speed
+                     factors · river current · weathering · provisioning), then any hull hazard / gale /
+                     grounding / scurvy. Only on a voyage day (d.voyage present). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.voyage">
+                  <span class="font-mono text-sky-800" x-text="voyageDayLine(d)"></span>
+                  <span class="font-mono accent-red" x-show="voyageDayHazardLine(d)" x-text="voyageDayHazardLine(d)"></span>
+                </div>
+              </div>
+            </template>
+            <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
+                 day above, highlighted + rerollable in place. Joachim 2026-06-05: "remove the Preview
+                 name… it is the current state. The Journey updates location and current conditions.") -->
+          </div>
+          <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
+        </div>          </div>
         </template>
       </div>
 
@@ -20772,13 +21016,13 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-generators.js?v=7d123e93"></script>
 <script src="domain-app-gladiators.js?v=6da7a6a4"></script>
 <script src="domain-app-inspector.js?v=9bb9d6c8"></script>
-<script src="domain-app-journeys.js?v=4d34220e"></script>
+<script src="domain-app-journeys.js?v=ab450538"></script>
 <script src="domain-app-magic-research.js?v=8d1167fe"></script>
 <script src="domain-app-map.js?v=92415702"></script>
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bd01b93d"></script>
-<script src="domain-app-party.js?v=649111ca"></script>
+<script src="domain-app-party.js?v=9f464985"></script>
 <script src="domain-app-provisioning.js?v=59e6cade"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
@@ -20794,7 +21038,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- About / source notice. Static, shown on every page state. The "Source on GitHub" link is
      the AGPL §13 offer-of-source for the network-served app (oss-community audit C3). -->
-<footer class="no-print text-center text-xs opacity-60 py-4 px-4 border-t border-ink/20 mt-8">
+<footer class="no-print text-center text-xs opacity-60 py-4 px-4 border-t border-ink/20 mt-auto">
   ACKS God Mode — an independent community tool for ACKS II ·
   <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" class="underline hover:opacity-90">AGPL-3.0</a> ·
   <a href="https://github.com/joachimxb/acks-god-mode" target="_blank" rel="noopener" class="underline hover:opacity-90">Source on GitHub</a>

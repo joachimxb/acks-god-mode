@@ -37,10 +37,17 @@
     // in the global modal stack, so it renders over whatever view called it (a Travel-overview row, a
     // character-sheet party link, a hex, the map) without changing the current tab. (Joachim 2026-07-01.)
     if(typeof this.selectGroup === 'function') this.selectGroup('party', partyId);
+    // Point journeyDetailId at the party's journey so journeyDetail() resolves INSIDE the modal — the modal
+    // folds the whole Travel page in (advance / vessel / pace / speed override / day log), verbatim, so its
+    // journeyDetail()-driven controls + no-arg methods (journeyCompleteMovement) work. The standalone Travel
+    // PAGE is scoped to army/unit journeys, so this never renders it for a party. (Joachim 2026-07-01.)
+    const p = (this.currentCampaign?.parties || []).find(x => x && x.id === partyId);
+    this.journeyDetailId = (p && p.activeJourneyId) || null;
+    this.journeyOverrideArmed = false;
     this.partyModalTab = 'manage';
     this.partyModalId = partyId;
   },
-  closePartyModal(){ this.partyModalId = null; },
+  closePartyModal(){ this.partyModalId = null; this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   partyModalParty(){ return this.partyModalId ? ((this.currentCampaign?.parties || []).find(p => p && p.id === this.partyModalId) || null) : null; },
   // ── the party's active journey + party-scoped provisioning totals (Movement 2.0 rework) ────────────
   // The modal absorbs the old Travel page: the Advance-travel box + the provisioning tracker read the
