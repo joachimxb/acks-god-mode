@@ -306,7 +306,18 @@
     } catch(e){ return null; }
   },
   // ── Detail ──
-  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  // A journey now opens through its owner. A PARTY's travel opens the Manage-party modal (which absorbs the
+  // Advance-travel box + provisioning — the old standalone Travel page is retired as the default surface);
+  // an army / unit march (no partyId) still opens the standalone page. (Movement 2.0 rework, Joachim 2026-07-01.)
+  journeyOpenDetail(id){
+    const j = this.journeyById(id);
+    const party = (j && j.partyId) ? (this.currentCampaign?.parties || []).find(p => p && p.id === j.partyId) : null;
+    if(party && typeof this.openPartyModal === 'function'){ this.journeyWizard.open = false; this.journeyDetailId = null; this.openPartyModal(party.id); return; }
+    this.journeyOpenDetailPage(id);
+  },
+  // The standalone Travel-detail PAGE (the full pace/mode/vessel/speed-override/day-log surface). Reached
+  // from the modal's "⚙ Travel settings & day log →" deep-link, and directly for army/unit marches.
+  journeyOpenDetailPage(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
   journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   // Complete Movement (Joachim 2026-06-05): resolve THIS journey's travel for the current world day,
   // locally — the party marches its day's leg now, WITHOUT advancing the global clock. Lockstep: at

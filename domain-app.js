@@ -5319,8 +5319,10 @@ const _component = {
     this.markDirty(); this.schedulePersist();
     const id = j.id;
     this._journeyResetWizard();
-    this.journeyDetailId = id;
-    this.showToast('Set out: ' + (j.name||'(unnamed)') + ' — press Complete Movement to travel the first day.');
+    // Open the new journey through its owner — a party journey lands in the Manage-party modal (its
+    // Advance-travel box), an army/unit march on the standalone Travel page. (Movement 2.0 rework.)
+    this.journeyOpenDetail(id);
+    this.showToast('Set out: ' + (j.name||'(unnamed)') + ' — advance it hex by hex, or with the Day Clock.');
   },
   // Change a journey's marching pace mid-trip — logged via gm-fiat; the engine reads journey.pace
   // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).

@@ -33,6 +33,10 @@
       { key:'shareLoad',        type:'bool', on:'Share load',      off:'Slowest sets pace', title:'ON = the group evens its carried gear to travel at a better band (RR pp.83–84); OFF = the slowest-loaded walker sets the pace. Use “Balance load” to apply.' }
     ];
   },
+  // The subset shown as the party's standing "operating rules" strip (Movement 2.0 rework, Joachim
+  // 2026-07-01): Encounters / Rations / Encumbrance — the rules the party travels + provisions under.
+  // shareRations / shareLoad are NOT here — they're tick-boxes in the Provisioning section instead.
+  provOperatingToggles(){ return this.provRegimeToggles().filter(t => t.key==='skipEncounters' || t.key==='skipProvisioning' || t.key==='skipEncumbrance'); },
   provRegimePillLabel(mover, t){
     const rs = this.provRegimeState(mover); const st = rs[t.key] || {};
     if(t.type === 'bool') return st.value ? t.on : t.off;

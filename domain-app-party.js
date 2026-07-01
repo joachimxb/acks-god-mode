@@ -30,9 +30,41 @@
   // name, and a character sheet's "in party …" link — open THIS modal with all the details (membership
   // drag, split/merge/muster, provisioning & load, members table, camp, chronicle). Transient state.
   partyModalId: null,
-  openPartyModal(partyId){ if(!partyId) return; if(typeof this.selectGroup === 'function') this.selectGroup('party', partyId); this.partyModalId = partyId; },
+  partyModalTab: 'manage',   // 'manage' | 'chronicle' — the modal's two tabs (Movement 2.0 rework)
+  openPartyModal(partyId){
+    if(!partyId) return;
+    if(typeof this.selectGroup === 'function') this.selectGroup('party', partyId);
+    // The modal is an overlay inside the Roster ▸ Groups view — navigate there so it shows from anywhere
+    // (a Travel-overview row, a character-sheet party link, the map). The overlay itself is position:fixed.
+    this.currentView = 'roster'; this.rosterSubView = 'groups';
+    this.partyModalTab = 'manage';
+    this.partyModalId = partyId;
+  },
   closePartyModal(){ this.partyModalId = null; },
   partyModalParty(){ return this.partyModalId ? ((this.currentCampaign?.parties || []).find(p => p && p.id === this.partyModalId) || null) : null; },
+  // ── the party's active journey + party-scoped provisioning totals (Movement 2.0 rework) ────────────
+  // The modal absorbs the old Travel page: the Advance-travel box + the provisioning tracker read the
+  // party's journey (or the party itself when stationary). partyJourney() bridges journey↔party accessors.
+  partyJourney(pt){ pt = pt || this.selectedParty(); return (pt && pt.activeJourneyId && this.journeyById) ? this.journeyById(pt.activeJourneyId) : null; },
+  // Ration/water days the party currently HOLDS (members' carried + the party camp). On a journey we defer
+  // to the journey total (it also folds in any legacy supplies pool); stationary we sum members + camp.
+  partyHeldFoodDays(pt){
+    pt = pt || this.selectedParty(); if(!pt) return 0;
+    const j = this.partyJourney(pt); if(j && this.journeyTotalFoodDays) return this.journeyTotalFoodDays(j);
+    const A = window.ACKS, c = this.currentCampaign; let days = 0;
+    (this.partyMembers ? this.partyMembers(pt) : []).forEach(ch => { days += (A && A.rationDaysAvailable ? A.rationDaysAvailable(ch) : 0) || 0; });
+    const camp = (A && A.partyCampStash) ? A.partyCampStash(c, pt.id) : null; if(camp) days += (A.rationDaysAvailable ? A.rationDaysAvailable(camp) : 0) || 0;
+    return Math.round(days * 10) / 10;
+  },
+  partyHeldWaterDays(pt){
+    pt = pt || this.selectedParty(); if(!pt) return 0;
+    const j = this.partyJourney(pt); if(j && this.journeyTotalWaterDays) return this.journeyTotalWaterDays(j);
+    const A = window.ACKS, c = this.currentCampaign; let days = 0;
+    (this.partyMembers ? this.partyMembers(pt) : []).forEach(ch => { days += Number(ch.waterDaysCarried) || 0; });
+    const camp = (A && A.partyCampStash) ? A.partyCampStash(c, pt.id) : null; if(camp) days += Number(camp.waterDaysCarried) || 0;
+    return Math.round(days * 10) / 10;
+  },
+  partySupplyDaysLeft(pt){ pt = pt || this.selectedParty(); const n = Math.max(1, this.partyMemberCount ? this.partyMemberCount(pt) : 1); return Math.floor(Math.min(this.partyHeldFoodDays(pt), this.partyHeldWaterDays(pt)) / n); },
   // Is the party on the map (a hex position, directly or via its journey)? Gates the quick-box Move/Journey.
   partyOnMap(pt){
     const A = window.ACKS;
