@@ -12796,7 +12796,6 @@ document.addEventListener('alpine:init', () => {
         <button @click="partyModalTab='manage'" class="tab-pill text-sm" :class="partyModalTab==='manage' ? 'tab-active' : ''">Manage</button>
         <button @click="partyModalTab='travel'" class="tab-pill text-sm" :class="partyModalTab==='travel' ? 'tab-active' : ''">🧭 Travel</button>
         <button @click="partyModalTab='camp'" class="tab-pill text-sm" :class="partyModalTab==='camp' ? 'tab-active' : ''">⛺ Camp</button>
-        <button @click="partyModalTab='daylog'" class="tab-pill text-sm" :class="partyModalTab==='daylog' ? 'tab-active' : ''">📅 Day log</button>
         <button @click="partyModalTab='chronicle'" class="tab-pill text-sm inline-flex items-center gap-1" :class="partyModalTab==='chronicle' ? 'tab-active' : ''"><svg class="ico" aria-hidden="true"><use href="#i-scroll"></use></svg> Chronicle <span class="opacity-60" x-text="'· ' + entityChronicleCount('party', selectedParty().id)"></span></button>
       </div>
 
@@ -12818,7 +12817,6 @@ document.addEventListener('alpine:init', () => {
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
-                  <button @click="mvBeginMoveOnMap(pt.id)" :disabled="!partyOnMap(pt)" :class="partyOnMap(pt) ? '' : 'opacity-50 cursor-not-allowed'" class="btn text-sm" :title="partyOnMap(pt) ? 'Move the party across the map, one hex at a time' : 'The party has no map position yet — set its hex first'"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span></button>
                   <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="btn btn-info text-sm" title="Start a journey with this whole party">🧭 Send on journey</button>
                   <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="btn btn-warn text-sm" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
                   <button @click="removeParty(pt.id)" class="btn text-sm accent-red">× delete</button>
@@ -13124,27 +13122,24 @@ document.addEventListener('alpine:init', () => {
            journey); journey links open the modal straight to this tab. Moved out of the Manage box
            (Joachim 2026-07-01). -->
       <div x-show="partyModalTab==='travel'" class="space-y-3">
-        <template x-if="!journeyDetail()">
-          <p class="text-base italic opacity-60 py-4 text-center">This party isn't travelling. Start a journey with <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" class="underline accent-green not-italic">🧭 Send on journey</button>, or Move it a hex at a time from the Manage tab.</p>
-        </template>
-              <!-- TRAVEL — the whole Travel page folded in, VERBATIM (journeyDetail()-driven; openPartyModal
-                   points journeyDetailId at THIS party's journey, so the folded controls + no-arg methods
-                   [journeyCompleteMovement] resolve). The standalone Travel PAGE is scoped to army/unit
-                   marches. Shown whenever the party is on a journey. -->
-              <template x-if="journeyDetail()">
-                <div class="mt-3 space-y-3">
-                  <div class="flex justify-end">
-                    <button @click="const id=journeyDetail().id; closePartyModal(); journeyViewOnMap(id)" class="btn text-xs" title="See this journey on the map — change its route, destination, or waypoints there">🗺 View on map</button>
-                  </div>
-        <!-- text route (map mode #225 will render this graphically) -->
-        <div class="text-sm">
-          <span class="opacity-60">Route:</span>
-          <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span>
-          <template x-for="(wp,wi) in (journeyDetail().waypoints||[])" :key="'rt-'+wi"><span> → <span x-text="journeyHexLabel(wp.hexId)"></span></span></template>
-          <span> → </span><span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
-          <span class="opacity-50 text-xs ml-1">(🗺 View on map to see it drawn — and change the destination or waypoints there)</span>
-        </div>
-
+        <!-- JOURNEY BOX — Move / Send-on-journey when idle; "On a journey to X" + advance / distance /
+             pace / vessel / stop when travelling (Joachim 2026-07-01 rework). -->
+        <div class="border border-ink rounded p-3">
+          <!-- NOT TRAVELLING — the Move action lives here now (removed from the Manage box). -->
+          <template x-if="!journeyDetail()">
+            <p class="text-base italic opacity-70 py-3 text-center">This party isn't travelling. Start a journey with
+              <button @click="startJourneyDeepLink({ partyId: selectedParty().id })" class="btn btn-info text-xs not-italic align-baseline">🧭 Send on journey</button>,
+              or <button @click="const pp=selectedParty(); if(pp && partyOnMap(pp)){ const id=pp.id; closePartyModal(); mvBeginMoveOnMap(id); }" :disabled="!partyOnMap(selectedParty())" :class="partyOnMap(selectedParty()) ? '' : 'opacity-50 cursor-not-allowed'" :title="partyOnMap(selectedParty()) ? 'Move the party across the map, one hex at a time' : 'The party has no map position yet — set its hex first'" class="btn text-xs not-italic align-baseline"><span class="inline-flex items-center gap-1"><svg class="ico" aria-hidden="true"><use href="#i-move"></use></svg> Move</span></button>
+              it a hex at a time.</p>
+          </template>
+          <!-- TRAVELLING -->
+          <template x-if="journeyDetail()">
+            <div class="space-y-3">
+              <!-- header: "On a journey to X" (the old Route: line is retired) + View on map -->
+              <div class="flex justify-between items-baseline gap-2 flex-wrap">
+                <span class="text-base font-semibold" x-text="'On a journey to ' + journeyHexLabel(journeyDetail().destinationHexId) + '.'"></span>
+                <button @click="const id=journeyDetail().id; closePartyModal(); journeyViewOnMap(id)" class="btn text-xs" title="See this journey on the map — change its route, destination, or waypoints there">🗺 View on map</button>
+              </div>
         <!-- MV2:agent-2 (journey detail zone): per-hex advance controls (advanceJourneyOneHex / advanceJourneyDay / advanceJourneyToDestination) + paused tickbox -->
         <!-- Movement 2.0 (Lane B) — per-hex travel advance. A steppable people-journey drives here (▶/⏩/⏭
              over the Foundation engine, halting on encounter / river / budget / arrival); an army / voyage /
@@ -13187,9 +13182,6 @@ document.addEventListener('alpine:init', () => {
             <p class="text-xs accent-amber" x-show="journeyPaused(journeyDetail())">⏸ Held — the ⏩/⏭ autopilot is paused. Step one hex with ▶ (acting in each hex), or resume to run.</p>
           </div>
         </template>
-        <!-- distance: total + remaining miles (6-mile hexes) -->
-        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
-
         <!-- E5 — this journey is steered by a live FOLLOW: the destination tracks the quarry
              daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
              the trail controls (rain lever, give up). -->
@@ -13200,7 +13192,6 @@ document.addEventListener('alpine:init', () => {
             <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="btn" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
           </div>
         </template>
-
         <!-- E8 (RR p.285) — the party evaded an encounter and failed its Navigation throw at −4:
              LOST, and it KNOWS it (unlike the §27 secret travel-stray). The journey holds — no
              travel days — until the last known landmark is found (the Wilderness Search below,
@@ -13215,56 +13206,10 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
         </template>
-        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
-             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
-             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
-             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
-        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
-          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
-            <div class="flex flex-wrap items-end gap-3">
-              <div>
-                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
-                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
-                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
-                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
-                </select>
-              </div>
-              <template x-if="journeyVessel()">
-                <div>
-                  <label class="opacity-70 block text-xs">Propulsion</label>
-                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
-                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
-                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
-                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
-                  </select>
-                </div>
-              </template>
-              <template x-if="journeyVessel()">
-                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
-                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
-                  🌙 24-hour sailing
-                </label>
-              </template>
-            </div>
-            <template x-if="journeyVessel()">
-              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
-                <span class="opacity-60">· River current</span>
-                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
-                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
-                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
-                </select>
-                <template x-if="journeyDetail().riverCurrent">
-                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
-                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
-                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
-                  </select>
-                </template>
-              </div>
-            </template>
-          </div>
-        </template>
-
+              <!-- row 1 — distance -->
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+              <!-- row 2 — pace / mode / speed -->
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
              side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
              override (no value/event); off shows nothing beside the tick. The value is set/edited via the
@@ -13325,7 +13270,57 @@ document.addEventListener('alpine:init', () => {
           <span class="text-xs accent-amber" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
           <span class="text-xs accent-amber" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
         </div>
-
+              <!-- row 3 — vessel -->
+        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
+             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
+             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
+             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
+          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
+                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
+                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
+                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
+                </select>
+              </div>
+              <template x-if="journeyVessel()">
+                <div>
+                  <label class="opacity-70 block text-xs">Propulsion</label>
+                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
+                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
+                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
+                  </select>
+                </div>
+              </template>
+              <template x-if="journeyVessel()">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
+                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
+                  🌙 24-hour sailing
+                </label>
+              </template>
+            </div>
+            <template x-if="journeyVessel()">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
+                <span class="opacity-60">· River current</span>
+                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
+                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
+                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
+                </select>
+                <template x-if="journeyDetail().riverCurrent">
+                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
+                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
+                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
+                  </select>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+              <!-- row 4 — stop / status -->
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
           <!-- Movement 2.0 (Lane B): the whole-day Complete Movement stays for COMPLEX movers (army / voyage /
@@ -13337,8 +13332,13 @@ document.addEventListener('alpine:init', () => {
           <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit' && !journeyPerHexSteppable(journeyDetail())">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
-                </div>
-              </template>
+            </div>
+          </template>
+        </div>
+        <!-- DAY LOG box — the party's day-by-day record, always below the journey box. While travelling
+             it shows the rich per-day journey log (with its re-rolls); otherwise the DERIVED all-activity
+             log (entityDayLog), so a party's past moves/activity show even when it isn't on a journey. -->
+        <div>
         <!-- DAY LOG — the party's travel log, folded from the Travel page (verbatim, journeyDetail()-driven) -->
         <template x-if="journeyDetail() && (journeyDetail().days||[]).length">
           <div class="mt-1">
@@ -13418,6 +13418,32 @@ document.addEventListener('alpine:init', () => {
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
         </div>          </div>
         </template>
+          <!-- off a journey (or a journey with no days yet): the derived all-activity log -->
+          <template x-if="!(journeyDetail() && (journeyDetail().days||[]).length)">
+            <div>
+              <div class="flex items-baseline justify-between mb-1">
+                <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what the party did, day by day</span></span>
+                <span class="text-xs opacity-70" x-text="entityDayLogCount('party', selectedParty().id) + ' day' + (entityDayLogCount('party', selectedParty().id)===1?'':'s') + ' logged'"></span>
+              </div>
+              <template x-if="entityDayLog('party', selectedParty().id).length === 0">
+                <p class="text-base italic opacity-60 py-3 text-center">No day-scale activity yet. Moves, journeys, encounters met, and camp events appear here grouped by the day they happened.</p>
+              </template>
+              <div class="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                <template x-for="day in entityDayLog('party', selectedParty().id)" :key="day.key">
+                  <div class="border border-hairline rounded p-2">
+                    <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
+                    <div class="space-y-0.5">
+                      <template x-for="(row,ri) in day.entries" :key="ri">
+                        <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
       </div>
 
       <!-- ══════════════ CAMP TAB ══════════════ -->
@@ -13438,36 +13464,6 @@ document.addEventListener('alpine:init', () => {
                 </template>
                 <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
               </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- ══════════════ DAY LOG TAB ══════════════ -->
-      <!-- The party's daily journal: all day-scale activity grouped by day, newest first. Derived
-           (entityDayLog) — individual Move steps land here (each Move emits a `movement` event naming
-           the party); the Travel tab keeps the live journey day-by-day resolution with its re-rolls. -->
-      <div x-show="partyModalTab==='daylog'" class="space-y-2">
-        <template x-if="selectedParty()">
-          <div>
-            <div class="flex items-baseline justify-between mb-1">
-              <span class="text-sm uppercase tracking-wide opacity-70">📅 Day log <span class="normal-case opacity-60 text-xs">· what the party did, day by day</span></span>
-              <span class="text-xs opacity-70" x-text="entityDayLogCount('party', selectedParty().id) + ' day' + (entityDayLogCount('party', selectedParty().id)===1?'':'s') + ' logged'"></span>
-            </div>
-            <template x-if="entityDayLog('party', selectedParty().id).length === 0">
-              <p class="text-base italic opacity-60 py-4 text-center">No day-scale activity yet. Moves, journeys, encounters met, and camp events appear here grouped by the day they happened.</p>
-            </template>
-            <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-              <template x-for="day in entityDayLog('party', selectedParty().id)" :key="day.key">
-                <div class="border border-hairline rounded p-2">
-                  <div class="text-sm font-semibold mb-1" x-text="day.label"></div>
-                  <div class="space-y-0.5">
-                    <template x-for="(row,ri) in day.entries" :key="ri">
-                      <div class="text-sm flex items-baseline gap-1.5" :class="row.hidden ? 'opacity-60' : ''"><span x-text="row.icon"></span><span x-text="row.summary"></span></div>
-                    </template>
-                  </div>
-                </div>
-              </template>
-            </div>
           </div>
         </template>
       </div>
@@ -21225,7 +21221,7 @@ document.addEventListener('alpine:init', () => {
 <script src="domain-app-military-w7.js?v=bee63c44"></script>
 <script src="domain-app-mounts.js?v=16231156"></script>
 <script src="domain-app-move.js?v=bd01b93d"></script>
-<script src="domain-app-party.js?v=9ec0c93f"></script>
+<script src="domain-app-party.js?v=f23e65c8"></script>
 <script src="domain-app-provisioning.js?v=59e6cade"></script>
 <script src="domain-app-recruit.js?v=2963c478"></script>
 <script src="domain-app-syndicates.js?v=7ddeb8ef"></script>
