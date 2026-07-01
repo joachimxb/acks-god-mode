@@ -3422,6 +3422,10 @@ function proposeJourneyDay(campaign, ctx){
   if(!ctx._armyDay) ctx._armyDay = { moves: {}, contacts: [] };
   for(const j of campaign.journeys){
     if(!j || j.status !== 'in-transit') continue;
+    // GM hold (Movement 2.0 TS1 Lane B — plan §3.3): a paused journey is held from the slot-30
+    // Day-Clock auto-advance (the interactive ▶ one-hex hand-step overrides via advanceJourneyOneHex).
+    // Lazy field — no seeded journey sets it, so the seeded oracles stay byte-identical.
+    if(j.paused) continue;
     // Lockstep skip-guard (Complete Movement, 2026-06-05): one leg per world day. If this journey's
     // travel for the day being left has already been resolved — by a manual "Complete Movement" or an
     // earlier pass — don't resolve it again (that would march the party twice in one day). A journey
