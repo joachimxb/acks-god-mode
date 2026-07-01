@@ -9597,7 +9597,7 @@ document.addEventListener('alpine:init', () => {
     </template>
 
     <!-- ───── (B) JOURNEY DETAIL ───── -->
-    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail() && (journeyGroupKind(journeyDetail())==='army' || journeyGroupKind(journeyDetail())==='unit')">
+    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail() && journeyGroupKind(journeyDetail())!=='party'">
       <div class="vellum border border-ink rounded p-4 space-y-3">
         <div class="flex items-start justify-between flex-wrap gap-2">
           <div>
