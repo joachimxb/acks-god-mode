@@ -7345,6 +7345,19 @@ function journeyMaxPace(campaign, journey, opts){
     binding = { characterId: null, name: 'tracking ' + ((tracking.pursuit && tracking.pursuit.quarryLabel) || 'a quarry') + ' (RR p.120)',
                 maxPace: 'half-speed', reason: 'tracking', otherDedicated: 0, otherAncillary: 0 };
   }
+  // CE-4 — a traveller who cannot force-march (hypothermia, RR p.510) caps the party at normal pace,
+  // however generous the budget. Reads the Condition Effects flag set (conditionFlags; late-bound — the
+  // conditions layer loads after this module). Guarded; only bites when forced-march was otherwise on the table.
+  if(maxRank > PACE_RANK['normal'] && typeof A.conditionFlags === 'function'){
+    for(const cid of ids){
+      const ch = chars.find(c => c && c.id === cid);
+      if(ch && A.conditionFlags(campaign, ch).has('cannot-force-march')){
+        maxRank = PACE_RANK['normal'];
+        binding = { characterId: cid, name: (ch.name || cid) + ' cannot force-march (RR p.510)', maxPace: 'normal', reason: 'cannot-force-march', otherDedicated: 0, otherAncillary: 0 };
+        break;
+      }
+    }
+  }
   return { maxPace: RANK_PACE[maxRank], binding };
 }
 // The GM's desired journey.pace, capped by journeyMaxPace. The value tickJourneyDay + the budget use.

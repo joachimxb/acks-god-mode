@@ -956,6 +956,94 @@ const CONDITION_CLASSIFICATION = Object.freeze({
   ])
 });
 
+// =============================================================================
+// CONDITION_EFFECTS — the unified condition->mechanical-effect registry (Condition Effects CE-1,
+// Condition_Effects_Plan.md; doctrine Architecture.md §17). Absorbs CONDITION_CLASSIFICATION (the
+// §6 home-map) + PERSISTENT_CONDITIONS (the two CL-3 defs) and becomes the def-source applyCondition /
+// clearCondition / characterConditionInfo consult (it WIDENS the old PERSISTENT_CONDITION_BY_ID-only
+// lookup; it does NOT remove the gate — an unknown id still returns null). Each entry declares
+// MACHINE-READABLE effects (the condition stops being a prose gloss):
+//   effects.throwMod   per-roll-type modifier { attack?, proficiency?, save?, damage? }
+//   effects.flags      capability flags ['cannot-force-march','cannot-heal','cannot-cast', ...]
+//   effects.cumulative magnitude x the modifier (Fatigued's -N); acMod/moveMod RESERVED (OQ5, not v1)
+//   derive(character)  DERIVED conditions only: { present, magnitude } read LIVE from the owning field,
+//                      so conditionModifiers is always fresh + side-effect-free (forecast-safe) AND
+//                      reconcileConditions materializes from the SAME logic (no drift). Intrinsic
+//                      conditions (hypothermic/enervated) have no derive — their presence IS the record.
+//   source             the source tag applyCondition stamps when reconcile materializes a derived row.
+// v1 authors the full effects+derive for fatigued (CE-3 / SR-3) + the capability flags for hypothermia;
+// the other classified ids are folded in WITH their home (so the registry is the single classification
+// source) and gain their effects/derive as each owner is wired (CE-4/CE-6). Combat-round descriptors
+// (CONDITION_CLASSIFICATION.combatRoundOutOfScope) get effects when Combat #140 lands (OQ4).
+// =============================================================================
+function _lcTitleCase(s){ return String(s || '').replace(/(^|[\s-])([a-z])/g, function(m, a, b){ return a + b.toUpperCase(); }); }
+const CONDITION_EFFECTS = (function(){
+  const reg = {};
+  // the two intrinsic CL-3 conditions — spread the PERSISTENT_CONDITIONS def (label/cite/effect + the
+  // day-consumer's bespoke params) and add the static effect slice.
+  reg.hypothermic = Object.assign({}, PERSISTENT_CONDITION_BY_ID.hypothermic, {
+    kind: 'persistent', home: 'cl3',
+    effects: { throwMod: {}, flags: ['cannot-force-march', 'cannot-heal'], cumulative: false }
+  });
+  reg.enervated = Object.assign({}, PERSISTENT_CONDITION_BY_ID.enervated, {
+    kind: 'persistent', home: 'cl3',
+    effects: { throwMod: {}, flags: [], cumulative: false }   // the daily Death-save / max-hp drain stays the owner's process
+  });
+  // fatigued — the v1 consumer (CE-3 / SR-3). RR p.516: cumulative -1 on attack, proficiency, save,
+  // damage; per ADDITIONAL active day (not per 6-day block — OQ2). magnitude derived from the shipped
+  // personalFatigue streak (onset >= 6; pf 6->-1, 7->-2, ...); a dedicated rest day zeroes pf (RR p.279).
+  reg.fatigued = {
+    id: 'fatigued', label: 'Fatigued', cite: 'RR p.516',
+    effect: 'Cumulative -1 on attack throws, proficiency throws, saving throws, and damage rolls until rested (one dedicated rest day clears it).',
+    kind: 'persistent', home: 'activity-budget', source: 'derived:personalFatigue',
+    effects: { throwMod: { attack: -1, proficiency: -1, save: -1, damage: -1 }, flags: [], cumulative: true },
+    derive: function(ch){
+      const onset = Number(ACKS.JOURNEY_FATIGUE_CYCLE_DAYS) || 6;
+      const pf = Number(ch && ch.personalFatigue) || 0;
+      return { present: pf >= onset, magnitude: Math.max(0, pf - 5) };
+    }
+  };
+  // ── Provisioning hunger/thirst ladder (RR p.276) — CE-6 full-fold. Stored as persistent character
+  //    fields by the journey day-tick (foodDeficitDays / waterDeficitDays; legacy hungerDays/dehydrationDays).
+  //    The per-day CON loss stays the provisioning subsystem's process (like enervation's hp drain — not a
+  //    throwMod). The RAW MECHANICAL effects the registry now surfaces (previously recorded but unenforced):
+  //      hungry   (>=1 day < full rations): -1 attack / proficiency / save (NOT damage).
+  //      underfed (>=2 days):  the -1 persists (still un-fed) + cannot force-march or heal naturally.
+  //      starving (>=7 days):  the -1 persists + cannot force-march or heal (+ the owned 1 CON/day drain).
+  //      dehydrated(>=1 day < water): cannot force-march or heal (+ the owned 1d6 CON/day drain).
+  //    Mutually-exclusive ladder stages keyed on foodDeficitDays (the shipped badge thresholds 1/2/7). ──
+  const _HUNGER_TM = { attack: -1, proficiency: -1, save: -1 };   // RR p.276 — three throws, not damage
+  function _foodDeficit(ch){ const v = ch && (ch.foodDeficitDays != null ? ch.foodDeficitDays : ch.hungerDays); return Number(v) || 0; }
+  function _waterDeficit(ch){ const v = ch && (ch.waterDeficitDays != null ? ch.waterDeficitDays : ch.dehydrationDays); return Number(v) || 0; }
+  reg.hungry = { id:'hungry', label:'Hungry', cite:'RR p.276', kind:'persistent', home:'provisioning', source:'derived:foodDeficitDays',
+    effect:'-1 on attack, proficiency, and saving throws until fed (RR p.276).',
+    effects:{ throwMod: _HUNGER_TM, flags:[], cumulative:false },
+    derive:function(ch){ const d=_foodDeficit(ch); return { present: d>=1 && d<2, magnitude:1 }; } };
+  reg.underfed = { id:'underfed', label:'Underfed', cite:'RR p.276', kind:'persistent', home:'provisioning', source:'derived:foodDeficitDays',
+    effect:'-1 on attack/proficiency/saving throws; cannot force-march or heal naturally (RR p.276).',
+    effects:{ throwMod: _HUNGER_TM, flags:['cannot-force-march','cannot-heal'], cumulative:false },
+    derive:function(ch){ const d=_foodDeficit(ch); return { present: d>=2 && d<7, magnitude:1 }; } };
+  reg.starving = { id:'starving', label:'Starving', cite:'RR p.276', kind:'persistent', home:'provisioning', source:'derived:foodDeficitDays',
+    effect:'-1 on attack/proficiency/saving throws; cannot force-march or heal; loses 1 CON/day (RR p.276).',
+    effects:{ throwMod: _HUNGER_TM, flags:['cannot-force-march','cannot-heal'], cumulative:false },
+    derive:function(ch){ return { present: _foodDeficit(ch)>=7, magnitude:1 }; } };
+  reg.dehydrated = { id:'dehydrated', label:'Dehydrated', cite:'RR p.276', kind:'persistent', home:'provisioning', source:'derived:waterDeficitDays',
+    effect:'Cannot force-march or heal naturally; loses 1d6 CON/day (RR p.276).',
+    effects:{ throwMod:{}, flags:['cannot-force-march','cannot-heal'], cumulative:false },
+    derive:function(ch){ return { present: _waterDeficit(ch)>=1, magnitude:1 }; } };
+  // the remaining classified persistent conditions — folded in WITH their home so the registry is the
+  // single classification source; effects/derive authored as each owner is wired (CE-4/CE-6). No derive
+  // => reconcileConditions does not materialize them yet (today's behaviour for these is unchanged).
+  CONDITION_CLASSIFICATION.persistent.forEach(function(cc){
+    if(reg[cc.id]) return;                                  // hypothermic/enervated/fatigued already authored
+    reg[cc.id] = { id: cc.id, label: _lcTitleCase(cc.id), kind: 'persistent', home: cc.home, effects: { throwMod: {}, flags: [] } };
+  });
+  return Object.freeze(reg);
+})();
+// The broadened def lookup applyCondition / clearCondition / characterConditionInfo consult (CE-1):
+// the registry first (rich effects/derive), the PERSISTENT_CONDITIONS map as fallback. Returns null on
+// an unknown id — the application gate widened from two ids to the whole registry, it was not removed.
+function conditionDefById(id){ return CONDITION_EFFECTS[id] || PERSISTENT_CONDITION_BY_ID[id] || null; }
 // ── module-local seeded PRNG (FNV-1a + mulberry32) — kept self-contained (the subsystems.js
 //    _jHash32/_jMulberry32 are module-private). Used to make the slot-59 consumer's dice
 //    preview-stable: re-opening the day-tick review reproduces the IDENTICAL roll (the survival
@@ -982,7 +1070,7 @@ function applyCondition(campaign, characterId, conditionId, opts){
   opts = opts || {};
   const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
   if(!c) return null;
-  const def = persistentConditionById(conditionId);
+  const def = conditionDefById(conditionId);
   if(!def) return null;
   if(c.lifecycleState === 'deceased' || c.alive === false) return null;
   if(!Array.isArray(c.conditions)) c.conditions = [];                 // init-on-write (no blankCharacter seed)
@@ -998,6 +1086,8 @@ function applyCondition(campaign, characterId, conditionId, opts){
   };
   if(conditionId === 'hypothermic'){ rec.conLost = 0; rec.conBase = Number(c.abilities && c.abilities.CON) || 10; }
   if(conditionId === 'enervated'){ rec.successes = 0; rec.maxHpLost = 0; }
+  rec.source = opts.source || 'intrinsic';                              // CE-1: intrinsic | derived:<field>
+  if(opts.magnitude != null) rec.magnitude = opts.magnitude;            // CE-1: cumulative magnitude (Fatigued's -N)
   c.conditions.push(rec);
   const summary = c.name + ' is ' + def.label.toLowerCase() + ' (' + def.cite + ').';
   try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-applied', summary, { condition: conditionId }); } catch(_e){}
@@ -1033,7 +1123,7 @@ function clearCondition(campaign, characterId, conditionRef, opts){
   if(rec.condition === 'enervated' && opts.restoreMaxHp && rec.maxHpLost > 0 && c.hp){
     c.hp.max = (Number(c.hp.max) || 0) + rec.maxHpLost; rec.maxHpLost = 0;
   }
-  const def = persistentConditionById(rec.condition) || { label: rec.conditionLabel || rec.condition };
+  const def = conditionDefById(rec.condition) || { label: rec.conditionLabel || rec.condition };
   const summary = c.name + ' is no longer ' + (def.label || rec.condition).toLowerCase() +
     (outcome === 'warmed' ? ' (warmed)' : outcome === 'cured' ? ' (restored)' : '') + '.';
   try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', summary, { condition: rec.condition, outcome }); } catch(_e){}
@@ -1216,7 +1306,7 @@ function characterConditionInfo(character){
     enervated: active.some(c => c.condition === 'enervated'),
     effectiveCon: effCon,
     conditions: active.map(c => {
-      const def = persistentConditionById(c.condition) || { label: c.conditionLabel || c.condition, effect:'' };
+      const def = conditionDefById(c.condition) || { label: c.conditionLabel || c.condition, effect:'' };
       const o = { id:c.id, condition:c.condition, label:def.label, effect:def.effect, cite:def.cite };
       if(c.condition === 'hypothermic'){ o.conLost = Number(c.conLost) || 0; o.effectiveCon = effCon;
         o.dangerLine = 'effective CON ' + effCon + ' (death at 0) — warm them to end it'; }
@@ -1261,6 +1351,147 @@ function _emitConditionEvent(campaign, c, kind, payload, narrative){
   return ev;
 }
 
+// =============================================================================
+// reconcileConditions — the canonical setter for DERIVED conditions (Condition Effects CE-1; the
+// §5.10 single-writer-plus-load-reconcile lane, NOT the §3.3 mirror — one writer, here). Idempotent.
+// For each registry condition that declares a derive(): read presence/magnitude LIVE from the owning
+// field and bring conditions[] into line THROUGH the shipped verbs (never a hand-spliced array):
+//   present, no active record    -> applyCondition(..., {source, magnitude})
+//   present, already recorded     -> refresh rec.magnitude (the verbs are idempotent: no re-stack/re-emit)
+//   absent,  derived record alive -> clearCondition(..., {method:'recovered'})
+// Also backfills source:'intrinsic' on legacy hypothermic/enervated records (applied before the field
+// existed). Because applyCondition returns an existing record WITHOUT re-emitting, reconcile is
+// naturally quiet on steady state — condition-applied/cleared fire only on a real transition. Runs at
+// LOAD (registerLoadMigration, order 200 — the §5.10 backstop + .acks.json legibility). The shipped
+// reconciler precedent (reconcileAllStashes et al.) is load-only; runtime freshness of the MODIFIER
+// comes from conditionModifiers being derive-on-read, so no commit/tick hook is needed for correctness.
+// With no character arg, reconciles every character. Returns a small summary for tests.
+// =============================================================================
+function reconcileConditions(campaign, character){
+  const list = character ? [character]
+    : (campaign && Array.isArray(campaign.characters) ? campaign.characters : []);
+  let applied = 0, cleared = 0, refreshed = 0, backfilled = 0;
+  list.forEach(function(ch){
+    if(!ch || ch.lifecycleState === 'deceased' || ch.alive === false) return;
+    // backfill source on any pre-existing record (legacy intrinsic conditions, applied before the field)
+    characterActiveConditions(ch).forEach(function(rec){ if(rec && rec.source == null){ rec.source = 'intrinsic'; backfilled++; } });
+    Object.keys(CONDITION_EFFECTS).forEach(function(id){
+      const def = CONDITION_EFFECTS[id];
+      if(!def || typeof def.derive !== 'function') return;            // intrinsic / not-yet-wired: skip
+      const d = def.derive(ch) || {};
+      const rec = characterActiveConditions(ch).find(function(x){ return x.condition === id; });
+      if(d.present){
+        if(!rec){ const r = applyCondition(campaign, ch, id, { source: def.source || ('derived:' + id), magnitude: d.magnitude }); if(r) applied++; }
+        else {
+          if((rec.magnitude || 0) !== (d.magnitude || 0)){ rec.magnitude = d.magnitude; refreshed++; }
+          if(rec.source == null) rec.source = def.source || ('derived:' + id);
+        }
+      } else if(rec && typeof rec.source === 'string' && rec.source.indexOf('derived') === 0){
+        clearCondition(campaign, ch, rec, { method: 'recovered' }); cleared++;
+      }
+    });
+  });
+  return { applied: applied, cleared: cleared, refreshed: refreshed, backfilled: backfilled };
+}
+
+// =============================================================================
+// conditionModifiers / conditionFlags — the ONE aggregation accessor every roll consults (Condition
+// Effects CE-2). DERIVE-ON-READ: presence/magnitude come from the registry's derive() (derived
+// conditions) or the live active record (intrinsic), so the result is ALWAYS fresh and has NO side
+// effects (safe from a forecast). N, not NxM — a resolver makes one call, not one per condition.
+//   conditionModifiers(campaign, character, { rollType }) -> { total, itemized:[{condition,value,cite,label}] }
+//   rollType: 'attack' | 'proficiency' | 'proficiency-throw' | 'save' | 'damage'  ('proficiency-throw' == 'proficiency')
+// campaign is accepted for signature stability / future house-rule gating (today the source field
+// already reflects simplified-fatigue — when on, personalFatigue never climbs, so derive returns false).
+// =============================================================================
+function _conditionPresence(character, def){
+  if(typeof def.derive === 'function'){ const d = def.derive(character) || {}; return { present: !!d.present, magnitude: (d.magnitude != null ? d.magnitude : 1) }; }
+  const rec = characterActiveConditions(character).find(function(x){ return x.condition === def.id; });
+  return { present: !!rec, magnitude: (rec && rec.magnitude != null ? rec.magnitude : 1) };
+}
+function conditionModifiers(campaign, character, rollContext){
+  rollContext = rollContext || {};
+  let rollType = rollContext.rollType || 'proficiency';
+  if(rollType === 'proficiency-throw') rollType = 'proficiency';
+  const itemized = [];
+  if(character){
+    Object.keys(CONDITION_EFFECTS).forEach(function(id){
+      const def = CONDITION_EFFECTS[id];
+      const tm = def && def.effects && def.effects.throwMod;
+      if(!tm || typeof tm[rollType] !== 'number' || tm[rollType] === 0) return;
+      const p = _conditionPresence(character, def);
+      if(!p.present) return;
+      const mult = (def.effects.cumulative ? (Number(p.magnitude) || 0) : 1);
+      const value = tm[rollType] * mult;
+      if(value !== 0) itemized.push({ condition: id, value: value, cite: def.cite || null, label: def.label || id });
+    });
+  }
+  return { total: itemized.reduce(function(s, m){ return s + (Number(m.value) || 0); }, 0), itemized: itemized };
+}
+function conditionFlags(campaign, character){
+  const out = {};
+  if(character){
+    Object.keys(CONDITION_EFFECTS).forEach(function(id){
+      const def = CONDITION_EFFECTS[id];
+      const flags = def && def.effects && def.effects.flags;
+      if(!Array.isArray(flags) || !flags.length) return;
+      if(!_conditionPresence(character, def).present) return;
+      flags.forEach(function(f){ out[f] = true; });
+    });
+  }
+  return new Set(Object.keys(out));
+}
+
+// ── Condition Effects CE-6 — the character-sheet condition strip's data. ONE derive-on-read accessor
+//    returning EVERY present condition (materialized intrinsic rows + derived-present ones like fatigued
+//    that the LOAD-only reconcile has not yet written) with its resolved effect + a severity hint, so the
+//    UI shows the complete, live picture without a turn-time reconcile. Pure read (no events, no mutate). ──
+const _CONDITION_DANGER = new Set(['hypothermic','enervated','starving','dehydrated','incapacitated','mortally-wounded','grievously-wounded','critically-wounded']);
+const _RT_LABEL = { attack:'attack throws', proficiency:'proficiency throws', save:'saving throws', damage:'damage' };
+const _FLAG_PHRASE = { 'cannot-force-march':'cannot force-march', 'cannot-heal':'cannot heal', 'cannot-cast':'cannot cast' };
+function _conditionSeverity(id){ return _CONDITION_DANGER.has(id) ? 'danger' : 'warning'; }
+function _joinList(a){ return a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' & ' + a[a.length - 1]; }
+function _conditionEffectSummary(throwMod, flags, fallback){
+  const parts = []; const byVal = {};
+  Object.keys(throwMod).forEach(function(rt){ const v = throwMod[rt]; (byVal[v] = byVal[v] || []).push(_RT_LABEL[rt] || rt); });
+  Object.keys(byVal).forEach(function(v){ const n = Number(v); parts.push((n > 0 ? '+' + n : '' + n) + ' to ' + _joinList(byVal[v])); });
+  if(Array.isArray(flags) && flags.length) parts.push(flags.map(function(f){ return _FLAG_PHRASE[f] || f; }).join(', '));
+  return parts.length ? parts.join('; ') : (fallback || '');
+}
+function characterConditionStrip(campaign, character){
+  if(!character) return [];
+  const rows = []; const seen = {};
+  function enrich(o){
+    const def = CONDITION_EFFECTS[o.condition] || conditionDefById(o.condition) || {};
+    const eff = def.effects || { throwMod:{}, flags:[] };
+    const p = _conditionPresence(character, def);
+    const mult = eff.cumulative ? (Number(p.magnitude) || 0) : 1;
+    const throwMod = {};
+    ['attack','proficiency','save','damage'].forEach(function(rt){ const v = (Number(eff.throwMod && eff.throwMod[rt]) || 0) * mult; if(v) throwMod[rt] = v; });
+    const flags = Array.isArray(eff.flags) ? eff.flags.slice() : [];
+    return Object.assign({}, o, { severity: _conditionSeverity(o.condition), magnitude: p.magnitude, throwMod: throwMod,
+      flags: flags, clearable: def.home === 'cl3', summary: _conditionEffectSummary(throwMod, flags, o.effect || def.effect) });
+  }
+  // 1) materialized rows (the shipped intrinsic conditions + any already-reconciled derived ones).
+  characterConditionInfo(character).conditions.forEach(function(o){ seen[o.condition] = true; rows.push(enrich(o)); });
+  // 2) derived-present conditions not yet materialized (e.g. fatigued mid-session before the load reconcile).
+  Object.keys(CONDITION_EFFECTS).forEach(function(id){
+    if(seen[id]) return;
+    const def = CONDITION_EFFECTS[id];
+    if(typeof def.derive !== 'function') return;
+    const d = def.derive(character) || {};
+    if(!d.present) return;
+    rows.push(enrich({ id: id, condition: id, label: def.label, effect: def.effect, cite: def.cite }));
+  });
+  return rows;
+}
+
+// ── self-register the conditions LOAD reconcile (CE-1; the §5.10 backstop + .acks.json legibility).
+//    order 210 — after every field-populating pass (incl. domain-variants @200); the demo has no fatigued/diseased/wounded
+//    character so it materializes nothing (migrate(demo) === demo holds). Idempotent. ──
+if(typeof ACKS.registerLoadMigration === 'function'){
+  ACKS.registerLoadMigration('reconcile-conditions', function(campaign){ reconcileConditions(campaign); }, { order: 210 });
+}
 // ── self-register the slot-59 'conditions' day-consumer (disease 57 / convalescence 58 / conditions 59) ──
 if(typeof ACKS.registerDayConsumer === 'function'){
   ACKS.registerDayConsumer('conditions', {
@@ -1273,13 +1504,14 @@ if(typeof ACKS.registerDayConsumer === 'function'){
 
 Object.assign(ACKS, {
   // data
-  PERSISTENT_CONDITIONS, CONDITION_CLASSIFICATION, CONDITION_CITE,
+  PERSISTENT_CONDITIONS, CONDITION_CLASSIFICATION, CONDITION_EFFECTS, CONDITION_CITE,
   // catalog lookup
-  persistentConditionById,
+  persistentConditionById, conditionDefById,
   // verbs
   applyCondition, clearCondition,
   // reads
   characterActiveConditions, anyConditioned, characterEffectiveCon, characterConditionInfo,
+  reconcileConditions, conditionModifiers, conditionFlags, characterConditionStrip,
   // the day-tick consumer (also self-registered above) + a direct advance
   proposeConditionDay, commitConditionRecord, advanceConditions
 });

@@ -49,7 +49,7 @@
 <script src="acks-engine-monsters.js?v=5d1e299a"></script>
 <script src="acks-engine-encounter-tables.js?v=e4e15625"></script>
 <script src="acks-engine-troops.js?v=e2a66d44"></script>
-<script src="acks-engine.js?v=6e81b411"></script>
+<script src="acks-engine.js?v=c1b4df9e"></script>
 <script src="acks-engine-lairs.js?v=eeebe789"></script>
 <script src="acks-engine-stash.js?v=4e68b45c"></script>
 <script src="acks-engine-military.js?v=3fc9b533"></script>
@@ -74,15 +74,15 @@
 <script src="acks-engine-hex-scales.js?v=903eb7d4"></script>
 <script src="acks-engine-hijinks.js?v=72a25eee"></script>
 <script src="acks-engine-knowledge.js?v=84d65b89"></script>
-<script src="acks-engine-lifecycle.js?v=a5fde083"></script>
+<script src="acks-engine-lifecycle.js?v=7ea1089e"></script>
 <script src="acks-engine-magic-item-availability.js?v=dbf743cb"></script>
 <script src="acks-engine-magic-items.js?v=1bed3b18"></script>
 <script src="acks-engine-magic-research.js?v=8af432d4"></script>
-<script src="acks-engine-mortal-wounds.js?v=ccca9521"></script>
+<script src="acks-engine-mortal-wounds.js?v=69827ed3"></script>
 <script src="acks-engine-mounts.js?v=98abfc55"></script>
 <script src="acks-engine-patrols.js?v=bbf3d07a"></script>
 <script src="acks-engine-politics.js?v=c0329109"></script>
-<script src="acks-engine-proficiencies.js?v=cd48eeeb"></script>
+<script src="acks-engine-proficiencies.js?v=e3d3d820"></script>
 <script src="acks-engine-religion.js?v=3146b13e"></script>
 <script src="acks-engine-sages.js?v=363943c5"></script>
 <script src="acks-engine-sanctums.js?v=b692451c"></script>
@@ -13366,18 +13366,18 @@ document.addEventListener('alpine:init', () => {
               <h4 class="font-semibold">Conditions <span class="text-sm font-normal opacity-60">(persistent — RR pp.507–516)</span></h4>
               <button @click="openApplyConditionModal(characterEditing)" class="btn btn-info text-sm" title="Apply a persistent condition (RR pp.507–516)">🥶 Apply condition</button>
             </div>
-            <template x-if="characterConditionRows(characterEditing).length === 0">
-              <p class="text-sm italic opacity-60">No persistent conditions.</p>
+            <template x-if="characterConditionStripRows(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60">No active conditions.</p>
             </template>
-            <ul class="space-y-1 text-sm" x-show="characterConditionRows(characterEditing).length">
-              <template x-for="cond in characterConditionRows(characterEditing)" :key="cond.id">
-                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
-                  <span class="text-base leading-tight" x-text="cond.condition === 'hypothermic' ? '🥶' : '🪫'"></span>
+            <ul class="space-y-1 text-sm" x-show="characterConditionStripRows(characterEditing).length">
+              <template x-for="cond in characterConditionStripRows(characterEditing)" :key="cond.condition">
+                <li class="flex items-start gap-2 py-1 pl-2 border-l-2" :class="conditionSeverityClass(cond.severity)">
                   <span class="flex-1">
                     <span class="font-semibold" x-text="cond.label"></span>
-                    <span class="block text-xs accent-red" x-text="cond.dangerLine"></span>
-                    <span class="block text-xs opacity-60" x-text="cond.effect"></span>
-                    <div class="flex gap-1 mt-0.5">
+                    <span class="text-xs opacity-50" x-show="cond.cite" x-text="'· ' + cond.cite"></span>
+                    <span class="block text-xs" x-show="cond.summary" x-text="cond.summary"></span>
+                    <span class="block text-xs" x-show="cond.dangerLine" x-text="cond.dangerLine"></span>
+                    <div class="flex gap-1 mt-0.5" x-show="cond.clearable">
                       <button @click="clearConditionRow(characterEditing, cond)" class="btn text-xs" :title="cond.condition === 'hypothermic' ? 'Warm them for an hour — ends hypothermia' : 'End the enervation (the drained max hp returns only by Restore Life &amp; Limb)'" x-text="cond.condition === 'hypothermic' ? '🔥 warm' : '✚ end'"></button>
                     </div>
                   </span>
@@ -20248,7 +20248,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- BEGIN generated:scripts:tail -->
-<script src="domain-app.js?v=6a65c315"></script>
+<script src="domain-app.js?v=a5263b1b"></script>
 <script src="domain-app-banking.js?v=7ae76d7f"></script>
 <script src="domain-app-burst5.js?v=5e04442d"></script>
 <script src="domain-app-chronicle.js?v=b84c4eab"></script>
